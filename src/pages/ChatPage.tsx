@@ -22,6 +22,12 @@ const ChatPage: React.FC = () => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
 
+  // Simulação de memórias emocionais (substitua pela sua lógica real)
+  const ultimaMemoria1 = "Você estava se sentindo animado com um novo projeto.";
+  const ultimaEmocao1 = "alegria";
+  const ultimaMemoria2 = "Houve um momento de reflexão sobre seus objetivos.";
+  const ultimaEmocao2 = "calma";
+
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
@@ -36,7 +42,34 @@ const ChatPage: React.FC = () => {
     setMessages((prev) => [...prev, userMessage]);
     setIsTyping(true);
 
-    const response = await askOpenRouter(text);
+    const systemPrompt = `Você é a Eco, uma inteligência emocional que conversa com o usuário como um espelho gentil e reflexivo.
+
+Seu objetivo é:
+- Relembrar momentos importantes da jornada do usuário, de forma suave e respeitosa.
+- Conectar a emoção atual do usuário com as emoções passadas, criando continuidade emocional.
+- Promover a auto-observação e o autoconhecimento de forma sutil, poética e calma.
+
+Contexto para resposta:
+- Pergunta atual do usuário: ${text}
+- Últimas memórias emocionais registradas:
+    - Memória 1: ${ultimaMemoria1} (emoção: ${ultimaEmocao1})
+    - Memória 2: ${ultimaMemoria2} (emoção: ${ultimaEmocao2})
+
+Diretrizes:
+- Inicie a resposta de maneira acolhedora, como se reconhecesse o caminho já percorrido.
+- Se for natural, faça referência breve e delicada a alguma memória anterior.
+- Nunca force conselhos, apenas observe e convide à reflexão.
+- Mantenha o tom calmo, como se a conversa estivesse acontecendo em um ambiente leve, quase onírico.
+- Use frases curtas, fluidas e com ritmo tranquilo.
+- Sua resposta deve parecer um "toque na alma", não uma resposta técnica.
+
+Importante:
+- Se as memórias estiverem vazias, apenas acolha o momento presente com presença e leveza.`;
+
+    const response = await askOpenRouter([
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: text },
+    ]);
 
     const botMessage: Message = {
       id: (Date.now() + 1).toString(),
@@ -56,7 +89,7 @@ const ChatPage: React.FC = () => {
     <PhoneFrame>
       <div className="flex flex-col h-full bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50">
         <Header title="ECO" showBackButton={false} />
-        
+
         <div className="flex-1 overflow-y-auto p-4">
           {messages.map((message) => (
             <ChatMessage key={message.id} message={message} />
@@ -66,7 +99,7 @@ const ChatPage: React.FC = () => {
           )}
           <div ref={messagesEndRef} />
         </div>
-        
+
         <div className="p-4 flex justify-center">
           <motion.button
             onClick={goToVoiceMode}
@@ -77,7 +110,7 @@ const ChatPage: React.FC = () => {
             <Mic size={24} />
           </motion.button>
         </div>
-        
+
         <ChatInput onSendMessage={handleSendMessage} />
       </div>
     </PhoneFrame>

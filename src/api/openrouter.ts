@@ -3,13 +3,13 @@ import axios from 'axios';
 const OPENROUTER_API_KEY = import.meta.env.VITE_OPENROUTER_API_KEY;
 console.log("Chave de API usada na requisição:", OPENROUTER_API_KEY);
 
-export const askOpenRouter = async (prompt: string) => {
+export const askOpenRouter = async (messages: { role: string; content: string }[]) => {
   try {
     const response = await axios.post(
       'https://openrouter.ai/api/v1/chat/completions',
       {
         model: 'openai/gpt-3.5-turbo',
-        messages: [{ role: 'user', content: prompt }],
+        messages: messages,
       },
       {
         headers: {
