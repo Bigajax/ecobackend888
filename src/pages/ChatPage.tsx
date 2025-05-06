@@ -6,6 +6,7 @@ import PhoneFrame from '../components/PhoneFrame';
 import Header from '../components/Header';
 import ChatMessage, { Message } from '../components/ChatMessage';
 import ChatInput from '../components/ChatInput';
+import { askOpenRouter } from '../api/openrouter';
 
 const initialMessages: Message[] = [
   {
@@ -15,31 +16,9 @@ const initialMessages: Message[] = [
   },
 ];
 
-const followUpResponses = [
-  {
-    id: 'response1',
-    text: 'Uma reflexão profunda. Que respostas você encontrou até agora?',
-    sender: 'eco' as const,
-  },
-  {
-    id: 'response2',
-    text: 'Entendo. E como isso tem afetado seu dia a dia?',
-    sender: 'eco' as const,
-  },
-  {
-    id: 'response3',
-    text: 'Interessante. Você consegue identificar quando começou a se sentir assim?',
-    sender: 'eco' as const,
-  },
-  {
-    id: 'response4',
-    text: 'Se pudesse mudar algo nesse aspecto da sua vida, o que seria?',
-    sender: 'eco' as const,
-  },
-];
-
 const ChatPage: React.FC = () => {
   const [messages, setMessages] = useState<Message[]>(initialMessages);
+  const [isTyping, setIsTyping] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
 
@@ -47,27 +26,26 @@ const ChatPage: React.FC = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  const handleSendMessage = (text: string) => {
-    const newUserMessage: Message = {
+  const handleSendMessage = async (text: string) => {
+    const userMessage: Message = {
       id: Date.now().toString(),
       text,
       sender: 'user',
     };
-    
-    setMessages((prev) => [...prev, newUserMessage]);
-    
-    setTimeout(() => {
-      const randomResponse = followUpResponses[Math.floor(Math.random() * followUpResponses.length)];
-      
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: Date.now().toString(),
-          text: randomResponse.text,
-          sender: 'eco',
-        },
-      ]);
-    }, 1000);
+
+    setMessages((prev) => [...prev, userMessage]);
+    setIsTyping(true);
+
+    const response = await askOpenRouter(text);
+
+    const botMessage: Message = {
+      id: (Date.now() + 1).toString(),
+      text: response,
+      sender: 'eco',
+    };
+
+    setMessages((prev) => [...prev, botMessage]);
+    setIsTyping(false);
   };
 
   const goToVoiceMode = () => {
@@ -83,6 +61,9 @@ const ChatPage: React.FC = () => {
           {messages.map((message) => (
             <ChatMessage key={message.id} message={message} />
           ))}
+          {isTyping && (
+            <ChatMessage message={{ id: 'typing', text: 'Digitando...', sender: 'eco' }} />
+          )}
           <div ref={messagesEndRef} />
         </div>
         
