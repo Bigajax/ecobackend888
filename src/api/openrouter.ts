@@ -1,6 +1,5 @@
 import axios from 'axios';
 
-// Lê a chave de API do arquivo .env
 const OPENROUTER_API_KEY = import.meta.env.VITE_OPENROUTER_API_KEY;
 console.log("Chave de API usada na requisição:", OPENROUTER_API_KEY);
 
@@ -14,7 +13,6 @@ export const askOpenRouter = async (prompt: string) => {
       },
       {
         headers: {
-          // Usa a chave de API lida do .env no header de autorização
           Authorization: `Bearer ${OPENROUTER_API_KEY}`,
           'Content-Type': 'application/json',
         },
@@ -22,8 +20,12 @@ export const askOpenRouter = async (prompt: string) => {
     );
 
     return response.data.choices[0].message.content;
-  } catch (error: any) { // Adicionei o tipo 'any' para o erro
+  } catch (error: any) {
     console.error('Erro na OpenRouter:', error);
+    if (error.response) {
+      console.error('Dados da resposta de erro:', error.response.data);
+      console.error('Status da resposta de erro:', error.response.status);
+    }
     return 'Erro ao consultar a IA.';
   }
 };
