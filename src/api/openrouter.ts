@@ -1,6 +1,7 @@
 import axios from 'axios';
 
 const OPENROUTER_API_KEY = import.meta.env.VITE_OPENROUTER_API_KEY;
+console.log("Chave de API usada na requisição:", OPENROUTER_API_KEY); // Adicione esta linha
 
 export const askOpenRouter = async (prompt: string) => {
   try {
