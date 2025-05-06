@@ -1,7 +1,8 @@
 import axios from 'axios';
 
+// Lê a chave de API do arquivo .env
 const OPENROUTER_API_KEY = import.meta.env.VITE_OPENROUTER_API_KEY;
-console.log("Chave de API usada na requisição:", OPENROUTER_API_KEY); // Adicione esta linha
+console.log("Chave de API usada na requisição:", OPENROUTER_API_KEY);
 
 export const askOpenRouter = async (prompt: string) => {
   try {
@@ -13,6 +14,7 @@ export const askOpenRouter = async (prompt: string) => {
       },
       {
         headers: {
+          // Usa a chave de API lida do .env no header de autorização
           Authorization: `Bearer ${OPENROUTER_API_KEY}`,
           'Content-Type': 'application/json',
         },
