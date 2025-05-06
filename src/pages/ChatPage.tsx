@@ -66,10 +66,12 @@ Diretrizes:
 Importante:
 - Se as memórias estiverem vazias, apenas acolha o momento presente com presença e leveza.`;
 
-    const response = await askOpenRouter([
+    const messagesToSend = [
       { role: 'system', content: systemPrompt },
       { role: 'user', content: text },
-    ]);
+    ];
+    console.log("Mensagens enviadas para askOpenRouter:", messagesToSend);
+    const response = await askOpenRouter(messagesToSend);
 
     const botMessage: Message = {
       id: (Date.now() + 1).toString(),
