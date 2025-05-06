@@ -22,7 +22,7 @@ export const askOpenRouter = async (prompt: string) => {
     );
 
     return response.data.choices[0].message.content;
-  } catch (error) {
+  } catch (error: any) { // Adicionei o tipo 'any' para o erro
     console.error('Erro na OpenRouter:', error);
     return 'Erro ao consultar a IA.';
   }
