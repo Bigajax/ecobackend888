@@ -67,7 +67,7 @@ const VoiceRecorder: React.FC = () => {
         </motion.button>
       </div>
 
-      <p className="mt-8 text-white">
+      <p className="mt-8 text-black"> {/* Cor do texto alterada para preto */}
         {isListening
           ? 'Ouvindo... Toque para parar'
           : 'Toque para fazer uma pergunta'}
