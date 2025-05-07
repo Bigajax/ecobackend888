@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { CSSTransition, TransitionGroup } from 'react-transition-group';
 import Slide from './Slide';
-import { slides } from '../data/slides';
+import { slides } from "../../date/slides";
 
 const Sequence: React.FC = () => {
   const [currentSlideIndex, setCurrentSlideIndex] = useState(0);
