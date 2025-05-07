@@ -77,12 +77,13 @@ const LoginPage: React.FC = () => {
             </motion.p>
           )}
 
-          <div className="pt-4 space-y-2"> {/* Use space-y para espaçamento entre os botões */}
+          <div className="pt-4 flex flex-col items-center space-y-2">
             <Button type="submit" fullWidth>
               {isLogin ? 'Entrar' : 'Criar perfil'}
             </Button>
+            <span className="text-gray-500 text-sm">ou</span>
             <Button type="button" fullWidth onClick={handleIniciarTour}>
-              Ou Iniciar Tour
+              Iniciar Tour
             </Button>
           </div>
         </form>
