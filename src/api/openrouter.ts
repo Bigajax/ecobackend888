@@ -1,10 +1,10 @@
 import axios from 'axios';
 
 export const askOpenRouter = async (messages: { role: string; content: string }[]) => {
-  const apiKey = process.env.OPENROUTER_API_KEY; // Acesse a variável de ambiente
+  const apiKey = import.meta.env.VITE_OPENROUTER_API_KEY; // Acesse a variável de ambiente do Vite
 
   if (!apiKey) {
-    console.error('Erro: A chave de API do OpenRouter não foi encontrada no arquivo .env');
+    console.error('Erro: A chave de API do OpenRouter não foi encontrada nas variáveis de ambiente.');
     throw new Error('Chave de API do OpenRouter não configurada.');
   }
 
