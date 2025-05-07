@@ -9,7 +9,9 @@ const TourInicial = ({ onClose }) => {
   const [currentStep, setCurrentStep] = useState(0);
 
   const handleNext = () => {
+    console.log('handleNext chamado'); // Adicione este log
     setCurrentStep((prevStep) => prevStep + 1);
+    console.log('currentStep agora é:', currentStep + 1); // Adicione este log
   };
 
   const handlePrev = () => {
@@ -56,9 +58,11 @@ const TourInicial = ({ onClose }) => {
     }
   };
 
+  console.log('Renderizando TourInicial com currentStep:', currentStep); // Adicione este log antes do return
+
   return (
     <div className="fixed top-0 left-0 w-full h-full bg-black/50 z-50 flex items-center justify-center">
-      <div className="bg-white rounded-md shadow-lg p-8 max-w-md w-full relative"> {/* Adicionei 'relative' aqui para posicionar os botões corretamente */}
+      <div className="bg-white rounded-md shadow-lg p-8 max-w-md w-full relative">
         {renderStep()}
         {currentStep > 0 && currentStep < 2 && (
           <button onClick={handlePrev} className="absolute top-4 left-4 text-gray-600 hover:text-gray-800">
