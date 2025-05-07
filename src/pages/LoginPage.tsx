@@ -14,10 +14,15 @@ const LoginPage: React.FC = () => {
   const { login, register } = useAuth();
   const navigate = useNavigate();
 
+  const handleIniciarTour = () => {
+    console.log('Iniciar Tour clicado');
+    // Próximo passo: controlar o estado do tour
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-    
+
     try {
       if (isLogin) {
         await login(email, password);
@@ -33,7 +38,7 @@ const LoginPage: React.FC = () => {
   return (
     <PhoneFrame>
       <div className="flex flex-col h-full p-8 justify-center bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50">
-        <motion.div 
+        <motion.div
           className="text-center mb-12"
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -52,7 +57,7 @@ const LoginPage: React.FC = () => {
             required
             autoComplete="email"
           />
-          
+
           <Input
             type="password"
             placeholder="Senha"
@@ -61,9 +66,9 @@ const LoginPage: React.FC = () => {
             required
             autoComplete="current-password"
           />
-          
+
           {error && (
-            <motion.p 
+            <motion.p
               className="text-red-500 text-sm text-center"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -71,21 +76,24 @@ const LoginPage: React.FC = () => {
               {error}
             </motion.p>
           )}
-          
-          <div className="pt-4">
+
+          <div className="pt-4 space-y-2"> {/* Use space-y para espaçamento entre os botões */}
             <Button type="submit" fullWidth>
               {isLogin ? 'Entrar' : 'Criar perfil'}
             </Button>
+            <Button type="button" fullWidth onClick={handleIniciarTour}>
+              Ou Iniciar Tour
+            </Button>
           </div>
         </form>
-        
-        <motion.div 
+
+        <motion.div
           className="mt-8 text-center"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ delay: 0.3 }}
         >
-          <button 
+          <button
             className="text-gray-600 hover:text-gray-800 text-sm underline"
             onClick={() => setIsLogin(!isLogin)}
           >
