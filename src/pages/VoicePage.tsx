@@ -1,7 +1,7 @@
 import React from 'react';
 import PhoneFrame from '../components/PhoneFrame';
 import Header from '../components/Header';
-import VoiceRecorder from '../components/VoiceRecorder';
+import VoiceRecorder from '../components/VoiceRecorder'; // Importe o componente VoiceRecorder
 
 const VoicePage: React.FC = () => {
   return (

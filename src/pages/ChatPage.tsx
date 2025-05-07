@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Mic, BookOpen } from 'lucide-react'; // Importe o ícone BookOpen
+import { Mic } from 'lucide-react';
 import PhoneFrame from '../components/PhoneFrame';
 import Header from '../components/Header';
 import ChatMessage, { Message } from '../components/ChatMessage';
 import ChatInput from '../components/ChatInput';
 import { askOpenRouter } from '../api/openrouter';
+import MemoryButton from '../components/MemoryButton'; // Importe o componente MemoryButton
 
 const initialMessages: Message[] = [
   {
@@ -106,17 +107,10 @@ Importante:
           <div ref={messagesEndRef} />
         </div>
 
-        <div className="p-4 flex justify-center space-x-4"> {/* Adicione space-x-4 para separar os botões */}
+        <div className="p-4 flex justify-center space-x-4">
+          <MemoryButton onClick={goToMemoryPage} />
           <motion.button
-            onClick={goToMemoryPage} // Botão para ir para a página de memória
-            className="p-3 bg-white/20 backdrop-blur-md rounded-full text-white"
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-          >
-            <BookOpen size={24} color="black" />
-          </motion.button>
-          <motion.button
-            onClick={goToVoiceMode} // Botão para ir para o modo de voz
+            onClick={goToVoiceMode}
             className="p-3 bg-white/20 backdrop-blur-md rounded-full text-white"
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
