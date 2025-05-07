@@ -18,7 +18,7 @@ export const askOpenRouter = async (messages: { role: string; content: string }[
         headers: {
           'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
           'Content-Type': 'application/json',
-          'HTTP-Referer': 'eco666.vercel.app' // Adicione esta linha com o seu domínio
+          'HTTP-Referer': 'https://eco666.vercel.app' // Adicione esta linha com o seu domínio
         },
       }
     );
