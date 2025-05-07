@@ -1,7 +1,14 @@
 import axios from 'axios';
+import 'dotenv/config'; // Importe e configure dotenv
 
 export const askOpenRouter = async (messages: { role: string; content: string }[]) => {
-  const apiKey = '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'; // Substitua SUA_CHAVE_DE_API pela sua chave real
+  const apiKey = process.env.OPENROUTER_API_KEY; // Acesse a variável de ambiente
+
+  if (!apiKey) {
+    console.error('Erro: A chave de API do OpenRouter não foi encontrada no arquivo .env');
+    throw new Error('Chave de API do OpenRouter não configurada.');
+  }
+
   try {
     const response = await axios.post(
       'https://openrouter.ai/api/v1/chat/completions',
