@@ -1,13 +1,19 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
-import { Mic } from 'lucide-react';
+import { Mic, BookOpen } from 'lucide-react'; // Importe o ícone do livro
+import { useNavigate } from 'react-router-dom';
 
 const VoiceRecorder: React.FC = () => {
   const [isListening, setIsListening] = useState(false);
+  const navigate = useNavigate(); // Adicione useNavigate
 
   const toggleListening = () => {
     setIsListening(!isListening);
   };
+
+    const goToMemoryPage = () => {
+        navigate('/memory');
+    };
 
   return (
     <div className="flex flex-col items-center justify-center h-full relative">
@@ -18,7 +24,7 @@ const VoiceRecorder: React.FC = () => {
           background: 'radial-gradient(circle at 50% 35%, rgba(255, 255, 255, 0.85) 0%, rgba(255, 255, 255, 0.65) 20%, rgba(255, 255, 255, 0.35) 50%, rgba(255, 255, 255, 0) 100%)',
           backdropFilter: 'blur(25px)',
           WebkitBackdropFilter: 'blur(25px)',
-          boxShadow: '0 6px 20px rgba(0, 0, 0, 0.15)', // Sombra mais suave
+          boxShadow: '0 6px 20px rgba(0, 0, 0, 0.15)',
           border: '1px solid rgba(255, 255, 255, 0.3)',
         }}
         animate={{
@@ -53,14 +59,22 @@ const VoiceRecorder: React.FC = () => {
       </motion.div>
 
       {/* Mode toggle button */}
-      <div className="absolute bottom-20 left-0 right-0 flex justify-center">
+      <div className="absolute bottom-20 left-0 right-0 flex justify-center space-x-4"> {/* Adicione space-x-4 */}
+        <motion.button
+          onClick={goToMemoryPage} // Botão de registro de memória
+          className="p-4 rounded-full bg-white/90 backdrop-blur-md shadow-md border border-gray-300"
+          whileHover={{ scale: 1.1 }}
+          whileTap={{ scale: 0.9 }}
+        >
+          <BookOpen size={30} className="text-blue-600" />
+        </motion.button>
         <motion.button
           onClick={toggleListening}
           className="p-4 rounded-full bg-white/90 backdrop-blur-md shadow-md border border-gray-300"
           whileHover={{ scale: 1.1 }}
           whileTap={{ scale: 0.9 }}
         >
-          <Mic size={30} className="text-blue-600" />
+          <Mic size={30} className="text-black" /> {/* Altere a cor para preto */}
         </motion.button>
       </div>
 
