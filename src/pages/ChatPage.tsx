@@ -109,7 +109,7 @@ Importante:
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
           >
-            <Mic size={24} color="#007BFF" /> {/* Cor azul como exemplo */}
+            <Mic size={24} color="black" /> {/* Cor alterada para preto */}
           </motion.button>
         </div>
 
