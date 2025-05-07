@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Mic } from 'lucide-react';
+import { Mic, BookOpen } from 'lucide-react'; // Importe o ícone BookOpen
 import PhoneFrame from '../components/PhoneFrame';
 import Header from '../components/Header';
 import ChatMessage, { Message } from '../components/ChatMessage';
@@ -87,6 +87,10 @@ Importante:
     navigate('/voice');
   };
 
+  const goToMemoryPage = () => { // Função para ir para a página de memória
+    navigate('/memory'); // Supondo que sua rota para a página de memória seja '/memory'
+  };
+
   return (
     <PhoneFrame>
       <div className="flex flex-col h-full bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50">
@@ -105,11 +109,12 @@ Importante:
         <div className="p-4 flex justify-center">
           <motion.button
             onClick={goToVoiceMode}
-            className="p-3 bg-white/20 backdrop-blur-md rounded-full text-white"
+            className="p-3 bg-white/20 backdrop-blur-md rounded-full text-white flex items-center gap-2" // Adicione flex e gap
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
           >
-            <Mic size={24} color="black" /> {/* Cor alterada para preto */}
+            <BookOpen size={24} color="black" onClick={goToMemoryPage}/>
+            <Mic size={24} color="black"  />
           </motion.button>
         </div>
 
