@@ -89,12 +89,12 @@ Importante:
       } else if (error.response && error.response.status === 429) {
         errorMessage = "Limite de requisições excedido. Por favor, tente novamente mais tarde.";
       }
-      const errorMessage: Message = {
+      const errorMessageObj: Message = { // Correção: Renomeei a variável para evitar duplicidade
         id: (Date.now() + 2).toString(),
         text: errorMessage,
         sender: 'eco', // Ou 'system', dependendo de como você quer exibir mensagens de erro
       };
-      setMessages(prev => [...prev, errorMessage]);
+      setMessages(prev => [...prev, errorMessageObj]);
 
     } finally {
       setIsTyping(false);
@@ -143,3 +143,4 @@ Importante:
 };
 
 export default ChatPage;
+
