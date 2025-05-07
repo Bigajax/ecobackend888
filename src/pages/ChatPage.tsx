@@ -106,15 +106,22 @@ Importante:
           <div ref={messagesEndRef} />
         </div>
 
-        <div className="p-4 flex justify-center">
+        <div className="p-4 flex justify-center space-x-4"> {/* Adicione space-x-4 para separar os botões */}
           <motion.button
-            onClick={goToVoiceMode}
-            className="p-3 bg-white/20 backdrop-blur-md rounded-full text-white flex items-center gap-2" // Adicione flex e gap
+            onClick={goToMemoryPage} // Botão para ir para a página de memória
+            className="p-3 bg-white/20 backdrop-blur-md rounded-full text-white"
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
           >
-            <BookOpen size={24} color="black" onClick={goToMemoryPage}/>
-            <Mic size={24} color="black"  />
+            <BookOpen size={24} color="black" />
+          </motion.button>
+          <motion.button
+            onClick={goToVoiceMode} // Botão para ir para o modo de voz
+            className="p-3 bg-white/20 backdrop-blur-md rounded-full text-white"
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+          >
+            <Mic size={24} color="black" />
           </motion.button>
         </div>
 
