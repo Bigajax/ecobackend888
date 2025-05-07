@@ -5,6 +5,7 @@ import { useAuth } from '../contexts/AuthContext';
 import PhoneFrame from '../components/PhoneFrame';
 import Input from '../components/Input';
 import Button from '../components/Button';
+import TourInicial from '../components/TourInicial'; // Importe o componente TourInicial
 
 const LoginPage: React.FC = () => {
   const [email, setEmail] = useState('');
@@ -13,10 +14,14 @@ const LoginPage: React.FC = () => {
   const [error, setError] = useState('');
   const { login, register } = useAuth();
   const navigate = useNavigate();
+  const [isTourActive, setIsTourActive] = useState(false); // Estado para controlar a visibilidade do tour
 
   const handleIniciarTour = () => {
-    console.log('Iniciar Tour clicado');
-    // Próximo passo: controlar o estado do tour
+    setIsTourActive(true); // Define o estado para mostrar o tour
+  };
+
+  const handleCloseTour = () => {
+    setIsTourActive(false); // Define o estado para esconder o tour
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -37,7 +42,8 @@ const LoginPage: React.FC = () => {
 
   return (
     <PhoneFrame>
-      <div className="flex flex-col h-full p-8 justify-center bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50">
+      <div className="flex flex-col h-full p-8 justify-center bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50 relative">
+        {isTourActive && <TourInicial onClose={handleCloseTour} />} {/* Renderiza o TourInicial condicionalmente */}
         <motion.div
           className="text-center mb-12"
           initial={{ opacity: 0, y: -20 }}
