@@ -9,8 +9,32 @@ const VoiceRecorder: React.FC = () => {
     setIsListening(!isListening);
   };
 
+  const numberOfWaves = 3; // Número de ondas
+  const waveAnimation = {
+    initial: { scale: 0, opacity: 0.6 },
+    animate: { scale: 2, opacity: 0 },
+    transition: {
+      duration: 1.5,
+      repeat: Infinity,
+      repeatDelay: 0.2,
+    },
+  };
+
   return (
-    <div className="flex flex-col items-center justify-center h-full relative">
+    <div className="flex flex-col items-center justify-center h-full relative overflow-hidden">
+      {/* Ondas sonoras */}
+      {isListening && Array.from({ length: numberOfWaves }).map((_, index) => (
+        <motion.div
+          key={index}
+          className="absolute rounded-full bg-blue-300 opacity-50"
+          style={{ width: 48, height: 48 }}
+          initial="initial"
+          animate="animate"
+          variants={waveAnimation}
+          transition={{ ...waveAnimation.transition, delay: index * 0.5 }} // Adiciona um pequeno delay entre as ondas
+        />
+      ))}
+
       {/* Glass sphere effect */}
       <motion.div
         className="relative flex items-center justify-center w-48 h-48 rounded-full"
@@ -67,7 +91,7 @@ const VoiceRecorder: React.FC = () => {
         </motion.button>
       </div>
 
-      <p className="mt-8 text-black"> {/* Cor do texto alterada para preto */}
+      <p className="mt-8 text-black">
         {isListening
           ? 'Ouvindo... Toque para parar'
           : 'Toque para fazer uma pergunta'}
