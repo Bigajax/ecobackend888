@@ -61,26 +61,26 @@ const VoiceRecorder: React.FC = () => {
       </motion.div>
 
       {/* Mode toggle button */}
-      <div className="absolute bottom-24 left-0 right-0 flex justify-center space-x-4">
-        <motion.button
-          onClick={goToMemoryPage}
-          className="p-4 rounded-full bg-white/90 backdrop-blur-md shadow-md border border-gray-300"
-          whileHover={{ scale: 1.1 }}
-          whileTap={{ scale: 0.9 }}
-        >
-          <BookOpen size={30} className="text-black" /> {/* Cor do ícone alterada para preto */}
-        </motion.button>
-        <motion.button
-          onClick={toggleListening}
-          className="p-4 rounded-full bg-white/90 backdrop-blur-md shadow-md border border-gray-300"
-          whileHover={{ scale: 1.1 }}
-          whileTap={{ scale: 0.9 }}
-        >
-          <Mic size={30} className="text-black" />
-        </motion.button>
-      </div>
+        <div className="absolute bottom-32 left-0 right-0 flex justify-center space-x-4">  {/* Ajustei o valor de bottom para 32 */}
+            <motion.button
+            onClick={goToMemoryPage}
+            className="p-4 rounded-full bg-white/90 backdrop-blur-md shadow-md border border-gray-300"
+            whileHover={{ scale: 1.1 }}
+            whileTap={{ scale: 0.9 }}
+            >
+            <BookOpen size={30} className="text-black" />
+            </motion.button>
+            <motion.button
+            onClick={toggleListening}
+            className="p-4 rounded-full bg-white/90 backdrop-blur-md shadow-md border border-gray-300"
+            whileHover={{ scale: 1.1 }}
+            whileTap={{ scale: 0.9 }}
+            >
+            <Mic size={30} className="text-black" />
+            </motion.button>
+        </div>
 
-      <p className="mt-6 text-gray-800 text-center">
+      <p className="mt-8 text-gray-800 text-center"> {/* Aumentei o marginTop para espaçamento */}
         {isListening ? 'Ouvindo... Toque para parar' : 'Toque para fazer uma pergunta'}
       </p>
     </div>
