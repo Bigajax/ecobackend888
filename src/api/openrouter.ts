@@ -1,11 +1,15 @@
 import axios from 'axios';
 
-const OPENROUTER_API_KEY = import.meta.env.VITE_OPENROUTER_API_KEY;
+// Remova a linha que lê a chave do arquivo .env
+// const OPENROUTER_API_KEY = import.meta.env.VITE_OPENROUTER_API_KEY;
 console.log("Chave de API lida do .env:", OPENROUTER_API_KEY);
 
 export const askOpenRouter = async (messages: { role: string; content: string }[]) => {
   console.log("Mensagens recebidas por askOpenRouter:", messages);
   console.log("Valor de OPENROUTER_API_KEY antes da requisição:", OPENROUTER_API_KEY);
+
+  // Defina a chave da API diretamente para teste
+  const apiKey = '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'; // Substitua SUA_CHAVE_DE_API pela sua chave real
 
   try {
     const response = await axios.post(
@@ -16,7 +20,7 @@ export const askOpenRouter = async (messages: { role: string; content: string }[
       },
       {
         headers: {
-          'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
+          'Authorization': `Bearer ${apiKey}`, // Use a variável apiKey
           'Content-Type': 'application/json',
           'HTTP-Referer': 'https://eco666.vercel.app' // Substitua pelo seu domínio completo
         },
