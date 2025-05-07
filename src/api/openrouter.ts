@@ -1,5 +1,4 @@
 import axios from 'axios';
-import 'dotenv/config'; // Importe e configure dotenv
 
 export const askOpenRouter = async (messages: { role: string; content: string }[]) => {
   const apiKey = process.env.OPENROUTER_API_KEY; // Acesse a variável de ambiente
