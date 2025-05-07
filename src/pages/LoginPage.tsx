@@ -79,8 +79,16 @@ const LoginPage: React.FC = () => {
 
           <div className="pt-4 flex flex-col items-center space-y-2">
             <Button type="submit" fullWidth>
-              {isLogin ? 'Entrar' : 'Criar perfil'}
+              Entrar
             </Button>
+            <button
+              type="button"
+              className="text-gray-600 hover:text-gray-800 text-sm underline"
+              onClick={() => setIsLogin(false)}
+            >
+              Criar perfil
+            </button>
+            <div className="border-b border-gray-300 w-16 my-2" />
             <span className="text-gray-500 text-sm">ou</span>
             <Button type="button" fullWidth onClick={handleIniciarTour}>
               Iniciar Tour
@@ -96,9 +104,9 @@ const LoginPage: React.FC = () => {
         >
           <button
             className="text-gray-600 hover:text-gray-800 text-sm underline"
-            onClick={() => setIsLogin(!isLogin)}
+            onClick={() => setIsLogin(true)}
           >
-            {isLogin ? 'Criar perfil' : 'Já possui uma conta? Entrar'}
+            Já possui uma conta? Entrar
           </button>
         </motion.div>
       </div>
