@@ -1,13 +1,7 @@
 import axios from 'axios';
 
-// Remova a linha que lê a chave do arquivo .env
-// const OPENROUTER_API_KEY = import.meta.env.VITE_OPENROUTER_API_KEY;
-
 export const askOpenRouter = async (messages: { role: string; content: string }[]) => {
-  // Defina a chave da API diretamente para teste
-  const apiKey = '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'; // Substitua SUA_CHAVE_DE_API pela sua chave real
-
-
+  const apiKey = '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'; // Substitua SUA_CHAVE_DE_API pela sua chave real
   try {
     const response = await axios.post(
       'https://openrouter.ai/api/v1/chat/completions',
@@ -17,9 +11,9 @@ export const askOpenRouter = async (messages: { role: string; content: string }[
       },
       {
         headers: {
-          'Authorization': `Bearer ${apiKey}`, // Use a variável apiKey
+          'Authorization': `Bearer ${apiKey}`,
           'Content-Type': 'application/json',
-          'HTTP-Referer': 'https://eco666.vercel.app' // Substitua pelo seu domínio completo
+          'HTTP-Referer': 'https://eco666.vercel.app'
         },
       }
     );
@@ -27,10 +21,6 @@ export const askOpenRouter = async (messages: { role: string; content: string }[
     return response.data.choices[0].message.content;
   } catch (error: any) {
     console.error('Erro na OpenRouter:', error);
-    if (error.response) {
-      console.error('Dados da resposta de erro:', error.response.data);
-      console.error('Status da resposta de erro:', error.response.status);
-    }
     throw error;
   }
 };
