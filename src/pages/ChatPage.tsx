@@ -72,16 +72,33 @@ Importante:
       { role: 'user', content: text },
     ];
     console.log("Mensagens enviadas para askOpenRouter:", messagesToSend);
-    const response = await askOpenRouter(messagesToSend);
+    try {
+      const response = await askOpenRouter(messagesToSend);
+      const botMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        text: response,
+        sender: 'eco',
+      };
+      setMessages((prev) => [...prev, botMessage]);
+    } catch (error: any) { // Especificar o tipo do erro como any ou Error
+      console.error("Erro ao chamar a API:", error);
+      // Trate o erro aqui, exibindo uma mensagem para o usuário ou registrando o erro.
+      let errorMessage = "Desculpe, ocorreu um erro ao processar sua mensagem. Por favor, tente novamente.";
+      if (error.response && error.response.status === 401) {
+        errorMessage = "Erro de autenticação. Por favor, verifique sua chave de API.";
+      } else if (error.response && error.response.status === 429) {
+        errorMessage = "Limite de requisições excedido. Por favor, tente novamente mais tarde.";
+      }
+      const errorMessage: Message = {
+        id: (Date.now() + 2).toString(),
+        text: errorMessage,
+        sender: 'eco', // Ou 'system', dependendo de como você quer exibir mensagens de erro
+      };
+      setMessages(prev => [...prev, errorMessage]);
 
-    const botMessage: Message = {
-      id: (Date.now() + 1).toString(),
-      text: response,
-      sender: 'eco',
-    };
-
-    setMessages((prev) => [...prev, botMessage]);
-    setIsTyping(false);
+    } finally {
+      setIsTyping(false);
+    }
   };
 
   const goToVoiceMode = () => {
