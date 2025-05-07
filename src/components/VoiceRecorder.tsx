@@ -19,7 +19,7 @@ const VoiceRecorder: React.FC = () => {
     <div className="flex flex-col items-center justify-center h-full relative">
       {/* Glass sphere effect */}
       <motion.div
-        className="relative flex items-center justify-center w-48 h-48 rounded-full"
+        className="relative flex items-center justify-center w-48 h-48 rounded-full mt-[-32px]" // Move a bolha para cima
         style={{
           background:
             'radial-gradient(circle at 50% 35%, rgba(255, 255, 255, 0.85) 0%, rgba(255, 255, 255, 0.65) 20%, rgba(255, 255, 255, 0.35) 50%, rgba(255, 255, 255, 0) 100%)',
@@ -61,26 +61,26 @@ const VoiceRecorder: React.FC = () => {
       </motion.div>
 
       {/* Mode toggle button */}
-        <div className="absolute bottom-32 left-0 right-0 flex justify-center space-x-4">  {/* Ajustei o valor de bottom para 32 */}
-            <motion.button
-            onClick={goToMemoryPage}
-            className="p-4 rounded-full bg-white/90 backdrop-blur-md shadow-md border border-gray-300"
-            whileHover={{ scale: 1.1 }}
-            whileTap={{ scale: 0.9 }}
-            >
-            <BookOpen size={30} className="text-black" />
-            </motion.button>
-            <motion.button
-            onClick={toggleListening}
-            className="p-4 rounded-full bg-white/90 backdrop-blur-md shadow-md border border-gray-300"
-            whileHover={{ scale: 1.1 }}
-            whileTap={{ scale: 0.9 }}
-            >
-            <Mic size={30} className="text-black" />
-            </motion.button>
-        </div>
+      <div className="absolute bottom-16 left-0 right-0 flex justify-center space-x-4"> {/* Move os botões para baixo */}
+        <motion.button
+          onClick={goToMemoryPage}
+          className="p-4 rounded-full bg-white/90 backdrop-blur-md shadow-md border border-gray-300 mr-4"
+          whileHover={{ scale: 1.1 }}
+          whileTap={{ scale: 0.9 }}
+        >
+          <BookOpen size={30} className="text-black" />
+        </motion.button>
+        <motion.button
+          onClick={toggleListening}
+          className="p-4 rounded-full bg-white/90 backdrop-blur-md shadow-md border border-gray-300"
+          whileHover={{ scale: 1.1 }}
+          whileTap={{ scale: 0.9 }}
+        >
+          <Mic size={30} className="text-black" />
+        </motion.button>
+      </div>
 
-      <p className="mt-8 text-gray-800 text-center"> {/* Aumentei o marginTop para espaçamento */}
+      <p className="mt-8 text-gray-800 text-center">
         {isListening ? 'Ouvindo... Toque para parar' : 'Toque para fazer uma pergunta'}
       </p>
     </div>
