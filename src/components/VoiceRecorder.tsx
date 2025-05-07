@@ -15,14 +15,14 @@ const VoiceRecorder: React.FC = () => {
       <motion.div
         className="relative flex items-center justify-center w-48 h-48 rounded-full"
         style={{
-          background: 'radial-gradient(circle at 50% 35%, rgba(255, 255, 255, 0.85) 0%, rgba(255, 255, 255, 0.65) 20%, rgba(255, 255, 255, 0.35) 50%, rgba(255, 255, 255, 0) 100%)', // Gradiente mais sutil
-          backdropFilter: 'blur(25px)', // Mais desfoque
+          background: 'radial-gradient(circle at 50% 35%, rgba(255, 255, 255, 0.85) 0%, rgba(255, 255, 255, 0.65) 20%, rgba(255, 255, 255, 0.35) 50%, rgba(255, 255, 255, 0) 100%)',
+          backdropFilter: 'blur(25px)',
           WebkitBackdropFilter: 'blur(25px)',
-          boxShadow: '0 12px 60px rgba(0, 0, 0, 0.35)', // Sombra mais pronunciada e suave
+          boxShadow: '0 6px 20px rgba(0, 0, 0, 0.15)', // Sombra mais suave
           border: '1px solid rgba(255, 255, 255, 0.3)',
         }}
         animate={{
-          scale: isListening ? [1, 1.12, 1] : 1, // Leve pulso ao ouvir
+          scale: isListening ? [1, 1.12, 1] : 1,
         }}
         transition={{
           repeat: isListening ? Infinity : 0,
@@ -32,13 +32,13 @@ const VoiceRecorder: React.FC = () => {
       >
         {/* Inner glow */}
         <motion.div
-          className="absolute inset-0 rounded-full opacity-30" // Aumentei a opacidade
+          className="absolute inset-0 rounded-full opacity-30"
           style={{
-            background: 'radial-gradient(circle at top left, rgba(255, 255, 255, 0.85) 0%, transparent 40%)', // Tom mais forte
+            background: 'radial-gradient(circle at top left, rgba(255, 255, 255, 0.85) 0%, transparent 40%)',
             pointerEvents: 'none',
           }}
           animate={{
-            scale: isListening ? [0.85, 1.15, 0.85] : 1, // Pulso mais pronunciado
+            scale: isListening ? [0.85, 1.15, 0.85] : 1,
           }}
           transition={{
             repeat: isListening ? Infinity : 0,
@@ -56,11 +56,11 @@ const VoiceRecorder: React.FC = () => {
       <div className="absolute bottom-20 left-0 right-0 flex justify-center">
         <motion.button
           onClick={toggleListening}
-          className="p-4 rounded-full bg-white/90 backdrop-blur-md shadow-xl border border-gray-300" // Estilo mais definido
-          whileHover={{ scale: 1.1 }} // Aumento de escala
-          whileTap={{ scale: 0.9 }} // Diminuição ao tocar
+          className="p-4 rounded-full bg-white/90 backdrop-blur-md shadow-md border border-gray-300"
+          whileHover={{ scale: 1.1 }}
+          whileTap={{ scale: 0.9 }}
         >
-          <Mic size={30} className="text-blue-600" /> {/* Cor do ícone */}
+          <Mic size={30} className="text-blue-600" />
         </motion.button>
       </div>
 
