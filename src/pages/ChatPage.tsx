@@ -143,4 +143,3 @@ Importante:
 };
 
 export default ChatPage;
-

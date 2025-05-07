@@ -5,7 +5,7 @@ console.log("Chave de API lida do .env:", OPENROUTER_API_KEY);
 
 export const askOpenRouter = async (messages: { role: string; content: string }[]) => {
   console.log("Mensagens recebidas por askOpenRouter:", messages);
-  console.log("Valor de OPENROUTER_API_KEY antes da requisição:", OPENROUTER_API_KEY); // Esta linha já estava aqui, mantive-a
+  console.log("Valor de OPENROUTER_API_KEY antes da requisição:", OPENROUTER_API_KEY);
 
   try {
     const response = await axios.post(
@@ -18,6 +18,7 @@ export const askOpenRouter = async (messages: { role: string; content: string }[
         headers: {
           'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
           'Content-Type': 'application/json',
+          'HTTP-Referer': 'eco666.vercel.app' // Adicione esta linha com o seu domínio
         },
       }
     );
@@ -29,6 +30,6 @@ export const askOpenRouter = async (messages: { role: string; content: string }[
       console.error('Dados da resposta de erro:', error.response.data);
       console.error('Status da resposta de erro:', error.response.status);
     }
-    return 'Erro ao consultar a IA.';
+    throw error; // É importante lançar o erro novamente para que ele possa ser tratado no componente ChatPage
   }
 };
