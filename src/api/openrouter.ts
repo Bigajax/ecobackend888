@@ -24,7 +24,13 @@ export const askOpenRouter = async (messages: { role: string; content: string }[
       }
     );
 
-    return response.data.choices[0].message.content;
+    if (response.data && response.data.choices && response.data.choices.length > 0 && response.data.choices[0].message && response.data.choices[0].message.content) {
+      return response.data.choices[0].message.content;
+    } else {
+      console.error('Erro: Estrutura de resposta da OpenRouter inesperada:', response.data);
+      throw new Error('Estrutura de resposta da OpenRouter inválida.');
+    }
+
   } catch (error: any) {
     console.error('Erro na OpenRouter:', error);
     throw error;
