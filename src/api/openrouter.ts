@@ -18,7 +18,7 @@ export const askOpenRouter = async (messages: { role: string; content: string }[
         headers: {
           'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
           'Content-Type': 'application/json',
-          'HTTP-Referer': 'https://eco666.vercel.app' // Adicione esta linha com o seu domínio
+          'HTTP-Referer': 'https://eco666.vercel.app' // Substitua pelo seu domínio completo
         },
       }
     );
@@ -30,6 +30,6 @@ export const askOpenRouter = async (messages: { role: string; content: string }[
       console.error('Dados da resposta de erro:', error.response.data);
       console.error('Status da resposta de erro:', error.response.status);
     }
-    throw error; // É importante lançar o erro novamente para que ele possa ser tratado no componente ChatPage
+    throw error;
   }
 };
