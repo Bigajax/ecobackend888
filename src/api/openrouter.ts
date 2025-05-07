@@ -1,10 +1,11 @@
 import axios from 'axios';
 
 const OPENROUTER_API_KEY = import.meta.env.VITE_OPENROUTER_API_KEY;
-console.log("Chave de API usada na requisição:", OPENROUTER_API_KEY);
+console.log("Chave de API lida do .env:", OPENROUTER_API_KEY);
 
 export const askOpenRouter = async (messages: { role: string; content: string }[]) => {
-  console.log("Mensagens recebidas por askOpenRouter:", messages); // Adicionado para debug
+  console.log("Mensagens recebidas por askOpenRouter:", messages);
+  console.log("Valor de OPENROUTER_API_KEY antes da requisição:", OPENROUTER_API_KEY); // ADICIONE ESTA LINHA
   try {
     const response = await axios.post(
       'https://openrouter.ai/api/v1/chat/completions',
@@ -14,7 +15,7 @@ export const askOpenRouter = async (messages: { role: string; content: string }[
       },
       {
         headers: {
-          Authorization: `Bearer ${OPENROUTER_API_KEY}`,
+          'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
           'Content-Type': 'application/json',
         },
       }
