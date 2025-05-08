@@ -130,7 +130,7 @@ const App = () => {
                     />
                 </Routes>
             </div>
-        </AuthProvider> {/* Feche o AuthProvider aqui */}
+        </AuthProvider>
     );
 };
 
