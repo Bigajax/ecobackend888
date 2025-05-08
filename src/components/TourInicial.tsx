@@ -9,6 +9,8 @@ interface TourInicialProps {
     onClose: () => void;
 }
 
+const loginGradient = "linear-gradient(to bottom right, #eff6ff, #ede7f6, #fce4ec)"; // Defina o gradiente aqui
+
 const TourInicial: React.FC<TourInicialProps> = ({ onClose }) => {
     const navigate = useNavigate();
     const [showSequence, setShowSequence] = useState(false);
@@ -23,7 +25,10 @@ const TourInicial: React.FC<TourInicialProps> = ({ onClose }) => {
     };
 
     return (
-        <div className="fixed top-0 left-0 w-full h-full bg-black/50 z-50 flex items-center justify-center">
+        <div
+            className="fixed top-0 left-0 w-full h-full z-50 flex items-center justify-center"
+            style={{ background: loginGradient }} // Aplica o gradiente ao fundo
+        >
             <motion.div
                 initial={{ opacity: 0, scale: 0.9 }}
                 animate={{ opacity: 1, scale: 1 }}
@@ -47,7 +52,7 @@ const TourInicial: React.FC<TourInicialProps> = ({ onClose }) => {
                             className="px-6 py-3 bg-black text-white rounded-full
                                      hover:bg-gray-800 transition-colors
                                      font-medium shadow-md hover:shadow-lg
-                                     flex items-center gap-2" // Estilo do botão atualizado
+                                     flex items-center gap-2"
                         >
                             Próximo
                             <ArrowRight size={16} />
