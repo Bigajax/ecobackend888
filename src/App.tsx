@@ -110,7 +110,7 @@ const App = () => {
     }, [user, navigate, userInteracted]);
 
     return (
-        <AuthProvider> {/* Envolva a aplicação com AuthProvider */}
+        <AuthProvider>
             <div className="h-screen w-screen bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50 font-sans">
                 <Router>
                     <Routes>
@@ -132,7 +132,7 @@ const App = () => {
                     </Routes>
                 </Router>
             </div>
-        </AuthProvider> {/* Feche o AuthProvider aqui */}
+        </AuthProvider>
     );
 };
 
