@@ -130,8 +130,9 @@ const App = () => {
                     />
                 </Routes>
             </div>
-        </AuthProvider>
+        </AuthProvider> {/* Feche o AuthProvider aqui */}
     );
 };
 
 export default App;
+
