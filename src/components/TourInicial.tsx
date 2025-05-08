@@ -22,7 +22,13 @@ const TourInicial: React.FC<TourInicialProps> = ({ onClose }) => {
 
   return (
     <div className="fixed top-0 left-0 w-full h-full bg-black/50 z-50 flex items-center justify-center">
-      <div className="bg-white rounded-md shadow-lg max-w-md w-full relative"> {/* Removido o p-8 */}
+      <motion.div // Opcional: Se quiser adicionar animações de entrada/saída ao modal
+        initial={{ opacity: 0, scale: 0.9 }}
+        animate={{ opacity: 1, scale: 1 }}
+        exit={{ opacity: 0, scale: 0.9 }}
+        transition={{ duration: 0.2 }}
+        className="bg-white rounded-xl shadow-lg max-w-md w-full h-[500px] relative overflow-hidden" // Adicionada altura fixa e overflow-hidden, aumentado o borderRadius
+      >
         {!showSequence ? (
           <div className="flex flex-col items-center justify-center h-full p-6 text-center">
             <h2 className="text-2xl font-bold mb-4">Bem-vindo ao ECO!</h2>
@@ -40,7 +46,7 @@ const TourInicial: React.FC<TourInicialProps> = ({ onClose }) => {
         <button onClick={onClose} className="absolute bottom-4 right-4 text-gray-500 hover:text-gray-700 text-sm">
           Fechar Tour
         </button>
-      </div>
+      </motion.div>
     </div>
   );
 };
