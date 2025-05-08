@@ -125,7 +125,7 @@ const Slide: React.FC<SlideProps> = ({
   return (
     <div
       ref={containerRef}
-      className={`absolute inset-0 w-full h-full flex flex-col items-center justify-center px-8 transition-all duration-700 ease-in-out`}
+      className={`w-full h-full flex flex-col items-center justify-center px-8 transition-all duration-700 ease-in-out`}
       style={{ background }}
     >
       <div className="absolute inset-0 z-0 opacity-20 overflow-hidden">

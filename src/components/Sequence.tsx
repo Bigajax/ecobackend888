@@ -31,7 +31,7 @@ const Sequence: React.FC<SequenceProps> = ({ currentStep }) => {
         unmountOnExit
       >
         {(state) => (
-          <div className={`absolute inset-0 w-full h-full ${state}`}>
+          <div className={`${state} w-full h-full`}>
             {currentSlideData && <Slide {...currentSlideData} />}
           </div>
         )}
