@@ -1,17 +1,20 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import GlassBubble from './GlassBubble';
 import Sequence from './Sequence';
 import Slide from './Slide';
 
-const TourInicial = ({ onClose }) => {
+interface TourInicialProps {
+  onClose: () => void;
+}
+
+const TourInicial: React.FC<TourInicialProps> = ({ onClose }) => {
   const navigate = useNavigate();
   const [currentStep, setCurrentStep] = useState(0);
 
   const handleNext = () => {
     console.log('handleNext chamado');
     setCurrentStep((prevStep) => prevStep + 1);
-    console.log('currentStep agora é:', currentStep + 1);
   };
 
   const handlePrev = () => {
@@ -22,6 +25,10 @@ const TourInicial = ({ onClose }) => {
     onClose();
     navigate('/chat');
   };
+
+  useEffect(() => {
+    console.log('Renderizando TourInicial com currentStep:', currentStep);
+  }, [currentStep]);
 
   const renderStep = () => {
     switch (currentStep) {
@@ -57,8 +64,6 @@ const TourInicial = ({ onClose }) => {
         return null;
     }
   };
-
-  console.log('Renderizando TourInicial com currentStep:', currentStep);
 
   return (
     <div className="fixed top-0 left-0 w-full h-full bg-black/50 z-50 flex items-center justify-center">
