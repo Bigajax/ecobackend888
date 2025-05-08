@@ -91,11 +91,11 @@ const Sequence: React.FC<SequenceProps> = ({ onClose }) => {
                         <ArrowRight size={20} className="text-gray-600 opacity-70" />
                     </button>
                 )}
-                 {slideIndex === totalSlides - 1 && (
+                {slideIndex === totalSlides - 1 && (
                     <button
-                        onClick={handleNext} // Use handleNext para ir para o chat
+                        onClick={handleNext}
                         className="p-2 rounded-full bg-white/20 backdrop-blur-sm hover:bg-white/40 transition-all"
-                        aria-label="Go to chat" // Altere o rótulo para indicar a ação
+                        aria-label="Go to chat"
                     >
                         <ArrowRight size={20} className="text-gray-600 opacity-70" />
                     </button>
