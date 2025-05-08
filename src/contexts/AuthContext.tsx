@@ -1,4 +1,5 @@
 import React, { createContext, useState, useContext, ReactNode } from 'react';
+import { useNavigate } from 'react-router-dom';
 
 interface User {
   email: string;
@@ -27,12 +28,14 @@ interface AuthProviderProps {
 
 export function AuthProvider({ children }: AuthProviderProps) {
   const [user, setUser] = useState<User | null>(null);
+  const navigate = useNavigate();
 
   // Simulated authentication functions
   const login = async (email: string, password: string) => {
     // In a real app, this would validate credentials with a backend
     if (email && password) {
       setUser({ email });
+      navigate('/chat'); // Adicione esta linha para redirecionar após o login
     } else {
       throw new Error('Invalid credentials');
     }
@@ -40,6 +43,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   const logout = () => {
     setUser(null);
+    navigate('/login'); // Adicione esta linha para redirecionar após o logout
   };
 
   const register = async (email: string, password: string) => {
