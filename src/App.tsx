@@ -112,27 +112,28 @@ const App = () => {
     return (
         <AuthProvider> {/* Envolva a aplicação com AuthProvider */}
             <div className="h-screen w-screen bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50 font-sans">
-                <Routes>
-                    <Route path="/" element={<LoginPage />} />
-                    <Route path="/login" element={<LoginPage />} />
-                    <Route path="/tour" element={<TourInicial onClose={handleTourEnd} />} />
-                    <Route
-                        path="/chat"
-                        element={user ? <ChatPage onUserInteract={handleUserChatInteraction}/> : <Navigate to="/login"/>} // Redireciona para login se não estiver logado
-                    />
-                    <Route
-                        path="/voice"
-                        element={
-                            <ProtectedRoute>
-                                <VoicePage />
-                            </ProtectedRoute>
-                        }
-                    />
-                </Routes>
+                <Router>
+                    <Routes>
+                        <Route path="/" element={<LoginPage />} />
+                        <Route path="/login" element={<LoginPage />} />
+                        <Route path="/tour" element={<TourInicial onClose={handleTourEnd} />} />
+                        <Route
+                            path="/chat"
+                            element={user ? <ChatPage onUserInteract={handleUserChatInteraction}/> : <Navigate to="/login"/>} // Redireciona para login se não estiver logado
+                        />
+                        <Route
+                            path="/voice"
+                            element={
+                                <ProtectedRoute>
+                                    <VoicePage />
+                                </ProtectedRoute>
+                            }
+                        />
+                    </Routes>
+                </Router>
             </div>
         </AuthProvider> {/* Feche o AuthProvider aqui */}
     );
 };
 
 export default App;
-
