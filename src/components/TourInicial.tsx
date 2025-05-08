@@ -9,9 +9,9 @@ const TourInicial = ({ onClose }) => {
   const [currentStep, setCurrentStep] = useState(0);
 
   const handleNext = () => {
-    console.log('handleNext chamado'); // Adicione este log
+    console.log('handleNext chamado');
     setCurrentStep((prevStep) => prevStep + 1);
-    console.log('currentStep agora é:', currentStep + 1); // Adicione este log
+    console.log('currentStep agora é:', currentStep + 1);
   };
 
   const handlePrev = () => {
@@ -39,7 +39,7 @@ const TourInicial = ({ onClose }) => {
           </div>
         );
       case 1:
-        return <Sequence />;
+        return <Sequence currentStep={currentStep} />; // Passa currentStep como prop
       case 2:
         return (
           <Slide
@@ -50,7 +50,7 @@ const TourInicial = ({ onClose }) => {
             background="linear-gradient(to top left, #ccffbd, #f9feda)"
             onPrev={handlePrev}
             isLast={true}
-            onNext={handleEndTour} // Usando onNext para o botão de finalizar
+            onNext={handleEndTour}
           />
         );
       default:
@@ -58,7 +58,7 @@ const TourInicial = ({ onClose }) => {
     }
   };
 
-  console.log('Renderizando TourInicial com currentStep:', currentStep); // Adicione este log antes do return
+  console.log('Renderizando TourInicial com currentStep:', currentStep);
 
   return (
     <div className="fixed top-0 left-0 w-full h-full bg-black/50 z-50 flex items-center justify-center">
