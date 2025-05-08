@@ -44,7 +44,8 @@ const Sequence: React.FC<SequenceProps> = ({ onClose }) => {
             {slides[slideIndex] && (
               <Slide
                 {...slides[slideIndex]}
-                // Removemos onNext e onPrev daqui, a navegação será pelas bolinhas
+                onNext={handleNext} // Passamos as funções de navegação de volta para o Slide
+                onPrev={handlePrev}
                 isFirst={slideIndex === 0}
                 isLast={slideIndex === totalSlides - 1}
               />
@@ -67,7 +68,7 @@ const Sequence: React.FC<SequenceProps> = ({ onClose }) => {
         ))}
       </div>
 
-      {/* Botão de fechar (opcional, se ainda quiser um botão para fechar) */}
+      {/* Botão de fechar */}
       <button onClick={onClose} className="absolute top-4 right-4 text-gray-500 hover:text-gray-700 text-sm z-10">
         Fechar
       </button>

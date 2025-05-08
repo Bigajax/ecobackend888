@@ -1,4 +1,5 @@
 import React, { useRef, useEffect } from 'react';
+import { ArrowLeft, ArrowRight } from 'lucide-react';
 
 interface GlassBubbleProps {
   color: string;
@@ -51,6 +52,10 @@ interface SlideProps {
   color: string;
   bubblePosition: string;
   background: string;
+  onNext?: () => void;
+  onPrev?: () => void;
+  isFirst?: boolean;
+  isLast?: boolean;
 }
 
 const Slide: React.FC<SlideProps> = ({
@@ -59,6 +64,10 @@ const Slide: React.FC<SlideProps> = ({
   color,
   bubblePosition,
   background,
+  onNext,
+  onPrev,
+  isFirst,
+  isLast,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const bubbleRef = useRef<HTMLDivElement>(null);
@@ -88,9 +97,9 @@ const Slide: React.FC<SlideProps> = ({
     <div
       ref={containerRef}
       className={`w-full h-full flex flex-col items-center justify-center transition-all duration-700 ease-in-out`}
-      style={{ background, padding: '24px' }} // Adicionado padding ao redor do conteúdo
+      style={{ background, padding: '24px' }}
     >
-      <h1 className="eco-title text-center relative z-10 mb-4 text-2xl font-semibold tracking-tight" style={{ color: '#333', opacity: 1 }}>{title}</h1> {/* Título menor */}
+      <h1 className="eco-title text-center relative z-10 mb-4 text-2xl font-semibold tracking-tight" style={{ color: '#333', opacity: 1 }}>{title}</h1>
 
       <div ref={bubbleRef} className={`relative ${bubblePosition} z-0 my-6 transition-transform duration-300 ease-out`}>
         <GlassBubble color={color} />
@@ -100,12 +109,36 @@ const Slide: React.FC<SlideProps> = ({
         {text.map((line, index) => (
           <p
             key={index}
-            className={`text-lg font-normal leading-relaxed mb-2 fade-in-delay-${index + 1}`} // Fonte mais leve
+            className={`text-lg font-normal leading-relaxed mb-2 fade-in-delay-${index + 1}`}
             style={{ color: '#666', opacity: 1 }}
           >
             {line}
           </p>
         ))}
+      </div>
+
+      <div className="absolute bottom-12 left-0 right-0 flex justify-between items-center px-6 z-10"> {/* Alterado para justify-between e adicionado padding horizontal */}
+        {onPrev && (
+          <button
+            onClick={onPrev}
+            className="p-2 rounded-full bg-white/20 backdrop-blur-sm hover:bg-white/40 transition-all"
+            aria-label="Previous slide"
+          >
+            <ArrowLeft size={20} className="text-gray-600 opacity-70" />
+          </button>
+        )}
+        <div className="flex gap-2"> {/* Container para as bolinhas */}
+          {/* As bolinhas serão renderizadas aqui pelo Sequence */}
+        </div>
+        {onNext && (
+          <button
+            onClick={onNext}
+            className="p-2 rounded-full bg-white/20 backdrop-blur-sm hover:bg-white/40 transition-all"
+            aria-label="Next slide"
+          >
+            <ArrowRight size={20} className="text-gray-600 opacity-70" />
+          </button>
+        )}
       </div>
     </div>
   );
