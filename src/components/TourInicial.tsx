@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { GlassBubble } from './GlassBubble';
+import GlassBubble from './GlassBubble';
 import Sequence from './Sequence';
 import { X, ArrowRight } from 'lucide-react';
 
@@ -9,7 +9,7 @@ interface TourInicialProps {
     onClose: () => void;
 }
 
-const loginGradient = "linear-gradient(to bottom right, #eff6ff, #ede7f6, #fce4ec)"; // Defina o gradiente aqui
+const loginGradient = "linear-gradient(to bottom right, #eff6ff, #ede7f6, #fce4ec)";
 
 const TourInicial: React.FC<TourInicialProps> = ({ onClose }) => {
     const navigate = useNavigate();
@@ -27,7 +27,7 @@ const TourInicial: React.FC<TourInicialProps> = ({ onClose }) => {
     return (
         <div
             className="fixed top-0 left-0 w-full h-full z-50 flex items-center justify-center"
-            style={{ background: loginGradient }} // Aplica o gradiente ao fundo
+            style={{ background: loginGradient }} // Aplicando o gradiente ao container principal
         >
             <motion.div
                 initial={{ opacity: 0, scale: 0.9 }}
