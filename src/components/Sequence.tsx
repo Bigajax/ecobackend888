@@ -1,38 +1,55 @@
-import React from 'react';
+import React, { useState } from 'react';
 import Slide from './Slide';
 import { slides } from "../date/slides";
 import { Transition } from 'react-transition-group';
 
 interface SequenceProps {
-  currentStep: number; // Recebe o currentStep do TourInicial
+  currentStep: number; // Recebe o currentStep inicial (agora não usado para navegação)
+  onClose: () => void;
 }
 
-const Sequence: React.FC<SequenceProps> = ({ currentStep }) => {
-  // Ajusta o índice para corresponder ao array de slides
-  const slideIndex = currentStep - 1;
+const Sequence: React.FC<SequenceProps> = ({ onClose }) => {
+  const [slideIndex, setSlideIndex] = useState(0); // Inicia no primeiro slide
+  const totalSlides = slides.length;
 
-  console.log('Renderizando Sequence com currentStep:', currentStep, 'e slideIndex:', slideIndex);
+  const handleNext = () => {
+    if (slideIndex < totalSlides - 1) {
+      setSlideIndex(prevIndex => prevIndex + 1);
+    } else {
+      onClose(); // Chama a função onClose passada pelo TourInicial ao final
+    }
+  };
+
+  const handlePrev = () => {
+    if (slideIndex > 0) {
+      setSlideIndex(prevIndex => prevIndex - 1);
+    }
+  };
+
+  console.log('Renderizando Sequence com slideIndex:', slideIndex);
   console.log('Conteúdo de slides:', slides);
-
-  if (slideIndex < 0 || slideIndex >= slides.length) {
-    console.log('Índice de slide fora dos limites.');
-    return null; // Ou renderize algo indicando um erro
-  }
-
-  const currentSlideData = slides[slideIndex];
-  console.log('Dados do slide atual:', currentSlideData);
+  console.log('Dados do slide atual:', slides[slideIndex]);
 
   return (
     <div className="sequence-container w-full h-full relative overflow-hidden">
       <Transition
-        in={slideIndex >= 0 && slideIndex < slides.length}
+        in={true} // A transição controla a montagem/desmontagem dos slides
         timeout={500}
         mountOnEnter
         unmountOnExit
+        key={slideIndex}
       >
         {(state) => (
           <div className={`${state} w-full h-full`}>
-            {currentSlideData && <Slide {...currentSlideData} />}
+            {slides[slideIndex] && (
+              <Slide
+                {...slides[slideIndex]}
+                onNext={handleNext}
+                onPrev={handlePrev}
+                isFirst={slideIndex === 0}
+                isLast={slideIndex === totalSlides - 1}
+              />
+            )}
           </div>
         )}
       </Transition>
