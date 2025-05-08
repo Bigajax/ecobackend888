@@ -137,17 +137,18 @@ const Slide: React.FC<SlideProps> = ({
         />
       </div>
 
-      <h1 className="eco-title text-center relative z-10 mb-4 fade-in">{title}</h1>
+      <h1 className="eco-title text-center relative z-10 mb-4 fade-in" style={{ color: '#333', opacity: 1 }}>{title}</h1>
 
       <div ref={bubbleRef} className={`relative ${bubblePosition} z-0 my-8 transition-transform duration-300 ease-out`}>
         <GlassBubble color={color} />
       </div>
 
-      <div className="text-container max-w-xl text-center relative z-10 mt-6">
+      <div className="text-container max-w-xl text-center relative z-10 mt-6" style={{ color: '#555', opacity: 1 }}>
         {text.map((line, index) => (
           <p
             key={index}
             className={`text-xl sm:text-2xl font-light leading-relaxed mb-4 fade-in-delay-${index + 1}`}
+            style={{ color: '#666', opacity: 1 }}
           >
             {line}
           </p>
