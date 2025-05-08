@@ -2,65 +2,65 @@ import React, { createContext, useState, useContext, ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 interface User {
-  email: string;
+    email: string;
 }
 
 interface AuthContextType {
-  user: User | null;
-  login: (email: string, password: string) => Promise<void>;
-  logout: () => void;
-  register: (email: string, password: string) => Promise<void>;
+    user: User | null;
+    login: (email: string, password: string) => Promise<void>;
+    logout: () => void;
+    register: (email: string, password: string) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function useAuth() {
-  const context = useContext(AuthContext);
-  if (context === undefined) {
-    throw new Error('useAuth must be used within an AuthProvider');
-  }
-  return context;
+    const context = useContext(AuthContext);
+    if (!context) {
+        throw new Error('useAuth must be used within an AuthProvider');
+    }
+    return context;
 }
 
 interface AuthProviderProps {
-  children: ReactNode;
+    children: ReactNode;
 }
 
 export function AuthProvider({ children }: AuthProviderProps) {
-  const [user, setUser] = useState<User | null>(null);
-  const navigate = useNavigate();
+    const [user, setUser] = useState<User | null>(null);
+    const navigate = useNavigate();
 
-  // Simulated authentication functions
-  const login = async (email: string, password: string) => {
-    // In a real app, this would validate credentials with a backend
-    if (email && password) {
-      setUser({ email });
-      navigate('/chat'); // Adicione esta linha para redirecionar após o login
-    } else {
-      throw new Error('Invalid credentials');
-    }
-  };
+    // Simulated authentication functions
+    const login = async (email: string, password: string) => {
+        // In a real app, this would validate credentials with a backend
+        if (email && password) {
+            setUser({ email });
+            navigate('/chat'); // Adicione esta linha para redirecionar após o login
+        } else {
+            throw new Error('Invalid credentials');
+        }
+    };
 
-  const logout = () => {
-    setUser(null);
-    navigate('/login'); // Adicione esta linha para redirecionar após o logout
-  };
+    const logout = () => {
+        setUser(null);
+        navigate('/login'); // Adicione esta linha para redirecionar após o logout
+    };
 
-  const register = async (email: string, password: string) => {
-    // In a real app, this would create a new account in the backend
-    if (email && password) {
-      setUser({ email });
-    } else {
-      throw new Error('Invalid registration data');
-    }
-  };
+    const register = async (email: string, password: string) => {
+        // In a real app, this would create a new account in the backend
+        if (email && password) {
+            setUser({ email });
+        } else {
+            throw new Error('Invalid registration data');
+        }
+    };
 
-  const value = {
-    user,
-    login,
-    logout,
-    register,
-  };
+    const value = {
+        user,
+        login,
+        logout,
+        register,
+    };
 
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+    return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
