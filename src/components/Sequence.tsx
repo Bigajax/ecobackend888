@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom'; // Importe o useNavigate
 import Slide from './Slide';
 import { slides } from "../date/slides";
 import { Transition } from 'react-transition-group';
-import { X, ArrowLeft, ArrowRight } from 'lucide-react'; // Importe o ícone de X e as setas
+import { X, ArrowLeft, ArrowRight } from 'lucide-react';
 
 interface SequenceProps {
     currentStep: number;
@@ -12,12 +13,14 @@ interface SequenceProps {
 const Sequence: React.FC<SequenceProps> = ({ onClose }) => {
     const [slideIndex, setSlideIndex] = useState(0);
     const totalSlides = slides.length;
+    const navigate = useNavigate(); // Inicialize o useNavigate
 
     const handleNext = () => {
         if (slideIndex < totalSlides - 1) {
             setSlideIndex(prevIndex => prevIndex + 1);
         } else {
-            onClose();
+            // Em vez de onClose(), navegue para a tela de mensagem da ECO
+            navigate('/chat'); // Substitua '/chat' pela rota correta da sua tela de mensagem
         }
     };
 
@@ -45,7 +48,6 @@ const Sequence: React.FC<SequenceProps> = ({ onClose }) => {
                         {slides[slideIndex] && (
                             <Slide
                                 {...slides[slideIndex]}
-                                 // Passando onNext e onPrev para o Slide para que ele possa chamar a função de navegação
                                 onNext={handleNext}
                                 onPrev={handlePrev}
                                 isFirst={slideIndex === 0}
