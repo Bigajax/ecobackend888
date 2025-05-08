@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import Slide from './Slide';
 import { slides } from "../date/slides";
 import { Transition } from 'react-transition-group';
+import { X } from 'lucide-react'; // Importe o ícone de X
 
 interface SequenceProps {
   currentStep: number;
@@ -44,7 +45,7 @@ const Sequence: React.FC<SequenceProps> = ({ onClose }) => {
             {slides[slideIndex] && (
               <Slide
                 {...slides[slideIndex]}
-                onNext={handleNext} // Passamos as funções de navegação de volta para o Slide
+                onNext={handleNext}
                 onPrev={handlePrev}
                 isFirst={slideIndex === 0}
                 isLast={slideIndex === totalSlides - 1}
@@ -54,23 +55,46 @@ const Sequence: React.FC<SequenceProps> = ({ onClose }) => {
         )}
       </Transition>
 
-      {/* Indicadores de bolinhas */}
-      <div className="absolute bottom-8 flex gap-2 z-10">
-        {slides.map((_, index) => (
+      {/* Container para setas e bolinhas */}
+      <div className="absolute bottom-12 flex justify-center items-center gap-4 z-10">
+        {slideIndex > 0 && (
           <button
-            key={index}
-            className={`rounded-full w-3 h-3 transition-colors duration-300 ${
-              index === slideIndex ? 'bg-gray-600' : 'bg-gray-300 hover:bg-gray-400'
-            }`}
-            onClick={() => goToSlide(index)}
-            aria-label={`Go to slide ${index + 1}`}
-          />
-        ))}
+            onClick={handlePrev}
+            className="p-2 rounded-full bg-white/20 backdrop-blur-sm hover:bg-white/40 transition-all"
+            aria-label="Previous slide"
+          >
+            <ArrowLeft size={20} className="text-gray-600 opacity-70" />
+          </button>
+        )}
+
+        {/* Indicadores de bolinhas */}
+        <div className="flex gap-2">
+          {slides.map((_, index) => (
+            <button
+              key={index}
+              className={`rounded-full w-3 h-3 transition-colors duration-300 ${
+                index === slideIndex ? 'bg-gray-600' : 'bg-gray-300 hover:bg-gray-400'
+              }`}
+              onClick={() => goToSlide(index)}
+              aria-label={`Go to slide ${index + 1}`}
+            />
+          ))}
+        </div>
+
+        {slideIndex < totalSlides - 1 && (
+          <button
+            onClick={handleNext}
+            className="p-2 rounded-full bg-white/20 backdrop-blur-sm hover:bg-white/40 transition-all"
+            aria-label="Next slide"
+          >
+            <ArrowRight size={20} className="text-gray-600 opacity-70" />
+          </button>
+        )}
       </div>
 
-      {/* Botão de fechar */}
+      {/* Botão de fechar (ícone de X) */}
       <button onClick={onClose} className="absolute top-4 right-4 text-gray-500 hover:text-gray-700 text-sm z-10">
-        Fechar
+        <X size={20} />
       </button>
     </div>
   );

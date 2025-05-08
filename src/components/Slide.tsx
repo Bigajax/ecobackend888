@@ -117,7 +117,7 @@ const Slide: React.FC<SlideProps> = ({
         ))}
       </div>
 
-      <div className="absolute bottom-12 left-0 right-0 flex justify-between items-center px-6 z-10"> {/* Alterado para justify-between e adicionado padding horizontal */}
+      <div className="absolute bottom-12 left-0 right-0 flex justify-center items-center gap-6 z-10">
         {onPrev && (
           <button
             onClick={onPrev}
@@ -127,9 +127,10 @@ const Slide: React.FC<SlideProps> = ({
             <ArrowLeft size={20} className="text-gray-600 opacity-70" />
           </button>
         )}
-        <div className="flex gap-2"> {/* Container para as bolinhas */}
-          {/* As bolinhas serão renderizadas aqui pelo Sequence */}
-        </div>
+
+        {/* Container para as bolinhas (será preenchido pelo Sequence) */}
+        <div className="flex gap-2"></div>
+
         {onNext && (
           <button
             onClick={onNext}
