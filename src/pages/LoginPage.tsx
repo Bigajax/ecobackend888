@@ -61,7 +61,34 @@ const LoginPage: React.FC = () => {
         </motion.div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          {/* ... restante do seu formulário de login ... */}
+          <Input
+            type="email"
+            placeholder="Email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            required
+            autoComplete="email"
+          />
+
+          <Input
+            type="password"
+            placeholder="Senha"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+            autoComplete="current-password"
+          />
+
+          {error && (
+            <motion.p
+              className="text-red-500 text-sm text-center"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+            >
+              {error}
+            </motion.p>
+          )}
+
           <div className="pt-4 flex flex-col items-center space-y-2">
             <Button type="submit" fullWidth>
               Entrar
@@ -81,7 +108,19 @@ const LoginPage: React.FC = () => {
           </div>
         </form>
 
-        {/* ... restante do seu LoginPage ... */}
+        <motion.div
+          className="mt-8 text-center"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.3 }}
+        >
+          <button
+            className="text-gray-600 hover:text-gray-800 text-sm underline"
+            onClick={() => setIsLogin(true)}
+          >
+            Já possui uma conta? Entrar
+          </button>
+        </motion.div>
       </div>
     </PhoneFrame>
   );
