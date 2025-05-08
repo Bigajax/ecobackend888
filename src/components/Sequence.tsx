@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom'; // Importe o useNavigate
+import { useNavigate } from 'react-router-dom';
 import Slide from './Slide';
 import { slides } from "../date/slides";
 import { Transition } from 'react-transition-group';
@@ -13,14 +13,13 @@ interface SequenceProps {
 const Sequence: React.FC<SequenceProps> = ({ onClose }) => {
     const [slideIndex, setSlideIndex] = useState(0);
     const totalSlides = slides.length;
-    const navigate = useNavigate(); // Inicialize o useNavigate
+    const navigate = useNavigate();
 
     const handleNext = () => {
         if (slideIndex < totalSlides - 1) {
             setSlideIndex(prevIndex => prevIndex + 1);
         } else {
-            // Em vez de onClose(), navegue para a tela de mensagem da ECO
-            navigate('/chat'); // Substitua '/chat' pela rota correta da sua tela de mensagem
+            navigate('/chat');
         }
     };
 
@@ -88,6 +87,15 @@ const Sequence: React.FC<SequenceProps> = ({ onClose }) => {
                         onClick={handleNext}
                         className="p-2 rounded-full bg-white/20 backdrop-blur-sm hover:bg-white/40 transition-all"
                         aria-label="Next slide"
+                    >
+                        <ArrowRight size={20} className="text-gray-600 opacity-70" />
+                    </button>
+                )}
+                 {slideIndex === totalSlides - 1 && (
+                    <button
+                        onClick={handleNext} // Use handleNext para ir para o chat
+                        className="p-2 rounded-full bg-white/20 backdrop-blur-sm hover:bg-white/40 transition-all"
+                        aria-label="Go to chat" // Altere o rótulo para indicar a ação
                     >
                         <ArrowRight size={20} className="text-gray-600 opacity-70" />
                     </button>
