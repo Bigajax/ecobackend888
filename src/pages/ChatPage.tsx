@@ -9,6 +9,12 @@ import ChatInput from '../components/ChatInput';
 import { askOpenRouter } from '../api/openrouter';
 import MemoryButton from '../components/MemoryButton'; // Importe o componente MemoryButton
 
+// Defina uma interface para os dados das memórias emocionais
+interface EmotionalMemory {
+  memoria: string;
+  emocao: string;
+}
+
 const initialMessages: Message[] = [
   {
     id: '1',
@@ -24,10 +30,14 @@ const ChatPage: React.FC = () => {
   const navigate = useNavigate();
 
   // Simulação de memórias emocionais (substitua pela sua lógica real)
-  const ultimaMemoria1 = "Você estava se sentindo animado com um novo projeto.";
-  const ultimaEmocao1 = "alegria";
-  const ultimaMemoria2 = "Houve um momento de reflexão sobre seus objetivos.";
-  const ultimaEmocao2 = "calma";
+  const ultimaMemoria1: EmotionalMemory = {
+    memoria: "Você estava se sentindo animado com um novo projeto.",
+    emocao: "alegria",
+  };
+  const ultimaMemoria2: EmotionalMemory = {
+    memoria: "Houve um momento de reflexão sobre seus objetivos.",
+    emocao: "calma",
+  };
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -59,8 +69,8 @@ Contexto atual:
 
 Últimas memórias emocionais registradas (opcional):
 
-- Memória 1: ${ultimaMemoria1} (emoção: ${ultimaEmocao1})
-- Memória 2: ${ultimaMemoria2} (emoção: ${ultimaEmocao2})
+- Memória 1: ${ultimaMemoria1.memoria} (emoção: ${ultimaMemoria1.emocao})
+- Memória 2: ${ultimaMemoria2.memoria} (emoção: ${ultimaMemoria2.emocao})
 
 Diretrizes:
 
@@ -90,8 +100,7 @@ Se não houver memórias registradas, apenas acolha o momento presente.`;
         sender: 'eco',
       };
       setMessages((prev) => [...prev, botMessage]);
-    } catch (error: any) { // Especificar o tipo do erro como any ou Error
-      console.error("Erro ao chamar a API:", error);
+    } catch (error: any) {
       // Trate o erro aqui, exibindo uma mensagem para o usuário ou registrando o erro.
       let errorMessage = "Desculpe, ocorreu um erro ao processar sua mensagem. Por favor, tente novamente.";
       if (error.response && error.response.status === 401) {
@@ -99,10 +108,10 @@ Se não houver memórias registradas, apenas acolha o momento presente.`;
       } else if (error.response && error.response.status === 429) {
         errorMessage = "Limite de requisições excedido. Por favor, tente novamente mais tarde.";
       }
-      const errorMessageObj: Message = { // Correção: Renomeei a variável para evitar duplicidade
+      const errorMessageObj: Message = {
         id: (Date.now() + 2).toString(),
         text: errorMessage,
-        sender: 'eco', // Ou 'system', dependendo de como você quer exibir mensagens de erro
+        sender: 'eco',
       };
       setMessages(prev => [...prev, errorMessageObj]);
 
