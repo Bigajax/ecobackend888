@@ -1,4 +1,4 @@
-import React, { createContext, useState, useContext, ReactNode, useCallback } from 'react';
+import React, { createContext, useState, useContext, ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 interface User {
@@ -31,7 +31,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     const navigate = useNavigate();
 
     // Simulated authentication functions
-    const login = useCallback(async (email: string, password: string) => {
+    const login = async (email: string, password: string) => {
         // In a real app, this would validate credentials with a backend
         if (email && password) {
             setUser({ email });
@@ -39,21 +39,21 @@ export function AuthProvider({ children }: AuthProviderProps) {
         } else {
             throw new Error('Invalid credentials');
         }
-    }, [navigate]);
+    };
 
-    const logout = useCallback(() => {
+    const logout = () => {
         setUser(null);
         navigate('/login'); // Adicione esta linha para redirecionar após o logout
-    }, [navigate]);
+    };
 
-    const register = useCallback(async (email: string, password: string) => {
+    const register = async (email: string, password: string) => {
         // In a real app, this would create a new account in the backend
         if (email && password) {
             setUser({ email });
         } else {
             throw new Error('Invalid registration data');
         }
-    }, []);
+    };
 
     const value = {
         user,
