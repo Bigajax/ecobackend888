@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import Slide from './Slide';
 import { slides } from "../date/slides";
 import { Transition } from 'react-transition-group';
-import { X } from 'lucide-react'; // Importe o ícone de X
+import { X, ArrowLeft, ArrowRight } from 'lucide-react'; // Importe o ícone de X e as setas
 
 interface SequenceProps {
   currentStep: number;
