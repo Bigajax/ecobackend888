@@ -10,14 +10,20 @@ const Sequence: React.FC<SequenceProps> = ({ currentStep }) => {
   // Ajusta o índice para corresponder ao array de slides
   const slideIndex = currentStep - 1;
 
-  // Garante que o índice esteja dentro dos limites do array
+  console.log('Renderizando Sequence com currentStep:', currentStep, 'e slideIndex:', slideIndex);
+  console.log('Conteúdo de slides:', slides);
+
   if (slideIndex < 0 || slideIndex >= slides.length) {
+    console.log('Índice de slide fora dos limites.');
     return null; // Ou renderize algo indicando um erro
   }
 
+  const currentSlideData = slides[slideIndex];
+  console.log('Dados do slide atual:', currentSlideData);
+
   return (
     <div className="sequence-container w-full h-full relative overflow-hidden">
-      <Slide {...slides[slideIndex]} />
+      {currentSlideData && <Slide {...currentSlideData} />}
     </div>
   );
 };
