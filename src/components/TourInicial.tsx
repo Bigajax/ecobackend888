@@ -22,7 +22,7 @@ const TourInicial: React.FC<TourInicialProps> = ({ onClose }) => {
 
   return (
     <div className="fixed top-0 left-0 w-full h-full bg-black/50 z-50 flex items-center justify-center">
-      <div className="bg-white rounded-md shadow-lg p-8 max-w-md w-full relative">
+      <div className="bg-white rounded-md shadow-lg max-w-md w-full relative"> {/* Removido o p-8 */}
         {!showSequence ? (
           <div className="flex flex-col items-center justify-center h-full p-6 text-center">
             <h2 className="text-2xl font-bold mb-4">Bem-vindo ao ECO!</h2>

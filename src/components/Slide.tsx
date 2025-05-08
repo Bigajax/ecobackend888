@@ -125,7 +125,7 @@ const Slide: React.FC<SlideProps> = ({
   return (
     <div
       ref={containerRef}
-      className={`w-full h-full flex flex-col items-center justify-center px-8 transition-all duration-700 ease-in-out`}
+      className={`w-full h-full flex flex-col items-center justify-center transition-all duration-700 ease-in-out`}
       style={{ background }}
     >
       <div className="absolute inset-0 z-0 opacity-20 overflow-hidden">
@@ -137,7 +137,7 @@ const Slide: React.FC<SlideProps> = ({
         />
       </div>
 
-      <h1 className="eco-title text-center relative z-10 mb-4 fade-in" style={{ color: '#333', opacity: 1 }}>{title}</h1>
+      <h1 className="eco-title text-center relative z-10 mb-6 fade-in" style={{ color: '#333', opacity: 1 }}>{title}</h1>
 
       <div ref={bubbleRef} className={`relative ${bubblePosition} z-0 my-8 transition-transform duration-300 ease-out`}>
         <GlassBubble color={color} />
@@ -147,7 +147,7 @@ const Slide: React.FC<SlideProps> = ({
         {text.map((line, index) => (
           <p
             key={index}
-            className={`text-xl sm:text-2xl font-light leading-relaxed mb-4 fade-in-delay-${index + 1}`}
+            className={`text-xl sm:text-2xl font-light leading-relaxed mb-3 fade-in-delay-${index + 1}`}
             style={{ color: '#666', opacity: 1 }}
           >
             {line}
@@ -155,14 +155,14 @@ const Slide: React.FC<SlideProps> = ({
         ))}
       </div>
 
-      <div className="absolute bottom-16 left-0 right-0 flex justify-center gap-8 z-10">
+      <div className="absolute bottom-8 left-0 right-0 flex justify-center gap-8 z-10">
         {onPrev && (
           <button
             onClick={onPrev}
             className="p-2 rounded-full bg-white/20 backdrop-blur-sm hover:bg-white/40 transition-all"
             aria-label="Previous slide"
           >
-            <ArrowLeft size={24} className="text-gray-800" />
+            <ArrowLeft size={20} className="text-gray-600" />
           </button>
         )}
 
@@ -172,7 +172,7 @@ const Slide: React.FC<SlideProps> = ({
             className="p-2 rounded-full bg-white/20 backdrop-blur-sm hover:bg-white/40 transition-all"
             aria-label="Next slide"
           >
-            <ArrowRight size={24} className="text-gray-800" />
+            <ArrowRight size={20} className="text-gray-600" />
           </button>
         )}
       </div>
