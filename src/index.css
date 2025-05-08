@@ -135,26 +135,27 @@ h1, h2, h3, h4, h5, h6 {
   color: transparent;
 }
 
-.slide-enter {
+/* Estilos para a transição dos slides */
+.enter {
   opacity: 0;
-  transform: translateX(100%);
+  transform: translateX(100%); /* Começa fora da tela à direita */
 }
 
-.slide-enter-active {
+.enter-active {
   opacity: 1;
-  transform: translateX(0%);
-  transition: opacity 500ms, transform 500ms;
+  transform: translateX(0%); /* Termina na posição original */
+  transition: opacity 500ms ease-in-out, transform 500ms ease-in-out;
 }
 
-.slide-exit {
+.exit {
   opacity: 1;
-  transform: translateX(0%);
+  transform: translateX(0%); /* Começa na posição original */
 }
 
-.slide-exit-active {
+.exit-active {
   opacity: 0;
-  transform: translateX(-100%);
-  transition: opacity 500ms, transform 500ms;
+  transform: translateX(-100%); /* Sai da tela à esquerda */
+  transition: opacity 500ms ease-in-out, transform 500ms ease-in-out;
 }
 
 .floating {

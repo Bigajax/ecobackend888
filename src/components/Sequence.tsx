@@ -1,6 +1,7 @@
 import React from 'react';
 import Slide from './Slide';
 import { slides } from "../date/slides";
+import { Transition } from 'react-transition-group';
 
 interface SequenceProps {
   currentStep: number; // Recebe o currentStep do TourInicial
@@ -23,7 +24,18 @@ const Sequence: React.FC<SequenceProps> = ({ currentStep }) => {
 
   return (
     <div className="sequence-container w-full h-full relative overflow-hidden">
-      {currentSlideData && <Slide {...currentSlideData} />}
+      <Transition
+        in={slideIndex >= 0 && slideIndex < slides.length}
+        timeout={500}
+        mountOnEnter
+        unmountOnExit
+      >
+        {(state) => (
+          <div className={`absolute inset-0 w-full h-full ${state}`}>
+            {currentSlideData && <Slide {...currentSlideData} />}
+          </div>
+        )}
+      </Transition>
     </div>
   );
 };
