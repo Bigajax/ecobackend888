@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import GlassBubble from './GlassBubble';
 import Sequence from './Sequence';
-import { X } from 'lucide-react';
+import { X, ArrowRight } from 'lucide-react'; // Importe ArrowRight
 
 interface TourInicialProps {
     onClose: () => void;
@@ -42,8 +42,12 @@ const TourInicial: React.FC<TourInicialProps> = ({ onClose }) => {
                         <div className="mb-8">
                             <GlassBubble color="#a78bfa" />
                         </div>
-                        <button onClick={handleIniciarSequence} className="px-4 py-2 bg-indigo-500 text-white rounded-md hover:bg-indigo-600">
+                         <button
+                            onClick={handleIniciarSequence}
+                            className="px-4 py-2 bg-indigo-500 text-white rounded-md hover:bg-indigo-600 flex items-center gap-2" // Adicione seta
+                        >
                             Próximo
+                            <ArrowRight size={16} />
                         </button>
                     </div>
                 ) : (

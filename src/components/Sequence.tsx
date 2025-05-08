@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import Slide from './Slide';
 import { slides } from "../date/slides";
 import { Transition } from 'react-transition-group';
-import { X, ArrowLeft } from 'lucide-react'; // Removi ArrowRight
+import { X, ArrowLeft, ArrowRight } from 'lucide-react';
 
 interface SequenceProps {
     currentStep: number;
@@ -19,7 +19,7 @@ const Sequence: React.FC<SequenceProps> = ({ onClose }) => {
         if (slideIndex < totalSlides - 1) {
             setSlideIndex(prevIndex => prevIndex + 1);
         } else {
-            navigate('/chat'); // Alterado para navegar para a tela de chat
+            navigate('/chat');
         }
     };
 
@@ -82,11 +82,22 @@ const Sequence: React.FC<SequenceProps> = ({ onClose }) => {
                     ))}
                 </div>
 
+                {slideIndex < totalSlides - 1 && (
+                    <button
+                        onClick={handleNext}
+                        className="p-2 rounded-full bg-white/20 backdrop-blur-sm hover:bg-white/40 transition-all"
+                        aria-label="Next slide"
+                    >
+                         <ArrowRight size={20} className="text-gray-600 opacity-70" />
+                    </button>
+                )}
+
                 {slideIndex === totalSlides - 1 && (
                     <button
                         onClick={handleNext}
-                        className="px-6 py-3 bg-blue-500 text-white rounded-full hover:bg-blue-600 transition-colors duration-300"
-                        aria-label="Go to Chat" // Alterado para ir para o Chat
+                        className="px-6 py-3 bg-white/20 text-black rounded-full hover:bg-white/30 transition-colors duration-300
+                                   border border-gray-300 shadow-md" // Estilo mais próximo do design da Apple
+                        aria-label="Go to Chat"
                     >
                         Ir para o Chat
                     </button>
