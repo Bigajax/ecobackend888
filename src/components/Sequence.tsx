@@ -26,21 +26,17 @@ const Sequence: React.FC<SequenceProps> = ({ onClose }) => {
     }
   };
 
-  console.log('Renderizando Sequence com slideIndex:', slideIndex);
-  console.log('Conteúdo de slides:', slides);
-  console.log('Dados do slide atual:', slides[slideIndex]);
-
   return (
-    <div className="sequence-container w-full h-full relative overflow-hidden">
+    <div className="sequence-container w-full h-full flex items-center justify-center overflow-hidden">
       <Transition
-        in={true} // A transição controla a montagem/desmontagem dos slides
-        timeout={500}
+        in={true}
+        timeout={300}
         mountOnEnter
         unmountOnExit
         key={slideIndex}
       >
         {(state) => (
-          <div className={`${state} w-full h-full`}>
+          <div className={`absolute inset-0 w-full h-full flex items-center justify-center ${state}`}>
             {slides[slideIndex] && (
               <Slide
                 {...slides[slideIndex]}
