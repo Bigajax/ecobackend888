@@ -227,10 +227,9 @@ Não conduz — espelha.`;
   };
 
   return (
-    <PhoneFrame>
+    <PhoneFrame className="flex-grow h-full"> {/* Adicionado flex-grow h-full aqui */}
       <div className="flex flex-col h-full bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50">
         <Header title="ECO" showBackButton={false} />
-
         <div className="flex-1 overflow-y-auto p-4">
           {messages.map((message) => (
             <ChatMessage key={message.id} message={message} />
@@ -240,20 +239,6 @@ Não conduz — espelha.`;
           )}
           <div ref={messagesEndRef} />
         </div>
-
-        {/* Removendo os botões da parte superior */}
-        {/* <div className="p-4 flex justify-center space-x-4">
-          <MemoryButton onClick={goToMemoryPage} />
-          <motion.button
-            onClick={goToVoiceMode}
-            className="p-3 bg-white/20 backdrop-blur-md rounded-full text-white"
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-          >
-            <Mic size={24} color="black" />
-          </motion.button>
-        </div> */}
-
         <ChatInput onSendMessage={handleSendMessage} />
       </div>
     </PhoneFrame>
@@ -261,4 +246,3 @@ Não conduz — espelha.`;
 };
 
 export default ChatPage;
-
