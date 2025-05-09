@@ -143,7 +143,8 @@ Se não houver memórias registradas, apenas acolha o momento presente.`;
           <div ref={messagesEndRef} />
         </div>
 
-        <div className="p-4 flex justify-center space-x-4">
+        {/* Removendo os botões da parte superior */}
+        {/* <div className="p-4 flex justify-center space-x-4">
           <MemoryButton onClick={goToMemoryPage} />
           <motion.button
             onClick={goToVoiceMode}
@@ -153,7 +154,7 @@ Se não houver memórias registradas, apenas acolha o momento presente.`;
           >
             <Mic size={24} color="black" />
           </motion.button>
-        </div>
+        </div> */}
 
         <ChatInput onSendMessage={handleSendMessage} />
       </div>
