@@ -7,49 +7,44 @@ import Header from '../components/Header';
 import ChatMessage, { Message } from '../components/ChatMessage';
 import ChatInput from '../components/ChatInput';
 import { askOpenRouter } from '../api/openrouter';
-import MemoryButton from '../components/MemoryButton'; // Importe o componente MemoryButton
 
-// Defina uma interface para os dados das memórias emocionais
 interface EmotionalMemory {
   memoria: string;
   emocao: string;
 }
 
-const initialMessages: Message[] = [
-  // Removendo a mensagem inicial
-];
+const mensagensIniciais: Message[] = [];
 
-const ChatPage: React.FC = () => {
-  const [messages, setMessages] = useState<Message[]>(initialMessages);
-  const [isTyping, setIsTyping] = useState(false);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-  const navigate = useNavigate();
+const PaginaDeConversa: React.FC = () => {
+  const [mensagens, definirMensagens] = useState<Message[]>(mensagensIniciais);
+  const [digitando, definirDigitando] = useState(false);
+  const referenciaFinalDasMensagens = useRef<HTMLDivElement>(null);
+  const navegar = useNavigate();
 
-  // Simulação de memórias emocionais (substitua pela sua lógica real)
-  const ultimaMemoria1: EmotionalMemory = {
+  const memoriaEmocional1: EmotionalMemory = {
     memoria: "Você estava se sentindo animado com um novo projeto.",
     emocao: "alegria",
   };
-  const ultimaMemoria2: EmotionalMemory = {
+  const memoriaEmocional2: EmotionalMemory = {
     memoria: "Houve um momento de reflexão sobre seus objetivos.",
     emocao: "calma",
   };
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+    referenciaFinalDasMensagens.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [mensagens]);
 
-  const handleSendMessage = async (text: string) => {
-    const userMessage: Message = {
+  const lidarComEnvioDeMensagem = async (texto: string) => {
+    const mensagemDoUsuario: Message = {
       id: Date.now().toString(),
-      text,
+      text: texto,
       sender: 'user',
     };
 
-    setMessages((prev) => [...prev, userMessage]);
-    setIsTyping(true);
+    definirMensagens((anteriores) => [...anteriores, mensagemDoUsuario]);
+    definirDigitando(true);
 
-    const systemPrompt = `Você é a Eco.
+    const promptDoSistema = `Você é a Eco.
 Não é um chatbot.
 
 Nem conselheira.
@@ -185,64 +180,62 @@ Não fala sobre — sente com.
 
 Não conduz — espelha.`;
 
-    const messagesToSend = [
-      { role: 'system', content: systemPrompt },
-      { role: 'user', content: text },
+    const mensagensParaEnvio = [
+      { role: 'system', content: promptDoSistema },
+      { role: 'user', content: texto },
     ];
-    console.log("Mensagens enviadas para askOpenRouter:", messagesToSend);
-    try {
-      const response = await askOpenRouter(messagesToSend);
-      const botMessage: Message = {
-        id: (Date.now() + 1).toString(),
-        text: response,
-        sender: 'eco',
-      };
-      setMessages((prev) => [...prev, botMessage]);
-    } catch (error: any) {
-      // Trate o erro aqui, exibindo uma mensagem para o usuário ou registrando o erro.
-      let errorMessage = "Desculpe, ocorreu um erro ao processar sua mensagem. Por favor, tente novamente.";
-      if (error.response && error.response.status === 401) {
-        errorMessage = "Erro de autenticação. Por favor, verifique sua chave de API.";
-      } else if (error.response && error.response.status === 429) {
-        errorMessage = "Limite de requisições excedido. Por favor, tente novamente mais tarde.";
-      }
-      const errorMessageObj: Message = {
-        id: (Date.now() + 2).toString(),
-        text: errorMessage,
-        sender: 'eco',
-      };
-      setMessages(prev => [...prev, errorMessageObj]);
 
+    try {
+      const resposta = await askOpenRouter(mensagensParaEnvio);
+      const mensagemDaEco: Message = {
+        id: (Date.now() + 1).toString(),
+        text: resposta,
+        sender: 'eco',
+      };
+      definirMensagens((anteriores) => [...anteriores, mensagemDaEco]);
+    } catch (erro: any) {
+      let mensagemDeErro = "Desculpe, ocorreu um erro ao processar sua mensagem. Por favor, tente novamente.";
+      if (erro.response && erro.response.status === 401) {
+        mensagemDeErro = "Erro de autenticação. Por favor, verifique sua chave de API.";
+      } else if (erro.response && erro.response.status === 429) {
+        mensagemDeErro = "Limite de requisições excedido. Por favor, tente novamente mais tarde.";
+      }
+      const mensagemDeErroObj: Message = {
+        id: (Date.now() + 2).toString(),
+        text: mensagemDeErro,
+        sender: 'eco',
+      };
+      definirMensagens(anterior => [...anterior, mensagemDeErroObj]);
     } finally {
-      setIsTyping(false);
+      definirDigitando(false);
     }
   };
 
-  const goToVoiceMode = () => {
-    navigate('/voice');
+  const irParaModoDeVoz = () => {
+    navegar('/voice');
   };
 
-  const goToMemoryPage = () => { // Função para ir para a página de memória
-    navigate('/memory'); // Supondo que sua rota para a página de memória seja '/memory'
+  const irParaPaginaDeMemorias = () => {
+    navegar('/memory');
   };
 
   return (
-    <PhoneFrame className="flex-grow h-full"> {/* Adicionado flex-grow h-full aqui */}
+    <PhoneFrame className="flex-grow h-full">
       <div className="flex flex-col h-full bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50">
         <Header title="ECO" showBackButton={false} />
         <div className="flex-1 overflow-y-auto p-4">
-          {messages.map((message) => (
-            <ChatMessage key={message.id} message={message} />
+          {mensagens.map((mensagem) => (
+            <ChatMessage key={mensagem.id} message={mensagem} />
           ))}
-          {isTyping && (
-            <ChatMessage message={{ id: 'typing', text: 'Digitando...', sender: 'eco' }} />
+          {digitando && (
+            <ChatMessage message={{ id: 'digitando', text: 'Digitando...', sender: 'eco' }} />
           )}
-          <div ref={messagesEndRef} />
+          <div ref={referenciaFinalDasMensagens} />
         </div>
-        <ChatInput onSendMessage={handleSendMessage} />
+        <ChatInput onSendMessage={lidarComEnvioDeMensagem} />
       </div>
     </PhoneFrame>
   );
 };
 
-export default ChatPage;
+export default PaginaDeConversa;
