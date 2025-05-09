@@ -46,7 +46,7 @@ import React, { useState } from 'react';
           type="text"
           value={message}
           onChange={(e) => setMessage(e.target.value)}
-          placeholder="Fale com a Eco" // Texto alterado
+          placeholder="Fale com a Eco"
           className="w-full px-4 py-3 bg-transparent focus:outline-none"
         />
         <div className="flex items-center justify-between px-4 py-2">
@@ -67,12 +67,12 @@ import React, { useState } from 'react';
           <div className="flex items-center space-x-2">
             <button
               className="p-2 rounded-full hover:bg-gray-200 focus:outline-none"
-              onClick={handleSendAudio} // Função para enviar áudio
+              onClick={handleSendAudio}
             >
               <Mic size={20} />
             </button>
             <motion.button
-              type="submit"
+              type="submit" // Garante que o botão seja de envio do formulário
               className="w-10 h-10 flex items-center justify-center bg-black text-white rounded-full ml-2"
               whileTap={{ scale: 0.95 }}
               disabled={!message.trim()}
