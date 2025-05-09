@@ -1,15 +1,15 @@
 import React, { useState, useRef } from 'react';
- import { motion } from 'framer-motion';
- import { Send, BookOpen } from 'lucide-react';
- import { useNavigate } from 'react-router-dom';
- import { MdRecordVoiceOver } from 'react-icons/md';
- import { Mic } from 'lucide-react';
+import { motion } from 'framer-motion';
+import { Send, BookOpen } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { MdRecordVoiceOver } from 'react-icons/md';
+import { Mic } from 'lucide-react';
 
- interface ChatInputProps {
+interface ChatInputProps {
   onSendMessage: (message: string) => void;
- }
+}
 
- const ChatInput: React.FC<ChatInputProps> = ({ onSendMessage }) => {
+const ChatInput: React.FC<ChatInputProps> = ({ onSendMessage }) => {
   const [message, setMessage] = useState('');
   const navigate = useNavigate();
   const formRef = useRef<HTMLFormElement>(null);
@@ -45,7 +45,11 @@ import React, { useState, useRef } from 'react';
   };
 
   return (
-    <form onSubmit={handleSubmit} className="mt-auto p-4 border-t border-gray-100" ref={formRef}>
+    <form
+      onSubmit={handleSubmit}
+      className="p-4 border-t border-gray-100 fixed bottom-0 left-0 w-full z-50"
+      ref={formRef}
+    >
       <div
         className="bg-gray-50 rounded-lg overflow-hidden flex flex-col"
         style={{
@@ -95,6 +99,6 @@ import React, { useState, useRef } from 'react';
       </div>
     </form>
   );
- };
+};
 
- export default ChatInput;
+export default ChatInput;
