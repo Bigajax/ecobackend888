@@ -3,30 +3,14 @@ import { motion } from 'framer-motion';
 import { ArrowLeft } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import PhoneFrame from '../components/PhoneFrame';
+import { useAuth } from '../contexts/AuthContext';
+import { buscarMemoriasPorUsuario } from '../api/memoria';
 
 interface EmotionalMemory {
-  memoria: string;
-  emocao: string;
-  data?: string;
+  resumo_eco: string;
+  emocao_principal: string;
+  data_registro?: string;
 }
-
-const mockMemories: EmotionalMemory[] = [
-  {
-    memoria: "Você estava se sentindo animado com um novo projeto.",
-    emocao: "alegria",
-    data: "2025-05-08",
-  },
-  {
-    memoria: "Houve um momento de reflexão sobre seus objetivos.",
-    emocao: "calma",
-    data: "2025-05-06",
-  },
-  {
-    memoria: "Você ficou em dúvida se está no caminho certo.",
-    emocao: "incerteza",
-    data: "2025-05-03",
-  },
-];
 
 const emotionColors: Record<string, string> = {
   alegria: "from-yellow-100 to-yellow-300",
@@ -39,16 +23,66 @@ const emotionColors: Record<string, string> = {
 
 const MemoryPage: React.FC = () => {
   const [memories, setMemories] = useState<EmotionalMemory[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const navigate = useNavigate();
+  const { user } = useAuth();
 
   useEffect(() => {
-    // Aqui você pode futuramente buscar as memórias do banco
-    setMemories(mockMemories);
-  }, []);
+    const carregarMemorias = async () => {
+      if (user?.id) {
+        setLoading(true);
+        setError(null);
+        try {
+          const data = await buscarMemoriasPorUsuario(user.id);
+          setMemories(data as EmotionalMemory[]);
+        } catch (err: any) {
+          console.error("Erro ao buscar memórias:", err.message);
+          setError("Ocorreu um erro ao carregar as memórias.");
+        } finally {
+          setLoading(false);
+        }
+      }
+    };
+
+    carregarMemorias();
+  }, [user?.id]);
 
   const handleBack = () => {
     navigate('/chat');
   };
+
+  if (loading) {
+    return (
+      <PhoneFrame className="flex flex-col h-full bg-gradient-to-br from-white via-purple-50 to-pink-50">
+        <div className="flex items-center p-4">
+          <button onClick={handleBack} className="text-black">
+            <ArrowLeft size={28} />
+          </button>
+          <h2 className="text-xl font-semibold ml-4">Minhas Memórias</h2>
+        </div>
+        <div className="flex-1 flex items-center justify-center">
+          <p className="text-gray-500">Carregando memórias...</p>
+        </div>
+      </PhoneFrame>
+    );
+  }
+
+  if (error) {
+    return (
+      <PhoneFrame className="flex flex-col h-full bg-gradient-to-br from-white via-purple-50 to-pink-50">
+        <div className="flex items-center p-4">
+          <button onClick={handleBack} className="text-black">
+            <ArrowLeft size={28} />
+          </button>
+          <h2 className="text-xl font-semibold ml-4">Minhas Memórias</h2>
+        </div>
+        <div className="flex-1 flex items-center justify-center px-6 text-center">
+          <p className="text-red-500">{error}</p>
+        </div>
+      </PhoneFrame>
+    );
+  }
 
   return (
     <PhoneFrame className="flex flex-col h-full bg-gradient-to-br from-white via-purple-50 to-pink-50">
@@ -66,14 +100,14 @@ const MemoryPage: React.FC = () => {
           memories.map((mem, index) => (
             <motion.div
               key={index}
-              className={`rounded-xl p-4 mb-4 shadow-md bg-gradient-to-br ${emotionColors[mem.emocao] || 'from-gray-100 to-gray-300'}`}
+              className={`rounded-xl p-4 mb-4 shadow-md bg-gradient-to-br ${emotionColors[mem.emocao_principal] || 'from-gray-100 to-gray-300'}`}
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: index * 0.1 }}
             >
-              <p className="text-sm text-gray-700 mb-1">{mem.data}</p>
-              <p className="text-black text-base">{mem.memoria}</p>
-              <span className="text-sm text-gray-600 italic">Emoção: {mem.emocao}</span>
+              {mem.data_registro && <p className="text-sm text-gray-700 mb-1">{new Date(mem.data_registro).toLocaleDateString()}</p>}
+              <p className="text-black text-base">{mem.resumo_eco}</p>
+              <span className="text-sm text-gray-600 italic">Emoção: {mem.emocao_principal}</span>
             </motion.div>
           ))
         )}
