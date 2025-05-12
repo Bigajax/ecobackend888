@@ -9,58 +9,81 @@ import forbidden from '../eco_prompts/eco_forbidden_patterns.md';
 import genericInputs from '../eco_prompts/eco_generic_inputs.md';
 import guidelines from '../eco_prompts/eco_guidelines_general.md';
 
-export const askOpenRouter = async (userMessages: { role: string; content: string }[]) => {
-  const apiKey = import.meta.env.VITE_OPENROUTER_API_KEY;
+// Função auxiliar para gerar saudação com base no horário
+function gerarSaudacaoPersonalizada(nome?: string) {
+  const hora = new Date().getHours();
+  let saudacao;
 
-  if (!apiKey) {
-    console.error('Erro: A chave de API do OpenRouter não foi encontrada nas variáveis de ambiente.');
-    throw new Error('Chave de API do OpenRouter não configurada.');
-  }
+  if (hora < 12) saudacao = 'Bom dia';
+  else if (hora < 18) saudacao = 'Boa tarde';
+  else saudacao = 'Boa noite';
 
-  // Junta todos os prompts como um único system prompt
-  const systemPrompt = [
-    corePersonality,
-    emotions,
-    examples,
-    farewell,
-    forbidden,
-    genericInputs,
-    guidelines,
-  ].join('\n\n');
+  if (nome) return `${saudacao}, ${nome}. Você chegou até aqui. Isso já diz algo.`;
+  return `Olá. Você chegou até aqui. Isso já diz algo.`;
+}
 
-  const messages = [
-    {
-      role: 'system',
-      content: systemPrompt,
-    },
-    ...userMessages,
-  ];
+export const askOpenRouter = async (
+  userMessages: { role: string; content: string }[],
+  userName?: string // <- nome do usuário opcional
+) => {
+  const apiKey = import.meta.env.VITE_OPENROUTER_API_KEY;
 
-  try {
-    const response = await axios.post(
-      'https://openrouter.ai/api/v1/chat/completions',
-      {
-        model: 'openai/gpt-3.5-turbo',
-        messages: messages,
-      },
-      {
-        headers: {
-          'Authorization': `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
-        },
-      }
-    );
+  if (!apiKey) {
+    console.error('Erro: A chave de API do OpenRouter não foi encontrada nas variáveis de ambiente.');
+    throw new Error('Chave de API do OpenRouter não configurada.');
+  }
 
-    const message = response.data?.choices?.[0]?.message?.content;
-    if (!message) {
-      console.error('Erro: Estrutura de resposta inesperada da OpenRouter:', response.data);
-      throw new Error('Estrutura de resposta inválida.');
-    }
+  // Junta todos os prompts como um único system prompt
+  const systemPrompt = [
+    corePersonality,
+    emotions,
+    examples,
+    farewell,
+    forbidden,
+    genericInputs,
+    guidelines,
+  ].join('\n\n');
 
-    return message;
+  // Saudação com horário e nome
+  const saudacao = gerarSaudacaoPersonalizada(userName);
 
-  } catch (error: any) {
-    console.error('Erro na OpenRouter:', error);
-    throw error;
-  }
+  const messages = [
+    {
+      role: 'system',
+      content: systemPrompt,
+    },
+    {
+      role: 'user',
+      content: saudacao, // <- entra antes da conversa real
+    },
+    ...userMessages,
+  ];
+
+  try {
+    const response = await axios.post(
+      'https://openrouter.ai/api/v1/chat/completions',
+      {
+        model: 'openai/gpt-3.5-turbo',
+        messages: messages,
+      },
+      {
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+      }
+    );
+
+    const message = response.data?.choices?.[0]?.message?.content;
+    if (!message) {
+      console.error('Erro: Estrutura de resposta inesperada da OpenRouter:', response.data);
+      throw new Error('Estrutura de resposta inválida.');
+    }
+
+    return message;
+
+  } catch (error: any) {
+    console.error('Erro na OpenRouter:', error);
+    throw error;
+  }
 };
