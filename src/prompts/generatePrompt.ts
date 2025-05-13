@@ -13,8 +13,8 @@ import ecoPrincipios from '../eco_prompts/eco_principios_poeticos.md'; // Import
 
 // Função que une todos os blocos em um único Prompt Mestre
 export const gerarPromptMestre = (): string => {
-  return [
-    `## MANIFESTO FONTE DA ECO
+  return [
+    `## MANIFESTO FONTE DA ECO
 
 ${ecoManifesto}
 
@@ -49,5 +49,5 @@ ${ecoForbidden}
 ## DESPEDIDA DA ECO
 
 ${ecoFarewell}`,
-  ].join('\n\n');
+  ].join('\n\n');
 };

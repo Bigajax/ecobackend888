@@ -13,31 +13,31 @@ import principiosPoeticos from '../eco_prompts/eco_principios_poeticos.md'; // I
 
 // Função auxiliar para gerar saudação com base no horário
 function gerarSaudacaoPersonalizada(nome?: string) {
-  const hora = new Date().getHours();
-  let saudacao;
+  const hora = new Date().getHours();
+  let saudacao;
 
-  if (hora < 12) saudacao = 'Bom dia';
-  else if (hora < 18) saudacao = 'Boa tarde';
-  else saudacao = 'Boa noite';
+  if (hora < 12) saudacao = 'Bom dia';
+  else if (hora < 18) saudacao = 'Boa tarde';
+  else saudacao = 'Boa noite';
 
-  if (nome) return `${saudacao}, ${nome}. Você chegou até aqui. Isso já diz algo.`;
-  return `Olá. Você chegou até aqui. Isso já diz algo.`;
+  if (nome) return `${saudacao}, ${nome}. Você chegou até aqui. Isso já diz algo.`;
+  return `Olá. Você chegou até aqui. Isso já diz algo.`;
 }
 
 export const askOpenRouter = async (
-  userMessages: { role: string; content: string }[],
-  userName?: string // <- nome do usuário opcional
+  userMessages: { role: string; content: string }[],
+  userName?: string // <- nome do usuário opcional
 ) => {
-  const apiKey = import.meta.env.VITE_OPENROUTER_API_KEY;
+  const apiKey = import.meta.env.VITE_OPENROUTER_API_KEY;
 
-  if (!apiKey) {
-    console.error('Erro: A chave de API do OpenRouter não foi encontrada nas variáveis de ambiente.');
-    throw new Error('Chave de API do OpenRouter não configurada.');
-  }
+  if (!apiKey) {
+    console.error('Erro: A chave de API do OpenRouter não foi encontrada nas variáveis de ambiente.');
+    throw new Error('Chave de API do OpenRouter não configurada.');
+  }
 
-  // Junta todos os prompts como um único system prompt, incluindo o manifesto e os princípios
-  const systemPrompt = [
-    `## MANIFESTO FONTE DA ECO
+  // Junta todos os prompts como um único system prompt, incluindo o manifesto e os princípios
+  const systemPrompt = [
+    `## MANIFESTO FONTE DA ECO
 
 ${manifesto}
 
@@ -72,48 +72,48 @@ ${forbidden}
 ## DESPEDIDA DA ECO
 
 ${farewell}`,
-  ].join('\n\n');
+  ].join('\n\n');
 
-  // Saudação com horário e nome
-  const saudacao = gerarSaudacaoPersonalizada(userName);
+  // Saudação com horário e nome
+  const saudacao = gerarSaudacaoPersonalizada(userName);
 
-  const messages = [
-    {
-      role: 'system',
-      content: systemPrompt,
-    },
-    {
-      role: 'user',
-      content: saudacao, // <- entra antes da conversa real
-    },
-    ...userMessages,
-  ];
+  const messages = [
+    {
+      role: 'system',
+      content: systemPrompt,
+    },
+    {
+      role: 'user',
+      content: saudacao, // <- entra antes da conversa real
+    },
+    ...userMessages,
+  ];
 
-  try {
-    const response = await axios.post(
-      'https://openrouter.ai/api/v1/chat/completions',
-      {
-        model: 'openai/gpt-3.5-turbo',
-        messages: messages,
-      },
-      {
-        headers: {
-          'Authorization': `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
-        },
-      }
-    );
+  try {
+    const response = await axios.post(
+      'https://openrouter.ai/api/v1/chat/completions',
+      {
+        model: 'openai/gpt-3.5-turbo',
+        messages: messages,
+      },
+      {
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+      }
+    );
 
-    const message = response.data?.choices?.[0]?.message?.content;
-    if (!message) {
-      console.error('Erro: Estrutura de resposta inesperada da OpenRouter:', response.data);
-      throw new Error('Estrutura de resposta inválida.');
-    }
+    const message = response.data?.choices?.[0]?.message?.content;
+    if (!message) {
+      console.error('Erro: Estrutura de resposta inesperada da OpenRouter:', response.data);
+      throw new Error('Estrutura de resposta inválida.');
+    }
 
-    return message;
+    return message;
 
-  } catch (error: any) {
-    console.error('Erro na OpenRouter:', error);
-    throw error;
-  }
+  } catch (error: any) {
+    console.error('Erro na OpenRouter:', error);
+    throw error;
+  }
 };
