@@ -1,15 +1,15 @@
 import axios from 'axios';
 
-// Importa os arquivos .md como texto puro (graças ao vite-plugin-string)
-import corePersonality from '../eco_prompts/eco_core_personality.md';
-import emotions from '../eco_prompts/eco_emotions.md';
-import examples from '../eco_prompts/eco_examples_realistic.md';
-import farewell from '../eco_prompts/eco_farewell.md';
-import forbidden from '../eco_prompts/eco_forbidden_patterns.md';
-import genericInputs from '../eco_prompts/eco_generic_inputs.md';
-import guidelines from '../eco_prompts/eco_guidelines_general.md';
-import manifesto from '../eco_prompts/eco_manifesto_fonte.md'; // Importe o manifesto
-import principiosPoeticos from '../eco_prompts/eco_principios_poeticos.md'; // Importe os princípios poéticos
+// Importa os arquivos .txt
+import corePersonality from '../eco_prompts/eco_core_personality.txt';
+import emotions from '../eco_prompts/eco_emotions.txt';
+import examples from '../eco_prompts/eco_examples_realistic.txt';
+import farewell from '../eco_prompts/eco_farewell.txt';
+import forbidden from '../eco_prompts/eco_forbidden_patterns.txt';
+import genericInputs from '../eco_prompts/eco_generic_inputs.txt';
+import guidelines from '../eco_prompts/eco_guidelines_general.txt';
+import manifesto from '../eco_prompts/eco_manifesto_fonte.txt';
+import principiosPoeticos from '../eco_prompts/eco_principios_poeticos.txt';
 
 // Função auxiliar para gerar saudação com base no horário
 function gerarSaudacaoPersonalizada(nome?: string) {
@@ -35,7 +35,7 @@ export const askOpenRouter = async (
     throw new Error('Chave de API do OpenRouter não configurada.');
   }
 
-  // Junta todos os prompts como um único system prompt, incluindo o manifesto e os princípios
+  // Junta todos os prompts como um único prompt do sistema, incluindo o manifesto e os princípios
   const systemPrompt = [
     `## MANIFESTO FONTE DA ECO
 
