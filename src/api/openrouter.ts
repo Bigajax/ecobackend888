@@ -10,6 +10,7 @@ import genericInputs from '../eco_prompts/eco_generic_inputs.txt';
 import guidelines from '../eco_prompts/eco_guidelines_general.txt';
 import manifesto from '../eco_prompts/eco_manifesto_fonte.txt';
 import principiosPoeticos from '../eco_prompts/eco_principios_poeticos.txt';
+import behavioralInstructions from '../eco_prompts/eco_behavioral_instructions.txt'; // <-- NOVO
 
 // Função auxiliar para gerar saudação com base no horário
 function gerarSaudacaoPersonalizada(nome?: string) {
@@ -35,7 +36,7 @@ export const askOpenRouter = async (
     throw new Error('Chave de API do OpenRouter não configurada.');
   }
 
-  // Junta todos os prompts como um único prompt do sistema, incluindo o manifesto e os princípios
+  // Junta todos os prompts como um único prompt do sistema
   const systemPrompt = [
     `## MANIFESTO FONTE DA ECO
 
@@ -44,6 +45,10 @@ ${manifesto}
 ## PRINCÍPIOS POÉTICOS DA ECO
 
 ${principiosPoeticos}
+
+## INSTRUÇÕES COMPORTAMENTAIS DA ECO
+
+${behavioralInstructions}
 
 ## PERSONALIDADE PRINCIPAL DA ECO
 
@@ -74,7 +79,6 @@ ${forbidden}
 ${farewell}`,
   ].join('\n\n');
 
-  // Saudação com horário e nome
   const saudacao = gerarSaudacaoPersonalizada(userName);
 
   const messages = [
@@ -84,7 +88,7 @@ ${farewell}`,
     },
     {
       role: 'user',
-      content: saudacao, // <- entra antes da conversa real
+      content: saudacao,
     },
     ...userMessages,
   ];
@@ -93,12 +97,12 @@ ${farewell}`,
     const response = await axios.post(
       'https://openrouter.ai/api/v1/chat/completions',
       {
-        model: 'openai/gpt-3.5-turbo',
+        model: 'openai/gpt-4', // <-- AQUI ESTÁ A MUDANÇA PARA O CHATGPT 4.0
         messages: messages,
       },
       {
         headers: {
-          'Authorization': `Bearer ${apiKey}`,
+          Authorization: `Bearer ${apiKey}`,
           'Content-Type': 'application/json',
         },
       }
@@ -111,7 +115,6 @@ ${farewell}`,
     }
 
     return message;
-
   } catch (error: any) {
     console.error('Erro na OpenRouter:', error);
     throw error;

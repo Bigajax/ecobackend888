@@ -7,10 +7,10 @@ import { Mic } from 'lucide-react';
 
 interface ChatInputProps {
     onSendMessage: (message: string) => void;
-    onSaveMemory: () => void; // Prop para a função de salvar memória
+    onRegistroManual: () => void; // Prop para a função de registro manual (renomeado)
 }
 
-const ChatInput: React.FC<ChatInputProps> = ({ onSendMessage, onSaveMemory }) => {
+const ChatInput: React.FC<ChatInputProps> = ({ onSendMessage, onRegistroManual }) => {
     const [message, setMessage] = useState('');
     const navigate = useNavigate();
     const formRef = useRef<HTMLFormElement>(null);
@@ -24,7 +24,7 @@ const ChatInput: React.FC<ChatInputProps> = ({ onSendMessage, onSaveMemory }) =>
     };
 
     const handleMemoryClick = () => {
-        onSaveMemory(); // Chama a função para salvar a memória
+        onRegistroManual(); // Chama a função para registrar a memória manualmente
     };
 
     const goToVoicePage = () => {
@@ -65,7 +65,7 @@ const ChatInput: React.FC<ChatInputProps> = ({ onSendMessage, onSaveMemory }) =>
                     <div className="flex items-center space-x-2">
                         <button
                             className="p-2 rounded-full hover:bg-gray-200 focus:outline-none"
-                            onClick={handleMemoryClick} // Alterado para handleMemoryClick
+                            onClick={handleMemoryClick} // Agora chama handleMemoryClick
                         >
                             <BookOpen size={20} />
                         </button>
