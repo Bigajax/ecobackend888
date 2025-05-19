@@ -1,22 +1,18 @@
-import express from 'express';
+import express, { Express } from 'express';
 import bodyParser from 'body-parser';
-import openrouterRoutes from './routes/openrouterRoutes'; // Importe as rotas da OpenRouter
-import promptRoutes from './routes/promptRoutes'; // Importe as rotas para obter o prompt mestre
-import { analyzeSentiment, analyzeEmotions } from './services/googleCloudService'; // Importe o serviço do Google Cloud
+import { VercelRequest, VercelResponse } from '@vercel/node';
+import openrouterRoutes from './routes/openrouterRoutes';
+import promptRoutes from './routes/promptRoutes';
+import { analyzeSentiment, analyzeEmotions } from './services/googleCloudService';
 
-const app = express();
-const port = process.env.PORT || 5000;
+const app: Express = express();
 
 app.use(bodyParser.json());
 
-// Use as rotas da OpenRouter para comunicação com a OpenRouter
 app.use('/api', openrouterRoutes);
-
-// Use as rotas para obter o prompt mestre do backend
 app.use('/api', promptRoutes);
 
-// Rotas para análise de sentimento e emoções (Google Cloud)
-app.post('/api/analyze-sentiment', async (req, res) => {
+app.post('/api/analyze-sentiment', async (req: VercelRequest, res: VercelResponse) => {
   const { text } = req.body;
   if (!text) {
     return res.status(400).json({ error: 'Texto não fornecido.' });
@@ -30,7 +26,7 @@ app.post('/api/analyze-sentiment', async (req, res) => {
   }
 });
 
-app.post('/api/analyze-emotions', async (req, res) => {
+app.post('/api/analyze-emotions', async (req: VercelRequest, res: VercelResponse) => {
   const { text } = req.body;
   if (!text) {
     return res.status(400).json({ error: 'Texto não fornecido.' });
@@ -44,6 +40,6 @@ app.post('/api/analyze-emotions', async (req, res) => {
   }
 });
 
-app.listen(port, () => {
-  console.log(`Servidor rodando na porta ${port}`);
-});
+export default async (req: VercelRequest, res: VercelResponse) => {
+  await app(req, res);
+};
