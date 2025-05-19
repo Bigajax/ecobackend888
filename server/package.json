@@ -1,0 +1,31 @@
+{
+  "name": "server",
+  "version": "1.0.0",
+  "description": "Backend for ECO project (Vercel Serverless Functions)",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js"
+  },
+  "keywords": [
+    "vercel",
+    "serverless",
+    "backend",
+    "eco"
+  ],
+  "author": "Seu Nome Aqui",
+  "license": "ISC",
+  "type": "commonjs",
+  "engines": {
+    "node": ">=14.0.0"
+  },
+  "dependencies": {
+    "@vercel/node": "^3.0.19",
+    "axios": "^1.6.7",
+    "fs-extra": "^11.3.0"
+   
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.0"
+  }
+}
