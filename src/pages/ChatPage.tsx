@@ -11,7 +11,7 @@ import { gerarPromptMestre } from '../utils/generatePrompt.ts';
 import TelaDeHistoricoDeMemorias from '../components/TelaDeHistoricoDeMemorias';
 import { salvarMemoria } from '../api/memoria';
 // import { useSpeechSynthesis } from 'react-speech-kit'; // REMOVA ESTA IMPORTAÇÃO
-import { KokoroTTS } from 'kokoro-js'; // IMPORTA A BIBLIOTECA KOKORO-JS
+// import { KokoroTTS } from 'kokoro-js'; // IMPORTA A BIBLIOTECA KOKORO-JS
 
 interface EmotionalMemory {
   memoria: string;
@@ -33,10 +33,10 @@ const PaginaDeConversa: React.FC = () => {
   const [ultimaIntensidadeDetectada, setUltimaIntensidadeDetectada] = useState<number | null>(null);
   const [feedback, setFeedback] = useState<{ [messageId: string]: 'like' | 'dislike' | null }>({});
   // const { speak, cancel, speaking, supported } = useSpeechSynthesis(); // REMOVA O HOOK DO REACT-SPEECH-KIT
-  const [ttsEngine, setTtsEngine] = useState<KokoroTTS | null>(null);
-  const [speaking, setSpeaking] = useState(false);
-  const [currentUtterance, setCurrentUtterance] = useState<string | null>(null);
-  const [speakingSupported, setSpeakingSupported] = useState(false); // Novo estado para indicar suporte TTS
+  // const [ttsEngine, setTtsEngine] = useState<KokoroTTS | null>(null);
+  // const [speaking, setSpeaking] = useState(false);
+  // const [currentUtterance, setCurrentUtterance] = useState<string | null>(null);
+  // const [speakingSupported, setSpeakingSupported] = useState(false); // Novo estado para indicar suporte TTS
   const [mensagensAnteriores, setMensagensAnteriores] = useState<Message[]>([]);
   const [promptDoSistema, setPromptDoSistema] = useState<string>('');
 
@@ -50,22 +50,6 @@ const PaginaDeConversa: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    const initializeTTS = async () => {
-      try {
-        const modelId = "onnx-community/kokoro-82M-v1.0-onnx"; // Exemplo de model_id
-        const tts = await KokoroTTS.from_pretrained(modelId);
-        setTtsEngine(tts);
-        setSpeakingSupported(true);
-      } catch (error) {
-        console.error("Erro ao inicializar o Kokoro TTS:", error);
-        setSpeakingSupported(false);
-      }
-    };
-
-    initializeTTS();
-  }, []);
-
-  useEffect(() => {
     referenciaFinalDasMensagens.current?.scrollIntoView({ behavior: 'smooth' });
     const ultimaEco = mensagens.slice().reverse().find(msg => msg.sender === 'eco');
     setUltimaMensagemEco(ultimaEco || null);
@@ -76,37 +60,13 @@ const PaginaDeConversa: React.FC = () => {
     navigator.clipboard.writeText(text);
   };
 
-  const handleSpeakMessage = async (text: string) => {
-    if (ttsEngine && text && speakingSupported) {
-      setSpeaking(true);
-      setCurrentUtterance(text);
-      try {
-        const audio = await ttsEngine.generate(text, { voice: 'af_heart' });
-        const audioBlob = new Blob([audio], { type: 'audio/wav' }); // Ajuste o tipo conforme necessário
-        const audioUrl = URL.createObjectURL(audioBlob);
-        const audioElement = new Audio(audioUrl);
-        audioElement.onended = () => {
-          setSpeaking(false);
-          URL.revokeObjectURL(audioUrl); // Limpar a URL do objeto
-        };
-        audioElement.play();
-      } catch (error) {
-        console.error("Erro ao gerar fala:", error);
-        setSpeaking(false);
-      }
-    } else if (!speakingSupported) {
-      alert("Text-to-speech não está disponível.");
-    }
+  const handleSpeakMessage = (text: string) => {
+    // Lógica de Text-to-Speech será implementada aqui com a nova biblioteca ou API
+    alert("Funcionalidade de Text-to-Speech será implementada aqui.");
   };
 
   const handleStopSpeak = () => {
-    const audioElement = document.querySelector('audio');
-    if (audioElement) {
-      audioElement.pause();
-      audioElement.currentTime = 0;
-    }
-    setSpeaking(false);
-    setCurrentUtterance(null);
+    // Lógica para interromper a fala
   };
 
   const handleLikeMessage = (messageId: string) => {
@@ -228,17 +188,7 @@ const PaginaDeConversa: React.FC = () => {
           onSendMessage={lidarComEnvioDeMensagem}
           onRegistroManual={handleRegistroManual}
         />
-        {speaking && speakingSupported && currentUtterance && (
-          <div className="fixed bottom-0 left-0 w-full bg-gray-100 p-4 shadow-md flex justify-around items-center">
-            <span>Falando: {currentUtterance}</span>
-            <button onClick={handleStopSpeak} className="px-4 py-2 bg-red-500 text-white rounded">Parar</button>
-          </div>
-        )}
-        {speakingSupported === false && (
-          <div className="fixed bottom-0 left-0 w-full bg-yellow-200 p-4 shadow-md text-center">
-            <span>Text-to-speech não está disponível.</span>
-          </div>
-        )}
+        {/* REMOVEU A RENDERIZAÇÃO CONDICIONAL DO KOKORO-JS */}
       </div>
       {isMemoryHistoryOpen && (
         <TelaDeHistoricoDeMemorias onClose={() => setIsMemoryHistoryOpen(false)} />

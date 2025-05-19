@@ -16,7 +16,6 @@
     "body-parser": "^2.2.0",
     "express": "^5.1.0",
     "framer-motion": "^11.18.2",
-    "kokoro-js": "^1.2.1",
     "lucide-react": "^0.344.0",
     "prop-types": "^15.8.1",
     "react": "^18.3.1",
