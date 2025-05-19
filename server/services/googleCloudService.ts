@@ -1,6 +1,6 @@
 import { LanguageServiceClient } from '@google-cloud/language';
 import { protos } from '@google-cloud/language';
-type SentimentAnalysisResult = protos.google.cloud.language.v1.AnalyzeSentimentResponse.IDocumentSentiment;
+type SentimentAnalysisResult = protos.google.cloud.language.v1.IAnalyzeSentimentResponse.IDocumentSentiment; // Tente IAnalyzeSentimentResponse
 
 // Instantiates a client
 const languageClient = new LanguageServiceClient({
@@ -14,15 +14,15 @@ const languageClient = new LanguageServiceClient({
 async function analyzeSentiment(text: string): Promise<SentimentAnalysisResult> {
   const document = {
     content: text,
-    type: 'PLAIN_TEXT' as const, // 'as const' para inferir um tipo literal
+    type: 'PLAIN_TEXT' as const,
   };
 
   try {
     const [result] = await languageClient.analyzeSentiment({ document: document });
-    const sentiment: SentimentAnalysisResult = result.documentSentiment!; // '!' indica que sabemos que não será null/undefined
+    const sentiment: SentimentAnalysisResult = result.documentSentiment!;
     console.log(`Sentiment: score = ${sentiment.score}, magnitude = ${sentiment.magnitude}`);
     return sentiment;
-  } catch (error: any) { // 'any' pode ser substituído por um tipo de erro mais específico se souber qual é
+  } catch (error: any) {
     console.error('ERROR:', error);
     throw error;
   }
@@ -35,9 +35,7 @@ async function analyzeEmotions(text: string): Promise<SentimentAnalysisResult> {
   };
 
   try {
-    const [result] = await languageClient.analyzeSentiment({ document: document }); // Use analyzeSentiment para obter informações básicas de emoção (score e magnitude)
-    // Para uma análise de emoção mais detalhada (atualmente em beta), você pode precisar usar outro método.
-    // Consulte a documentação da Google Cloud Natural Language API para os métodos de análise de emoção.
+    const [result] = await languageClient.analyzeSentiment({ document: document });
     const sentiment: SentimentAnalysisResult = result.documentSentiment!;
     return sentiment;
   } catch (error: any) {
@@ -46,4 +44,4 @@ async function analyzeEmotions(text: string): Promise<SentimentAnalysisResult> {
   }
 }
 
-module.exports = { analyzeSentiment, analyzeEmotions };
+export { analyzeSentiment, analyzeEmotions }; // Use export { ... }

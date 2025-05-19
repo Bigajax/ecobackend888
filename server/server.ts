@@ -1,4 +1,3 @@
-// server.ts
 import express, { Express } from 'express';
 import bodyParser from 'body-parser';
 import { VercelRequest, VercelResponse } from '@vercel/node';
@@ -11,7 +10,7 @@ app.use(bodyParser.json());
 app.use('/api', openrouterRoutes);
 app.use('/api', promptRoutes);
 
-app.post('/api/analyze-sentiment', async (req: VercelRequest, res: VercelResponse) => { // Use Vercel types
+app.post('/api/analyze-sentiment', async (req: VercelRequest, res: VercelResponse) => {
   try {
     const { text } = req.body;
     if (!text) {
@@ -25,7 +24,7 @@ app.post('/api/analyze-sentiment', async (req: VercelRequest, res: VercelRespons
   }
 });
 
-app.post('/api/analyze-emotions', async (req: VercelRequest, res: VercelResponse) => { // Use Vercel types
+app.post('/api/analyze-emotions', async (req: VercelRequest, res: VercelResponse) => {
   try {
     const { text } = req.body;
     if (!text) {
