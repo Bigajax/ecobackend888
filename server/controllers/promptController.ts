@@ -4,16 +4,17 @@ import path from 'path';
 
 export const getPromptMestre = async (req: Request, res: Response) => {
   try {
-    const manifestoPath = path.join(__dirname, '../assets/eco_prompts/eco_manifesto_fonte.txt');
-    const principiosPath = path.join(__dirname, '../assets/eco_prompts/eco_principios_poeticos.txt');
-    const behavioralPath = path.join(__dirname, '../assets/eco_prompts/eco_behavioral_instructions.txt');
-    const corePath = path.join(__dirname, '../assets/eco_prompts/eco_core_personality.txt');
-    const guidelinesPath = path.join(__dirname, '../assets/eco_prompts/eco_guidelines_general.txt');
-    const emotionsPath = path.join(__dirname, '../assets/eco_prompts/eco_emotions.txt');
-    const examplesPath = path.join(__dirname, '../assets/eco_prompts/eco_examples_realistic.txt');
-    const genericPath = path.join(__dirname, '../assets/eco_prompts/eco_generic_inputs.txt');
-    const forbiddenPath = path.join(__dirname, '../assets/eco_prompts/eco_forbidden_patterns.txt');
-    const farewellPath = path.join(__dirname, '../assets/eco_prompts/eco_farewell.txt');
+    const assetsDir = path.join(process.cwd(), 'assets'); // Alterado para process.cwd()
+    const manifestoPath = path.join(assetsDir, 'eco_manifesto_fonte.txt');
+    const principiosPath = path.join(assetsDir, 'eco_principios_poeticos.txt');
+    const behavioralPath = path.join(assetsDir, 'eco_behavioral_instructions.txt');
+    const corePath = path.join(assetsDir, 'eco_core_personality.txt');
+    const guidelinesPath = path.join(assetsDir, 'eco_guidelines_general.txt');
+    const emotionsPath = path.join(assetsDir, 'eco_emotions.txt');
+    const examplesPath = path.join(assetsDir, 'eco_examples_realistic.txt');
+    const genericPath = path.join(assetsDir, 'eco_generic_inputs.txt');
+    const forbiddenPath = path.join(assetsDir, 'eco_forbidden_patterns.txt');
+    const farewellPath = path.join(assetsDir, 'eco_farewell.txt');
 
     const [
       ecoManifesto,

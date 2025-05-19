@@ -26,7 +26,7 @@ export const askOpenRouter = async (
   }
 
   try {
-    const assetsDir = path.join(__dirname, '../assets');
+    const assetsDir = path.join(process.cwd(), 'assets'); // Alterado para process.cwd()
     const manifestoPath = path.join(assetsDir, 'eco_manifesto_fonte.txt');
     const principiosPoeticosPath = path.join(assetsDir, 'eco_principios_poeticos.txt');
     const behavioralInstructionsPath = path.join(assetsDir, 'eco_behavioral_instructions.txt');
