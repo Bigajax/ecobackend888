@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { askOpenRouter } from '../services/openrouterService';
+import { callOpenRouterApi } from '../services/openrouter'; // <--- Importação corrigida
 
 export const handleAskEco = async (req: Request, res: Response) => {
   try {
@@ -10,7 +10,7 @@ export const handleAskEco = async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Por favor, forneça um array de mensagens.' });
     }
 
-    const response = await askOpenRouter(userMessages, userName);
+    const response = await callOpenRouterApi(userMessages, userName); // <--- Chamada à função correta
     res.json({ response });
   } catch (error: any) {
     console.error('Erro ao processar requisição da OpenRouter:', error);
