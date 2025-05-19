@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Slide from './Slide';
-import { slides } from "../date/slides";
+import { slides } from "../data/slides";
 import { Transition } from 'react-transition-group';
 import { X, ArrowLeft, ArrowRight } from 'lucide-react';
 

@@ -1,13 +1,21 @@
-// lib/Express.js
-const express = require('express');
-const bodyParser = require('body-parser');
-const { analyzeSentiment, analyzeEmotions } = require('./googleCloudService'); // Importe o serviço do arquivo correto
+import express from 'express';
+import bodyParser from 'body-parser';
+import openrouterRoutes from './routes/openrouterRoutes'; // Importe as rotas da OpenRouter
+import promptRoutes from './routes/promptRoutes'; // Importe as rotas para obter o prompt mestre
+import { analyzeSentiment, analyzeEmotions } from './services/googleCloudService'; // Importe o serviço do Google Cloud
 
 const app = express();
 const port = process.env.PORT || 5000;
 
 app.use(bodyParser.json());
 
+// Use as rotas da OpenRouter para comunicação com a OpenRouter
+app.use('/api', openrouterRoutes);
+
+// Use as rotas para obter o prompt mestre do backend
+app.use('/api', promptRoutes);
+
+// Rotas para análise de sentimento e emoções (Google Cloud)
 app.post('/api/analyze-sentiment', async (req, res) => {
   const { text } = req.body;
   if (!text) {
