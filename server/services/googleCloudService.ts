@@ -1,5 +1,6 @@
-import { LanguageServiceClient } from '@google-cloud/language').v1;
-import { SentimentAnalysisResult } from '@google-cloud/language/build/src/v1'; // Importe a definição de tipo, se existir
+import { LanguageServiceClient } from '@google-cloud/language';
+import { protos } from '@google-cloud/language';
+type SentimentAnalysisResult = protos.google.cloud.language.v1.AnalyzeSentimentResponse.IDocumentSentiment;
 
 // Instantiates a client
 const languageClient = new LanguageServiceClient({

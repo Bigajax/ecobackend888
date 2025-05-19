@@ -1,16 +1,16 @@
-import { Request, Response } from 'express';
-import { callOpenRouterApi } from '../services/openrouter'; // <--- Importação corrigida
+import { Request, Response } from 'express'; // Import Express types AQUI
+import { askOpenRouter } from '../services/openrouter';
 
-export const handleAskEco = async (req: Request, res: Response) => {
+export const handleAskEco = async (req: Request, res: Response) => { // Use Express types AQUI
   try {
-    const userMessages = req.body.messages; // Assumindo que o front-end enviará um array de mensagens no corpo da requisição
-    const userName = req.body.userName; // Assumindo que o front-end pode enviar o nome do usuário
+    const userMessages = req.body.messages;
+    const userName = req.body.userName;
 
     if (!userMessages || !Array.isArray(userMessages)) {
       return res.status(400).json({ error: 'Por favor, forneça um array de mensagens.' });
     }
 
-    const response = await callOpenRouterApi(userMessages, userName); // <--- Chamada à função correta
+    const response = await askOpenRouter(userMessages, userName);
     res.json({ response });
   } catch (error: any) {
     console.error('Erro ao processar requisição da OpenRouter:', error);
