@@ -38,6 +38,7 @@ const PaginaDeConversa: React.FC = () => {
   // const [speakingSupported, setSpeakingSupported] = useState(false); // Novo estado para indicar suporte TTS
   const [mensagensAnteriores, setMensagensAnteriores] = useState<Message[]>([]);
   const [promptDoSistema, setPromptDoSistema] = useState<string>('');
+  const [erroApi, setErroApi] = useState<string | null>(null); // Novo estado para exibir erros da API
 
   useEffect(() => {
     const carregarPrompt = async () => {
@@ -88,20 +89,19 @@ const PaginaDeConversa: React.FC = () => {
       .find(msg => mensagens.findIndex(m => m.id === msg.id) < mensagens.findIndex(m => m.id === messageId) && msg.sender === 'user')?.text;
 
     if (mensagemOriginalDoUsuario && promptDoSistema) {
-      const mensagensParaEnvio = [
-        { role: 'system', content: promptDoSistema },
-        { role: 'user', content: mensagemOriginalDoUsuario },
-      ];
       try {
-        const novaResposta = await enviarMensagemParaEco(mensagensParaEnvio);
+        const novaResposta = await enviarMensagemParaEco(
+          [{ role: 'system', content: promptDoSistema }, { role: 'user', content: mensagemOriginalDoUsuario }]
+        );
         definirMensagens(prevMensagens =>
           prevMensagens.map(msg =>
             msg.id === messageId ? { ...msg, text: novaResposta } : msg
           )
         );
-      } catch (error) {
+        setErroApi(null);
+      } catch (error: any) {
         console.error("Erro ao regenerar resposta:", error);
-        // Mostre uma mensagem de erro ao usuário
+        setErroApi(error.message || "Erro ao tentar regenerar a resposta.");
       } finally {
         definirDigitando(false);
       }
@@ -116,23 +116,17 @@ const PaginaDeConversa: React.FC = () => {
     definirMensagens((anteriores) => [...anteriores, mensagemDoUsuario]);
     definirDigitando(true);
     setMensagemASalvar(texto);
+    setErroApi(null);
 
     if (promptDoSistema) {
-      const mensagensParaEnvio = [
-        { role: 'system', content: promptDoSistema },
-        { role: 'user', content: texto },
-      ];
-
       try {
-        const resposta = await enviarMensagemParaEco(mensagensParaEnvio);
+        const resposta = await enviarMensagemParaEco([{ role: 'system', content: promptDoSistema }, { role: 'user', content: texto }]);
         const mensagemDaEco: Message = { id: (Date.now() + 1).toString(), text: resposta, sender: 'eco' };
         definirMensagens((anteriores) => [...anteriores, mensagemDaEco]);
         setUltimaMensagemEco(mensagemDaEco);
-
-        // ... (seu código de análise de sentimento)
-
       } catch (erro: any) {
-        // ... (seu tratamento de erro)
+        console.error("Erro ao enviar mensagem para a ECO:", erro);
+        setErroApi(erro.message || "Erro ao enviar mensagem.");
       } finally {
         definirDigitando(false);
       }
@@ -165,7 +159,7 @@ const PaginaDeConversa: React.FC = () => {
       />
       <div className="flex-1 flex overflow-y-auto p-4 flex-col items-center">
         <div className="max-w-2xl w-full md:max-w-md lg:max-w-xl xl:max-w-2xl mx-auto flex flex-col items-center">
-          {mensagens.length === 0 && (
+          {mensagens.length === 0 && !erroApi && (
             <motion.div
               className="text-center text-gray-600 mb-8 mt-24"
               initial={{ opacity: 0 }}
@@ -175,6 +169,11 @@ const PaginaDeConversa: React.FC = () => {
               <h2 className="text-4xl font-semibold">{mensagemBoasVindasInicial}</h2>
               {/* Você pode adicionar mais texto aqui se quiser */}
             </motion.div>
+          )}
+          {erroApi && (
+            <div className="text-red-500 text-center mb-4">
+              Erro: {erroApi}
+            </div>
           )}
           <div className="w-full">
             {mensagens.map((mensagem) => (

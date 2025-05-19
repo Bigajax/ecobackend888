@@ -1,8 +1,7 @@
 import axios from 'axios';
 import path from 'path';
-import fs from 'fs/promises'; // Importe o módulo fs para ler arquivos assincronamente
+import fs from 'fs/promises';
 
-// Função auxiliar para gerar saudação com base no horário (pode permanecer aqui ou ser movida para utils)
 function gerarSaudacaoPersonalizada(nome?: string) {
   const hora = new Date().getHours();
   let saudacao;
@@ -17,7 +16,7 @@ function gerarSaudacaoPersonalizada(nome?: string) {
 
 export const askOpenRouter = async (
   userMessages: { role: string; content: string }[],
-  userName?: string // <- nome do usuário opcional
+  userName?: string
 ) => {
   const apiKey = process.env.OPENROUTER_API_KEY;
 
@@ -27,7 +26,6 @@ export const askOpenRouter = async (
   }
 
   try {
-    // Construa os caminhos para os arquivos de prompt
     const assetsDir = path.join(__dirname, '../assets');
     const manifestoPath = path.join(assetsDir, 'eco_manifesto_fonte.txt');
     const principiosPoeticosPath = path.join(assetsDir, 'eco_principios_poeticos.txt');
@@ -40,7 +38,6 @@ export const askOpenRouter = async (
     const forbiddenPath = path.join(assetsDir, 'eco_forbidden_patterns.txt');
     const farewellPath = path.join(assetsDir, 'eco_farewell.txt');
 
-    // Leia o conteúdo dos arquivos de prompt de forma assíncrona
     const [
       manifesto,
       principiosPoeticos,
@@ -65,7 +62,6 @@ export const askOpenRouter = async (
       fs.readFile(farewellPath, 'utf-8'),
     ]);
 
-    // Junta todos os prompts como um único prompt do sistema
     const systemPrompt = [
       `## MANIFESTO FONTE DA ECO\n\n${manifesto}`,
       `## PRINCÍPIOS POÉTICOS DA ECO\n\n${principiosPoeticos}`,
@@ -96,7 +92,7 @@ export const askOpenRouter = async (
     const response = await axios.post(
       'https://openrouter.ai/api/v1/chat/completions',
       {
-        model: 'openai/gpt-4', // <-- AQUI ESTÁ A MUDANÇA PARA O CHATGPT 4.0
+        model: 'openai/gpt-4',
         messages: messages,
       },
       {
@@ -116,6 +112,14 @@ export const askOpenRouter = async (
     return message;
   } catch (error: any) {
     console.error('Erro na OpenRouter no servidor:', error);
-    throw error;
+    let errorMessage = 'Erro ao processar a resposta da ECO.';
+
+    if (error.response?.data?.error?.message) {
+      errorMessage = `Erro da OpenRouter: ${error.response.data.error.message}`;
+    } else if (error.message) {
+      errorMessage = `Erro na requisição: ${error.message}`;
+    }
+
+    return { error: errorMessage };
   }
 };

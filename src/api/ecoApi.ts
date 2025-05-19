@@ -11,9 +11,22 @@ export const enviarMensagemParaEco = async (
       messages: userMessages,
       userName: userName,
     });
-    return response.data?.response; // Assumindo que seu back-end retorna a resposta em um objeto { response: '...' }
+
+    if (response.status >= 200 && response.status < 300) {
+      return response.data?.response;
+    } else {
+      // Se a resposta do backend indicar um erro (status fora do 2xx)
+      const errorMessage = response.data?.error || 'Erro desconhecido ao comunicar com o back-end.';
+      throw new Error(errorMessage);
+    }
   } catch (error: any) {
     console.error('Erro ao comunicar com o back-end para a ECO:', error);
-    throw error;
+    let errorMessage = 'Ocorreu um erro ao obter a resposta da ECO.';
+    if (error.response?.data?.error) {
+      errorMessage = `Erro do servidor: ${error.response.data.error}`;
+    } else if (error.message) {
+      errorMessage = `Erro na requisição: ${error.message}`;
+    }
+    throw new Error(errorMessage);
   }
 };
