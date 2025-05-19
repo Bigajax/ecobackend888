@@ -1,5 +1,7 @@
+// ChatMessage.tsx
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
+import { Copy, Volume2, ThumbsUp, ThumbsDown, RotateCw } from 'lucide-react';
 
 export interface Message {
   id: string;
@@ -44,34 +46,37 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
     >
       <div className="relative">
         <div
-          className={`px-4 py-3 rounded-2xl max-w-[80%] ${
+          className={`px-4 py-3 rounded-2xl max-w-[80%] sm:max-w-[60%] md:max-w-[480px] ${
             isUser
               ? 'bg-blue-100 text-gray-800 rounded-tr-sm'
-              : 'bg-white text-gray-800 rounded-tl-sm shadow-sm'
+              : 'bg-white text-gray-800 rounded-tl-sm'
           }`}
+          style={{
+            boxShadow: '0 0 5px rgba(0, 0, 0, 0.05)', // Sombreamento sutil na borda
+          }}
         >
-          <p className="text-sm leading-relaxed">{message.text}</p>
+          <p className="text-sm leading-relaxed break-words">{message.text}</p>
         </div>
         <div className="absolute bottom-[-20px] left-0 w-full flex justify-around items-center text-gray-500 text-xs">
           {onCopyToClipboard && (
-            <button onClick={() => onCopyToClipboard(message.text)} aria-label="Copiar" className="focus:outline-none">
-              <span role="img" aria-label="Copiar">⧉</span>
+            <button onClick={() => onCopyToClipboard(message.text)} aria-label="Copiar" className="focus:outline-none mr-2">
+              <Copy size={16} />
             </button>
           )}
           {onSpeak && (
-            <button onClick={handleSpeak} aria-label="Ouvir" className="focus:outline-none">
-              <span role="img" aria-label="Ouvir">{isSpeaking ? '🔊' : '🔈'}</span>
+            <button onClick={handleSpeak} aria-label="Ouvir" className="focus:outline-none mr-2">
+              <Volume2 size={16} />
             </button>
           )}
-          <button onClick={() => onLike && onLike(message.id)} aria-label="Curtir" className="focus:outline-none">
-            <span role="img" aria-label="Curtir">👍</span>
+          <button onClick={() => onLike && onLike(message.id)} aria-label="Curtir" className="focus:outline-none mr-2">
+            <ThumbsUp size={16} />
           </button>
-          <button onClick={() => onDislike && onDislike(message.id)} aria-label="Descurtir" className="focus:outline-none">
-            <span role="img" aria-label="Descurtir">👎</span>
+          <button onClick={() => onDislike && onDislike(message.id)} aria-label="Descurtir" className="focus:outline-none mr-2">
+            <ThumbsDown size={16} />
           </button>
           {message.sender === 'eco' && onRegenerate && (
             <button onClick={() => onRegenerate(message.id, /* Aqui você precisaria da pergunta original */)} aria-label="Refazer" className="focus:outline-none">
-              <span role="img" aria-label="Refazer">🔄</span>
+              <RotateCw size={16} />
             </button>
           )}
         </div>

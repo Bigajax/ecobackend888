@@ -48,7 +48,7 @@ const LoginPage: React.FC = () => {
 
   return (
     <PhoneFrame>
-      <div className="flex flex-col h-full p-8 justify-center bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50 relative">
+      <div className="flex flex-col h-full p-8 justify-center items-center bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50 relative">
         {isTourActive && <TourInicial onClose={handleCloseTour} />} {/* Renderiza o TourInicial condicionalmente */}
         <motion.div
           className="text-center mb-12"
@@ -60,7 +60,7 @@ const LoginPage: React.FC = () => {
           <p className="text-gray-500 text-sm">Espelho Emocional e Comportamental</p>
         </motion.div>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={handleSubmit} className="space-y-4 w-full max-w-sm"> {/* Adicione max-w-sm para limitar a largura */}
           <Input
             type="email"
             placeholder="Email"
@@ -89,7 +89,7 @@ const LoginPage: React.FC = () => {
             </motion.p>
           )}
 
-          <div className="pt-4 flex flex-col items-center space-y-2">
+          <div className="pt-4 flex flex-col items-center space-y-2 w-full"> {/* Use w-full aqui também */}
             <Button type="submit" fullWidth>
               Entrar
             </Button>

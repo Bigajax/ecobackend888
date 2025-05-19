@@ -2,7 +2,6 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Mic, BookOpen, List } from 'lucide-react';
 import { motion } from 'framer-motion';
-import PhoneFrame from '../components/PhoneFrame';
 import Header from '../components/Header';
 import ChatMessage, { Message } from '../components/ChatMessage';
 import ChatInput from '../components/ChatInput';
@@ -18,10 +17,10 @@ interface EmotionalMemory {
   emocao: string;
 }
 
-const mensagensIniciais: Message[] = [];
+const mensagemBoasVindasInicial = 'Como você se sente hoje?';
 
 const PaginaDeConversa: React.FC = () => {
-  const [mensagens, definirMensagens] = useState<Message[]>(mensagensIniciais);
+  const [mensagens, definirMensagens] = useState<Message[]>([]);
   const [digitando, definirDigitando] = useState(false);
   const referenciaFinalDasMensagens = useRef<HTMLDivElement>(null);
   const navegar = useNavigate();
@@ -32,7 +31,7 @@ const PaginaDeConversa: React.FC = () => {
   const [ultimaEmocaoDetectada, setUltimaEmocaoDetectada] = useState<string | null>(null);
   const [ultimaIntensidadeDetectada, setUltimaIntensidadeDetectada] = useState<number | null>(null);
   const [feedback, setFeedback] = useState<{ [messageId: string]: 'like' | 'dislike' | null }>({});
-  // const { speak, cancel, speaking, supported } = useSpeechSynthesis(); // REMOVA O HOOK DO REACT-SPEECH-KIT
+  // const { speak, cancel, speaking, supported } = useSpeechSynthesis(); // REMOVA ESTA IMPORTAÇÃO
   // const [ttsEngine, setTtsEngine] = useState<KokoroTTS | null>(null);
   // const [speaking, setSpeaking] = useState(false);
   // const [currentUtterance, setCurrentUtterance] = useState<string | null>(null);
@@ -157,43 +156,58 @@ const PaginaDeConversa: React.FC = () => {
   };
 
   return (
-    <PhoneFrame className="flex-grow h-full">
-      <div className="flex flex-col h-full bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50">
-        <Header
-          title="ECO"
-          showBackButton={false}
-          onOpenMemoryHistory={handleOpenMemoryHistory}
-          mensagemDeSucesso={mensagemDeSucesso}
-        />
-        <div className="flex-1 overflow-y-auto p-4">
-          {mensagens.map((mensagem) => (
-            <ChatMessage
-              key={mensagem.id}
-              message={mensagem}
-              onCopyToClipboard={handleCopyToClipboard}
-              onSpeak={handleSpeakMessage}
-              onLike={handleLikeMessage}
-              onDislike={handleDislikeMessage}
-              onRegenerate={mensagem.sender === 'eco' ? handleRegenerateResponse : undefined}
-            />
-          ))}
-          {digitando && (
-            <ChatMessage
-              message={{ id: 'digitando', text: 'Digitando...', sender: 'eco' }}
-            />
+    <div className="w-full h-full flex flex-col bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50">
+      <Header
+        title="ECO"
+        showBackButton={false}
+        onOpenMemoryHistory={handleOpenMemoryHistory}
+        mensagemDeSucesso={mensagemDeSucesso}
+      />
+      <div className="flex-1 flex overflow-y-auto p-4 flex-col items-center">
+        <div className="max-w-2xl w-full md:max-w-md lg:max-w-xl xl:max-w-2xl mx-auto flex flex-col items-center">
+          {mensagens.length === 0 && (
+            <motion.div
+              className="text-center text-gray-600 mb-8 mt-24"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ duration: 0.5 }}
+            >
+              <h2 className="text-4xl font-semibold">{mensagemBoasVindasInicial}</h2>
+              {/* Você pode adicionar mais texto aqui se quiser */}
+            </motion.div>
           )}
-          <div ref={referenciaFinalDasMensagens} />
+          <div className="w-full">
+            {mensagens.map((mensagem) => (
+              <ChatMessage
+                key={mensagem.id}
+                message={mensagem}
+                onCopyToClipboard={handleCopyToClipboard}
+                onSpeak={handleSpeakMessage}
+                onLike={handleLikeMessage}
+                onDislike={handleDislikeMessage}
+                onRegenerate={mensagem.sender === 'eco' ? handleRegenerateResponse : undefined}
+              />
+            ))}
+            {digitando && (
+              <ChatMessage
+                message={{ id: 'digitando', text: 'Digitando...', sender: 'eco' }}
+              />
+            )}
+            <div ref={referenciaFinalDasMensagens} />
+          </div>
         </div>
-        <ChatInput
-          onSendMessage={lidarComEnvioDeMensagem}
-          onRegistroManual={handleRegistroManual}
-        />
-        {/* REMOVEU A RENDERIZAÇÃO CONDICIONAL DO KOKORO-JS */}
+      </div>
+      <div className="flex justify-center w-full p-4">
+        <div className="max-w-2xl w-full md:max-w-md lg:max-w-xl xl:max-w-2xl mx-auto">
+          <ChatInput
+            onSendMessage={lidarComEnvioDeMensagem}
+          />
+        </div>
       </div>
       {isMemoryHistoryOpen && (
         <TelaDeHistoricoDeMemorias onClose={() => setIsMemoryHistoryOpen(false)} />
       )}
-    </PhoneFrame>
+    </div>
   );
 };
 
