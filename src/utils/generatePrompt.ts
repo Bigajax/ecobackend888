@@ -14,6 +14,16 @@ export const gerarPromptMestre = async (): Promise<string> => {
       throw new Error(`Erro ao buscar prompt mestre: ${response.status} - ${errorText}`); // Lança um erro para ser capturado no catch
     }
 
+    const contentType = response.headers.get('content-type');
+    console.log(`Content-Type da resposta: ${contentType}`); // Verifica o Content-Type
+
+    if (!contentType || !contentType.includes('application/json')) {
+      const responseText = await response.text();
+      console.error(`Erro: Resposta não é JSON. Content-Type: ${contentType}, Resposta: ${responseText}`);
+      throw new Error(`Erro: Resposta não é JSON. Content-Type: ${contentType}`);
+    }
+
+
     const data = await response.json();
     console.log('Dados recebidos da API:', data); // Log dos dados
 
