@@ -9,7 +9,7 @@ export default defineConfig(({ mode }) => {
     plugins: [
       react(),
       string({
-        include: ['**/*.txt'], 
+        include: ['**/*.txt'],
       }),
     ],
     define: {
@@ -23,5 +23,18 @@ export default defineConfig(({ mode }) => {
     resolve: {
       extensions: ['.js', '.ts', '.jsx', '.tsx', '.json', '.txt'],
     },
+    server: {
+      proxy: {
+        '/api': {
+          target: 'http://localhost:3001', // <--- Porta do backend
+          changeOrigin: true,
+        },
+      },
+    },
+    // ---> Adição aqui:
+    build: {
+      outDir: 'dist', // Garante que o build do frontend vá para a pasta 'dist' na raiz do projeto
+    },
+    // <--- Fim da adição
   };
 });

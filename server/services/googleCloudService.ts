@@ -1,47 +1,26 @@
-import { LanguageServiceClient } from '@google-cloud/language';
-import { protos } from '@google-cloud/language';
-type SentimentAnalysisResult = protos.google.cloud.language.v1.IAnalyzeSentimentResponse.IDocumentSentiment; // Tente IAnalyzeSentimentResponse
+// services/googleCloudService.ts
 
-// Instantiates a client
-const languageClient = new LanguageServiceClient({
-  credentials: {
-    apiKey: process.env.GOOGLE_CLOUD_API_KEY, // Usando a chave de API do .env do servidor
-  },
-  // Se você optar por usar um arquivo de chave de serviço:
-  // keyFilename: process.env.GOOGLE_CLOUD_KEY_FILE,
-});
+// Temporariamente desabilitado para depuração
+// import { LanguageServiceClient, protos } from '@google-cloud/language';
 
-async function analyzeSentiment(text: string): Promise<SentimentAnalysisResult> {
-  const document = {
-    content: text,
-    type: 'PLAIN_TEXT' as const,
-  };
+// type SentimentAnalysisResult = any; // Tipo temporário para evitar erros em outros lugares
+// type AnalyzeEmotionsResult = any; // Tipo temporário
 
-  try {
-    const [result] = await languageClient.analyzeSentiment({ document: document });
-    const sentiment: SentimentAnalysisResult = result.documentSentiment!;
-    console.log(`Sentiment: score = ${sentiment.score}, magnitude = ${sentiment.magnitude}`);
-    return sentiment;
-  } catch (error: any) {
-    console.error('ERROR:', error);
-    throw error;
-  }
-}
+// const languageClient = new LanguageServiceClient({
+//   // credentials: {
+//   //   apiKey: process.env.GOOGLE_CLOUD_API_KEY,
+//   // },
+// });
 
-async function analyzeEmotions(text: string): Promise<SentimentAnalysisResult> {
-  const document = {
-    content: text,
-    type: 'PLAIN_TEXT' as const,
-  };
+// export async function analyzeSentiment(text: string): Promise<SentimentAnalysisResult | null> {
+//   console.warn('Google Cloud Language API desabilitada. Chamada a analyzeSentiment ignorada.');
+//   return null; // Retorne null ou um valor padrão
+// }
 
-  try {
-    const [result] = await languageClient.analyzeSentiment({ document: document });
-    const sentiment: SentimentAnalysisResult = result.documentSentiment!;
-    return sentiment;
-  } catch (error: any) {
-    console.error('ERROR analyzing emotions:', error);
-    throw error;
-  }
-}
+// export async function analyzeEmotions(text: string): Promise<AnalyzeEmotionsResult | null> {
+//   console.warn('Google Cloud Language API desabilitada. Chamada a analyzeEmotions ignorada.');
+//   return null; // Retorne null ou um valor padrão
+// }
 
-export { analyzeSentiment, analyzeEmotions }; // Use export { ... }
+// Opcional: Manter as exportações se forem usadas em outros arquivos.
+// export { analyzeSentiment, analyzeEmotions };
