@@ -1,3 +1,5 @@
+// C:\Users\Rafael\Desktop\eco5555\Eco666\vite.config.ts
+
 import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 import string from 'vite-plugin-string';
@@ -25,16 +27,14 @@ export default defineConfig(({ mode }) => {
     },
     server: {
       proxy: {
-        '/api': {
-          target: 'http://localhost:3001', // <--- Porta do backend
-          changeOrigin: true,
+        '/api': { // Quando o frontend fizer uma requisição para '/api'
+          target: 'http://localhost:3001', // Redireciona para o seu backend
+          changeOrigin: true, // Muda o cabeçalho 'Origin' para o do destino
         },
       },
     },
-    // ---> Adição aqui:
     build: {
-      outDir: 'dist', // Garante que o build do frontend vá para a pasta 'dist' na raiz do projeto
+      outDir: 'dist',
     },
-    // <--- Fim da adição
   };
 });
