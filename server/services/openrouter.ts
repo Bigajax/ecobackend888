@@ -2,7 +2,7 @@
 
 import axios from 'axios';
 import path from 'path';
-import fs from 'fs/promises'; // Importa a versão de promises para async/await
+import fs from 'fs/promises';
 
 function gerarSaudacaoPersonalizada(nome?: string) {
   const hora = new Date().getHours();
@@ -20,26 +20,18 @@ export const askOpenRouter = async (
   userMessages: { role: string; content: string }[],
   userName?: string
 ) => {
-  console.log('*** INICIANDO askOpenRouter ***'); // Log de início da função
+  console.log('*** INICIANDO askOpenRouter ***');
   const apiKey = process.env.OPENROUTER_API_KEY;
 
   if (!apiKey) {
     console.error('Erro: A chave de API do OpenRouter não foi encontrada nas variáveis de ambiente do servidor.');
-    // Lança um erro para ser capturado no controller, que por sua vez enviará um 500 para o frontend.
     throw new Error('Chave de API do OpenRouter não configurada no servidor.');
   }
-  console.log('Chave de API OpenRouter detectada (primeiros 5 chars):', apiKey.substring(0, 5) + '...'); // Log da chave
+  console.log('Chave de API OpenRouter detectada (primeiros 5 chars):', apiKey.substring(0, 5) + '...');
 
   try {
-    // Usando path.join com __dirname ou process.cwd() é crucial.
-    // Se seus arquivos .txt estão em `server/assets/`, e o script é executado de `server/`,
-    // `__dirname` apontará para `server/`.
-    // `process.cwd()` aponta para a raiz do projeto (Eco666) se você executa `npm start` de `Eco666/server/`.
-    // Vamos usar `__dirname` para ter certeza do caminho relativo ao services/openrouter.ts
-    // Se o services/openrouter.ts está em server/services/, e assets está em server/assets/,
-    // então o caminho é ../assets.
-    const assetsDir = path.join(__dirname, '../assets'); // Ajustado para ser relativo a `services`
-    console.log('Diretório de assets:', assetsDir); // Log do diretório de assets
+    const assetsDir = path.join(__dirname, '../assets');
+    console.log('Diretório de assets:', assetsDir);
 
     const manifestoPath = path.join(assetsDir, 'eco_manifesto_fonte.txt');
     const principiosPoeticosPath = path.join(assetsDir, 'eco_principios_poeticos.txt');
@@ -52,7 +44,7 @@ export const askOpenRouter = async (
     const forbiddenPath = path.join(assetsDir, 'eco_forbidden_patterns.txt');
     const farewellPath = path.join(assetsDir, 'eco_farewell.txt');
 
-    console.log('Tentando ler arquivos do sistema de arquivos...'); // Log antes da leitura
+    console.log('Tentando ler arquivos do sistema de arquivos...');
     const [
       manifesto,
       principiosPoeticos,
@@ -76,7 +68,7 @@ export const askOpenRouter = async (
       fs.readFile(forbiddenPath, 'utf-8'),
       fs.readFile(farewellPath, 'utf-8'),
     ]);
-    console.log('Arquivos lidos com sucesso!'); // Log após a leitura
+    console.log('Arquivos lidos com sucesso!');
 
     const systemPrompt = [
       `## MANIFESTO FONTE DA ECO\n\n${manifesto}`,
@@ -105,21 +97,23 @@ export const askOpenRouter = async (
       ...userMessages,
     ];
 
-    console.log('Enviando requisição para OpenRouter API...'); // Log antes da requisição Axios
+    console.log('Enviando requisição para OpenRouter API...');
     const response = await axios.post(
-      'https://openrouter.ai/api/v1/chat/completions',
-      {
-        model: 'openai/gpt-4', // Verifique se este modelo está disponível na sua conta OpenRouter
-        messages: messages,
+      'https://openrouter.ai/api/v1/chat/completions', // URL do endpoint
+      { // Corpo da requisição (payload)
+        model: 'openai/gpt-3.5-turbo', // <<< ALTERADO PARA GPT-3.5-TURBO >>>
+        messages: messages,    // Mensagens para o chat
       },
-      {
+      { // Objeto de configuração da requisição (headers, etc.)
         headers: {
           Authorization: `Bearer ${apiKey}`,
           'Content-Type': 'application/json',
+          'HTTP-Referer': 'http://localhost:5173', // Seu domínio, ou localhost com a porta do frontend
+          'X-Title': 'Eco App', // Um nome para seu aplicativo
         },
       }
     );
-    console.log('Resposta recebida da OpenRouter API. Status:', response.status); // Log do status da resposta
+    console.log('Resposta recebida da OpenRouter API. Status:', response.status);
 
     const message = response.data?.choices?.[0]?.message?.content;
     if (!message) {
@@ -127,11 +121,11 @@ export const askOpenRouter = async (
       throw new Error('Estrutura de resposta inválida ou vazia.');
     }
 
-    console.log('*** askOpenRouter CONCLUÍDO COM SUCESSO ***'); // Log de sucesso
+    console.log('*** askOpenRouter CONCLUÍDO COM SUCESSO ***');
     return message;
   } catch (error: any) {
-    console.error('*** ERRO NA FUNÇÃO askOpenRouter ***'); // Log de erro
-    console.error('Detalhes do erro:', error); // Log do objeto de erro completo
+    console.error('*** ERRO NA FUNÇÃO askOpenRouter ***');
+    console.error('Detalhes do erro:', error);
 
     let errorMessage = 'Erro ao processar a resposta da ECO.';
 
@@ -143,8 +137,6 @@ export const askOpenRouter = async (
       console.error('Mensagem de erro da requisição:', error.message);
     }
 
-    // Retorne um objeto com a propriedade 'error' para que o controller possa pegá-lo
-    // Isso é importante porque o controller espera uma Promise<any>
-    throw new Error(errorMessage); // Lança o erro para ser pego no controller.
+    throw new Error(errorMessage);
   }
 };
