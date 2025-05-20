@@ -1,3 +1,5 @@
+// C:\Users\Rafael\Desktop\eco5555\Eco666\src\pages\PaginaDeConversa.tsx
+
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Mic, BookOpen, List } from 'lucide-react';
@@ -6,7 +8,7 @@ import Header from '../components/Header';
 import ChatMessage, { Message } from '../components/ChatMessage';
 import ChatInput from '../components/ChatInput';
 import { enviarMensagemParaEco } from '../api/ecoApi';
-import { gerarPromptMestre } from '../utils/generatePrompt.ts';
+import { gerarPromptMestre } from '../utils/generatePrompt.ts'; // Importação do gerarPromptMestre
 import TelaDeHistoricoDeMemorias from '../components/TelaDeHistoricoDeMemorias';
 import { salvarMemoria } from '../api/memoria';
 // import { useSpeechSynthesis } from 'react-speech-kit'; // REMOVA ESTA IMPORTAÇÃO
@@ -42,12 +44,21 @@ const PaginaDeConversa: React.FC = () => {
 
   useEffect(() => {
     const carregarPrompt = async () => {
-      const prompt = await gerarPromptMestre();
-      setPromptDoSistema(prompt);
+      try {
+        console.log("Frontend: Iniciando carregamento do prompt do sistema..."); // Log de início
+        const prompt = await gerarPromptMestre(); // Chama a função para buscar o prompt
+        setPromptDoSistema(prompt); // Define o prompt no estado
+        setErroApi(null); // Limpa qualquer erro anterior da API
+        console.log("Frontend: Prompt do sistema carregado com sucesso!"); // Log de sucesso
+      } catch (error: any) {
+        console.error("Frontend: Erro ao carregar o prompt do sistema:", error); // Log do erro
+        setErroApi(error.message || "Erro ao carregar o prompt inicial."); // Define a mensagem de erro para a UI
+        setPromptDoSistema(''); // Garante que o prompt não seja definido com valor inválido
+      }
     };
 
     carregarPrompt();
-  }, []);
+  }, []); // Executa apenas uma vez no carregamento do componente
 
   useEffect(() => {
     referenciaFinalDasMensagens.current?.scrollIntoView({ behavior: 'smooth' });
@@ -98,7 +109,7 @@ const PaginaDeConversa: React.FC = () => {
             msg.id === messageId ? { ...msg, text: novaResposta } : msg
           )
         );
-        setErroApi(null);
+        setErroApi(null); // Limpa o erro se a regeneração for bem-sucedida
       } catch (error: any) {
         console.error("Erro ao regenerar resposta:", error);
         setErroApi(error.message || "Erro ao tentar regenerar a resposta.");
@@ -106,7 +117,7 @@ const PaginaDeConversa: React.FC = () => {
         definirDigitando(false);
       }
     } else {
-      console.warn("Não foi possível encontrar a mensagem original do usuário ou o prompt do sistema.");
+      console.warn("Não foi possível encontrar a mensagem original do usuário ou o prompt do sistema para regeneração.");
       definirDigitando(false);
     }
   };
@@ -116,7 +127,7 @@ const PaginaDeConversa: React.FC = () => {
     definirMensagens((anteriores) => [...anteriores, mensagemDoUsuario]);
     definirDigitando(true);
     setMensagemASalvar(texto);
-    setErroApi(null);
+    setErroApi(null); // Limpa erros de API ao enviar nova mensagem
 
     if (promptDoSistema) {
       try {
@@ -126,12 +137,13 @@ const PaginaDeConversa: React.FC = () => {
         setUltimaMensagemEco(mensagemDaEco);
       } catch (erro: any) {
         console.error("Erro ao enviar mensagem para a ECO:", erro);
-        setErroApi(erro.message || "Erro ao enviar mensagem.");
+        setErroApi(erro.message || "Erro ao enviar mensagem."); // Define o erro para a UI
       } finally {
         definirDigitando(false);
       }
     } else {
-      console.warn("O prompt do sistema ainda não foi carregado.");
+      console.warn("O prompt do sistema ainda não foi carregado. Não é possível enviar mensagem.");
+      setErroApi("Prompt do sistema não carregado. Tente novamente mais tarde."); // Informa o usuário na UI
       definirDigitando(false);
     }
   };
@@ -159,7 +171,7 @@ const PaginaDeConversa: React.FC = () => {
       />
       <div className="flex-1 flex overflow-y-auto p-4 flex-col items-center">
         <div className="max-w-2xl w-full md:max-w-md lg:max-w-xl xl:max-w-2xl mx-auto flex flex-col items-center">
-          {mensagens.length === 0 && !erroApi && (
+          {mensagens.length === 0 && !erroApi && ( // Exibe a mensagem de boas-vindas apenas se não houver mensagens e nenhum erro de API
             <motion.div
               className="text-center text-gray-600 mb-8 mt-24"
               initial={{ opacity: 0 }}
@@ -167,10 +179,9 @@ const PaginaDeConversa: React.FC = () => {
               transition={{ duration: 0.5 }}
             >
               <h2 className="text-4xl font-semibold">{mensagemBoasVindasInicial}</h2>
-              {/* Você pode adicionar mais texto aqui se quiser */}
             </motion.div>
           )}
-          {erroApi && (
+          {erroApi && ( // Exibe a mensagem de erro da API se houver
             <div className="text-red-500 text-center mb-4">
               Erro: {erroApi}
             </div>
