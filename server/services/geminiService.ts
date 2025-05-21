@@ -5,6 +5,14 @@ import path from 'path';
 import fs from 'fs/promises';
 import { Request, Response } from 'express'; // Importar Request e Response do Express
 
+// REMOVIDO: import { fileURLToPath } from 'url';
+// REMOVIDO: import { dirname } from 'path';
+
+// REMOVIDO: const __filename = fileURLToPath(import.meta.url);
+// REMOVIDO: const __dirname = dirname(__filename);
+// __dirname é uma variável global em ambientes CommonJS e será usada diretamente.
+
+
 // Função auxiliar para gerar saudação
 function gerarSaudacaoPersonalizada(nome?: string) {
   const hora = new Date().getHours();
@@ -45,7 +53,11 @@ export const askGemini = async (req: Request, res: Response) => { // Aceita req 
   console.log('Chave de API Google Gemini detectada (primeiros 5 chars):', apiKey.substring(0, 5) + '...');
 
   try {
-    const assetsDir = path.join(__dirname, '../assets'); // Ajusta o caminho para assets
+    // CORRIGIDO: Caminho para os assets agora usa o __dirname global (para CommonJS)
+    // __dirname aqui se refere ao diretório do arquivo atual (services)
+    // '..' sobe um nível para 'server'
+    // 'assets' entra na pasta 'assets' dentro de 'server'
+    const assetsDir = path.join(__dirname, '..', 'assets');
     console.log('Diretório de assets calculado:', assetsDir);
 
     // Mapeamento dos arquivos de prompt
@@ -98,34 +110,26 @@ export const askGemini = async (req: Request, res: Response) => { // Aceita req 
     ].join('\n\n');
 
     const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: "gemini-pro" });
+    // CORRIGIDO: Usando o modelo "gemini-1.5-flash-001"
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-001" });
 
     const chatHistory = [];
     const saudacao = gerarSaudacaoPersonalizada(userName);
 
     // Adiciona o fullSystemPrompt e a saudação como a PRIMEIRA MENSAGEM DO USUÁRIO
-    // ou uma parte da primeira mensagem, para o Gemini entender o contexto inicial.
-    // Isso é uma forma comum de injetar o "system prompt" em modelos de chat.
     chatHistory.push({
       role: 'user',
       parts: [{ text: `${fullSystemPrompt}\n\n${saudacao}` }],
     });
 
     // Mapeia as mensagens do frontend para o formato esperado pelo Gemini.
-    // A última mensagem do usuário (ou a única, se for a primeira interação)
-    // será enviada separadamente pelo `sendMessage`.
-    // Por isso, se houver histórico de 2 ou mais mensagens, o frontend envia a primeira do user
-    // e a primeira da eco. A lógica abaixo garante que todas sejam incluídas no histórico
-    // e a última seja enviada com `sendMessage`.
     const messagesToSend = messages.map((msg: { role: string; content: string }) => ({
       role: mapRoleForGemini(msg.role), // Mapeia 'assistant' para 'model'
       parts: [{ text: msg.content }],
     }));
     
     // Concatena o prompt do sistema com o histórico recebido do frontend.
-    // É importante que o prompt do sistema seja a primeira entrada.
     const finalChatHistory = [...chatHistory, ...messagesToSend.slice(0, messagesToSend.length - 1)];
-
 
     // Inicializa o chat com o histórico construído
     const chat = model.startChat({
@@ -141,7 +145,6 @@ export const askGemini = async (req: Request, res: Response) => { // Aceita req 
     
     console.log("Enviando mensagem para o Gemini:", latestUserMessageContent);
     console.log("Histórico enviado:", JSON.stringify(finalChatHistory, null, 2));
-
 
     const result = await chat.sendMessage(latestUserMessageContent);
     const response = await result.response;
