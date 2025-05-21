@@ -1,8 +1,10 @@
+// C:\Users\Rafael\Desktop\eco5555\Eco666\src\components\TelaDeHistoricoDeMemorias.tsx
+
 import React, { useState, useEffect, useCallback } from 'react';
 import { buscarMemorias } from '../api/memoria';
 import { motion, AnimatePresence } from 'framer-motion';
 import { XCircle } from 'lucide-react';
-import { cn } from "@/lib/utils"
+// import { cn } from "@/lib/utils" // <-- REMOVA ESTA LINHA SE VOCÊ NÃO TEM ESTE ARQUIVO OU NÃO O ESTÁ USANDO
 
 interface TelaDeHistoricoDeMemoriasProps {
     onClose: () => void;
@@ -39,7 +41,6 @@ const TelaDeHistoricoDeMemorias: React.FC<TelaDeHistoricoDeMemoriasProps> = ({ o
             setLoading(false);
         }
     }, []);
-
 
     useEffect(() => {
         carregarMemorias();

@@ -8,11 +8,9 @@ import Header from '../components/Header';
 import ChatMessage, { Message } from '../components/ChatMessage';
 import ChatInput from '../components/ChatInput';
 import { enviarMensagemParaEco } from '../api/ecoApi';
-import { gerarPromptMestre } from '../utils/generatePrompt.ts'; // Importação do gerarPromptMestre
+// REMOVIDO: import { gerarPromptMestre } from '../utils/generatePrompt.ts'; // REMOVA ESTA LINHA
 import TelaDeHistoricoDeMemorias from '../components/TelaDeHistoricoDeMemorias';
-import { salvarMemoria } from '../api/memoria';
-// import { useSpeechSynthesis } from 'react-speech-kit'; // REMOVA ESTA IMPORTAÇÃO
-// import { KokoroTTS } from 'kokoro-js'; // IMPORTA A BIBLIOTECA KOKORO-JS
+// REMOVIDO: import { salvarMemoria } from '../api/memoria'; // Remova ou mantenha comentado se não for usar a memória
 
 interface EmotionalMemory {
   memoria: string;
@@ -27,44 +25,42 @@ const PaginaDeConversa: React.FC = () => {
   const referenciaFinalDasMensagens = useRef<HTMLDivElement>(null);
   const navegar = useNavigate();
   const [isMemoryHistoryOpen, setIsMemoryHistoryOpen] = useState(false);
-  const [mensagemASalvar, setMensagemASalvar] = useState<string | null>(null);
-  const [mensagemDeSucesso, setMensagemDeSucesso] = useState<string | null>(null);
-  const [ultimaMensagemEco, setUltimaMensagemEco] = useState<Message | null>(null);
-  const [ultimaEmocaoDetectada, setUltimaEmocaoDetectada] = useState<string | null>(null);
-  const [ultimaIntensidadeDetectada, setUltimaIntensidadeDetectada] = useState<number | null>(null);
+  const [mensagemASalvar, setMensagemASalvar] = useState<string | null>(null); // Pode remover se não for usar memória
+  const [mensagemDeSucesso, setMensagemDeSucesso] = useState<string | null>(null); // Pode remover se não for usar memória
+  const [ultimaMensagemEco, setUltimaMensagemEco] = useState<Message | null>(null); // Pode remover se não for usar memória
+  const [ultimaEmocaoDetectada, setUltimaEmocaoDetectada] = useState<string | null>(null); // Pode remover se não for usar memória
+  const [ultimaIntensidadeDetectada, setUltimaIntensidadeDetectada] = useState<number | null>(null); // Pode remover se não for usar memória
   const [feedback, setFeedback] = useState<{ [messageId: string]: 'like' | 'dislike' | null }>({});
-  // const { speak, cancel, speaking, supported } = useSpeechSynthesis(); // REMOVA ESTA IMPORTAÇÃO
-  // const [ttsEngine, setTtsEngine] = useState<KokoroTTS | null>(null);
-  // const [speaking, setSpeaking] = useState(false);
-  // const [currentUtterance, setCurrentUtterance] = useState<string | null>(null);
-  // const [speakingSupported, setSpeakingSupported] = useState(false); // Novo estado para indicar suporte TTS
-  const [mensagensAnteriores, setMensagensAnteriores] = useState<Message[]>([]);
-  const [promptDoSistema, setPromptDoSistema] = useState<string>('');
-  const [erroApi, setErroApi] = useState<string | null>(null); // Novo estado para exibir erros da API
+  const [mensagensAnteriores, setMensagensAnteriores] = useState<Message[]>([]); // Usado para regenerar
+  // REMOVIDO: const [promptDoSistema, setPromptDoSistema] = useState<string>(''); // Este estado não é mais necessário
+  const [erroApi, setErroApi] = useState<string | null>(null);
 
+  // REMOVIDO: O useEffect abaixo para carregar o prompt do sistema foi removido
+  // pois a lógica agora está no backend (geminiService.ts)
+  /*
   useEffect(() => {
     const carregarPrompt = async () => {
       try {
-        console.log("Frontend: Iniciando carregamento do prompt do sistema..."); // Log de início
-        const prompt = await gerarPromptMestre(); // Chama a função para buscar o prompt
-        setPromptDoSistema(prompt); // Define o prompt no estado
-        setErroApi(null); // Limpa qualquer erro anterior da API
-        console.log("Frontend: Prompt do sistema carregado com sucesso!"); // Log de sucesso
+        console.log("Frontend: Iniciando carregamento do prompt do sistema...");
+        const prompt = await gerarPromptMestre();
+        setPromptDoSistema(prompt);
+        setErroApi(null);
+        console.log("Frontend: Prompt do sistema carregado com sucesso!");
       } catch (error: any) {
-        console.error("Frontend: Erro ao carregar o prompt do sistema:", error); // Log do erro
-        setErroApi(error.message || "Erro ao carregar o prompt inicial."); // Define a mensagem de erro para a UI
-        setPromptDoSistema(''); // Garante que o prompt não seja definido com valor inválido
+        console.error("Frontend: Erro ao carregar o prompt do sistema:", error);
+        setErroApi(error.message || "Erro ao carregar o prompt inicial.");
+        setPromptDoSistema('');
       }
     };
-
     carregarPrompt();
-  }, []); // Executa apenas uma vez no carregamento do componente
+  }, []);
+  */
 
   useEffect(() => {
     referenciaFinalDasMensagens.current?.scrollIntoView({ behavior: 'smooth' });
     const ultimaEco = mensagens.slice().reverse().find(msg => msg.sender === 'eco');
     setUltimaMensagemEco(ultimaEco || null);
-    setMensagensAnteriores(mensagens);
+    setMensagensAnteriores(mensagens); // Mantém um histórico para regeneração
   }, [mensagens]);
 
   const handleCopyToClipboard = (text: string) => {
@@ -72,7 +68,6 @@ const PaginaDeConversa: React.FC = () => {
   };
 
   const handleSpeakMessage = (text: string) => {
-    // Lógica de Text-to-Speech será implementada aqui com a nova biblioteca ou API
     alert("Funcionalidade de Text-to-Speech será implementada aqui.");
   };
 
@@ -83,41 +78,48 @@ const PaginaDeConversa: React.FC = () => {
   const handleLikeMessage = (messageId: string) => {
     setFeedback(prev => ({ ...prev, [messageId]: prev[messageId] === 'like' ? null : 'like' }));
     console.log('Mensagem curtida:', messageId);
-    // Aqui você chamaria sua API para salvar o feedback
   };
 
   const handleDislikeMessage = (messageId: string) => {
     setFeedback(prev => ({ ...prev, [messageId]: prev[messageId] === 'dislike' ? null : 'dislike' }));
     console.log('Mensagem descurtida:', messageId);
-    // Aqui você chamaria sua API para salvar o feedback
   };
 
   const handleRegenerateResponse = async (messageId: string) => {
     definirDigitando(true);
-    const mensagemOriginalDoUsuario = mensagensAnteriores
-      .slice()
-      .reverse()
-      .find(msg => mensagens.findIndex(m => m.id === msg.id) < mensagens.findIndex(m => m.id === messageId) && msg.sender === 'user')?.text;
+    // Para regenerar, precisamos enviar o histórico de mensagens ATÉ a mensagem original do usuário
+    // que precedeu a resposta da Eco que queremos regenerar.
+    const indiceMensagemARegenerar = mensagens.findIndex(msg => msg.id === messageId);
+    if (indiceMensagemARegenerar === -1) {
+      console.warn("Mensagem a regenerar não encontrada.");
+      definirDigitando(false);
+      return;
+    }
 
-    if (mensagemOriginalDoUsuario && promptDoSistema) {
-      try {
-        const novaResposta = await enviarMensagemParaEco(
-          [{ role: 'system', content: promptDoSistema }, { role: 'user', content: mensagemOriginalDoUsuario }]
-        );
-        definirMensagens(prevMensagens =>
-          prevMensagens.map(msg =>
-            msg.id === messageId ? { ...msg, text: novaResposta } : msg
-          )
-        );
-        setErroApi(null); // Limpa o erro se a regeneração for bem-sucedida
-      } catch (error: any) {
-        console.error("Erro ao regenerar resposta:", error);
-        setErroApi(error.message || "Erro ao tentar regenerar a resposta.");
-      } finally {
-        definirDigitando(false);
-      }
-    } else {
-      console.warn("Não foi possível encontrar a mensagem original do usuário ou o prompt do sistema para regeneração.");
+    // Filtra as mensagens para incluir apenas o histórico relevante para a regeneração
+    // Ou seja, todas as mensagens até (e incluindo) a última mensagem do USUÁRIO antes da resposta da ECO
+    const historicoParaRegenerar = mensagens.slice(0, indiceMensagemARegenerar).filter(msg => msg.sender === 'user' || msg.sender === 'eco');
+    
+    // Mapeia para o formato esperado pelo backend: { role: string, content: string }
+    const mappedHistory = historicoParaRegenerar.map(msg => ({
+        role: msg.sender === 'eco' ? 'assistant' : 'user', // Backend espera 'assistant' para Eco
+        content: msg.text || ''
+    }));
+
+    try {
+      // Envia o histórico (incluindo a última mensagem do usuário) para o backend
+      const novaResposta = await enviarMensagemParaEco(mappedHistory, "Rafael"); // Passando nome de exemplo
+      
+      definirMensagens(prevMensagens =>
+        prevMensagens.map(msg =>
+          msg.id === messageId ? { ...msg, text: novaResposta } : msg
+        )
+      );
+      setErroApi(null);
+    } catch (error: any) {
+      console.error("Erro ao regenerar resposta:", error);
+      setErroApi(error.message || "Erro ao tentar regenerar a resposta.");
+    } finally {
       definirDigitando(false);
     }
   };
@@ -126,24 +128,28 @@ const PaginaDeConversa: React.FC = () => {
     const mensagemDoUsuario: Message = { id: Date.now().toString(), text: texto, sender: 'user' };
     definirMensagens((anteriores) => [...anteriores, mensagemDoUsuario]);
     definirDigitando(true);
-    setMensagemASalvar(texto);
+    setMensagemASalvar(texto); // Se for usar a funcionalidade de memória
     setErroApi(null); // Limpa erros de API ao enviar nova mensagem
 
-    if (promptDoSistema) {
-      try {
-        const resposta = await enviarMensagemParaEco([{ role: 'system', content: promptDoSistema }, { role: 'user', content: texto }]);
-        const mensagemDaEco: Message = { id: (Date.now() + 1).toString(), text: resposta, sender: 'eco' };
-        definirMensagens((anteriores) => [...anteriores, mensagemDaEco]);
-        setUltimaMensagemEco(mensagemDaEco);
-      } catch (erro: any) {
-        console.error("Erro ao enviar mensagem para a ECO:", erro);
-        setErroApi(erro.message || "Erro ao enviar mensagem."); // Define o erro para a UI
-      } finally {
-        definirDigitando(false);
-      }
-    } else {
-      console.warn("O prompt do sistema ainda não foi carregado. Não é possível enviar mensagem.");
-      setErroApi("Prompt do sistema não carregado. Tente novamente mais tarde."); // Informa o usuário na UI
+    // Prepara o histórico para enviar ao backend
+    // Inclui a nova mensagem do usuário no final
+    const historicoAtualizado = [...mensagens, mensagemDoUsuario].map(msg => ({
+      role: msg.sender === 'eco' ? 'assistant' : 'user', // Gemini espera 'assistant' para modelo
+      content: msg.text || ''
+    }));
+
+    try {
+      // Envia o histórico completo de mensagens para o backend.
+      // O backend adicionará o prompt do sistema no início desta conversa.
+      const resposta = await enviarMensagemParaEco(historicoAtualizado, "Rafael"); // Passando nome de exemplo
+      
+      const mensagemDaEco: Message = { id: (Date.now() + 1).toString(), text: resposta, sender: 'eco' };
+      definirMensagens((anteriores) => [...anteriores, mensagemDaEco]);
+      setUltimaMensagemEco(mensagemDaEco); // Se for usar a funcionalidade de memória
+    } catch (erro: any) {
+      console.error("Erro ao enviar mensagem para a ECO:", erro);
+      setErroApi(erro.message || "Erro ao enviar mensagem."); // Define o erro para a UI
+    } finally {
       definirDigitando(false);
     }
   };
@@ -171,7 +177,7 @@ const PaginaDeConversa: React.FC = () => {
       />
       <div className="flex-1 flex overflow-y-auto p-4 flex-col items-center">
         <div className="max-w-2xl w-full md:max-w-md lg:max-w-xl xl:max-w-2xl mx-auto flex flex-col items-center">
-          {mensagens.length === 0 && !erroApi && ( // Exibe a mensagem de boas-vindas apenas se não houver mensagens e nenhum erro de API
+          {mensagens.length === 0 && !erroApi && (
             <motion.div
               className="text-center text-gray-600 mb-8 mt-24"
               initial={{ opacity: 0 }}
@@ -181,7 +187,7 @@ const PaginaDeConversa: React.FC = () => {
               <h2 className="text-4xl font-semibold">{mensagemBoasVindasInicial}</h2>
             </motion.div>
           )}
-          {erroApi && ( // Exibe a mensagem de erro da API se houver
+          {erroApi && (
             <div className="text-red-500 text-center mb-4">
               Erro: {erroApi}
             </div>
