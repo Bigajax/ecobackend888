@@ -110,8 +110,8 @@ export const askGemini = async (req: Request, res: Response) => { // Aceita req 
     ].join('\n\n');
 
     const genAI = new GoogleGenerativeAI(apiKey);
-    // CORRIGIDO: Usando o modelo "gemini-1.5-flash-001"
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-001" });
+    // ALTERADO: Usando o modelo "gemini-1.5-pro-001"
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-pro-001" });
 
     const chatHistory = [];
     const saudacao = gerarSaudacaoPersonalizada(userName);
