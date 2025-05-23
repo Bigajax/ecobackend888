@@ -1,3 +1,4 @@
+// src/pages/MemoryPage.tsx (Seu arquivo existente)
 import React, { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { ArrowLeft } from 'lucide-react';

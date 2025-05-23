@@ -1,15 +1,17 @@
+// src/components/ChatInput.tsx
 import React, { useState, useRef } from 'react';
 import { motion } from 'framer-motion';
-import { Send, Mic, Headphones } from 'lucide-react'; // Importe Headphones ou o ícone desejado
+import { Send, Mic, Headphones } from 'lucide-react';
 
-import MemoryButton from './MemoryButton';
+import MemoryButton from './MemoryButton'; 
 
 interface ChatInputProps {
   onSendMessage: (message: string) => void;
   onGoToVoiceMode?: () => void;
+  onSaveMemory?: () => void; // Prop para salvar memória
 }
 
-const ChatInput: React.FC<ChatInputProps> = ({ onSendMessage, onGoToVoiceMode }) => {
+const ChatInput: React.FC<ChatInputProps> = ({ onSendMessage, onGoToVoiceMode, onSaveMemory }) => {
   const [inputMessage, setInputMessage] = useState('');
   const formRef = useRef<HTMLFormElement>(null);
 
@@ -21,7 +23,6 @@ const ChatInput: React.FC<ChatInputProps> = ({ onSendMessage, onGoToVoiceMode })
     }
   };
 
-  // Esta função será para NAVEGAR para a página de voz
   const handleGoToVoicePage = () => {
     console.log('Botão de IR PARA MODO DE VOZ clicado. Navegando...');
     if (onGoToVoiceMode) {
@@ -29,16 +30,11 @@ const ChatInput: React.FC<ChatInputProps> = ({ onSendMessage, onGoToVoiceMode })
     }
   };
 
-  // Esta função pode ser para ENVIAR ÁUDIO gravado diretamente do input, se houver essa funcionalidade.
-  // Por enquanto, ela pode simplesmente chamar handleGoToVoicePage se você preferir.
   const handleSendAudioMessage = () => {
-    console.log('Botão de Microfone clicado. Se a funcionalidade de gravação rápida estivesse aqui, ela iniciaria. Por enquanto, irá para a página de voz.');
-    // Se você não for implementar gravação de áudio direto aqui, pode fazer ele navegar
+    console.log('Botão de Microfone clicado. Por enquanto, irá para a página de voz.');
     if (onGoToVoiceMode) {
         onGoToVoiceMode();
     }
-    // Ou, se você quer que o botão Mic seja apenas para gravação (e não navegação):
-    // alert("Funcionalidade de gravar e enviar áudio direto será implementada aqui.");
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -51,7 +47,10 @@ const ChatInput: React.FC<ChatInputProps> = ({ onSendMessage, onGoToVoiceMode })
   };
 
   const handleMemoryButtonClick = () => {
-    console.log('Botão de Memória clicado dentro do ChatInput.');
+    console.log('Botão de Memória clicado dentro do ChatInput. Chamando onSaveMemory.');
+    if (onSaveMemory) {
+      onSaveMemory(); // APENAS SALVA A MEMÓRIA. NÃO NAVEGA.
+    }
   };
 
   return (
@@ -65,7 +64,7 @@ const ChatInput: React.FC<ChatInputProps> = ({ onSendMessage, onGoToVoiceMode })
     >
       <div className="absolute bottom-2 left-4">
         <MemoryButton
-          onClick={handleMemoryButtonClick}
+          onClick={handleMemoryButtonClick} 
           className="!p-0 !bg-transparent !shadow-none !border-none"
         />
       </div>
@@ -80,29 +79,26 @@ const ChatInput: React.FC<ChatInputProps> = ({ onSendMessage, onGoToVoiceMode })
       />
 
       <div className="flex items-center space-x-2">
-        {/* NOVO: Botão para navegar para a VoicePage */}
         {onGoToVoiceMode && (
           <button
             type="button"
-            onClick={handleGoToVoicePage} // Chama a nova função para navegar
+            onClick={handleGoToVoicePage}
             className="p-2 rounded-full text-gray-600 hover:bg-gray-100 transition-colors"
             aria-label="Ir para modo de voz"
           >
-            <Headphones size={24} /> {/* Novo ícone para ir para a VoicePage */}
+            <Headphones size={24} />
           </button>
         )}
 
-        {/* Botão de Microfone (pode ser para gravar e enviar áudio no futuro ou opcionalmente navegar) */}
         <button
-          type="button" // Use type="button" para evitar submit
-          onClick={handleSendAudioMessage} // Pode ser ajustado para gravar/enviar áudio, ou chamar handleGoToVoicePage
+          type="button"
+          onClick={handleSendAudioMessage}
           className="p-2 rounded-full text-gray-600 hover:bg-gray-100 transition-colors"
           aria-label="Gravar ou enviar áudio"
         >
           <Mic size={24} />
         </button>
 
-        {/* Botão de Enviar (para texto) */}
         <button
           type="submit"
           className="p-2 rounded-full bg-blue-500 text-white hover:bg-blue-600 transition-colors"

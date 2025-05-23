@@ -11,42 +11,42 @@ interface Memoria {
     contexto?: string | null;
     categoria?: string[] | null; // Adicionado categoria (para tags)
     salvar_memoria: boolean;
-    created_at: string; // Mantido, mas a ordenação será por data_registro
+    // REMOVIDO: created_at: string; // <--- ESTA LINHA FOI REMOVIDA
 }
 
 export async function salvarMemoria({
     usuarioId,
     mensagemId,
     resumoEco,
-    dataRegistro, // Adicionado dataRegistro
+    dataRegistro,
     emocaoPrincipal,
     intensidade,
     contexto,
-    tags, // Adicionado tags
+    tags,
     salvarMemoria = true,
 }: {
     usuarioId: string;
     mensagemId: string;
     resumoEco: string;
-    dataRegistro?: string; // Opcional, pois pode ser gerado no backend
+    dataRegistro?: string;
     emocaoPrincipal?: string;
     intensidade?: number;
     contexto?: string;
-    tags?: string[]; // Opcional
+    tags?: string[];
     salvarMemoria?: boolean;
 }) {
     const { data, error } = await supabase
-        .from('memories') // Alterado para 'memories' (plural)
+        .from('memories')
         .insert([
             {
                 usuario_id: usuarioId,
                 mensagem_id: mensagemId,
                 resumo_eco: resumoEco,
-                data_registro: dataRegistro, // Incluindo dataRegistro
+                data_registro: dataRegistro,
                 emocao_principal: emocaoPrincipal,
                 intensidade,
                 contexto,
-                categoria: tags, // Incluindo tags (como categoria)
+                categoria: tags,
                 salvar_memoria: salvarMemoria,
             },
         ]);
@@ -57,10 +57,10 @@ export async function salvarMemoria({
 
 export async function buscarMemoriasPorUsuario(usuarioId: string) {
     const { data, error } = await supabase
-        .from('memories') // Alterado para 'memories' (plural)
+        .from('memories')
         .select('*')
         .eq('usuario_id', usuarioId)
-        .order('data_registro', { ascending: false }); // <-- CORRIGIDO AQUI: Usando 'data_registro'
+        .order('data_registro', { ascending: false }); // Usando 'data_registro'
     if (error) throw new Error(error.message);
     return data;
 }
@@ -68,9 +68,9 @@ export async function buscarMemoriasPorUsuario(usuarioId: string) {
 export const buscarMemorias = async (): Promise<Memoria[]> => {
     try {
         const { data, error } = await supabase
-            .from('memories') // Substitua 'memorias' pelo nome da sua tabela
-            .select('*') // Seleciona todas as colunas
-            .order('data_registro', { ascending: false }); // Ordena por data de registro
+            .from('memories')
+            .select('*')
+            .order('data_registro', { ascending: false }); // Usando 'data_registro'
 
         if (error) {
             console.error('Erro ao buscar memórias do Supabase:', error);
@@ -78,13 +78,13 @@ export const buscarMemorias = async (): Promise<Memoria[]> => {
         }
 
         if (!data) {
-            return []; // Retorna um array vazio se não houver dados
+            return [];
         }
 
-        return data as Memoria[]; // Garante que o tipo de retorno está correto
+        return data as Memoria[];
     } catch (error: any) {
         console.error('Erro ao buscar memórias:', error);
-        throw error; // Rejoga o erro para ser tratado no componente
+        throw error;
     } finally {
         console.log('Busca de memórias concluída.');
     }
