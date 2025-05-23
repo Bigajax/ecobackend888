@@ -1,16 +1,15 @@
-// C:\Users\Rafael\Desktop\eco5555\Eco666\src\pages\PaginaDeConversa.tsx
-
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Mic, BookOpen, List } from 'lucide-react';
+// Mic e List podem ser mantidos se usados em outro lugar. BookOpen foi removido daqui
+// pois o ícone agora é parte do MemoryButton que está dentro do ChatInput.
+import { Mic, List } from 'lucide-react';
 import { motion } from 'framer-motion';
 import Header from '../components/Header';
 import ChatMessage, { Message } from '../components/ChatMessage';
-import ChatInput from '../components/ChatInput';
+import ChatInput from '../components/ChatInput'; // O ChatInput que agora contém o MemoryButton
 import { enviarMensagemParaEco } from '../api/ecoApi';
-// REMOVIDO: import { gerarPromptMestre } from '../utils/generatePrompt.ts'; // REMOVA ESTA LINHA
 import TelaDeHistoricoDeMemorias from '../components/TelaDeHistoricoDeMemorias';
-// REMOVIDO: import { salvarMemoria } from '../api/memoria'; // Remova ou mantenha comentado se não for usar a memória
+// REMOVIDO: import MemoryButton from '../components/MemoryButton'; // REMOVA ESTA LINHA - O MemoryButton agora está dentro de ChatInput
 
 interface EmotionalMemory {
   memoria: string;
@@ -25,36 +24,14 @@ const PaginaDeConversa: React.FC = () => {
   const referenciaFinalDasMensagens = useRef<HTMLDivElement>(null);
   const navegar = useNavigate();
   const [isMemoryHistoryOpen, setIsMemoryHistoryOpen] = useState(false);
-  const [mensagemASalvar, setMensagemASalvar] = useState<string | null>(null); // Pode remover se não for usar memória
-  const [mensagemDeSucesso, setMensagemDeSucesso] = useState<string | null>(null); // Pode remover se não for usar memória
-  const [ultimaMensagemEco, setUltimaMensagemEco] = useState<Message | null>(null); // Pode remover se não for usar memória
-  const [ultimaEmocaoDetectada, setUltimaEmocaoDetectada] = useState<string | null>(null); // Pode remover se não for usar memória
-  const [ultimaIntensidadeDetectada, setUltimaIntensidadeDetectada] = useState<number | null>(null); // Pode remover se não for usar memória
+  const [mensagemASalvar, setMensagemASalvar] = useState<string | null>(null);
+  const [mensagemDeSucesso, setMensagemDeSucesso] = useState<string | null>(null);
+  const [ultimaMensagemEco, setUltimaMensagemEco] = useState<Message | null>(null);
+  const [ultimaEmocaoDetectada, setUltimaEmocaoDetectada] = useState<string | null>(null);
+  const [ultimaIntensidadeDetectada, setUltimaIntensidadeDetectada] = useState<number | null>(null);
   const [feedback, setFeedback] = useState<{ [messageId: string]: 'like' | 'dislike' | null }>({});
-  const [mensagensAnteriores, setMensagensAnteriores] = useState<Message[]>([]); // Usado para regenerar
-  // REMOVIDO: const [promptDoSistema, setPromptDoSistema] = useState<string>(''); // Este estado não é mais necessário
+  const [mensagensAnteriores, setMensagensAnteriores] = useState<Message[]>([]);
   const [erroApi, setErroApi] = useState<string | null>(null);
-
-  // REMOVIDO: O useEffect abaixo para carregar o prompt do sistema foi removido
-  // pois a lógica agora está no backend (geminiService.ts)
-  /*
-  useEffect(() => {
-    const carregarPrompt = async () => {
-      try {
-        console.log("Frontend: Iniciando carregamento do prompt do sistema...");
-        const prompt = await gerarPromptMestre();
-        setPromptDoSistema(prompt);
-        setErroApi(null);
-        console.log("Frontend: Prompt do sistema carregado com sucesso!");
-      } catch (error: any) {
-        console.error("Frontend: Erro ao carregar o prompt do sistema:", error);
-        setErroApi(error.message || "Erro ao carregar o prompt inicial.");
-        setPromptDoSistema('');
-      }
-    };
-    carregarPrompt();
-  }, []);
-  */
 
   useEffect(() => {
     referenciaFinalDasMensagens.current?.scrollIntoView({ behavior: 'smooth' });
@@ -87,8 +64,6 @@ const PaginaDeConversa: React.FC = () => {
 
   const handleRegenerateResponse = async (messageId: string) => {
     definirDigitando(true);
-    // Para regenerar, precisamos enviar o histórico de mensagens ATÉ a mensagem original do usuário
-    // que precedeu a resposta da Eco que queremos regenerar.
     const indiceMensagemARegenerar = mensagens.findIndex(msg => msg.id === messageId);
     if (indiceMensagemARegenerar === -1) {
       console.warn("Mensagem a regenerar não encontrada.");
@@ -96,19 +71,15 @@ const PaginaDeConversa: React.FC = () => {
       return;
     }
 
-    // Filtra as mensagens para incluir apenas o histórico relevante para a regeneração
-    // Ou seja, todas as mensagens até (e incluindo) a última mensagem do USUÁRIO antes da resposta da ECO
     const historicoParaRegenerar = mensagens.slice(0, indiceMensagemARegenerar).filter(msg => msg.sender === 'user' || msg.sender === 'eco');
     
-    // Mapeia para o formato esperado pelo backend: { role: string, content: string }
     const mappedHistory = historicoParaRegenerar.map(msg => ({
-        role: msg.sender === 'eco' ? 'assistant' : 'user', // Backend espera 'assistant' para Eco
-        content: msg.text || ''
+      role: msg.sender === 'eco' ? 'assistant' : 'user',
+      content: msg.text || ''
     }));
 
     try {
-      // Envia o histórico (incluindo a última mensagem do usuário) para o backend
-      const novaResposta = await enviarMensagemParaEco(mappedHistory, "Rafael"); // Passando nome de exemplo
+      const novaResposta = await enviarMensagemParaEco(mappedHistory, "Rafael");
       
       definirMensagens(prevMensagens =>
         prevMensagens.map(msg =>
@@ -128,27 +99,23 @@ const PaginaDeConversa: React.FC = () => {
     const mensagemDoUsuario: Message = { id: Date.now().toString(), text: texto, sender: 'user' };
     definirMensagens((anteriores) => [...anteriores, mensagemDoUsuario]);
     definirDigitando(true);
-    setMensagemASalvar(texto); // Se for usar a funcionalidade de memória
-    setErroApi(null); // Limpa erros de API ao enviar nova mensagem
+    setMensagemASalvar(texto);
+    setErroApi(null);
 
-    // Prepara o histórico para enviar ao backend
-    // Inclui a nova mensagem do usuário no final
     const historicoAtualizado = [...mensagens, mensagemDoUsuario].map(msg => ({
-      role: msg.sender === 'eco' ? 'assistant' : 'user', // Gemini espera 'assistant' para modelo
+      role: msg.sender === 'eco' ? 'assistant' : 'user',
       content: msg.text || ''
     }));
 
     try {
-      // Envia o histórico completo de mensagens para o backend.
-      // O backend adicionará o prompt do sistema no início desta conversa.
-      const resposta = await enviarMensagemParaEco(historicoAtualizado, "Rafael"); // Passando nome de exemplo
+      const resposta = await enviarMensagemParaEco(historicoAtualizado, "Rafael");
       
       const mensagemDaEco: Message = { id: (Date.now() + 1).toString(), text: resposta, sender: 'eco' };
       definirMensagens((anteriores) => [...anteriores, mensagemDaEco]);
-      setUltimaMensagemEco(mensagemDaEco); // Se for usar a funcionalidade de memória
+      setUltimaMensagemEco(mensagemDaEco);
     } catch (erro: any) {
       console.error("Erro ao enviar mensagem para a ECO:", erro);
-      setErroApi(erro.message || "Erro ao enviar mensagem."); // Define o erro para a UI
+      setErroApi(erro.message || "Erro ao enviar mensagem.");
     } finally {
       definirDigitando(false);
     }
@@ -158,9 +125,12 @@ const PaginaDeConversa: React.FC = () => {
     setIsMemoryHistoryOpen(true);
   };
 
-  const handleRegistroManual = (text: string) => {
-    console.log('Registro Manual:', text);
-    // Implemente a lógica para registrar manualmente a conversa
+  // Esta função não é mais necessária aqui diretamente, pois o MemoryButton agora está dentro do ChatInput
+  // e já lida com a navegação. Se precisar de uma lógica de "registro de memória"
+  // que afete o estado da PaginaDeConversa, ela precisaria ser passada como prop para ChatInput
+  // e de lá para o MemoryButton (se o MemoryButton aceitar tal prop).
+  const handleRecordMemory = () => {
+    console.log('Esta função não deveria ser chamada diretamente por um botão externo agora.');
   };
 
   const irParaModoDeVoz = () => {
@@ -175,6 +145,7 @@ const PaginaDeConversa: React.FC = () => {
         onOpenMemoryHistory={handleOpenMemoryHistory}
         mensagemDeSucesso={mensagemDeSucesso}
       />
+      {/* O elemento pai do conteúdo central, agora com flex-1 para preencher o espaço disponível. */}
       <div className="flex-1 flex overflow-y-auto p-4 flex-col items-center">
         <div className="max-w-2xl w-full md:max-w-md lg:max-w-xl xl:max-w-2xl mx-auto flex flex-col items-center">
           {mensagens.length === 0 && !erroApi && (
@@ -213,10 +184,12 @@ const PaginaDeConversa: React.FC = () => {
           </div>
         </div>
       </div>
+      {/* Área do input de chat na parte inferior */}
       <div className="flex justify-center w-full p-4">
         <div className="max-w-2xl w-full md:max-w-md lg:max-w-xl xl:max-w-2xl mx-auto">
           <ChatInput
             onSendMessage={lidarComEnvioDeMensagem}
+            onGoToVoiceMode={irParaModoDeVoz} // Passando a função para o ChatInput
           />
         </div>
       </div>

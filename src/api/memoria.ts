@@ -11,7 +11,7 @@ interface Memoria {
     contexto?: string | null;
     categoria?: string[] | null; // Adicionado categoria (para tags)
     salvar_memoria: boolean;
-    created_at: string;
+    created_at: string; // Mantido, mas a ordenação será por data_registro
 }
 
 export async function salvarMemoria({
@@ -60,7 +60,7 @@ export async function buscarMemoriasPorUsuario(usuarioId: string) {
         .from('memories') // Alterado para 'memories' (plural)
         .select('*')
         .eq('usuario_id', usuarioId)
-        .order('created_at', { ascending: false });
+        .order('data_registro', { ascending: false }); // <-- CORRIGIDO AQUI: Usando 'data_registro'
     if (error) throw new Error(error.message);
     return data;
 }

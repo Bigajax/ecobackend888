@@ -3,9 +3,9 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './contexts/AuthContext';
 import LoginPage from './pages/LoginPage';
 import ChatPage from './pages/ChatPage';
-import VoicePage from './pages/VoicePage';
+import VoicePage from './pages/VoicePage'; // Já importado
 import MemoryPage from './pages/MemoryPage';
-import CreateProfilePage from './pages/CreateProfilePage'; // <-- Importe a página de Criação de Perfil
+import CreateProfilePage from './pages/CreateProfilePage';
 import ProtectedRoute from './components/ProtectedRoute';
 
 function App() {
@@ -15,7 +15,7 @@ function App() {
         <Routes>
           <Route path="/" element={<Navigate to="/login" />} />
           <Route path="/login" element={<LoginPage />} />
-          <Route path="/register" element={<CreateProfilePage />} /> {/* <-- Nova Rota para Criar Perfil */}
+          <Route path="/register" element={<CreateProfilePage />} />
           
           <Route
             path="/chat"
@@ -27,10 +27,10 @@ function App() {
           />
           
           <Route
-            path="/voice"
+            path="/voice" // Esta é a rota para a VoicePage
             element={
               <ProtectedRoute>
-                <VoicePage />
+                <VoicePage /> {/* Componente VoicePage é renderizado aqui */}
               </ProtectedRoute>
             }
           />
