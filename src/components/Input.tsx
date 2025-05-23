@@ -35,7 +35,9 @@ const Input: React.FC<InputProps> = ({
         name={name}
         required={required}
         autoComplete={autoComplete}
-        className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-100 transition-all duration-200"
+        className="w-full px-4 py-3 bg-white border border-gray-300 rounded-xl text-gray-800
+                   focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent
+                   placeholder-gray-400 transition-all duration-200"
       />
     </motion.div>
   );

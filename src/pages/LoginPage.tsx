@@ -5,7 +5,7 @@ import { useAuth } from '../contexts/AuthContext';
 import PhoneFrame from '../components/PhoneFrame';
 import Input from '../components/Input';
 import Button from '../components/Button';
-import TourInicial from '../components/TourInicial'; // Importe o componente TourInicial
+import TourInicial from '../components/TourInicial';
 
 const LoginPage: React.FC = () => {
   const [email, setEmail] = useState('');
@@ -14,18 +14,18 @@ const LoginPage: React.FC = () => {
   const [error, setError] = useState('');
   const { login, register } = useAuth();
   const navigate = useNavigate();
-  const [isTourActive, setIsTourActive] = useState(false); // Estado para controlar a visibilidade do tour
+  const [isTourActive, setIsTourActive] = useState(false);
 
   const handleIniciarTour = () => {
-    console.log('handleIniciarTour chamado'); // Adicione este log
-    setIsTourActive(true); // Define o estado para mostrar o tour
-    console.log('isTourActive agora é:', isTourActive); // Adicione este log
+    console.log('handleIniciarTour chamado');
+    setIsTourActive(true);
+    console.log('isTourActive agora é:', isTourActive);
   };
 
   const handleCloseTour = () => {
-    console.log('handleCloseTour chamado'); // Adicione este log
-    setIsTourActive(false); // Define o estado para esconder o tour
-    console.log('isTourActive agora é:', isTourActive); // Adicione este log
+    console.log('handleCloseTour chamado');
+    setIsTourActive(false);
+    console.log('isTourActive agora é:', isTourActive);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -44,12 +44,12 @@ const LoginPage: React.FC = () => {
     }
   };
 
-  console.log('Renderizando LoginPage com isTourActive:', isTourActive); // Adicione este log
+  console.log('Renderizando LoginPage com isTourActive:', isTourActive);
 
   return (
     <PhoneFrame>
       <div className="flex flex-col h-full p-8 justify-center items-center bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50 relative">
-        {isTourActive && <TourInicial onClose={handleCloseTour} />} {/* Renderiza o TourInicial condicionalmente */}
+        {isTourActive && <TourInicial onClose={handleCloseTour} />}
         <motion.div
           className="text-center mb-12"
           initial={{ opacity: 0, y: -20 }}
@@ -60,7 +60,7 @@ const LoginPage: React.FC = () => {
           <p className="text-gray-500 text-sm">Espelho Emocional e Comportamental</p>
         </motion.div>
 
-        <form onSubmit={handleSubmit} className="space-y-4 w-full max-w-sm"> {/* Adicione max-w-sm para limitar a largura */}
+        <form onSubmit={handleSubmit} className="space-y-4 w-full max-w-sm">
           <Input
             type="email"
             placeholder="Email"
@@ -89,8 +89,12 @@ const LoginPage: React.FC = () => {
             </motion.p>
           )}
 
-          <div className="pt-4 flex flex-col items-center space-y-2 w-full"> {/* Use w-full aqui também */}
-            <Button type="submit" fullWidth>
+          <div className="pt-4 flex flex-col items-center space-y-2 w-full">
+            <Button
+              type="submit"
+              fullWidth
+              className="bg-white text-black shadow-sm hover:bg-gray-100 font-semibold py-3 rounded-lg"
+            >
               Entrar
             </Button>
             <button
@@ -102,7 +106,12 @@ const LoginPage: React.FC = () => {
             </button>
             <div className="border-b border-gray-300 w-16 my-2" />
             <span className="text-gray-500 text-sm">ou</span>
-            <Button type="button" fullWidth onClick={handleIniciarTour}>
+            <Button
+              type="button"
+              fullWidth
+              onClick={handleIniciarTour}
+              className="bg-white text-black shadow-sm hover:bg-gray-100 font-semibold py-3 rounded-lg"
+            >
               Iniciar Tour
             </Button>
           </div>
