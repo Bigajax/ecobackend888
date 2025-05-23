@@ -6,15 +6,18 @@ import PhoneFrame from '../components/PhoneFrame';
 import Input from '../components/Input';
 import Button from '../components/Button';
 import TourInicial from '../components/TourInicial';
+// Ícones do Google e Apple não são mais necessários
+// import { FcGoogle } from 'react-icons/fc';
+// import { FaApple } from 'react-icons/fa';
 
 const LoginPage: React.FC = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [isLogin, setIsLogin] = useState(true);
   const [error, setError] = useState('');
-  const { login, register } = useAuth();
+  const { login } = useAuth(); // signInWithOAuth não é mais necessário aqui
   const navigate = useNavigate();
   const [isTourActive, setIsTourActive] = useState(false);
+  const [loading, setLoading] = useState(false);
 
   const handleIniciarTour = () => {
     console.log('handleIniciarTour chamado');
@@ -31,18 +34,30 @@ const LoginPage: React.FC = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setLoading(true);
 
     try {
-      if (isLogin) {
-        await login(email, password);
-      } else {
-        await register(email, password);
-      }
-      navigate('/chat');
-    } catch (err) {
-      setError('Falha na autenticação. Verifique suas credenciais.');
+      await login(email, password);
+      // O navigate para /chat é tratado no AuthContext via onAuthStateChange
+    } catch (err: any) {
+      setError(err.message || 'Falha na autenticação. Verifique suas credenciais.');
+    } finally {
+      setLoading(false);
     }
   };
+
+  // As funções de login social não são mais necessárias
+  // const handleSocialLogin = async (provider: 'google' | 'apple') => {
+  //   setError('');
+  //   setLoading(true);
+  //   try {
+  //     await signInWithOAuth(provider, `${window.location.origin}/chat`);
+  //   } catch (err: any) {
+  //     setError(err.message || `Falha ao fazer login com ${provider}.`);
+  //   } finally {
+  //     setLoading(false);
+  //   }
+  // };
 
   console.log('Renderizando LoginPage com isTourActive:', isTourActive);
 
@@ -93,14 +108,15 @@ const LoginPage: React.FC = () => {
             <Button
               type="submit"
               fullWidth
+              disabled={loading}
               className="bg-white text-black shadow-sm hover:bg-gray-100 font-semibold py-3 rounded-lg"
             >
-              Entrar
+              {loading ? 'Entrando...' : 'Entrar'}
             </Button>
             <button
               type="button"
               className="text-gray-600 hover:text-gray-800 text-sm underline"
-              onClick={() => setIsLogin(false)}
+              onClick={() => navigate('/register')}
             >
               Criar perfil
             </button>
@@ -110,6 +126,7 @@ const LoginPage: React.FC = () => {
               type="button"
               fullWidth
               onClick={handleIniciarTour}
+              disabled={loading}
               className="bg-white text-black shadow-sm hover:bg-gray-100 font-semibold py-3 rounded-lg"
             >
               Iniciar Tour
@@ -117,19 +134,34 @@ const LoginPage: React.FC = () => {
           </div>
         </form>
 
-        <motion.div
-          className="mt-8 text-center"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 0.3 }}
-        >
-          <button
-            className="text-gray-600 hover:text-gray-800 text-sm underline"
-            onClick={() => setIsLogin(true)}
+        {/* Os botões de login social foram removidos daqui */}
+        {/* <div className="mt-8 w-full max-w-sm flex justify-center space-x-4">
+          <Button
+            type="button"
+            onClick={() => handleSocialLogin('google')}
+            disabled={loading}
+            className="w-14 h-14 bg-white rounded-full flex items-center justify-center shadow-sm hover:bg-gray-100 transition-colors duration-200"
           >
-            Já possui uma conta? Entrar
-          </button>
-        </motion.div>
+            {loading ? (
+              <span className="text-gray-700 text-xs">...</span>
+            ) : (
+              <FcGoogle className="h-8 w-8" />
+            )}
+          </Button>
+
+          <Button
+            type="button"
+            onClick={() => handleSocialLogin('apple')}
+            disabled={loading}
+            className="w-14 h-14 bg-white rounded-full flex items-center justify-center shadow-sm hover:bg-gray-100 transition-colors duration-200"
+          >
+            {loading ? (
+              <span className="text-gray-700 text-xs">...</span>
+            ) : (
+              <FaApple className="h-8 w-8 text-gray-700" />
+            )}
+          </Button>
+        </div> */}
       </div>
     </PhoneFrame>
   );
