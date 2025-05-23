@@ -30,6 +30,7 @@ const ChatPage: React.FC = () => {
   const { user } = useAuth();
 
   // Mensagem de boas-vindas para exibição visual no topo (título solto)
+  // Ajuste aqui para o formato "Olá [nome do usuário]!"
   const mensagemBoasVindasDisplay = user?.full_name ? `Olá, ${user.full_name}!` : 'Olá!';
 
   useEffect(() => {
@@ -226,13 +227,20 @@ const ChatPage: React.FC = () => {
               animate={{ opacity: 1 }}
               transition={{ duration: 0.5 }}
             >
-              <h2 className="text-5xl font-bold" style={{
-                background: 'linear-gradient(to right, #4285F4, #9B72AA, #D9538F)',
+              <h2 className="text-4xl font-light" style={{ // Reduced font size, lighter weight
+                background: 'linear-gradient(to right, #AEC6CF, #B0C4DE, #DDA0DD)', // Softer gradient colors
                 WebkitBackgroundClip: 'text',
                 WebkitTextFillColor: 'transparent',
               }}>
                 {mensagemBoasVindasDisplay}
               </h2>
+              <p className="text-xl font-light text-gray-500 mt-2" style={{ // Smaller, lighter subtitle
+                background: 'linear-gradient(to right, #AEC6CF, #B0C4DE, #DDA0DD)', // Same softer gradient
+                WebkitBackgroundClip: 'text',
+                WebkitTextFillColor: 'transparent',
+              }}>
+                Sou a ECO, pronta para refletir com você.
+              </p>
             </motion.div>
           )}
           {erroApi && (
