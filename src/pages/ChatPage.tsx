@@ -9,14 +9,13 @@ import ChatInput from '../components/ChatInput';
 import { enviarMensagemParaEco } from '../api/ecoApi';
 import { salvarMemoria } from '../api/memoria';
 import { useAuth } from '../contexts/AuthContext';
-import { useChat, Message } from '../contexts/ChatContext'; // Importe useChat e Message do ChatContext
+import { useChat, Message } from '../contexts/ChatContext';
 
-const mensagemBoasVindasInicial = 'Como você se sente hoje?';
+// Definindo os tipos de opção para o 'Mais' (deve ser o mesmo tipo do ChatInput)
+type MoreOption = 'save_memory' | 'go_to_voice_page';
 
 const ChatPage: React.FC = () => {
-  const { messages, addMessage, updateMessage, clearMessages } = useChat(); // Use o contexto aqui
-  // Remova a definição de 'mensagens' do useState
-  // const [mensagens, definirMensagens] = useState<Message[]>([]);
+  const { messages, addMessage, updateMessage, clearMessages } = useChat();
 
   const [digitando, definirDigitando] = useState(false);
   const referenciaFinalDasMensagens = useRef<HTMLDivElement>(null);
@@ -24,31 +23,20 @@ const ChatPage: React.FC = () => {
   const [mensagemASalvar, setMensagemASalvar] = useState<string | null>(null);
   const [mensagemDeSucesso, setMensagemDeSucesso] = useState<string | null>(null);
   const [ultimaMensagemEco, setUltimaMensagemEco] = useState<Message | null>(null);
-  const [ultimaEmocaoDetectada, setUltimaEmocaoDetectada] = useState<string | null>(null); // Certifique-se de que estas variáveis são atualizadas de algum lugar
-  const [ultimaIntensidadeDetectada, setUltimaIntensidadeDetectada] = useState<number | null>(null); // Certifique-se de que estas variáveis são atualizadas de algum lugar
+  const [ultimaEmocaoDetectada, setUltimaEmocaoDetectada] = useState<string | null>(null);
+  const [ultimaIntensidadeDetectada, setUltimaIntensidadeDetectada] = useState<number | null>(null);
   const [feedback, setFeedback] = useState<{ [messageId: string]: 'like' | 'dislike' | null }>({});
   const [erroApi, setErroApi] = useState<string | null>(null);
   const { user } = useAuth();
 
+  // Mensagem de boas-vindas para exibição visual no topo (título solto)
+  const mensagemBoasVindasDisplay = user?.full_name ? `Olá, ${user.full_name}!` : 'Olá!';
+
   useEffect(() => {
     referenciaFinalDasMensagens.current?.scrollIntoView({ behavior: 'smooth' });
-    const ultimaEco = messages.slice().reverse().find(msg => msg.sender === 'eco'); // Use messages do contexto
+    const ultimaEco = messages.slice().reverse().find(msg => msg.sender === 'eco');
     setUltimaMensagemEco(ultimaEco || null);
-  }, [messages]); // Depende das mensagens do contexto
-
-  // Função para carregar mensagens na montagem inicial (se você não estiver usando localStorage no ChatContext)
-  // Se estiver usando localStorage no ChatContext, você pode remover este useEffect.
-  // No entanto, é bom ter um ponto de partida. Se as mensagens vierem do contexto,
-  // elas já estarão lá. Se o contexto for sempre vazio, considere um useEffect para
-  // adicionar a mensagem de boas-vindas se 'messages' estiver vazio.
-   useEffect(() => {
-     if (messages.length === 0) {
-       // Opcional: Adicione a mensagem de boas-vindas aqui se o contexto estiver vazio
-       // Isso garante que ela apareça mesmo se o usuário retornar à página
-       // e o localStorage estiver vazio ou desativado.
-       // addMessage({ id: uuidv4(), text: mensagemBoasVindasInicial, sender: 'eco' });
-     }
-   }, []); // Executa apenas uma vez na montagem inicial
+  }, [messages]);
 
   const handleCopyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
@@ -63,25 +51,24 @@ const ChatPage: React.FC = () => {
   };
 
   const handleLikeMessage = (messageId: string) => {
-    setFeedback(prev => ({ ...prev, [messageId]: prev[messageId] === 'like' ? null : 'like' }));
+    setFeedback(prev => ({ ...prev, [messageId]: prev [messageId] === 'like' ? null : 'like' }));
     console.log('Mensagem curtida:', messageId);
   };
 
   const handleDislikeMessage = (messageId: string) => {
-    setFeedback(prev => ({ ...prev, [messageId]: prev[messageId] === 'dislike' ? null : 'dislike' }));
+    setFeedback(prev => ({ ...prev, [messageId]: prev [messageId] === 'dislike' ? null : 'dislike' }));
     console.log('Mensagem descurtida:', messageId);
   };
 
   const handleRegenerateResponse = async (messageId: string) => {
     definirDigitando(true);
-    const indiceMensagemARegenerar = messages.findIndex(msg => msg.id === messageId); // Use messages do contexto
+    const indiceMensagemARegenerar = messages.findIndex(msg => msg.id === messageId);
     if (indiceMensagemARegenerar === -1) {
       console.warn("Mensagem a regenerar não encontrada.");
       definirDigitando(false);
       return;
     }
 
-    // O histórico para regenerar deve vir do estado atual do contexto
     const historicoParaRegenerar = messages.slice(0, indiceMensagemARegenerar + 1).filter(msg => msg.sender === 'user' || msg.sender === 'eco');
 
     const mappedHistory = historicoParaRegenerar.map(msg => ({
@@ -90,8 +77,8 @@ const ChatPage: React.FC = () => {
     }));
 
     try {
-      const novaResposta = await enviarMensagemParaEco(mappedHistory, "Rafael");
-      updateMessage(messageId, novaResposta); // Use a função updateMessage do contexto
+      const novaResposta = await enviarMensagemParaEco(mappedHistory, user?.full_name || "Usuário");
+      updateMessage(messageId, novaResposta);
       setErroApi(null);
     } catch (error: any) {
       console.error("Erro ao regenerar resposta:", error);
@@ -101,29 +88,73 @@ const ChatPage: React.FC = () => {
     }
   };
 
-
   const lidarComEnvioDeMensagem = async (texto: string) => {
     const mensagemDoUsuario: Message = { id: uuidv4(), text: texto, sender: 'user' };
-    addMessage(mensagemDoUsuario); // Adiciona a mensagem do usuário ao contexto
+    addMessage(mensagemDoUsuario);
     definirDigitando(true);
     setMensagemASalvar(texto);
     setErroApi(null);
 
-    // O histórico para a API deve vir do estado atual do contexto
-    const historicoAtualizado = [...messages, mensagemDoUsuario].map(msg => ({ // Use messages do contexto
+    const historicoAtualizado = [...messages, mensagemDoUsuario].map(msg => ({
       role: msg.sender === 'eco' ? 'assistant' : 'user',
       content: msg.text || ''
     }));
 
     try {
-      const resposta = await enviarMensagemParaEco(historicoAtualizado, "Rafael");
+      const resposta = await enviarMensagemParaEco(historicoAtualizado, user?.full_name || "Usuário");
 
       const mensagemDaEco: Message = { id: uuidv4(), text: resposta, sender: 'eco' };
-      addMessage(mensagemDaEco); // Adiciona a mensagem da Eco ao contexto
+      addMessage(mensagemDaEco);
       setUltimaMensagemEco(mensagemDaEco);
     } catch (erro: any) {
       console.error("Erro ao enviar mensagem para a ECO:", erro);
       setErroApi(erro.message || "Erro ao enviar mensagem.");
+    } finally {
+      definirDigitando(false);
+    }
+  };
+
+  // NOVA FUNÇÃO para lidar com o áudio gravado
+  const handleSendAudio = async (audioBlob: Blob) => {
+    console.log("Áudio gravado:", audioBlob);
+    definirDigitando(true);
+    setErroApi(null);
+
+    const audioUrl = URL.createObjectURL(audioBlob); // Cria uma URL temporária para o áudio
+    const mensagemAudio: Message = { id: uuidv4(), text: 'Mensagem de áudio', sender: 'user', audioUrl: audioUrl };
+    addMessage(mensagemAudio); // Adiciona uma mensagem indicando que é um áudio
+
+    // TODO: Implementar o envio do Blob de áudio para a sua API (backend)
+    // Isso pode envolver:
+    // 1. Converter o Blob em um FormData.
+    // 2. Enviar o FormData para um endpoint de API que processe o áudio (Speech-to-Text).
+    // 3. Receber a transcrição do áudio e talvez a resposta da Eco.
+
+    try {
+      // Exemplo de como você enviaria para uma API (requer implementação no backend)
+      const formData = new FormData();
+      formData.append('audio', audioBlob, 'audio_message.webm');
+      formData.append('userId', user?.id || 'anonymous');
+      formData.append('userName', user?.full_name || 'Usuário');
+
+      // Exemplo de requisição (AJUSTE PARA SUA API REAL)
+      // const response = await fetch('/api/transcribe-audio', {
+      //   method: 'POST',
+      //   body: formData,
+      // });
+      // const data = await response.json();
+
+      // Placeholder: Simular uma resposta após um tempo
+      await new Promise(resolve => setTimeout(resolve, 2000)); // Simula tempo de processamento
+      const transcribedText = "Esta é uma transcrição de teste do seu áudio."; // Substitua pela transcrição real
+      const ecoResponse = `Entendi que você disse: "${transcribedText}"`;
+
+      // Atualiza a mensagem do usuário com a transcrição se desejar
+      updateMessage(mensagemAudio.id, transcribedText);
+      addMessage({ id: uuidv4(), text: ecoResponse, sender: 'eco' });
+    } catch (error: any) {
+      console.error("Erro ao enviar áudio:", error);
+      setErroApi(error.message || "Erro ao enviar áudio.");
     } finally {
       definirDigitando(false);
     }
@@ -170,6 +201,14 @@ const ChatPage: React.FC = () => {
     navegar('/voice');
   };
 
+  const handleMoreOptionSelected = (option: MoreOption) => {
+    if (option === 'save_memory') {
+      handleSaveMemory();
+    } else if (option === 'go_to_voice_page') {
+      irParaModoDeVoz();
+    }
+  };
+
   return (
     <div className="w-full h-full flex flex-col bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50">
       <Header
@@ -180,14 +219,20 @@ const ChatPage: React.FC = () => {
       />
       <div className="flex-1 flex overflow-y-auto p-4 flex-col items-center">
         <div className="max-w-2xl w-full md:max-w-md lg:max-w-xl xl:max-w-2xl mx-auto flex flex-col items-center">
-          {messages.length === 0 && !erroApi && ( // Use messages do contexto
+          {messages.length === 0 && !erroApi && (
             <motion.div
-              className="text-center text-gray-600 mb-8 mt-24"
+              className="text-center text-gray-600 mb-20 mt-16"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               transition={{ duration: 0.5 }}
             >
-              <h2 className="text-4xl font-semibold">{mensagemBoasVindasInicial}</h2>
+              <h2 className="text-5xl font-bold" style={{
+                background: 'linear-gradient(to right, #4285F4, #9B72AA, #D9538F)',
+                WebkitBackgroundClip: 'text',
+                WebkitTextFillColor: 'transparent',
+              }}>
+                {mensagemBoasVindasDisplay}
+              </h2>
             </motion.div>
           )}
           {erroApi && (
@@ -196,7 +241,7 @@ const ChatPage: React.FC = () => {
             </div>
           )}
           <div className="w-full">
-            {messages.map((mensagem) => ( // Use messages do contexto
+            {messages.map((mensagem) => (
               <ChatMessage
                 key={mensagem.id}
                 message={mensagem}
@@ -218,10 +263,11 @@ const ChatPage: React.FC = () => {
       </div>
       <div className="flex justify-center w-full p-4">
         <div className="max-w-2xl w-full md:max-w-md lg:max-w-xl xl:max-w-2xl mx-auto">
+          {/* Passando a nova função como prop onSendAudio */}
           <ChatInput
             onSendMessage={lidarComEnvioDeMensagem}
-            onGoToVoiceMode={irParaModoDeVoz}
-            onSaveMemory={handleSaveMemory}
+            onMoreOptionSelected={handleMoreOptionSelected}
+            onSendAudio={handleSendAudio}
           />
         </div>
       </div>
