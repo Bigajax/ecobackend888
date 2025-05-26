@@ -7,8 +7,8 @@ import ChatMessage from '../components/ChatMessage';
 import ChatInput from '../components/ChatInput';
 import { enviarMensagemParaEco } from '../api/ecoApi';
 import { salvarMemoria } from '../api/memoria';
-import { useAuth } from '../contexts/AuthContext'; // Certifique-se de que AuthContext tem a função logout
-import { useChat, Message } from '../contexts/ChatContext'; // Certifique-se de que ChatContext tem a função clearMessages
+import { useAuth } from '../contexts/AuthContext';
+import { useChat, Message } from '../contexts/ChatContext';
 
 // Definindo os tipos de opção para o 'Mais' (deve ser o mesmo tipo do ChatInput)
 type MoreOption = 'save_memory' | 'go_to_voice_page';
@@ -70,16 +70,25 @@ const ChatPage: React.FC = () => {
             return;
         }
 
-        const historicoParaRegenerar = messages.slice(0, indiceMensagemARegenerar + 1).filter(msg => msg.sender === 'user' || msg.sender === 'eco');
-
-        const mappedHistory = historicoParaRegenerar.map(msg => ({
+        // Histórico para regenerar: inclui a mensagem do usuário que gerou a resposta da Eco
+        // e todas as mensagens anteriores. A resposta da Eco que será regenerada é ignorada no histórico.
+        const historicoParaRegenerar = messages.slice(0, indiceMensagemARegenerar).map(msg => ({
             role: msg.sender === 'eco' ? 'assistant' : 'user',
             content: msg.text || ''
         }));
 
+        // Adiciona a última mensagem do usuário antes da mensagem da Eco a ser regenerada
+        const ultimaMensagemUsuarioAntesEco = messages[indiceMensagemARegenerar - 1];
+        if (ultimaMensagemUsuarioAntesEco && ultimaMensagemUsuarioAntesEco.sender === 'user') {
+             historicoParaRegenerar.push({
+                role: 'user',
+                content: ultimaMensagemUsuarioAntesEco.text || ''
+            });
+        }
+
         try {
-            const novaResposta = await enviarMensagemParaEco(mappedHistory, user?.full_name || "Usuário");
-            updateMessage(messageId, novaResposta);
+            const novaResposta = await enviarMensagemParaEco(historicoParaRegenerar, user?.full_name || "Usuário");
+            updateMessage(messageId, novaResposta); // Atualiza a mensagem existente
             setErroApi(null);
         } catch (error: any) {
             console.error("Erro ao regenerar resposta:", error);
@@ -122,35 +131,31 @@ const ChatPage: React.FC = () => {
         setErroApi(null);
 
         const audioUrl = URL.createObjectURL(audioBlob); // Cria uma URL temporária para o áudio
-        const mensagemAudio: Message = { id: uuidv4(), text: 'Mensagem de áudio', sender: 'user', audioUrl: audioUrl };
-        addMessage(mensagemAudio); // Adiciona uma mensagem indicando que é um áudio
-
-        // TODO: Implementar o envio do Blob de áudio para a sua API (backend)
-        // Isso pode envolver:
-        // 1. Converter o Blob em um FormData.
-        // 2. Enviar o FormData para um endpoint de API que processe o áudio (Speech-to-Text).
-        // 3. Receber a transcrição do áudio e talvez a resposta da Eco.
+        const mensagemAudio: Message = { id: uuidv4(), text: 'Transcrevendo áudio...', sender: 'user', audioUrl: audioUrl }; // Mensagem inicial
+        addMessage(mensagemAudio);
 
         try {
-            // Exemplo de como você enviaria para uma API (requer implementação no backend)
             const formData = new FormData();
             formData.append('audio', audioBlob, 'audio_message.webm');
             formData.append('userId', user?.id || 'anonymous');
             formData.append('userName', user?.full_name || 'Usuário');
 
-            // Exemplo de requisição (AJUSTE PARA SUA API REAL)
-            // const response = await fetch('/api/transcribe-audio', {
-            //   method: 'POST',
-            //   body: formData,
-            // });
-            // const data = await response.json();
+            // TODO: Ajuste este endpoint para o seu backend real de transcrição e geração de resposta
+            const response = await fetch('/api/transcribe-and-respond', { // Exemplo de endpoint
+                method: 'POST',
+                body: formData,
+            });
 
-            // Placeholder: Simular uma resposta após um tempo
-            await new Promise(resolve => setTimeout(resolve, 2000)); // Simula tempo de processamento
-            const transcribedText = "Esta é uma transcrição de teste do seu áudio."; // Substitua pela transcrição real
-            const ecoResponse = `Entendi que você disse: "${transcribedText}"`;
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.message || 'Falha ao processar áudio.');
+            }
 
-            // Atualiza a mensagem do usuário com a transcrição se desejar
+            const data = await response.json();
+            const transcribedText = data.transcription || "Não foi possível transcrever o áudio.";
+            const ecoResponse = data.ecoResponse || "Desculpe, não consegui gerar uma resposta para o áudio.";
+
+            // Atualiza a mensagem do usuário com a transcrição real
             updateMessage(mensagemAudio.id, transcribedText);
             addMessage({ id: uuidv4(), text: ecoResponse, sender: 'eco' });
         } catch (error: any) {
@@ -273,12 +278,18 @@ const ChatPage: React.FC = () => {
                                 onSpeak={handleSpeakMessage}
                                 onLike={handleLikeMessage}
                                 onDislike={handleDislikeMessage}
+                                // A animação de digitação não deve ser passada para mensagens já existentes
                                 onRegenerate={mensagem.sender === 'eco' ? () => handleRegenerateResponse(mensagem.id) : undefined}
+                                // isEcoTyping APENAS para a mensagem de digitação, não para as mensagens do histórico
+                                // isEcoTyping={mensagem.sender === 'eco' && digitando} <-- REMOVIDO DAQUI
                             />
                         ))}
                         {digitando && (
+                            // Esta é a mensagem de "Digitando...", que deve ter a bolha vibrando
                             <ChatMessage
-                                message={{ id: 'digitando', text: 'Digitando...', sender: 'eco' }}
+                                // Mudança: Texto da mensagem de digitação agora é vazio
+                                message={{ id: 'digitando-placeholder', text: '', sender: 'eco' }}
+                                isEcoTyping={true} // A bolha deve vibrar quando esta mensagem está visível
                             />
                         )}
                         <div ref={referenciaFinalDasMensagens} />
