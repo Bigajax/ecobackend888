@@ -4,17 +4,14 @@ import { motion } from 'framer-motion';
 import { useAuth } from '../contexts/AuthContext';
 import PhoneFrame from '../components/PhoneFrame';
 import Input from '../components/Input';
-import Button from '../components/Button';
+import Button from '../components/Button'; // Certifique-se de que este componente está disponível e estilizado
 import TourInicial from '../components/TourInicial';
-// Ícones do Google e Apple não são mais necessários
-// import { FcGoogle } from 'react-icons/fc';
-// import { FaApple } from 'react-icons/fa';
 
 const LoginPage: React.FC = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
-  const { login } = useAuth(); // signInWithOAuth não é mais necessário aqui
+  const { login } = useAuth();
   const navigate = useNavigate();
   const [isTourActive, setIsTourActive] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -45,19 +42,6 @@ const LoginPage: React.FC = () => {
       setLoading(false);
     }
   };
-
-  // As funções de login social não são mais necessárias
-  // const handleSocialLogin = async (provider: 'google' | 'apple') => {
-  //   setError('');
-  //   setLoading(true);
-  //   try {
-  //     await signInWithOAuth(provider, `${window.location.origin}/chat`);
-  //   } catch (err: any) {
-  //     setError(err.message || `Falha ao fazer login com ${provider}.`);
-  //   } finally {
-  //     setLoading(false);
-  //   }
-  // };
 
   console.log('Renderizando LoginPage com isTourActive:', isTourActive);
 
@@ -113,13 +97,16 @@ const LoginPage: React.FC = () => {
             >
               {loading ? 'Entrando...' : 'Entrar'}
             </Button>
-            <button
+            {/* Botão "Criar perfil" agora usa o componente Button */}
+            <Button
               type="button"
-              className="text-gray-600 hover:text-gray-800 text-sm underline"
+              fullWidth
               onClick={() => navigate('/register')}
+              disabled={loading} // Desabilita se o login estiver em andamento
+              className="bg-white text-black shadow-sm hover:bg-gray-100 font-semibold py-3 rounded-lg"
             >
               Criar perfil
-            </button>
+            </Button>
             <div className="border-b border-gray-300 w-16 my-2" />
             <span className="text-gray-500 text-sm">ou</span>
             <Button
@@ -133,35 +120,6 @@ const LoginPage: React.FC = () => {
             </Button>
           </div>
         </form>
-
-        {/* Os botões de login social foram removidos daqui */}
-        {/* <div className="mt-8 w-full max-w-sm flex justify-center space-x-4">
-          <Button
-            type="button"
-            onClick={() => handleSocialLogin('google')}
-            disabled={loading}
-            className="w-14 h-14 bg-white rounded-full flex items-center justify-center shadow-sm hover:bg-gray-100 transition-colors duration-200"
-          >
-            {loading ? (
-              <span className="text-gray-700 text-xs">...</span>
-            ) : (
-              <FcGoogle className="h-8 w-8" />
-            )}
-          </Button>
-
-          <Button
-            type="button"
-            onClick={() => handleSocialLogin('apple')}
-            disabled={loading}
-            className="w-14 h-14 bg-white rounded-full flex items-center justify-center shadow-sm hover:bg-gray-100 transition-colors duration-200"
-          >
-            {loading ? (
-              <span className="text-gray-700 text-xs">...</span>
-            ) : (
-              <FaApple className="h-8 w-8 text-gray-700" />
-            )}
-          </Button>
-        </div> */}
       </div>
     </PhoneFrame>
   );

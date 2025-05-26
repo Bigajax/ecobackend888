@@ -6,9 +6,12 @@ import { Transition } from 'react-transition-group';
 import { X, ArrowLeft, ArrowRight } from 'lucide-react';
 
 interface SequenceProps {
-    currentStep: number;
+    currentStep: number; // Esta prop não está sendo usada, pode ser removida se não for necessária em outro lugar.
     onClose: () => void;
 }
+
+// Defina a cor padrão para todas as bolhas aqui
+const DEFAULT_BUBBLE_COLOR = '#4A90E2'; // Um tom de azul que se encaixa bem com um visual "glassmorphism".
 
 const Sequence: React.FC<SequenceProps> = ({ onClose }) => {
     const [slideIndex, setSlideIndex] = useState(0);
@@ -33,6 +36,9 @@ const Sequence: React.FC<SequenceProps> = ({ onClose }) => {
         setSlideIndex(index);
     };
 
+    // Obtenha os dados do slide atual
+    const currentSlideData = slides[slideIndex];
+
     return (
         <div className="sequence-container w-full h-full flex flex-col items-center justify-center overflow-hidden">
             <Transition
@@ -44,9 +50,13 @@ const Sequence: React.FC<SequenceProps> = ({ onClose }) => {
             >
                 {(state) => (
                     <div className={`absolute inset-0 w-full h-full flex items-center justify-center ${state}`}>
-                        {slides[slideIndex] && (
+                        {currentSlideData && (
                             <Slide
-                                {...slides[slideIndex]}
+                                title={currentSlideData.title}
+                                text={currentSlideData.text}
+                                color={DEFAULT_BUBBLE_COLOR} // AQUI: Passamos a cor padrão
+                                bubblePosition={currentSlideData.bubblePosition}
+                                background={currentSlideData.background}
                                 onNext={handleNext}
                                 onPrev={handlePrev}
                                 isFirst={slideIndex === 0}
@@ -88,7 +98,7 @@ const Sequence: React.FC<SequenceProps> = ({ onClose }) => {
                         className="p-2 rounded-full bg-white/20 backdrop-blur-sm hover:bg-white/40 transition-all"
                         aria-label="Next slide"
                     >
-                         <ArrowRight size={20} className="text-gray-600 opacity-70" />
+                        <ArrowRight size={20} className="text-gray-600 opacity-70" />
                     </button>
                 )}
 
@@ -96,7 +106,7 @@ const Sequence: React.FC<SequenceProps> = ({ onClose }) => {
                     <button
                         onClick={handleNext}
                         className="px-6 py-3 bg-white/20 text-black rounded-full hover:bg-white/30 transition-colors duration-300
-                                   border border-gray-300 shadow-md" // Estilo mais próximo do design da Apple
+                                 border border-gray-300 shadow-md" // Estilo mais próximo do design da Apple
                         aria-label="Go to Chat"
                     >
                         Ir para o Chat
