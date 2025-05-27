@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
 import { Copy, Volume2, ThumbsUp, ThumbsDown, RotateCw } from 'lucide-react';
-import EcoBubble from './EcoBubble'; // Importe o componente EcoBubble
+// Removed: import EcoBubble from './EcoBubble'; // Importe o componente EcoBubble
 
 export interface Message {
     id: string;
@@ -42,15 +42,15 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.3 }}
         >
-            {isEco && (
+            {/* Removed EcoBubble rendering */}
+            {/* {isEco && (
                 <div className="flex items-center justify-center mr-2">
-                    {/* A bolha da Eco vibra se estiver no modo de "pensando" */}
                     <EcoBubble
                         size="w-8 h-8"
-                        isAnimating={isThinkingState} // Passa isThinkingState para controlar a animação da bolha
+                        isAnimating={isThinkingState}
                     />
                 </div>
-            )}
+            )} */}
             <div className="relative">
                 <div
                     className={`px-4 py-3 rounded-2xl max-w-[80%] sm:max-w-[60%] md:max-w-[480px] ${
@@ -59,7 +59,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
                             : 'bg-white text-gray-800 rounded-tl-sm'
                     }
                     ${isThinkingState ? 'min-h-[40px] min-w-[60px] flex items-center justify-center' : ''}
-                    `} // << AQUI: Adicionado min-h, min-w e flexbox para centralizar
+                    `}
                     style={{
                         boxShadow: '0 0 5px rgba(0, 0, 0, 0.05)',
                     }}

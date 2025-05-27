@@ -1,14 +1,43 @@
 // src/App.tsx
+
 import React from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './contexts/AuthContext';
 import { ChatProvider } from './contexts/ChatContext';
 import LoginPage from './pages/LoginPage';
 import ChatPage from './pages/ChatPage';
-import VoicePage from './pages/VoicePage';
-import MemoryPage from './pages/MemoryPage'; // <--- Verifique esta importação
+import VoicePage from './pages/VoicePage'; // DESCOMENTADO/ADICIONADO DE VOLTA
+import MemoryPage from './pages/MemoryPage';
 import CreateProfilePage from './pages/CreateProfilePage';
 import ProtectedRoute from './components/ProtectedRoute';
+
+// REMOVIDO/COMENTADO: O componente de teste SuperSimpleVoiceTestPage não é mais necessário aqui.
+/*
+const SuperSimpleVoiceTestPage: React.FC = () => {
+  console.log("!!! SuperSimpleVoiceTestPage RENDERIZADO E VISÍVEL !!!");
+  useEffect(() => {
+    return () => {
+      console.log("!!! SuperSimpleVoiceTestPage DESMONTADO !!!");
+    };
+  }, []);
+  return (
+    <div style={{
+      height: '100vh',
+      width: '100vw',
+      backgroundColor: 'darkblue',
+      display: 'flex',
+      justifyContent: 'center',
+      alignItems: 'center',
+      fontSize: '50px',
+      color: 'lime',
+      zIndex: 9999
+    }}>
+      MODO DE VOZ ATIVADO!
+    </div>
+  );
+};
+*/
+// FIM DO COMPONENTE DE TESTE REMOVIDO/COMENTADO
 
 function App() {
   return (
@@ -29,16 +58,16 @@ function App() {
               }
             />
 
+            {/* AQUI: A rota /voice agora renderiza VoicePage original dentro de ProtectedRoute */}
             <Route
               path="/voice"
               element={
                 <ProtectedRoute>
-                  <VoicePage />
+                  <VoicePage /> {/* VoicePage original está de volta aqui! */}
                 </ProtectedRoute>
               }
             />
 
-            {/* <--- ESTA ROTA É A MAIS IMPORTANTE PARA O SEU PROBLEMA ATUAL */}
             <Route
               path="/memory"
               element={

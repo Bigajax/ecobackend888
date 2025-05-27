@@ -1,48 +1,90 @@
-import React from 'react';
+// src/components/EcoBubble.tsx
+import React, { useRef, useEffect, useState } from 'react';
+import { Canvas, useFrame } from '@react-three/fiber';
+import { OrbitControls, Environment } from '@react-three/drei';
+import * as THREE from 'three';
 
 interface EcoBubbleProps {
-    isAnimating?: boolean; // Prop para controlar a animação de vibração
-    size?: string; // Para controlar o tamanho da bolha (ex: 'w-16 h-16')
+    isListening: boolean;
+    isProcessing: boolean;
+    isEcoThinking: boolean;
+    ecoAudioURL: string | null;
+    setEcoAudioURL: (url: string | null) => void;
 }
 
-const EcoBubble: React.FC<EcoBubbleProps> = ({ isAnimating = false, size = 'w-16 h-16' }) => {
-    const orbBaseColor = '#7A9EBF'; // Cor base da bolha, vinda da landing page
+const Bubble: React.FC<EcoBubbleProps> = ({ isListening, isProcessing, isEcoThinking, ecoAudioURL, setEcoAudioURL }) => {
+    const meshRef = useRef<THREE.Mesh>(null);
+    const audioRef = useRef<HTMLAudioElement | null>(null);
+    const [audioPlaying, setAudioPlaying] = useState(false);
+
+    useEffect(() => {
+        if (ecoAudioURL) {
+            if (audioRef.current) {
+                audioRef.current.pause();
+                audioRef.current.src = ecoAudioURL;
+            } else {
+                audioRef.current = new Audio(ecoAudioURL);
+            }
+            audioRef.current.onended = () => {
+                setAudioPlaying(false);
+                setEcoAudioURL(null);
+                if (audioRef.current) {
+                    audioRef.current.removeAttribute('src');
+                }
+            };
+            audioRef.current.play().then(() => {
+                setAudioPlaying(true);
+            }).catch(e => console.error("Erro ao tentar reproduzir áudio da Eco na bolha:", e));
+        }
+    }, [ecoAudioURL, setEcoAudioURL]);
+
+    useFrame(({ clock }) => {
+        if (meshRef.current) {
+            const time = clock.getElapsedTime();
+            const scaleFactor = 1;
+            let dynamicScale = 1;
+
+            if (isListening) {
+                dynamicScale = 1 + Math.sin(time * 5) * 0.05;
+            } else if (isProcessing || isEcoThinking) {
+                dynamicScale = 1 + Math.sin(time * 8) * 0.1;
+            } else if (audioPlaying) {
+                dynamicScale = 1 + Math.sin(time * 15) * 0.15;
+            }
+
+            meshRef.current.scale.setScalar(scaleFactor * dynamicScale);
+            meshRef.current.rotation.y = time * 0.2;
+            meshRef.current.rotation.x = time * 0.1;
+        }
+    });
 
     return (
-        <div className={`relative ${size} ${isAnimating ? 'vibrating' : 'floating'}`}>
-            {/* Main glass bubble */}
-            <div
-                className="absolute inset-0 rounded-full"
-                style={{
-                    background: `radial-gradient(circle at 30% 30%, white 0%, ${orbBaseColor}10 30%, ${orbBaseColor}20 60%, ${orbBaseColor}30 100%)`,
-                    boxShadow: `0 8px 32px 0 rgba(31, 38, 135, 0.2),
-                                inset 0 -10px 20px 0 ${orbBaseColor}30,
-                                inset 0 10px 20px 0 rgba(255, 255, 255, 0.7)`,
-                    backdropFilter: 'blur(4px)',
-                    border: '1px solid rgba(255, 255, 255, 0.18)',
-                    transform: 'scale(1)',
-                    transition: 'transform 0.3s ease-out',
-                }}
+        <mesh ref={meshRef}>
+            <sphereGeometry args={[1, 64, 64]} />
+            <meshPhysicalMaterial
+                color={new THREE.Color(0x87CEEB)}
+                transparent
+                opacity={0.7}
+                roughness={0.2}
+                metalness={0.0}
+                transmission={0.9}
+                thickness={0.5}
+                envMapIntensity={0.8}
             />
+        </mesh>
+    );
+};
 
-            {/* Bottom shadow (opcional, pode remover se não ficar bom em tamanho pequeno) */}
-            <div
-                className="absolute bottom-0 left-1/2 w-3/4 h-2 rounded-full transform -translate-x-1/2 translate-y-4 opacity-40" // Ajustes para tamanho menor
-                style={{
-                    background: `radial-gradient(ellipse at center, ${orbBaseColor}80 0%, transparent 70%)`,
-                    filter: 'blur(2px)', // Ajuste do blur
-                }}
-            />
-
-            {/* Pulse animation (mantido para um efeito sutil) */}
-            <div
-                className="absolute inset-0 rounded-full"
-                style={{
-                    border: `1px solid ${orbBaseColor}30`,
-                    animation: 'pulse 2s infinite',
-                }}
-            />
-        </div>
+const EcoBubble: React.FC<EcoBubbleProps> = (props) => {
+    return (
+        <Canvas camera={{ position: [0, 0, 3], fov: 75 }}>
+            <ambientLight intensity={0.5} />
+            <spotLight position={[10, 10, 10]} angle={0.15} penumbra={1} castShadow />
+            <pointLight position={[-10, -10, -10]} />
+            <Bubble {...props} />
+            <OrbitControls enableZoom={false} enablePan={false} enableRotate={false} />
+            <Environment preset="sunset" background />
+        </Canvas>
     );
 };
 

@@ -6,11 +6,12 @@ import { supabase } from '../lib/supabaseClient';
 interface User {
   id: string;
   email: string;
-  full_name?: string; // <--- Esta linha é importante
+  full_name?: string;
 }
 
 interface AuthContextType {
   user: User | null;
+  loading: boolean; // Adicione 'loading' aqui para que o ProtectedRoute possa usá-lo
   login: (email: string, password: string) => Promise<void>;
   logout: () => void;
   register: (email: string, password: string) => Promise<void>;
@@ -42,7 +43,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         setUser({
           id: session.user.id,
           email: session.user.email || '',
-          full_name: session.user.user_metadata?.full_name || session.user.user_metadata?.name || '', // <--- Linha crucial
+          full_name: session.user.user_metadata?.full_name || session.user.user_metadata?.name || '',
         });
       }
       setLoading(false);
@@ -53,18 +54,18 @@ export function AuthProvider({ children }: AuthProviderProps) {
         setUser({
           id: session.user.id,
           email: session.user.email || '',
-          full_name: session.user.user_metadata?.full_name || session.user.user_metadata?.name || '', // <--- Linha crucial
+          full_name: session.user.user_metadata?.full_name || session.user.user_metadata?.name || '',
         });
-        if (window.location.pathname !== '/chat') {
-          navigate('/chat');
-        }
+        // AQUI REMOVEMOS O REDIRECIONAMENTO PROBLEMÁTICO
+        // if (window.location.pathname !== '/chat') {
+        //   navigate('/chat');
+        // }
       } else {
         setUser(null);
         if (window.location.pathname !== '/login' && window.location.pathname !== '/register') {
           navigate('/login');
         }
       }
-      setLoading(false);
     });
 
     return () => {
@@ -80,7 +81,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     setUser({
       id: data.user.id,
       email: data.user.email || '',
-      full_name: data.user.user_metadata?.full_name || data.user.user_metadata?.name || '', // <--- Linha crucial
+      full_name: data.user.user_metadata?.full_name || data.user.user_metadata?.name || '',
     });
   };
 
@@ -104,7 +105,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         setUser({
             id: data.user.id,
             email: data.user.email || '',
-            full_name: data.user.user_metadata?.full_name || data.user.user_metadata?.name || '', // <--- Linha crucial
+            full_name: data.user.user_metadata?.full_name || data.user.user_metadata?.name || '',
         });
     } else {
         throw new Error('Verifique seu e-mail para confirmar a criação da conta.');
@@ -123,14 +124,17 @@ export function AuthProvider({ children }: AuthProviderProps) {
     if (error) throw new Error(error.message || `Erro ao fazer login com ${provider}`);
   };
 
+  // AQUI ESTÁ A MUDANÇA CRÍTICA: Incluir todas as funções no objeto value
   const value = {
     user,
-    login,
-    logout,
-    register,
-    signInWithOAuth,
+    loading,
+    login, // Adicione aqui
+    logout, // Adicione aqui
+    register, // Adicione aqui
+    signInWithOAuth, // Adicione aqui
   };
 
+  // O spinner de carregamento no AuthProvider (opcional, pode ser removido se o ProtectedRoute o faz)
   if (loading) {
     return (
       <div className="h-screen w-screen flex items-center justify-center bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50">

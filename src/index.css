@@ -89,7 +89,7 @@ h1, h2, h3, h4, h5, h6 {
     transform: translateY(0px);
   }
   50% {
-    transform: translateY(-8px); /* Ajuste a intensidade do "flutuar" */
+    transform: translateY(-3px); /* Ajustado: Menos flutuação */
   }
   100% {
     transform: translateY(0px);
@@ -102,7 +102,7 @@ h1, h2, h3, h4, h5, h6 {
     box-shadow: 0 0 0 0 rgba(0, 123, 167, 0.1);
   }
   70% {
-    box-shadow: 0 0 0 20px rgba(0, 123, 167, 0);
+    box-shadow: 0 0 0 10px rgba(0, 123, 167, 0); /* Ajustado: Menor expansão da sombra */
   }
   100% {
     box-shadow: 0 0 0 0 rgba(0, 123, 167, 0);
@@ -112,16 +112,16 @@ h1, h2, h3, h4, h5, h6 {
 /* NOVA Animação de vibração */
 @keyframes vibrating-animation {
   0% { transform: translateX(0) scale(1); }
-  25% { transform: translateX(-1px) scale(1.02); }
-  50% { transform: translateX(1px) scale(1); }
-  75% { transform: translateX(-1px) scale(1.02); }
+  25% { transform: translateX(-0.5px) scale(1.01); } /* Ajustado: Menos movimento e escala */
+  50% { transform: translateX(0.5px) scale(1); }     /* Ajustado: Menos movimento */
+  75% { transform: translateX(-0.5px) scale(1.01); } /* Ajustado: Menos movimento e escala */
   100% { transform: translateX(0) scale(1); }
 }
 
 /* NOVA Animação para os pontos de "pensando" */
 @keyframes pulse-dot {
   0%, 100% { opacity: 0.2; }
-  50% { opacity: 1; }
+  50% { opacity: 1; } /* Mantido com opacidade máxima 1, mas você pode experimentar 0.8 se quiser ainda mais sutil */
 }
 
 @keyframes colorTransition {
@@ -176,15 +176,15 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 /* Classes para aplicar as animações aos elementos */
-.floating { /* Já estava definido assim, aplica a animação 'floating-animation' */
-  animation: floating-animation 6s ease-in-out infinite;
+.floating {
+  animation: floating-animation 8s ease-in-out infinite; /* Duração aumentada para 8s */
 }
 
-.vibrating { /* Nova classe para aplicar a animação de vibração */
-  animation: vibrating-animation 0.3s ease-in-out infinite;
+.vibrating {
+  animation: vibrating-animation 0.6s ease-in-out infinite; /* Duração aumentada para 0.6s */
 }
 
 /* Classe para aplicar a animação aos pontos de "pensando" */
 .animate-pulse-dot {
-  animation: pulse-dot 1s infinite ease-in-out;
+  animation: pulse-dot 1.5s infinite ease-in-out; /* Duração aumentada para 1.5s */
 }

@@ -1,7 +1,7 @@
 // src/components/ProtectedRoute.tsx
-import React from 'react';
+import React, { useEffect } from 'react'; // Importe useEffect aqui
 import { Navigate } from 'react-router-dom';
-import { useAuth } from '../contexts/AuthContext'; // Certifique-se de importar useAuth corretamente
+import { useAuth } from '../contexts/AuthContext';
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
@@ -10,7 +10,16 @@ interface ProtectedRouteProps {
 const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
   const { user, loading } = useAuth(); // <--- ONDE ESTÁ A MUDANÇA CRÍTICA
 
+  // Adicione este useEffect para logar o estado de autenticação
+  useEffect(() => {
+    console.log("ProtectedRoute: Estado de autenticação - user:", user, "loading:", loading);
+    if (!loading && !user) {
+      console.log("ProtectedRoute: Condição de redirecionamento para /login ativada: !loading && !user.");
+    }
+  }, [user, loading]); // As dependências são user e loading para o log ser reavaliado quando eles mudam
+
   if (loading) {
+    console.log("ProtectedRoute: Exibindo tela de carregamento...");
     // Exibe um spinner ou uma tela de carregamento enquanto a autenticação está sendo verificada.
     // Isso evita o redirecionamento para /login prematuramente.
     return (
@@ -22,10 +31,12 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
 
   // Se não está carregando e o usuário NÃO está logado, redireciona.
   if (!user) {
+    console.log("ProtectedRoute: Redirecionando para /login.");
     return <Navigate to="/login" />;
   }
 
   // Se não está carregando e o usuário ESTÁ logado, renderiza os filhos.
+  console.log("ProtectedRoute: Usuário autenticado, renderizando filhos.");
   return <>{children}</>;
 };
 

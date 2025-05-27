@@ -1,3 +1,4 @@
+// src/pages/ChatPage.tsx
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { v4 as uuidv4 } from 'uuid';
@@ -80,7 +81,7 @@ const ChatPage: React.FC = () => {
         // Adiciona a última mensagem do usuário antes da mensagem da Eco a ser regenerada
         const ultimaMensagemUsuarioAntesEco = messages[indiceMensagemARegenerar - 1];
         if (ultimaMensagemUsuarioAntesEco && ultimaMensagemUsuarioAntesEco.sender === 'user') {
-             historicoParaRegenerar.push({
+            historicoParaRegenerar.push({
                 role: 'user',
                 content: ultimaMensagemUsuarioAntesEco.text || ''
             });
@@ -197,6 +198,7 @@ const ChatPage: React.FC = () => {
             });
             setMensagemDeSucesso("Memória salva com sucesso!");
             setTimeout(() => setMensagemDeSucesso(null), 3000);
+            navegar('/memory'); // Navega para a página de memória após salvar
         } catch (error: any) {
             console.error("Erro ao salvar memória:", error);
             setErroApi(`Erro ao salvar memória: ${error.message}`);
@@ -207,7 +209,9 @@ const ChatPage: React.FC = () => {
         navegar('/voice');
     };
 
+    // Esta função é o ponto de entrada para as ações do ChatInput
     const handleMoreOptionSelected = (option: MoreOption) => {
+        console.log("ChatPage: Opção selecionada recebida do ChatInput:", option); // Log para depuração
         if (option === 'save_memory') {
             handleSaveMemory();
         } else if (option === 'go_to_voice_page') {
@@ -230,11 +234,9 @@ const ChatPage: React.FC = () => {
 
     return (
         <div className="w-full h-full flex flex-col bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50">
-            {/* O comentário problemático foi movido para uma linha separada acima da prop */}
-            {/* Passamos a nova função de logout para o Header */}
             <Header
                 title="ECO"
-                showBackButton={false} // Mantém false se não quiser o botão de voltar neste header
+                showBackButton={false}
                 onOpenMemoryHistory={handleOpenMemoryHistory}
                 mensagemDeSucesso={mensagemDeSucesso}
                 onLogout={handleLogout}
@@ -248,19 +250,12 @@ const ChatPage: React.FC = () => {
                             animate={{ opacity: 1 }}
                             transition={{ duration: 0.5 }}
                         >
-                            <h2 className="text-4xl font-light" style={{
-                                background: 'linear-gradient(to right, #AEC6CF, #B0C4DE, #DDA0DD)',
-                                WebkitBackgroundClip: 'text',
-                                WebkitTextFillColor: 'transparent',
-                            }}>
+                            {/* Alterado o texto e os estilos para preto */}
+                            <h2 className="text-4xl font-light text-black"> {/* Alterado para text-black */}
                                 {mensagemBoasVindasDisplay}
                             </h2>
-                            <p className="text-xl font-light text-gray-500 mt-2" style={{
-                                background: 'linear-gradient(to right, #AEC6CF, #B0C4DE, #DDA0DD)',
-                                WebkitBackgroundClip: 'text',
-                                WebkitTextFillColor: 'transparent',
-                            }}>
-                                Sou a ECO, pronta para refletir com você.
+                            <p className="text-xl font-light text-black mt-2"> {/* Alterado para text-black */}
+                                Aqui, você se escuta.
                             </p>
                         </motion.div>
                     )}
@@ -278,18 +273,13 @@ const ChatPage: React.FC = () => {
                                 onSpeak={handleSpeakMessage}
                                 onLike={handleLikeMessage}
                                 onDislike={handleDislikeMessage}
-                                // A animação de digitação não deve ser passada para mensagens já existentes
                                 onRegenerate={mensagem.sender === 'eco' ? () => handleRegenerateResponse(mensagem.id) : undefined}
-                                // isEcoTyping APENAS para a mensagem de digitação, não para as mensagens do histórico
-                                // isEcoTyping={mensagem.sender === 'eco' && digitando} <-- REMOVIDO DAQUI
                             />
                         ))}
                         {digitando && (
-                            // Esta é a mensagem de "Digitando...", que deve ter a bolha vibrando
                             <ChatMessage
-                                // Mudança: Texto da mensagem de digitação agora é vazio
                                 message={{ id: 'digitando-placeholder', text: '', sender: 'eco' }}
-                                isEcoTyping={true} // A bolha deve vibrar quando esta mensagem está visível
+                                isEcoTyping={true}
                             />
                         )}
                         <div ref={referenciaFinalDasMensagens} />
@@ -298,10 +288,9 @@ const ChatPage: React.FC = () => {
             </div>
             <div className="flex justify-center w-full p-4">
                 <div className="max-w-2xl w-full md:max-w-md lg:max-w-xl xl:max-w-2xl mx-auto">
-                    {/* Passando a nova função como prop onSendAudio */}
                     <ChatInput
                         onSendMessage={lidarComEnvioDeMensagem}
-                        onMoreOptionSelected={handleMoreOptionSelected}
+                        onMoreOptionSelected={handleMoreOptionSelected} // Esta prop agora é o ponto de entrada
                         onSendAudio={handleSendAudio}
                     />
                 </div>
