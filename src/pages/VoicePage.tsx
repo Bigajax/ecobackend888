@@ -1,13 +1,10 @@
-// src/pages/VoicePage.tsx
-
 import React, { useState, useRef, useEffect } from 'react';
 import { motion } from 'framer-motion';
-// Removido: import EcoBubble from '../components/EcoBubble';
-import { Mic, StopCircle, Loader, BookOpen } from 'lucide-react';
+import EcoBubble from '../components/EcoBubble'; // Re-importe o componente EcoBubble
+import { Mic, StopCircle, Loader, BookOpen } from 'lucide-react'; // Ícones para os botões
 import { useNavigate } from 'react-router-dom';
 import { sendVoiceMessage } from '../api/voiceApi';
-// CORREÇÃO AQUI: Ajustado o caminho do AuthContext
-import { useAuth } from '../contexts/AuthContext'; // <--- MUDANÇA NESTA LINHA
+import { useAuth } from '../contexts/AuthContext'; // Caminho corrigido
 
 const VoicePage: React.FC = () => {
     const { userName } = useAuth();
@@ -71,13 +68,13 @@ const VoicePage: React.FC = () => {
 
                 setIsProcessing(true);
                 setIsEcoThinking(true);
-                setEcoAudioURL(null);
+                setEcoAudioURL(null); // Limpa o áudio anterior enquanto processa
 
                 try {
                     const response = await sendVoiceMessage(audioBlob, [], userName);
 
-                    setEcoAudioURL(URL.createObjectURL(response.audioBlob));
-                    console.log("Resposta da Eco (texto):", response.ecoText);
+                    setEcoAudioURL(URL.createObjectURL(response.audioBlob)); // Define o novo áudio para a Eco
+                    console.log("Resposta da Eco (texto):", response.ecoText); // Para depuração
                 } catch (err: any) {
                     handleError(`Falha na interação de voz: ${err.message}`);
                 } finally {
@@ -170,19 +167,20 @@ const VoicePage: React.FC = () => {
                 Converse com a Eco
             </h1>
 
-            {/* A GRANDE BOLHA 3D no centro */}
-            {/* ESTE BLOCO ESTÁ CORRETAMENTE COMENTADO/REMOVIDO PARA NÃO EXIBIR A BOLHA */}
-            {/*
+            {/* A GRANDE BOLHA 3D no centro - REATIVADA */}
             <div className="relative w-full max-w-lg aspect-square mb-8">
                 <EcoBubble
+                    // As props isListening, isProcessing, isEcoThinking e ecoAudioURL são passadas para o EcoBubble
+                    // para que ele possa controlar suas próprias animações com base nesses estados.
                     isListening={isListening}
                     isProcessing={isProcessing}
                     isEcoThinking={isEcoThinking}
                     ecoAudioURL={ecoAudioURL}
                     setEcoAudioURL={setEcoAudioURL}
+                    size="w-full h-full" // Definindo o tamanho para preencher o contêiner
+                    isAnimating={!!ecoAudioURL} // A bolha vibra quando há um audioURL (Eco está falando)
                 />
             </div>
-            */}
 
             {/* Controles de Gravação Abaixo da Bolha */}
             {error && (
