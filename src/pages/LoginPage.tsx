@@ -4,7 +4,7 @@ import { motion } from 'framer-motion';
 import { useAuth } from '../contexts/AuthContext';
 import PhoneFrame from '../components/PhoneFrame';
 import Input from '../components/Input';
-import Button from '../components/Button'; // Certifique-se de que este componente está disponível e estilizado
+// import Button from '../components/Button'; // <-- LINHA REMOVIDA
 import TourInicial from '../components/TourInicial';
 
 const LoginPage: React.FC = () => {
@@ -89,35 +89,34 @@ const LoginPage: React.FC = () => {
           )}
 
           <div className="pt-4 flex flex-col items-center space-y-2 w-full">
-            <Button
+            {/* SUBSTITUÍDO O COMPONENTE BUTTON POR <button> HTML */}
+            <button
               type="submit"
-              fullWidth
+              className="w-full bg-white text-black shadow-sm hover:bg-gray-100 font-semibold py-3 rounded-lg"
               disabled={loading}
-              className="bg-white text-black shadow-sm hover:bg-gray-100 font-semibold py-3 rounded-lg"
             >
               {loading ? 'Entrando...' : 'Entrar'}
-            </Button>
-            {/* Botão "Criar perfil" agora usa o componente Button */}
-            <Button
+            </button>
+            {/* SUBSTITUÍDO O COMPONENTE BUTTON POR <button> HTML */}
+            <button
               type="button"
-              fullWidth
+              className="w-full bg-white text-black shadow-sm hover:bg-gray-100 font-semibold py-3 rounded-lg"
               onClick={() => navigate('/register')}
-              disabled={loading} // Desabilita se o login estiver em andamento
-              className="bg-white text-black shadow-sm hover:bg-gray-100 font-semibold py-3 rounded-lg"
+              disabled={loading}
             >
               Criar perfil
-            </Button>
+            </button>
             <div className="border-b border-gray-300 w-16 my-2" />
             <span className="text-gray-500 text-sm">ou</span>
-            <Button
+            {/* SUBSTITUÍDO O COMPONENTE BUTTON POR <button> HTML */}
+            <button
               type="button"
-              fullWidth
+              className="w-full bg-white text-black shadow-sm hover:bg-gray-100 font-semibold py-3 rounded-lg"
               onClick={handleIniciarTour}
               disabled={loading}
-              className="bg-white text-black shadow-sm hover:bg-gray-100 font-semibold py-3 rounded-lg"
             >
               Iniciar Tour
-            </Button>
+            </button>
           </div>
         </form>
       </div>

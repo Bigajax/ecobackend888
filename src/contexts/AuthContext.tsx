@@ -54,6 +54,11 @@ export function AuthProvider({ children }: AuthProviderProps) {
           full_name: session.user.user_metadata?.full_name || session.user.user_metadata?.name || '',
         });
         console.log('AuthContext useEffect: User set from getSession:', { id: session.user.id, email: session.user.email });
+        // --- REDIRECIONAMENTO AQUI: Se já há uma sessão, e não estamos na página de chat, redireciona ---
+        if (window.location.pathname !== '/chat') {
+            navigate('/chat');
+            console.log('AuthContext useEffect: Redirecionando para /chat (sessão existente).');
+        }
       } else {
         console.log('AuthContext useEffect: No session user found from getSession.');
       }
@@ -73,15 +78,16 @@ export function AuthProvider({ children }: AuthProviderProps) {
           full_name: session.user.user_metadata?.full_name || session.user.user_metadata?.name || '',
         });
         console.log('AuthContext onAuthStateChange: User set from session change:', { id: session.user.id, email: session.user.email });
-        // AQUI REMOVEMOS O REDIRECIONAMENTO PROBLEMÁTICO
-        // if (window.location.pathname !== '/chat') {
-        //   navigate('/chat');
-        // }
+        // --- REDIRECIONAMENTO AQUI: Se o usuário acabou de logar ou o token foi atualizado ---
+        if (window.location.pathname !== '/chat') { // Só redireciona se não estivermos já no chat
+          navigate('/chat');
+          console.log('AuthContext onAuthStateChange: Redirecionando para /chat (usuário logado).');
+        }
       } else {
         setUser(null);
         console.log('AuthContext onAuthStateChange: No session user found, clearing user.');
         if (window.location.pathname !== '/login' && window.location.pathname !== '/register') {
-          console.log('AuthContext onAuthStateChange: Redirecting to /login.');
+          console.log('AuthContext onAuthStateChange: Redirecionando para /login.');
           navigate('/login');
         }
       }
@@ -108,12 +114,21 @@ export function AuthProvider({ children }: AuthProviderProps) {
       full_name: data.user.user_metadata?.full_name || data.user.user_metadata?.name || '',
     });
     console.log('AuthContext login: User logged in:', { id: data.user.id, email: data.user.email });
+    // O redirecionamento após o login AGORA É TRATADO PELO onAuthStateChange, que será acionado após o signInWithPassword
   };
 
   const logout = async () => {
     setLoading(true);
     console.log('AuthContext logout: Attempting logout...');
     await supabase.auth.signOut();
+    
+    // --- ADIÇÃO PARA LIMPAR O CACHE DA CONVERSA ---
+    // A imagem mostra 'chatMessages' no sessionStorage.
+    sessionStorage.removeItem('chatMessages'); 
+    // Se, por acaso, você também estiver usando localStorage para isso, adicione:
+    // localStorage.removeItem('chatMessages');
+    // --------------------------------------------
+
     setLoading(false);
     console.log('AuthContext logout: User logged out.');
   };
@@ -137,6 +152,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         full_name: data.user.user_metadata?.full_name || data.user.user_metadata?.name || '',
       });
       console.log('AuthContext register: User registered and set:', { id: data.user.id, email: data.user.email });
+      // O redirecionamento após o registro AGORA É TRATADO PELO onAuthStateChange
     } else {
       console.warn('AuthContext register: No user data returned after signup, check email for confirmation.');
       throw new Error('Verifique seu e-mail para confirmar a criação da conta.');

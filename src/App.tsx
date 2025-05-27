@@ -6,38 +6,10 @@ import { AuthProvider } from './contexts/AuthContext';
 import { ChatProvider } from './contexts/ChatContext';
 import LoginPage from './pages/LoginPage';
 import ChatPage from './pages/ChatPage';
-import VoicePage from './pages/VoicePage'; // DESCOMENTADO/ADICIONADO DE VOLTA
+import VoicePage from './pages/VoicePage';
 import MemoryPage from './pages/MemoryPage';
 import CreateProfilePage from './pages/CreateProfilePage';
-import ProtectedRoute from './components/ProtectedRoute';
-
-// REMOVIDO/COMENTADO: O componente de teste SuperSimpleVoiceTestPage não é mais necessário aqui.
-/*
-const SuperSimpleVoiceTestPage: React.FC = () => {
-  console.log("!!! SuperSimpleVoiceTestPage RENDERIZADO E VISÍVEL !!!");
-  useEffect(() => {
-    return () => {
-      console.log("!!! SuperSimpleVoiceTestPage DESMONTADO !!!");
-    };
-  }, []);
-  return (
-    <div style={{
-      height: '100vh',
-      width: '100vw',
-      backgroundColor: 'darkblue',
-      display: 'flex',
-      justifyContent: 'center',
-      alignItems: 'center',
-      fontSize: '50px',
-      color: 'lime',
-      zIndex: 9999
-    }}>
-      MODO DE VOZ ATIVADO!
-    </div>
-  );
-};
-*/
-// FIM DO COMPONENTE DE TESTE REMOVIDO/COMENTADO
+import ProtectedRoute from './components/ProtectedRoute'; // Certifique-se que este componente existe e está correto
 
 function App() {
   return (
@@ -45,7 +17,15 @@ function App() {
       <AuthProvider>
         <ChatProvider>
           <Routes>
-            <Route path="/" element={<Navigate to="/login" />} />
+            {/* Rota raiz (/) - removemos o Navigate to="/login" explícito aqui.
+                A lógica do AuthContext e ProtectedRoute já lida com o redirecionamento
+                para /login se o usuário não estiver autenticado, ou para /chat se estiver.
+                Ainda assim, é boa prática ter uma rota inicial para o "ponto de entrada".
+                Se a URL for apenas "/", e o usuário não estiver logado, o ProtectedRoute no /chat
+                o levará para /login. Se ele já estiver logado, o AuthContext o levará para /chat.
+                Podemos definir a rota "/" como sendo a LoginPage se o usuário não estiver logado.
+             */}
+            <Route path="/" element={<LoginPage />} /> {/* Define a raiz como LoginPage */}
             <Route path="/login" element={<LoginPage />} />
             <Route path="/register" element={<CreateProfilePage />} />
 
@@ -58,12 +38,11 @@ function App() {
               }
             />
 
-            {/* AQUI: A rota /voice agora renderiza VoicePage original dentro de ProtectedRoute */}
             <Route
               path="/voice"
               element={
                 <ProtectedRoute>
-                  <VoicePage /> {/* VoicePage original está de volta aqui! */}
+                  <VoicePage />
                 </ProtectedRoute>
               }
             />

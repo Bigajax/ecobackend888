@@ -6,7 +6,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabaseClient';
 import PhoneFrame from '../components/PhoneFrame';
 import Input from '../components/Input';
-import Button from '../components/Button';
+// import Button from '../components/Button'; // <-- LINHA REMOVIDA
 
 const CreateProfilePage: React.FC = () => {
   const [fullName, setFullName] = useState('');
@@ -64,10 +64,9 @@ const CreateProfilePage: React.FC = () => {
 
   return (
     <PhoneFrame>
-      <div className="flex flex-col h-full p-8 justify-center items-center relative"> {/* Removi o bg-gradient-* daqui */}
+      <div className="flex flex-col h-full p-8 justify-center items-center relative">
         <motion.div
-          // Removi bg-white/70 e backdrop-blur-md
-          className="p-8 rounded-2xl shadow-xl max-w-sm w-full text-center" 
+          className="p-8 rounded-2xl shadow-xl max-w-sm w-full text-center"
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5 }}
@@ -119,11 +118,14 @@ const CreateProfilePage: React.FC = () => {
               </motion.p>
             )}
 
-            {/* As classes do botão serão sobrescritas pelo 'Button.tsx' que agora tem os estilos Apple como padrão para 'primary'. */}
-            {/* O 'text-black' foi adicionado explicitamente para garantir a cor do texto no botão branco. */}
-            <Button type="submit" fullWidth disabled={loading} className="text-black bg-white hover:bg-gray-100">
+            {/* SUBSTITUÍDO O COMPONENTE BUTTON POR <button> HTML */}
+            <button
+              type="submit"
+              className="w-full bg-white text-black hover:bg-gray-100 font-semibold py-3 rounded-lg"
+              disabled={loading}
+            >
               {loading ? 'Criando...' : 'Criar Conta'}
-            </Button>
+            </button>
           </form>
 
           <motion.div
