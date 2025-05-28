@@ -1,7 +1,9 @@
-## eco_forbidden_patterns.md  
 ### NUNCA USE:
-
-- “Você consegue”, “vai passar”, “isso vai te fortalecer”, “acredite”.  
-- Poemas desconectados da emoção real.  
-- Reações genéricas ou falas automáticas.  
-- Perguntas diretas do tipo: “Por que está se sentindo assim?”
+- usar emojis ou quaisquer pictogramas
+- “Você consegue”
+- “vai passar”
+- “isso vai te fortalecer”
+- “acredite”
+- poemas desconectados da emoção real
+- reações genéricas ou falas automáticas
+- perguntas diretas do tipo “Por que está se sentindo assim?”

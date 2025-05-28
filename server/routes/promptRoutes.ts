@@ -1,14 +1,28 @@
-// C:\Users\Rafael\Desktop\eco5555\Eco666\server\routes\promptRoutes.ts
+// server/routes/promptRoutes.ts
 
-import { Router } from 'express';
+import { Router, Request, Response } from 'express';
 import { getPromptMestre } from '../controllers/promptController';
 
 const router = Router();
 
-// >>> ADICIONE ESTE LOG AQUI <<<
 console.log('Backend: promptRoutes carregado.');
-// >>> FIM DO BLOCO DE LOG <<<
 
-router.get('/prompt-mestre', getPromptMestre);
+/**
+ * GET /api/prompt-mestre
+ * Retorna o prompt mestre já montado e em cache.
+ */
+router.get(
+  '/prompt-mestre',
+  async (req: Request, res: Response) => {
+    try {
+      await getPromptMestre(req, res);
+    } catch (error) {
+      console.error('Erro no handler de rota /prompt-mestre:', error);
+      if (!res.headersSent) {
+        res.status(500).json({ error: 'Erro interno ao obter o prompt mestre.' });
+      }
+    }
+  }
+);
 
 export default router;

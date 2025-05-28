@@ -1,25 +1,24 @@
-// C:\Users\Rafael\Desktop\eco5555\Eco666\server\routes\geminiRoutes.ts
+// server/routes/geminiRoutes.ts
 
-import express, { Request, Response } from 'express'; // Importar Request e Response
-import { askGemini } from '../services/geminiService'; // Certifique-se de que o caminho está correto
+import { Router, Request, Response } from 'express';
+import { askGemini } from '../services/geminiService';
 
-const router = express.Router();
+const router = Router();
 
-// AQUI ESTÁ A SEGUNDA TENTATIVA DE CORREÇÃO:
-// Envolve 'askGemini' em um middleware assíncrono explícito.
-// Isso garante que o TypeScript trate isso como um handler de rota padrão.
+/**
+ * Rota para interação com a Eco via Google Gemini.
+ * Recebe um array de mensagens e o nome do usuário,
+ * monta o prompt mestre e encaminha para o serviço Gemini.
+ */
 router.post('/ask-gemini', async (req: Request, res: Response) => {
-    try {
-        await askGemini(req, res); // Chama a função askGemini com req e res
-    } catch (error) {
-        console.error("Erro no handler de rota /ask-gemini:", error);
-        // Garante que uma resposta de erro é enviada, caso askGemini não a envie.
-        // askGemini já está tratando erros internamente com res.status().json(),
-        // mas este catch é uma proteção extra para erros inesperados aqui.
-        if (!res.headersSent) { // Verifica se a resposta já foi enviada
-            res.status(500).json({ error: 'Erro interno do servidor.' });
-        }
+  try {
+    await askGemini(req, res);
+  } catch (error) {
+    console.error('Erro no handler de rota /ask-gemini:', error);
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Erro interno do servidor.' });
     }
+  }
 });
 
 export default router;
