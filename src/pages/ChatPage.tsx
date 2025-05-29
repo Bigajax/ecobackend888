@@ -37,7 +37,7 @@ const ChatPage: React.FC = () => {
         }));
 
         try {
-            const resposta = await enviarMensagemParaEco(history, user?.full_name || 'Usuário');
+            const resposta = await enviarMensagemParaEco(history, user?.full_name || 'Usuário', user?.id); // <-- Aqui incluímos user?.id
             const ecoMessage: Message = { id: uuidv4(), text: resposta, sender: 'eco' };
             addMessage(ecoMessage);
         } catch (error: any) {

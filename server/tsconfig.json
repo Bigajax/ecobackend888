@@ -1,19 +1,23 @@
 {
   "compilerOptions": {
-    "target": "es2018",
+    "target": "es2021",
     "module": "commonjs",
+    "lib": ["es2021", "dom"], 
     "rootDir": "./",
     "outDir": "./dist",
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true,
     "strict": true,
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "sourceMap": true
   },
   "include": [
     "server.ts",
     "controllers/**/*.ts",
     "routes/**/*.ts",
-    "services/**/*.ts"
+    "services/**/*.ts",
+    "lib/**/*.ts"
   ],
   "exclude": [
     "node_modules",

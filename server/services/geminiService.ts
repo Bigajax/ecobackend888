@@ -2,6 +2,7 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import path from 'path';
 import fs from 'fs/promises';
 import { Request, Response } from 'express';
+import { supabase } from '../lib/supabaseClient';
 
 let cachedFullSystemPrompt: string | null = null;
 
@@ -55,9 +56,10 @@ function limparResposta(text: string): string {
 }
 
 export const askGemini = async (req: Request, res: Response) => {
-  const { messages, userName } = req.body;
-  if (!messages || !Array.isArray(messages) || messages.length === 0) {
-    return res.status(400).json({ error: 'Nenhuma mensagem fornecida.' });
+  const { messages, userName, userId } = req.body;
+
+  if (!messages || !Array.isArray(messages) || messages.length === 0 || !userId) {
+    return res.status(400).json({ error: 'Mensagens ou usuário não fornecidos.' });
   }
 
   const apiKey = process.env.GOOGLE_GEMINI_API_KEY;
@@ -73,16 +75,23 @@ export const askGemini = async (req: Request, res: Response) => {
 
     const latestMessage = messages[messages.length - 1].content;
 
-    if (/gerar|criar|desenhar|fazer.*(código|imagem|projeto|arte|arquivo|ilustração)/i.test(latestMessage)) {
-      return res.status(200).json({
-        message: 'Eu entendo seu pedido, mas como Eco não crio códigos, imagens ou projetos. Estou aqui apenas para sentir e acolher com você.',
-      });
-    }
+    const promptComInstrucoes = `
+${fullSystemPrompt}
+
+Além de responder normalmente, no final da resposta, sempre forneça este bloco formatado em JSON (sem explicações, apenas o JSON):
+
+{
+  "resumo": "<resumo emocional em 1 frase>",
+  "emocao": "<emoção principal>",
+  "intensidade": <número de 1 a 10>,
+  "tags": ["tag1", "tag2", "tag3"]
+}
+`;
 
     const chatHistory = [
       {
         role: 'user',
-        parts: [{ text: `${fullSystemPrompt}\n\n${gerarSaudacaoPersonalizada(userName)}` }],
+        parts: [{ text: `${promptComInstrucoes}\n\n${gerarSaudacaoPersonalizada(userName)}` }],
       },
       ...messages.slice(0, -1).map((msg: any) => ({
         role: mapRoleForGemini(msg.role),
@@ -92,7 +101,7 @@ export const askGemini = async (req: Request, res: Response) => {
 
     const chat = model.startChat({
       history: chatHistory,
-      generationConfig: { maxOutputTokens: 800 },
+      generationConfig: { maxOutputTokens: 1000 },
     });
 
     const result = await chat.sendMessage(latestMessage);
@@ -105,7 +114,35 @@ export const askGemini = async (req: Request, res: Response) => {
 
     message = limparResposta(message);
 
-    res.status(200).json({ message });
+    const jsonMatch = message.match(/\{[\s\S]*?\}$/);
+    if (!jsonMatch) {
+      console.warn('Nenhum bloco JSON encontrado na resposta.');
+      return res.status(200).json({ message });
+    }
+
+    const parsed = JSON.parse(jsonMatch[0]);
+    const { resumo, emocao, intensidade, tags } = parsed;
+
+    const { error } = await supabase.from('memories').insert([
+      {
+        usuario_id: userId,
+        mensagem_id: messages[messages.length - 1].id,
+        resumo_eco: resumo,
+        emocao_principal: emocao,
+        intensidade: intensidade,
+        categoria: tags,
+        salvar_memoria: intensidade >= 7,
+        data_registro: new Date().toISOString(),
+      },
+    ]);
+
+    if (error) {
+      console.error('Erro ao salvar memória no Supabase:', error);
+    } else {
+      console.log('Memória salva no Supabase com sucesso.');
+    }
+
+    res.status(200).json({ message: limparResposta(message), resumo, emocao, intensidade, tags });
   } catch (error: any) {
     console.error('Erro no askGemini:', error);
     res.status(500).json({ error: 'Erro ao processar resposta da Eco.' });

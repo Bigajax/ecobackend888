@@ -4,7 +4,7 @@ import { ArrowLeft } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import PhoneFrame from '../components/PhoneFrame';
 import { useAuth } from '../contexts/AuthContext';
-import { buscarMemoriasPorUsuario, Memoria } from '../api/memoria';
+import { buscarMemoriasPorUsuario, Memoria } from '../api/memoriaApi';
 
 const emotionColors: Record<string, string> = {
   alegria: 'bg-yellow-100 border-yellow-300',

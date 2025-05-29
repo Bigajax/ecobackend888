@@ -1,4 +1,4 @@
-import { supabase } from '../lib/supabaseClient';
+import axios from 'axios';
 
 export interface Memoria {
   id: string;
@@ -13,16 +13,14 @@ export interface Memoria {
 }
 
 export async function buscarMemoriasPorUsuario(usuarioId: string): Promise<Memoria[]> {
-  const { data, error } = await supabase
-    .from('memories')
-    .select('*')
-    .eq('usuario_id', usuarioId)
-    .order('data_registro', { ascending: false });
+  try {
+    const response = await axios.get('/api/memories', {
+      params: { usuario_id: usuarioId },
+    });
 
-  if (error) {
-    console.error('Erro ao buscar memórias:', error.message);
+    return response.data;
+  } catch (error: any) {
+    console.error('Erro ao buscar memórias via backend:', error.message);
     throw new Error('Erro ao buscar memórias.');
   }
-
-  return data as Memoria[];
 }

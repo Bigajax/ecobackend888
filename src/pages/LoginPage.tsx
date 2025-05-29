@@ -1,31 +1,32 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { useAuth } from '../contexts/AuthContext';
 import PhoneFrame from '../components/PhoneFrame';
 import Input from '../components/Input';
-// import Button from '../components/Button'; // <-- LINHA REMOVIDA
 import TourInicial from '../components/TourInicial';
 
 const LoginPage: React.FC = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
-  const { login } = useAuth();
+  const { login, user } = useAuth();
   const navigate = useNavigate();
   const [isTourActive, setIsTourActive] = useState(false);
   const [loading, setLoading] = useState(false);
 
+  useEffect(() => {
+    if (user) {
+      navigate('/chat');
+    }
+  }, [user, navigate]);
+
   const handleIniciarTour = () => {
-    console.log('handleIniciarTour chamado');
     setIsTourActive(true);
-    console.log('isTourActive agora é:', isTourActive);
   };
 
   const handleCloseTour = () => {
-    console.log('handleCloseTour chamado');
     setIsTourActive(false);
-    console.log('isTourActive agora é:', isTourActive);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -35,15 +36,13 @@ const LoginPage: React.FC = () => {
 
     try {
       await login(email, password);
-      // O navigate para /chat é tratado no AuthContext via onAuthStateChange
+      // O redirecionamento ocorre automaticamente no useEffect acima
     } catch (err: any) {
       setError(err.message || 'Falha na autenticação. Verifique suas credenciais.');
     } finally {
       setLoading(false);
     }
   };
-
-  console.log('Renderizando LoginPage com isTourActive:', isTourActive);
 
   return (
     <PhoneFrame>
@@ -89,7 +88,6 @@ const LoginPage: React.FC = () => {
           )}
 
           <div className="pt-4 flex flex-col items-center space-y-2 w-full">
-            {/* SUBSTITUÍDO O COMPONENTE BUTTON POR <button> HTML */}
             <button
               type="submit"
               className="w-full bg-white text-black shadow-sm hover:bg-gray-100 font-semibold py-3 rounded-lg"
@@ -97,7 +95,7 @@ const LoginPage: React.FC = () => {
             >
               {loading ? 'Entrando...' : 'Entrar'}
             </button>
-            {/* SUBSTITUÍDO O COMPONENTE BUTTON POR <button> HTML */}
+
             <button
               type="button"
               className="w-full bg-white text-black shadow-sm hover:bg-gray-100 font-semibold py-3 rounded-lg"
@@ -106,9 +104,10 @@ const LoginPage: React.FC = () => {
             >
               Criar perfil
             </button>
+
             <div className="border-b border-gray-300 w-16 my-2" />
             <span className="text-gray-500 text-sm">ou</span>
-            {/* SUBSTITUÍDO O COMPONENTE BUTTON POR <button> HTML */}
+
             <button
               type="button"
               className="w-full bg-white text-black shadow-sm hover:bg-gray-100 font-semibold py-3 rounded-lg"

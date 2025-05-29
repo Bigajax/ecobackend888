@@ -1,5 +1,3 @@
-// server/routes/geminiRoutes.ts
-
 import { Router, Request, Response } from 'express';
 import { askGemini } from '../services/geminiService';
 
@@ -7,8 +5,7 @@ const router = Router();
 
 /**
  * Rota para interação com a Eco via Google Gemini.
- * Recebe um array de mensagens e o nome do usuário,
- * monta o prompt mestre e encaminha para o serviço Gemini.
+ * Agora espera também: messages (array), userName (string), userId (string)
  */
 router.post('/ask-gemini', async (req: Request, res: Response) => {
   try {

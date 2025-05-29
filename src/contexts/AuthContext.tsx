@@ -38,9 +38,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   useEffect(() => {
     const loadSession = async () => {
-      console.log('[AuthContext] Checking session...');
       const { data, error } = await supabase.auth.getSession();
-
       if (error) {
         console.error('[AuthContext] Error fetching session:', error.message);
       }
@@ -52,9 +50,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
           email: sessionUser.email || '',
           full_name: sessionUser.user_metadata?.full_name || sessionUser.user_metadata?.name || '',
         });
-        console.log('[AuthContext] User loaded from session:', sessionUser.email);
       } else {
-        console.log('[AuthContext] No active session.');
         setUser(null);
       }
       setLoading(false);
@@ -62,26 +58,29 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
     loadSession();
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      console.log('[AuthContext] onAuthStateChange event:', _event);
-      if (session?.user) {
+    const unsubscribe = supabase.auth.onAuthStateChange((event, session) => {
+      console.log('[AuthContext] onAuthStateChange event:', event);
+      if (event === 'SIGNED_IN' && session?.user) {
         setUser({
           id: session.user.id,
           email: session.user.email || '',
           full_name: session.user.user_metadata?.full_name || session.user.user_metadata?.name || '',
         });
-        console.log('[AuthContext] User updated from auth state change:', session.user.email);
-      } else {
+        navigate('/chat');
+      }
+
+      if (event === 'SIGNED_OUT') {
         setUser(null);
-        console.log('[AuthContext] User signed out or session expired.');
+        navigate('/login');
       }
     });
 
     return () => {
-      subscription.unsubscribe();
-      console.log('[AuthContext] Unsubscribed from auth state changes.');
+      if (typeof unsubscribe === 'function') {
+        unsubscribe();
+      }
     };
-  }, []);
+  }, [navigate]);
 
   const login = async (email: string, password: string) => {
     setLoading(true);
@@ -97,7 +96,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
       email: data.user.email || '',
       full_name: data.user.user_metadata?.full_name || data.user.user_metadata?.name || '',
     });
-    console.log('[AuthContext] User logged in:', data.user.email);
   };
 
   const logout = async () => {
@@ -106,7 +104,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
     sessionStorage.removeItem('chatMessages');
     setUser(null);
     setLoading(false);
-    console.log('[AuthContext] User logged out.');
   };
 
   const register = async (email: string, password: string) => {
@@ -124,7 +121,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
         email: data.user.email || '',
         full_name: data.user.user_metadata?.full_name || data.user.user_metadata?.name || '',
       });
-      console.log('[AuthContext] User registered:', data.user.email);
     } else {
       throw new Error('Verifique seu e-mail para confirmar a criação da conta.');
     }
