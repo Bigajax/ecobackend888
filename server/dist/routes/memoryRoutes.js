@@ -3,6 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 // routes/memoryRoutes.ts
 const express_1 = require("express");
 const supabaseClient_1 = require("../lib/supabaseClient");
+// Explicitamente tipar 'router' como um Express.Router
 const router = (0, express_1.Router)();
 router.get('/memories', async (req, res) => {
     const { usuario_id, emocao, intensidade_min } = req.query;

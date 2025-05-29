@@ -1,12 +1,12 @@
-// server.ts
 import dotenv from 'dotenv';
 dotenv.config();
 
 import express from 'express';
 import cors from 'cors';
-import geminiRoutes from './routes/geminiRoutes';
+import openrouterRoutes from './routes/openrouterRoutes';
 import promptRoutes from './routes/promptRoutes';
 import memoryRoutes from './routes/memoryRoutes';
+import profileRoutes from './routes/profileRoutes';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -25,10 +25,11 @@ app.use((req, res, next) => {
   next();
 });
 
-// As rotas DEVEM ser registradas assim:
-app.use('/api', geminiRoutes);
+// Registrar rotas
+app.use('/api', openrouterRoutes);
 app.use('/api', promptRoutes);
 app.use('/api', memoryRoutes);
+app.use('/api/profiles', profileRoutes); // cuidado: a rota espera /api/profiles/:userId
 
 app.listen(PORT, () => {
   console.log(`Servidor Express rodando na porta ${PORT}`);

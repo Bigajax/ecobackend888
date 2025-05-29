@@ -2,7 +2,8 @@
 import { Router, Request, Response } from 'express';
 import { supabase } from '../lib/supabaseClient';
 
-const router = Router();
+// Explicitamente tipar 'router' como um Express.Router
+const router: Router = Router();
 
 router.get('/memories', async (req: Request, res: Response) => {
   const { usuario_id, emocao, intensidade_min } = req.query;

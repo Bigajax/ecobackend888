@@ -10,20 +10,25 @@ const API_BASE_URL = '/api';
 export const enviarMensagemParaEco = async (
   userMessages: Message[],
   userName?: string,
-  userId?: string // <-- NOVO parâmetro
+  userId?: string
 ): Promise<string | undefined> => {
   try {
-    const response = await axios.post(`${API_BASE_URL}/ask-gemini`, { 
-      messages: userMessages,
+    // Limita o histórico enviado para as últimas 3 mensagens
+    const mensagensParaEnviar = userMessages.slice(-3);
+
+    console.log('Enviando para backend (últimas 3 mensagens):', mensagensParaEnviar);
+
+    const response = await axios.post(`${API_BASE_URL}/ask-eco`, { 
+      messages: mensagensParaEnviar,
       userName: userName,
-      userId: userId, // <-- Incluímos no body enviado
+      userId: userId,
     });
 
     if (response.status >= 200 && response.status < 300) {
       if (response.data && typeof response.data.message === 'string') {
         return response.data.message; 
       } else {
-        console.error('Resposta da API Gemini mal formatada:', response.data);
+        console.error('Resposta da API da Eco mal formatada:', response.data);
         throw new Error('Resposta inesperada do servidor: Mensagem não encontrada.');
       }
     } else {
@@ -31,7 +36,7 @@ export const enviarMensagemParaEco = async (
       throw new Error(errorMessage);
     }
   } catch (error: any) {
-    console.error('Erro ao comunicar com o back-end para a ECO (via Gemini):', error);
+    console.error('Erro ao comunicar com o back-end para a ECO (via OpenRouter):', error);
     let errorMessage = 'Ocorreu um erro ao obter a resposta da ECO.';
     if (axios.isAxiosError(error)) {
       if (error.response?.data?.error) {

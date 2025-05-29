@@ -1,18 +1,22 @@
-import express, { Request, Response, Router } from 'express'; // Importe Router, Request e Response do 'express'
-// REMOVA OU COMENTE a linha abaixo. Você não precisa dos tipos Vercel aqui.
-// import { VercelRequest, VercelResponse } from '@vercel/node';
+import { Router, Request, Response } from 'express';
+// Importe a nova função do seu serviço OpenRouter
+import { askOpenRouter } from '../services/openrouterService'; // Certifique-se de que o nome do arquivo de serviço corresponde
 
-import { handleAskEco } from '../controllers/openrouterController'; // Certifique-se que o caminho está correto
+const router = Router();
 
-const router = express.Router();
-
-// Altere os tipos dos parâmetros 'req' e 'res' para Request e Response do Express
-router.post('/ask-eco', async (req: Request, res: Response) => {
-  // O 'handleAskEco' também precisa estar esperando Request e Response
-  // Se 'handleAskEco' ainda espera VercelRequest/VercelResponse,
-  // você DEVE mudar a assinatura dele também.
-  // Por enquanto, vou assumir que você também vai ajustá-lo.
-  await handleAskEco(req, res);
+/**
+ * Rota para interação com a Eco via OpenRouter (usando ChatGPT 4.0 Omni).
+ * Espera: messages (array), userName (string), userId (string)
+ */
+router.post('/ask-eco', async (req: Request, res: Response) => { // Rota renomeada para '/ask-eco'
+  try {
+    await askOpenRouter(req, res); // Chama a função do serviço OpenRouter
+  } catch (error) {
+    console.error('Erro no handler de rota /ask-eco:', error); // Log atualizado
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Erro interno do servidor.' });
+    }
+  }
 });
 
 export default router;
