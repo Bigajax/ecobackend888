@@ -6,26 +6,15 @@ body {
   font-family: 'Inter', sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  overflow: hidden; /* Mantenha o overflow hidden se for intencional para a aplicação */
-}
-
-::-webkit-scrollbar {
-  width: 6px;
-}
-
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-::-webkit-scrollbar-thumb {
-  background-color: rgba(0, 0, 0, 0.1);
-  border-radius: 10px;
+  background-color: var(--bg-cream);
+  overflow: hidden;
 }
 
 :root {
   --cerulean-blue: #007BA7;
   --rose-quartz: #F7CAC9;
   --bg-cream: #F8F5F0;
+  --eco-bubble-gradient: linear-gradient(135deg, #a1c4fd, #c2e9fb);
 }
 
 h1, h2, h3, h4, h5, h6 {
@@ -42,149 +31,106 @@ h1, h2, h3, h4, h5, h6 {
   justify-content: center;
 }
 
-.eco-title {
-  font-family: 'Playfair Display', serif;
-  font-weight: 600;
-  font-size: 3.5rem;
-  letter-spacing: 0.1em;
+/* Mensagem Eco (lado esquerdo, estilo Apple) */
+.message-eco {
+  background-color: #ffffff;
+  color: #333333;
+  border-radius: 18px 18px 18px 4px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  padding: 10px 14px;
+  max-width: 75%;
+  font-size: 0.95rem;
+  transition: all 0.2s ease-in-out;
 }
 
-.fade-in {
-  opacity: 0;
-  animation: fadeIn 1.2s forwards;
+/* Mensagem Usuário (lado direito, estilo Apple/iMessage azul) */
+.message-user {
+  background-color: #007aff;
+  color: #ffffff;
+  border-radius: 18px 18px 4px 18px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  padding: 10px 14px;
+  max-width: 75%;
+  font-size: 0.95rem;
+  transition: all 0.2s ease-in-out;
 }
 
-.fade-in-delay-1 {
-  opacity: 0;
-  animation: fadeIn 1.2s forwards;
-  animation-delay: 0.5s;
+/* Ícone bolha (EcoBubbleIcon) */
+.eco-bubble-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--eco-bubble-gradient);
+  box-shadow: 0 2px 6px rgba(0,0,0,0.15);
 }
 
-.fade-in-delay-2 {
-  opacity: 0;
-  animation: fadeIn 1.2s forwards;
-  animation-delay: 1s;
-}
-
+/* Animações existentes */
+.fade-in,
+.fade-in-delay-1,
+.fade-in-delay-2,
 .fade-in-delay-3 {
   opacity: 0;
   animation: fadeIn 1.2s forwards;
-  animation-delay: 1.5s;
 }
+
+.fade-in-delay-1 { animation-delay: 0.5s; }
+.fade-in-delay-2 { animation-delay: 1s; }
+.fade-in-delay-3 { animation-delay: 1.5s; }
 
 @keyframes fadeIn {
-  from {
-    opacity: 0;
-    transform: translateY(10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
-/* Renomeei 'float' para 'floating-animation' para evitar conflito com a classe 'floating' */
 @keyframes floating-animation {
-  0% {
-    transform: translateY(0px);
-  }
-  50% {
-    transform: translateY(-3px); /* Ajustado: Menos flutuação */
-  }
-  100% {
-    transform: translateY(0px);
-  }
+  0% { transform: translateY(0px); }
+  50% { transform: translateY(-3px); }
+  100% { transform: translateY(0px); }
 }
 
-/* A sua animação 'pulse' já está aqui, baseada em box-shadow */
 @keyframes pulse {
-  0% {
-    box-shadow: 0 0 0 0 rgba(0, 123, 167, 0.1);
-  }
-  70% {
-    box-shadow: 0 0 0 10px rgba(0, 123, 167, 0); /* Ajustado: Menor expansão da sombra */
-  }
-  100% {
-    box-shadow: 0 0 0 0 rgba(0, 123, 167, 0);
-  }
+  0% { box-shadow: 0 0 0 0 rgba(0, 123, 167, 0.1); }
+  70% { box-shadow: 0 0 0 10px rgba(0, 123, 167, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(0, 123, 167, 0); }
 }
 
-/* NOVA Animação de vibração */
 @keyframes vibrating-animation {
   0% { transform: translateX(0) scale(1); }
-  25% { transform: translateX(-0.5px) scale(1.01); } /* Ajustado: Menos movimento e escala */
-  50% { transform: translateX(0.5px) scale(1); }     /* Ajustado: Menos movimento */
-  75% { transform: translateX(-0.5px) scale(1.01); } /* Ajustado: Menos movimento e escala */
+  25% { transform: translateX(-0.5px) scale(1.01); }
+  50% { transform: translateX(0.5px) scale(1); }
+  75% { transform: translateX(-0.5px) scale(1.01); }
   100% { transform: translateX(0) scale(1); }
 }
 
-/* NOVA Animação para os pontos de "pensando" */
 @keyframes pulse-dot {
   0%, 100% { opacity: 0.2; }
-  50% { opacity: 1; } /* Mantido com opacidade máxima 1, mas você pode experimentar 0.8 se quiser ainda mais sutil */
+  50% { opacity: 1; }
 }
 
-@keyframes colorTransition {
-  0% {
-    background-position: 0% 50%;
-  }
-  50% {
-    background-position: 100% 50%;
-  }
-  100% {
-    background-position: 0% 50%;
-  }
+.floating { animation: floating-animation 8s ease-in-out infinite; }
+.vibrating { animation: vibrating-animation 0.6s ease-in-out infinite; }
+.animate-pulse-dot { animation: pulse-dot 1.5s infinite ease-in-out; }
+
+/* Scrollbar personalizado */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background-color: rgba(0, 0, 0, 0.1);
+  border-radius: 10px;
 }
 
+/* Gradientes para textos (se usados) */
 .text-gradient-blue {
   background: linear-gradient(90deg, var(--cerulean-blue), #5DA9C2);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
-  background-clip: text;
-  color: transparent;
 }
-
 .text-gradient-rose {
   background: linear-gradient(90deg, #E8A9A8, var(--rose-quartz));
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
-  background-clip: text;
-  color: transparent;
-}
-
-/* Estilos para a transição dos slides */
-.enter {
-  opacity: 0;
-  transform: translateX(100%); /* Começa fora da tela à direita */
-}
-
-.enter-active {
-  opacity: 1;
-  transform: translateX(0%); /* Termina na posição original */
-  transition: opacity 500ms ease-in-out, transform 500ms ease-in-out;
-}
-
-.exit {
-  opacity: 1;
-  transform: translateX(0%); /* Começa na posição original */
-}
-
-.exit-active {
-  opacity: 0;
-  transform: translateX(-100%); /* Sai da tela à esquerda */
-  transition: opacity 500ms ease-in-out, transform 500ms ease-in-out;
-}
-
-/* Classes para aplicar as animações aos elementos */
-.floating {
-  animation: floating-animation 8s ease-in-out infinite; /* Duração aumentada para 8s */
-}
-
-.vibrating {
-  animation: vibrating-animation 0.6s ease-in-out infinite; /* Duração aumentada para 0.6s */
-}
-
-/* Classe para aplicar a animação aos pontos de "pensando" */
-.animate-pulse-dot {
-  animation: pulse-dot 1.5s infinite ease-in-out; /* Duração aumentada para 1.5s */
 }

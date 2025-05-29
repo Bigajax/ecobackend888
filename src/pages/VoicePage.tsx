@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import EcoBubble from '../components/EcoBubble'; // Re-importe o componente EcoBubble
+import EcoBubbleIcon from "../components/EcoBubbleIcon";
 import { Mic, StopCircle, Loader, BookOpen } from 'lucide-react'; // Ícones para os botões
 import { useNavigate } from 'react-router-dom';
 import { sendVoiceMessage } from '../api/voiceApi';

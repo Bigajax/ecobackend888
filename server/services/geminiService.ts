@@ -50,7 +50,6 @@ const mapRoleForGemini = (role: string): 'user' | 'model' => {
   return role === 'assistant' ? 'model' : 'user';
 };
 
-// Função para limpar emojis e símbolos gráficos simples do output
 function limparResposta(text: string): string {
   return text.replace(/[\p{Emoji_Presentation}\p{Extended_Pictographic}]/gu, '').replace(/[:;=8][\-–]?[(|)D]/g, '');
 }
@@ -74,14 +73,12 @@ export const askGemini = async (req: Request, res: Response) => {
 
     const latestMessage = messages[messages.length - 1].content;
 
-    // Bloqueia pedidos fora do escopo
     if (/gerar|criar|desenhar|fazer.*(código|imagem|projeto|arte|arquivo|ilustração)/i.test(latestMessage)) {
       return res.status(200).json({
         message: 'Eu entendo seu pedido, mas como Eco não crio códigos, imagens ou projetos. Estou aqui apenas para sentir e acolher com você.',
       });
     }
 
-    // Constrói o histórico incluindo apenas o prompt + saudação + histórico sem repetir prompt
     const chatHistory = [
       {
         role: 'user',
@@ -106,7 +103,6 @@ export const askGemini = async (req: Request, res: Response) => {
       return res.status(500).json({ error: 'Resposta vazia do modelo.' });
     }
 
-    // Limpa emojis e símbolos gráficos
     message = limparResposta(message);
 
     res.status(200).json({ message });
