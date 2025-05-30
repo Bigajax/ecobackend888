@@ -41,7 +41,10 @@ const mapRoleForOpenAI = (role: string): 'user' | 'assistant' | 'system' => {
 };
 
 function limparResposta(text: string): string {
-    return text.replace(/[\p{Emoji_Presentation}\p{Extended_Pictographic}]/gu, '').replace(/[:;=8][\-–]?[(|)D]/g, '');
+    return text
+        .replace(/[\p{Emoji_Presentation}\p{Extended_Pictographic}]/gu, '')
+        .replace(/[:;=8][\-–]?[(|)D]/g, '')
+        .trim();
 }
 
 export const askOpenRouter = async (req: Request, res: Response) => {
@@ -60,8 +63,13 @@ export const askOpenRouter = async (req: Request, res: Response) => {
         const fullSystemPrompt = await carregarFullSystemPrompt();
         const latestMessage = messages[messages.length - 1].content;
 
+        const nomeSeguro = userName || 'Usuário';
+
         const promptComInstrucoes = `
 ${fullSystemPrompt}
+
+O nome do usuário logado é: ${nomeSeguro}.
+A IA deve sempre considerar este nome como parte do contexto para personalizar a conversa.
 
 Além de responder normalmente, no final da resposta, sempre forneça este bloco formatado em JSON (sem explicações, apenas o JSON):
 
@@ -79,7 +87,7 @@ Além de responder normalmente, no final da resposta, sempre forneça este bloco
 
         const chatMessages = [
             { role: 'system', content: promptComInstrucoes },
-            { role: 'user', content: gerarSaudacaoPersonalizada(userName) },
+            { role: 'user', content: gerarSaudacaoPersonalizada(nomeSeguro) },
             ...messages.slice(0, -1).map((msg: any) => ({
                 role: mapRoleForOpenAI(msg.role),
                 content: msg.content,
@@ -111,31 +119,15 @@ Além de responder normalmente, no final da resposta, sempre forneça este bloco
             return res.status(500).json({ error: 'Resposta vazia do modelo OpenRouter.' });
         }
 
-        // 🔒 Corte seguro para limpar texto
-        const startMarker = '--- RESPOSTA ECO ---';
-        const endMarker = '--- BLOCO JSON ---';
-        let conversationalText = '';
-
-        const startIdx = message.indexOf(startMarker);
-        const endIdx = message.indexOf(endMarker);
-
-        if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
-            // ✅ Formato correto com marcadores
-            conversationalText = message.substring(startIdx + startMarker.length, endIdx).trim();
-        } else {
-            console.warn('Marcadores não encontrados corretamente. Fazendo corte seguro.');
-            const jsonStartIdx = message.indexOf('{');
-            if (jsonStartIdx !== -1) {
-                conversationalText = message.substring(0, jsonStartIdx).trim();
-            } else {
-                conversationalText = message.trim();
-            }
-        }
+        let conversationalText = message
+            .split('--- BLOCO JSON ---')[0]
+            .split('```json')[0]
+            .split('```')[0]
+            .trim();
 
         const cleanedConversationalText = limparResposta(conversationalText);
         console.log('Texto conversacional limpo:', cleanedConversationalText);
 
-        // Busca TODOS os blocos JSON presentes
         const allJsonMatches = [...message.matchAll(/\{[\s\S]*?\}\s*/g)];
 
         if (allJsonMatches.length === 0) {
@@ -143,7 +135,6 @@ Além de responder normalmente, no final da resposta, sempre forneça este bloco
             return res.status(200).json({ message: cleanedConversationalText });
         }
 
-        // Seleciona apenas o ÚLTIMO bloco JSON
         const lastJsonMatch = allJsonMatches[allJsonMatches.length - 1][0];
         let parsedMetadata: any;
         try {
@@ -173,16 +164,16 @@ Além de responder normalmente, no final da resposta, sempre forneça este bloco
                 usuario_id: userId,
                 mensagem_id: messages[messages.length - 1].id,
                 resumo_eco: conversationalText,
-                emocao_principal: emocao_principal,
-                intensidade: intensidade,
+                emocao_principal,
+                intensidade,
                 contexto: contextoUsuario,
                 categoria: rotulo,
                 salvar_memoria: true,
                 data_registro: new Date().toISOString(),
-                dominio_vida: dominio_vida,
-                padrao_comportamental: padrao_comportamental,
-                nivel_abertura: nivel_abertura,
-                analise_resumo: analise_resumo,
+                dominio_vida,
+                padrao_comportamental,
+                nivel_abertura,
+                analise_resumo,
                 tags: tagsArray
             }]);
 

@@ -59,28 +59,28 @@ const MemoryPage: React.FC = () => {
   const handleBack = () => navigate('/chat');
 
   return (
-    <PhoneFrame className="flex flex-col h-full bg-neutral-100">
+    <PhoneFrame className="flex flex-col h-full bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50">
       <div className="flex items-center p-4">
         <button onClick={handleBack} className="text-neutral-700 hover:text-black">
           <ArrowLeft size={28} />
         </button>
-        <h2 className="text-xl font-semibold ml-4 text-neutral-800">
+        <h2 className="text-xl font-light ml-4 text-neutral-800">
           {activeTab === 'memories' ? 'Minhas Memórias' : 'Meu Perfil Emocional'}
         </h2>
       </div>
 
       <div className="flex space-x-2 px-4 mb-2">
         <button
-          className={`flex-1 px-3 py-2 rounded-full text-sm font-medium ${
-            activeTab === 'memories' ? 'bg-black text-white' : 'bg-neutral-200 text-neutral-700'
+          className={`flex-1 px-3 py-2 rounded-full text-sm font-medium transition ${
+            activeTab === 'memories' ? 'bg-black text-white' : 'bg-white/70 text-neutral-700'
           }`}
           onClick={() => setActiveTab('memories')}
         >
           Memórias
         </button>
         <button
-          className={`flex-1 px-3 py-2 rounded-full text-sm font-medium ${
-            activeTab === 'profile' ? 'bg-black text-white' : 'bg-neutral-200 text-neutral-700'
+          className={`flex-1 px-3 py-2 rounded-full text-sm font-medium transition ${
+            activeTab === 'profile' ? 'bg-black text-white' : 'bg-white/70 text-neutral-700'
           }`}
           onClick={() => setActiveTab('profile')}
         >
@@ -91,29 +91,29 @@ const MemoryPage: React.FC = () => {
       <div className="flex-1 overflow-y-auto px-4 pb-6">
         {loading ? (
           <div className="flex justify-center items-center h-full">
-            <p className="text-neutral-500">Carregando...</p>
+            <p className="text-neutral-500 text-sm">Carregando...</p>
           </div>
         ) : error ? (
           <div className="flex justify-center items-center h-full">
-            <p className="text-red-500">{error}</p>
+            <p className="text-red-500 text-sm">{error}</p>
           </div>
         ) : (
           <>
             {activeTab === 'memories' && (
               memories.length === 0 ? (
-                <p className="text-center text-neutral-500 mt-10">Nenhuma memória salva ainda.</p>
+                <p className="text-center text-neutral-500 mt-10 text-sm">Nenhuma memória salva ainda.</p>
               ) : (
                 memories.map((mem, index) => (
                   <motion.div
                     key={mem.id}
-                    className="backdrop-blur bg-white/70 border border-neutral-200 p-4 mb-4 rounded-2xl shadow-sm hover:shadow-md transition-all"
+                    className="backdrop-blur bg-white/80 border border-neutral-200 p-4 mb-4 rounded-3xl shadow-lg hover:shadow-xl transition-all"
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: index * 0.05 }}
                   >
                     <div className="flex justify-between items-center mb-2">
-                      <span className="text-lg font-medium text-neutral-800">
-                        {emotionIcons[mem.emocao_principal || ''] || '📝'} {mem.rotulo || mem.emocao_principal}
+                      <span className="text-lg font-light text-neutral-800">
+                        {emotionIcons[mem.emocao_principal || ''] || '📝'} {mem.rotulo || mem.emocao_principal || 'Sem rótulo'}
                       </span>
                       {mem.data_registro && (
                         <span className="text-xs text-neutral-500">{formatDateToHuman(mem.data_registro)}</span>
@@ -152,12 +152,12 @@ const MemoryPage: React.FC = () => {
             )}
 
             {activeTab === 'profile' && perfil && (
-              <div className="bg-white/70 border border-neutral-200 p-4 rounded-2xl shadow-sm">
-                <h3 className="text-lg font-semibold mb-2 text-neutral-800">Resumo Geral</h3>
-                <p className="text-neutral-700 mb-4">{perfil.resumo_geral_ia || 'Nenhum resumo disponível.'}</p>
+              <div className="bg-white/80 border border-neutral-200 p-4 rounded-3xl shadow-lg">
+                <h3 className="text-lg font-light mb-2 text-neutral-800">Resumo Geral</h3>
+                <p className="text-neutral-700 mb-4 text-sm">{perfil.resumo_geral_ia || 'Nenhum resumo disponível.'}</p>
 
                 <div className="mb-4">
-                  <h4 className="font-semibold text-neutral-700">Emoções Frequentes</h4>
+                  <h4 className="font-semibold text-neutral-700 text-sm">Emoções Frequentes</h4>
                   <ul className="list-disc ml-5 text-sm text-neutral-600">
                     {Object.entries(perfil.emocoes_frequentes || {}).map(([emo, count]) => (
                       <li key={emo}>{emo}: {count}</li>
@@ -166,7 +166,7 @@ const MemoryPage: React.FC = () => {
                 </div>
 
                 <div className="mb-4">
-                  <h4 className="font-semibold text-neutral-700">Temas/Padrões Recorrentes</h4>
+                  <h4 className="font-semibold text-neutral-700 text-sm">Temas/Padrões Recorrentes</h4>
                   <ul className="list-disc ml-5 text-sm text-neutral-600">
                     {Object.entries(perfil.temas_recorrentes || {}).map(([tema, count]) => (
                       <li key={tema}>{tema}: {count}</li>

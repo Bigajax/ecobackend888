@@ -1,15 +1,17 @@
-// routes/memoryRoutes.ts
 import { Router, Request, Response } from 'express';
 import { supabase } from '../lib/supabaseClient';
 
-// Explicitamente tipar 'router' como um Express.Router
-const router: Router = Router();
+const router = Router();
 
 router.get('/memories', async (req: Request, res: Response) => {
   const { usuario_id, emocao, intensidade_min } = req.query;
 
   if (!usuario_id) {
-    return res.status(400).json({ error: 'Parâmetro usuario_id é obrigatório.' });
+    console.warn('[AVISO] Parâmetro usuario_id não fornecido.');
+    return res.status(400).json({
+      success: false,
+      error: 'Parâmetro usuario_id é obrigatório.',
+    });
   }
 
   try {
@@ -24,26 +26,41 @@ router.get('/memories', async (req: Request, res: Response) => {
     }
 
     if (intensidade_min) {
-      // Ensure intensity_min is a valid number before using it
       const minIntensity = Number(intensidade_min);
       if (!isNaN(minIntensity)) {
         query = query.gte('intensidade', minIntensity);
       } else {
-        return res.status(400).json({ error: 'Parâmetro intensidade_min deve ser um número válido.' });
+        console.warn('[AVISO] Parâmetro intensidade_min inválido:', intensidade_min);
+        return res.status(400).json({
+          success: false,
+          error: 'Parâmetro intensidade_min deve ser um número válido.',
+        });
       }
     }
 
     const { data, error } = await query;
 
     if (error) {
-      console.error('Erro ao buscar memórias:', error.message);
-      return res.status(500).json({ error: 'Erro ao buscar memórias.' });
+      console.error('[ERRO SUPABASE] Erro ao buscar memórias:', error.message || error);
+      return res.status(500).json({
+        success: false,
+        error: 'Erro ao buscar memórias no banco de dados.',
+      });
     }
 
-    return res.status(200).json(data);
-  } catch (err) {
-    console.error('Erro geral no endpoint /memories:', err);
-    return res.status(500).json({ error: 'Erro interno do servidor.' });
+    console.log(`[SUCESSO] Memórias recuperadas para usuario_id ${usuario_id}: ${data?.length || 0} registros.`);
+
+    return res.status(200).json({
+      success: true,
+      memories: data || [],
+    });
+
+  } catch (err: any) {
+    console.error('[ERRO GERAL] Falha no endpoint /memories:', err.message || err);
+    return res.status(500).json({
+      success: false,
+      error: 'Erro interno do servidor ao buscar memórias.',
+    });
   }
 });
 

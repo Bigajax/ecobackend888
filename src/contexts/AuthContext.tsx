@@ -13,7 +13,7 @@ interface AuthContextType {
   loading: boolean;
   login: (email: string, password: string) => Promise<void>;
   logout: () => void;
-  register: (email: string, password: string) => Promise<void>;
+  register: (email: string, password: string, fullName?: string) => Promise<void>;
   signInWithOAuth: (provider: 'google' | 'apple', redirectTo?: string) => Promise<void>;
 }
 
@@ -48,7 +48,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
         setUser({
           id: sessionUser.id,
           email: sessionUser.email || '',
-          full_name: sessionUser.user_metadata?.full_name || sessionUser.user_metadata?.name || '',
+          full_name:
+            sessionUser.user_metadata?.full_name ||
+            sessionUser.user_metadata?.name ||
+            sessionUser.user_metadata?.given_name || '', // pega também nome do Google OAuth
         });
       } else {
         setUser(null);
@@ -58,13 +61,16 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
     loadSession();
 
-    const unsubscribe = supabase.auth.onAuthStateChange((event, session) => {
+    const { data: listener } = supabase.auth.onAuthStateChange((event, session) => {
       console.log('[AuthContext] onAuthStateChange event:', event);
       if (event === 'SIGNED_IN' && session?.user) {
         setUser({
           id: session.user.id,
           email: session.user.email || '',
-          full_name: session.user.user_metadata?.full_name || session.user.user_metadata?.name || '',
+          full_name:
+            session.user.user_metadata?.full_name ||
+            session.user.user_metadata?.name ||
+            session.user.user_metadata?.given_name || '',
         });
         navigate('/chat');
       }
@@ -76,26 +82,36 @@ export function AuthProvider({ children }: AuthProviderProps) {
     });
 
     return () => {
-      if (typeof unsubscribe === 'function') {
-        unsubscribe();
-      }
+      listener?.subscription.unsubscribe();
     };
   }, [navigate]);
 
+  const fetchFreshUser = async () => {
+    const { data, error } = await supabase.auth.getUser();
+    if (error || !data.user) {
+      throw new Error(error?.message || 'Erro ao buscar usuário atualizado');
+    }
+    return {
+      id: data.user.id,
+      email: data.user.email || '',
+      full_name:
+        data.user.user_metadata?.full_name ||
+        data.user.user_metadata?.name ||
+        data.user.user_metadata?.given_name || '',
+    };
+  };
+
   const login = async (email: string, password: string) => {
     setLoading(true);
-    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-    setLoading(false);
-
-    if (error || !data.user) {
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) {
+      setLoading(false);
       throw new Error(error?.message || 'Erro ao fazer login');
     }
 
-    setUser({
-      id: data.user.id,
-      email: data.user.email || '',
-      full_name: data.user.user_metadata?.full_name || data.user.user_metadata?.name || '',
-    });
+    const freshUser = await fetchFreshUser();
+    setUser(freshUser);
+    setLoading(false);
   };
 
   const logout = async () => {
@@ -106,24 +122,23 @@ export function AuthProvider({ children }: AuthProviderProps) {
     setLoading(false);
   };
 
-  const register = async (email: string, password: string) => {
+  const register = async (email: string, password: string, fullName = '') => {
     setLoading(true);
-    const { data, error } = await supabase.auth.signUp({ email, password });
-    setLoading(false);
-
+    const { error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        data: { full_name: fullName },
+      },
+    });
     if (error) {
+      setLoading(false);
       throw new Error(error.message || 'Erro ao criar conta');
     }
 
-    if (data.user) {
-      setUser({
-        id: data.user.id,
-        email: data.user.email || '',
-        full_name: data.user.user_metadata?.full_name || data.user.user_metadata?.name || '',
-      });
-    } else {
-      throw new Error('Verifique seu e-mail para confirmar a criação da conta.');
-    }
+    const freshUser = await fetchFreshUser();
+    setUser(freshUser);
+    setLoading(false);
   };
 
   const signInWithOAuth = async (provider: 'google' | 'apple', redirectTo?: string) => {
