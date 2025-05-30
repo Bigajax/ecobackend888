@@ -10,7 +10,7 @@ async function carregarFullSystemPrompt(): Promise<string> {
     if (cachedFullSystemPrompt) return cachedFullSystemPrompt;
     const assetsDir = path.join(__dirname, '..', 'assets');
     const promptFiles = [
-        'eco_prompt_programavel.txt', 'eco_manifesto_fonte.txt', 
+        'eco_prompt_programavel.txt', 'eco_manifesto_fonte.txt',
         'eco_principios_poeticos.txt', 'eco_behavioral_instructions.txt',
         'eco_core_personality.txt', 'eco_guidelines_general.txt',
         'eco_emotions.txt', 'eco_examples_realistic.txt',
@@ -111,12 +111,36 @@ Além de responder normalmente, no final da resposta, sempre forneça este bloco
             return res.status(500).json({ error: 'Resposta vazia do modelo OpenRouter.' });
         }
 
+        // 🔒 Corte seguro para limpar texto
+        const startMarker = '--- RESPOSTA ECO ---';
+        const endMarker = '--- BLOCO JSON ---';
+        let conversationalText = '';
+
+        const startIdx = message.indexOf(startMarker);
+        const endIdx = message.indexOf(endMarker);
+
+        if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
+            // ✅ Formato correto com marcadores
+            conversationalText = message.substring(startIdx + startMarker.length, endIdx).trim();
+        } else {
+            console.warn('Marcadores não encontrados corretamente. Fazendo corte seguro.');
+            const jsonStartIdx = message.indexOf('{');
+            if (jsonStartIdx !== -1) {
+                conversationalText = message.substring(0, jsonStartIdx).trim();
+            } else {
+                conversationalText = message.trim();
+            }
+        }
+
+        const cleanedConversationalText = limparResposta(conversationalText);
+        console.log('Texto conversacional limpo:', cleanedConversationalText);
+
         // Busca TODOS os blocos JSON presentes
         const allJsonMatches = [...message.matchAll(/\{[\s\S]*?\}\s*/g)];
 
         if (allJsonMatches.length === 0) {
             console.warn('Nenhum bloco JSON encontrado na resposta. Enviando apenas a mensagem textual.');
-            return res.status(200).json({ message: limparResposta(message) });
+            return res.status(200).json({ message: cleanedConversationalText });
         }
 
         // Seleciona apenas o ÚLTIMO bloco JSON
@@ -127,17 +151,8 @@ Além de responder normalmente, no final da resposta, sempre forneça este bloco
         } catch (jsonError) {
             console.error('Erro ao fazer parse do JSON da Eco:', jsonError);
             console.warn('Enviando apenas a mensagem textual devido ao erro no parse do JSON.');
-            return res.status(200).json({ message: limparResposta(message) });
+            return res.status(200).json({ message: cleanedConversationalText });
         }
-
-        // Limpeza: remove blocos JSON e marcadores --- ... ---
-        let conversationalText = message;
-        conversationalText = conversationalText.replace(/\{[\s\S]*?\}\s*/g, '');
-        conversationalText = conversationalText.replace(/---.*?---/g, '');
-        conversationalText = conversationalText.trim();
-
-        const cleanedConversationalText = limparResposta(conversationalText);
-        console.log('Texto conversacional limpo:', cleanedConversationalText);
 
         const {
             emocao_principal,

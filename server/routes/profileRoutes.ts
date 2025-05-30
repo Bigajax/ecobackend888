@@ -13,7 +13,8 @@ router.get('/:userId', async (req: Request, res: Response) => {
       .from('perfis_emocionais')
       .select('*')
       .eq('usuario_id', userId)
-      .single();
+      .limit(1)
+      .maybeSingle();
 
     if (error) {
       console.error('[ERRO SUPABASE]', error);
