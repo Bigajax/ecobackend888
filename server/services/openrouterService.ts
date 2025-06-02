@@ -47,6 +47,33 @@ function limparResposta(text: string): string {
         .trim();
 }
 
+async function buscarContextoEmocionalCompleto(userId: string) {
+    const { data: perfil, error: perfilError } = await supabase
+        .from('perfis_emocionais')
+        .select('*')
+        .eq('usuario_id', userId)
+        .limit(1)
+        .maybeSingle();
+
+    if (perfilError) {
+        console.error('Erro ao buscar perfil emocional:', perfilError);
+    }
+
+    const { data: mems, error: memError } = await supabase
+        .from('memories')
+        .select('*')
+        .eq('usuario_id', userId)
+        .gte('intensidade', 7)
+        .order('data_registro', { ascending: false })
+        .limit(3);
+
+    if (memError) {
+        console.error('Erro ao buscar memórias recentes:', memError);
+    }
+
+    return { perfil, mems };
+}
+
 export const askOpenRouter = async (req: Request, res: Response) => {
     const { messages, userName, userId } = req.body;
 
@@ -62,11 +89,43 @@ export const askOpenRouter = async (req: Request, res: Response) => {
     try {
         const fullSystemPrompt = await carregarFullSystemPrompt();
         const latestMessage = messages[messages.length - 1].content;
-
         const nomeSeguro = userName || 'Usuário';
+
+        // Buscar contexto emocional acumulado
+        const { perfil, mems } = await buscarContextoEmocionalCompleto(userId);
+        let blocoContextoEmocional = '';
+
+        if (perfil) {
+            const emocoes = Object.keys(perfil.emocoes_frequentes || {}).join(', ') || 'nenhuma destacada';
+            const temas = Object.keys(perfil.temas_recorrentes || {}).join(', ') || 'nenhum destacado';
+            const ultima = perfil.ultima_interacao_significativa || 'não registrado';
+            const resumo = perfil.resumo_geral_ia || 'nenhum resumo disponível';
+
+            blocoContextoEmocional += `
+Perfil emocional acumulado:
+- Emoções mais frequentes: ${emocoes}
+- Temas recorrentes: ${temas}
+- Última interação significativa: ${ultima}
+- Resumo geral: ${resumo}
+`;
+        }
+
+        if (mems && mems.length > 0) {
+            const memStrings = mems.map(m => {
+                return `(${m.data_registro}): emoção: ${m.emocao_principal}, contexto: ${m.contexto}, análise: ${m.analise_resumo}`;
+            }).join('\n');
+
+            blocoContextoEmocional += `
+
+Últimas memórias emocionais intensas:
+${memStrings}
+`;
+        }
 
         const promptComInstrucoes = `
 ${fullSystemPrompt}
+
+${blocoContextoEmocional}
 
 O nome do usuário logado é: ${nomeSeguro}.
 A IA deve sempre considerar este nome como parte do contexto para personalizar a conversa.
@@ -100,8 +159,11 @@ Além de responder normalmente, no final da resposta, sempre forneça este bloco
             {
                 model: 'openai/gpt-4o',
                 messages: chatMessages,
-                temperature: 0.7,
-                max_tokens: 1000,
+                temperature: 0.8,         // ← mais reflexivo
+                top_p: 0.95,              // ← mais diversidade
+                presence_penalty: 0.3,    // ← força novos tópicos
+                frequency_penalty: 0.2,   // ← reduz repetição
+                max_tokens: 1500,         // ← respostas mais longas
             },
             {
                 headers: {
