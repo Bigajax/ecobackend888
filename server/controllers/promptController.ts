@@ -18,6 +18,7 @@ async function carregarPromptMestre() {
     'eco_generic_inputs.txt',
     'eco_forbidden_patterns.txt',
     'eco_farewell.txt',
+    'eco_subconscious_guidance.txt' // ← novo arquivo incluído
   ];
 
   const textos = await Promise.all(

@@ -19,7 +19,14 @@ const ChatPage: React.FC = () => {
     const [erroApi, setErroApi] = useState<string | null>(null);
     const referenciaFinalDasMensagens = useRef<HTMLDivElement>(null);
 
-    const mensagemBoasVindas = user?.full_name ? `Olá, ${user.full_name}!` : 'Olá!';
+    // BLOCO DE SAUDAÇÃO AJUSTADO PARA MADRUGADA
+    const hora = new Date().getHours();
+    let saudacao;
+    if (hora >= 5 && hora < 12) saudacao = 'Bom dia';
+    else if (hora >= 12 && hora < 18) saudacao = 'Boa tarde';
+    else saudacao = 'Boa noite';
+
+    const mensagemBoasVindas = user?.full_name ? `${saudacao}, ${user.full_name}!` : `${saudacao}!`;
 
     useEffect(() => {
         referenciaFinalDasMensagens.current?.scrollIntoView({ behavior: 'smooth' });
@@ -37,7 +44,7 @@ const ChatPage: React.FC = () => {
         }));
 
         try {
-            const resposta = await enviarMensagemParaEco(history, user?.full_name || 'Usuário', user?.id); // <-- Aqui incluímos user?.id
+            const resposta = await enviarMensagemParaEco(history, user?.full_name || 'Usuário', user?.id);
             const ecoMessage: Message = { id: uuidv4(), text: resposta, sender: 'eco' };
             addMessage(ecoMessage);
         } catch (error: any) {
