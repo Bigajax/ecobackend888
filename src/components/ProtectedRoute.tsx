@@ -10,7 +10,6 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
   const { user, loading } = useAuth();
 
   if (loading) {
-    console.log('[ProtectedRoute] Checando autenticação...');
     return (
       <div className="h-screen w-screen flex items-center justify-center bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50">
         <p className="text-gray-700 animate-pulse">Verificando autenticação...</p>
@@ -19,11 +18,9 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
   }
 
   if (!user) {
-    console.log('[ProtectedRoute] Usuário não autenticado, redirecionando para /login.');
-    return <Navigate to="/login" />;
+    return <Navigate to="/login" replace />;
   }
 
-  console.log('[ProtectedRoute] Usuário autenticado, renderizando página.');
   return <>{children}</>;
 };
 

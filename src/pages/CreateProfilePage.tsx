@@ -3,10 +3,8 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { useAuth } from '../contexts/AuthContext';
-import { supabase } from '../lib/supabaseClient';
 import PhoneFrame from '../components/PhoneFrame';
 import Input from '../components/Input';
-// import Button from '../components/Button'; // <-- LINHA REMOVIDA
 
 const CreateProfilePage: React.FC = () => {
   const [fullName, setFullName] = useState('');
@@ -31,29 +29,8 @@ const CreateProfilePage: React.FC = () => {
     }
 
     try {
-      const { data, error: authError } = await register(email, password);
-
-      if (authError) {
-        throw authError;
-      }
-
-      if (data && data.user) {
-        const { error: profileError } = await supabase
-          .from('profiles')
-          .insert([
-            { id: data.user.id, full_name: fullName }
-          ]);
-
-        if (profileError) {
-          throw profileError;
-        }
-
-        console.log('Usuário registrado e perfil criado:', data.user);
-        navigate('/chat');
-      } else {
-        setError('Conta criada, mas verifique seu e-mail para confirmar a conta.');
-      }
-
+      await register(email, password, fullName);
+      navigate('/chat');
     } catch (err: any) {
       console.error('Erro ao criar perfil:', err);
       setError(err.message || 'Falha ao criar conta. Tente novamente.');
@@ -118,7 +95,6 @@ const CreateProfilePage: React.FC = () => {
               </motion.p>
             )}
 
-            {/* SUBSTITUÍDO O COMPONENTE BUTTON POR <button> HTML */}
             <button
               type="submit"
               className="w-full bg-white text-black hover:bg-gray-100 font-semibold py-3 rounded-lg"
@@ -134,7 +110,7 @@ const CreateProfilePage: React.FC = () => {
             animate={{ opacity: 1 }}
             transition={{ delay: 0.3 }}
           >
-            Já possui uma conta? {' '}
+            Já possui uma conta?{' '}
             <button
               type="button"
               className="text-gray-800 font-medium underline hover:text-gray-900"

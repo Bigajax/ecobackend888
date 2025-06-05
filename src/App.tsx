@@ -1,5 +1,3 @@
-// src/App.tsx
-
 import React from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './contexts/AuthContext';
@@ -9,7 +7,7 @@ import ChatPage from './pages/ChatPage';
 import VoicePage from './pages/VoicePage';
 import MemoryPage from './pages/MemoryPage';
 import CreateProfilePage from './pages/CreateProfilePage';
-import ProtectedRoute from './components/ProtectedRoute'; // Certifique-se que este componente existe e está correto
+import ProtectedRoute from './components/ProtectedRoute';
 
 function App() {
   return (
@@ -17,15 +15,9 @@ function App() {
       <AuthProvider>
         <ChatProvider>
           <Routes>
-            {/* Rota raiz (/) - removemos o Navigate to="/login" explícito aqui.
-                A lógica do AuthContext e ProtectedRoute já lida com o redirecionamento
-                para /login se o usuário não estiver autenticado, ou para /chat se estiver.
-                Ainda assim, é boa prática ter uma rota inicial para o "ponto de entrada".
-                Se a URL for apenas "/", e o usuário não estiver logado, o ProtectedRoute no /chat
-                o levará para /login. Se ele já estiver logado, o AuthContext o levará para /chat.
-                Podemos definir a rota "/" como sendo a LoginPage se o usuário não estiver logado.
-             */}
-            <Route path="/" element={<LoginPage />} /> {/* Define a raiz como LoginPage */}
+            {/* Quando o usuário acessa a raiz "/", mandamos para login */}
+            <Route path="/" element={<Navigate to="/login" replace />} />
+            
             <Route path="/login" element={<LoginPage />} />
             <Route path="/register" element={<CreateProfilePage />} />
 
@@ -55,6 +47,9 @@ function App() {
                 </ProtectedRoute>
               }
             />
+
+            {/* fallback para rotas não existentes */}
+            <Route path="*" element={<Navigate to="/login" replace />} />
           </Routes>
         </ChatProvider>
       </AuthProvider>

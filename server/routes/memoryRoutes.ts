@@ -4,7 +4,7 @@ import { supabase } from '../lib/supabaseClient';
 const router = Router();
 
 router.get('/memories', async (req: Request, res: Response) => {
-  const { usuario_id, emocao, intensidade_min } = req.query;
+  const { usuario_id, emocao, intensidade_min, limite } = req.query;
 
   if (!usuario_id) {
     console.warn('[AVISO] Parâmetro usuario_id não fornecido.');
@@ -35,6 +35,13 @@ router.get('/memories', async (req: Request, res: Response) => {
           success: false,
           error: 'Parâmetro intensidade_min deve ser um número válido.',
         });
+      }
+    }
+
+    if (limite) {
+      const parsedLimite = Number(limite);
+      if (!isNaN(parsedLimite) && parsedLimite > 0) {
+        query = query.limit(parsedLimite);
       }
     }
 

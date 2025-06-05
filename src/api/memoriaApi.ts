@@ -12,7 +12,11 @@ export interface Memoria {
   rotulo?: string | null;
   dominio_vida?: string | null;
   padrao_comportamental?: string | null;
-  categoria?: string | null; // cuidado: no backend vem como string separada por vírgulas
+  categoria?: string | null;
+  salvar_memoria?: boolean;
+  nivel_abertura?: number | null;
+  analise_resumo?: string | null;
+  tags?: string[]; // ✅ corrigido
 }
 
 export async function buscarMemoriasPorUsuario(usuarioId: string): Promise<Memoria[]> {
@@ -26,7 +30,7 @@ export async function buscarMemoriasPorUsuario(usuarioId: string): Promise<Memor
         return response.data.memories || [];
       } else {
         console.warn('Resposta do backend sem sucesso ou sem memórias:', response.data);
-        return []; // ✅ retorna array vazio se não achar, para não quebrar o front
+        return [];
       }
     } else {
       const errorMessage = response.data?.message || 'Erro desconhecido ao buscar memórias.';
@@ -49,5 +53,34 @@ export async function buscarMemoriasPorUsuario(usuarioId: string): Promise<Memor
     }
     console.error(finalMessage);
     throw new Error(finalMessage);
+  }
+}
+
+// ✅ Buscar últimas memórias que tenham tags (não usa mais 'categoria')
+export async function buscarUltimasMemoriasComTags(usuarioId: string, limite: number = 5): Promise<Memoria[]> {
+  try {
+    const response = await axios.get('/api/memories', {
+      params: {
+        usuario_id: usuarioId,
+        limite: limite,
+      },
+    });
+
+    if (response.status >= 200 && response.status < 300) {
+      const todas = response.data.memories || [];
+      const comTags = todas
+        .filter((mem: Memoria) => mem.tags && mem.tags.length > 0)
+        .sort((a: Memoria, b: Memoria) =>
+          new Date(b.data_registro || '').getTime() - new Date(a.data_registro || '').getTime()
+        )
+        .slice(0, limite);
+
+      return comTags;
+    } else {
+      throw new Error(response.data?.message || 'Erro ao buscar memórias com tags.');
+    }
+  } catch (error: any) {
+    console.error('Erro ao buscar memórias com tags:', error.message);
+    return [];
   }
 }

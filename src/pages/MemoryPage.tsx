@@ -43,8 +43,13 @@ const MemoryPage: React.FC = () => {
           const memData = await buscarMemoriasPorUsuario(user.id);
           setMemories(memData);
 
-          const perfilData = await buscarPerfilEmocional(user.id);
-          setPerfil(perfilData);
+          try {
+            const perfilData = await buscarPerfilEmocional(user.id);
+            setPerfil(perfilData);
+          } catch (perfilError) {
+            console.warn('Perfil emocional ainda não disponível.');
+            setPerfil(null); // continua funcionando normalmente
+          }
         } catch (err: any) {
           console.error('Erro ao carregar dados:', err);
           setError('Erro ao carregar dados.');
@@ -123,15 +128,9 @@ const MemoryPage: React.FC = () => {
                     <p className="text-neutral-700 mb-2 leading-relaxed text-sm">{mem.resumo_eco}</p>
 
                     <div className="text-xs text-neutral-600 space-y-1">
-                      {mem.intensidade !== null && (
-                        <p><span className="font-semibold">Intensidade:</span> {mem.intensidade}</p>
-                      )}
-                      {mem.dominio_vida && (
-                        <p><span className="font-semibold">Domínio:</span> {mem.dominio_vida}</p>
-                      )}
-                      {mem.padrao_comportamental && (
-                        <p><span className="font-semibold">Padrão:</span> {mem.padrao_comportamental}</p>
-                      )}
+                      {mem.intensidade !== null && <p><span className="font-semibold">Intensidade:</span> {mem.intensidade}</p>}
+                      {mem.dominio_vida && <p><span className="font-semibold">Domínio:</span> {mem.dominio_vida}</p>}
+                      {mem.padrao_comportamental && <p><span className="font-semibold">Padrão:</span> {mem.padrao_comportamental}</p>}
                     </div>
 
                     {mem.categoria && typeof mem.categoria === 'string' && mem.categoria.length > 0 && (
@@ -151,34 +150,40 @@ const MemoryPage: React.FC = () => {
               )
             )}
 
-            {activeTab === 'profile' && perfil && (
-              <div className="bg-white/80 border border-neutral-200 p-4 rounded-3xl shadow-lg">
-                <h3 className="text-lg font-light mb-2 text-neutral-800">Resumo Geral</h3>
-                <p className="text-neutral-700 mb-4 text-sm">{perfil.resumo_geral_ia || 'Nenhum resumo disponível.'}</p>
+            {activeTab === 'profile' && (
+              perfil ? (
+                <div className="bg-white/80 border border-neutral-200 p-4 rounded-3xl shadow-lg">
+                  <h3 className="text-lg font-light mb-2 text-neutral-800">Resumo Geral</h3>
+                  <p className="text-neutral-700 mb-4 text-sm">{perfil.resumo_geral_ia || 'Nenhum resumo disponível.'}</p>
 
-                <div className="mb-4">
-                  <h4 className="font-semibold text-neutral-700 text-sm">Emoções Frequentes</h4>
-                  <ul className="list-disc ml-5 text-sm text-neutral-600">
-                    {Object.entries(perfil.emocoes_frequentes || {}).map(([emo, count]) => (
-                      <li key={emo}>{emo}: {count}</li>
-                    ))}
-                  </ul>
+                  <div className="mb-4">
+                    <h4 className="font-semibold text-neutral-700 text-sm">Emoções Frequentes</h4>
+                    <ul className="list-disc ml-5 text-sm text-neutral-600">
+                      {Object.entries(perfil.emocoes_frequentes || {}).map(([emo, count]) => (
+                        <li key={emo}>{emo}: {count}</li>
+                      ))}
+                    </ul>
+                  </div>
+
+                  <div className="mb-4">
+                    <h4 className="font-semibold text-neutral-700 text-sm">Temas/Padrões Recorrentes</h4>
+                    <ul className="list-disc ml-5 text-sm text-neutral-600">
+                      {Object.entries(perfil.temas_recorrentes || {}).map(([tema, count]) => (
+                        <li key={tema}>{tema}: {count}</li>
+                      ))}
+                    </ul>
+                  </div>
+
+                  <p className="text-xs text-neutral-500">
+                    Última interação significativa:{' '}
+                    {new Date(perfil.ultima_interacao_significativa).toLocaleDateString()}
+                  </p>
                 </div>
-
-                <div className="mb-4">
-                  <h4 className="font-semibold text-neutral-700 text-sm">Temas/Padrões Recorrentes</h4>
-                  <ul className="list-disc ml-5 text-sm text-neutral-600">
-                    {Object.entries(perfil.temas_recorrentes || {}).map(([tema, count]) => (
-                      <li key={tema}>{tema}: {count}</li>
-                    ))}
-                  </ul>
-                </div>
-
-                <p className="text-xs text-neutral-500">
-                  Última interação significativa:{' '}
-                  {new Date(perfil.ultima_interacao_significativa).toLocaleDateString()}
+              ) : (
+                <p className="text-center text-neutral-500 mt-10 text-sm">
+                  Nenhum perfil emocional foi gerado ainda. Interaja mais com a Eco para que possamos criar um para você 🌱
                 </p>
-              </div>
+              )
             )}
           </>
         )}

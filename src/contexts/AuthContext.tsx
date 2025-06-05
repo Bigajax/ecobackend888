@@ -1,167 +1,92 @@
-import React, { createContext, useState, useContext, ReactNode, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { createContext, useContext, useEffect, useState } from 'react';
 import { supabase } from '../lib/supabaseClient';
-
-interface User {
-  id: string;
-  email: string;
-  full_name?: string;
-}
+import { Session, User } from '@supabase/supabase-js';
 
 interface AuthContextType {
   user: User | null;
+  session: Session | null;
   loading: boolean;
-  login: (email: string, password: string) => Promise<void>;
-  logout: () => void;
-  register: (email: string, password: string, fullName?: string) => Promise<void>;
-  signInWithOAuth: (provider: 'google' | 'apple', redirectTo?: string) => Promise<void>;
+  signIn: (email: string, password: string) => Promise<void>;
+  signOut: () => Promise<void>;
+  register: (email: string, password: string, nome: string) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-export function useAuth() {
-  const context = useContext(AuthContext);
-  if (!context) {
-    throw new Error('useAuth must be used within an AuthProvider');
-  }
-  return context;
-}
-
-interface AuthProviderProps {
-  children: ReactNode;
-}
-
-export function AuthProvider({ children }: AuthProviderProps) {
+export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
+  const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
-  const navigate = useNavigate();
 
   useEffect(() => {
-    const loadSession = async () => {
-      const { data, error } = await supabase.auth.getSession();
+    const getSession = async () => {
+      const {
+        data: { session },
+        error,
+      } = await supabase.auth.getSession();
+
       if (error) {
-        console.error('[AuthContext] Error fetching session:', error.message);
+        console.error('Erro ao obter sessão:', error.message);
       }
 
-      if (data.session?.user) {
-        const sessionUser = data.session.user;
-        setUser({
-          id: sessionUser.id,
-          email: sessionUser.email || '',
-          full_name:
-            sessionUser.user_metadata?.full_name ||
-            sessionUser.user_metadata?.name ||
-            sessionUser.user_metadata?.given_name || '', // pega também nome do Google OAuth
-        });
-      } else {
-        setUser(null);
-      }
+      setSession(session);
+      setUser(session?.user ?? null);
       setLoading(false);
     };
 
-    loadSession();
+    getSession();
 
-    const { data: listener } = supabase.auth.onAuthStateChange((event, session) => {
-      console.log('[AuthContext] onAuthStateChange event:', event);
-      if (event === 'SIGNED_IN' && session?.user) {
-        setUser({
-          id: session.user.id,
-          email: session.user.email || '',
-          full_name:
-            session.user.user_metadata?.full_name ||
-            session.user.user_metadata?.name ||
-            session.user.user_metadata?.given_name || '',
-        });
-        navigate('/chat');
-      }
-
-      if (event === 'SIGNED_OUT') {
-        setUser(null);
-        navigate('/login');
-      }
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+      setUser(session?.user ?? null);
     });
 
     return () => {
-      listener?.subscription.unsubscribe();
+      listener.subscription.unsubscribe();
     };
-  }, [navigate]);
+  }, []);
 
-  const fetchFreshUser = async () => {
-    const { data, error } = await supabase.auth.getUser();
-    if (error || !data.user) {
-      throw new Error(error?.message || 'Erro ao buscar usuário atualizado');
-    }
-    return {
-      id: data.user.id,
-      email: data.user.email || '',
-      full_name:
-        data.user.user_metadata?.full_name ||
-        data.user.user_metadata?.name ||
-        data.user.user_metadata?.given_name || '',
-    };
-  };
-
-  const login = async (email: string, password: string) => {
+  const signIn = async (email: string, password: string) => {
     setLoading(true);
     const { error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) {
-      setLoading(false);
-      throw new Error(error?.message || 'Erro ao fazer login');
-    }
-
-    const freshUser = await fetchFreshUser();
-    setUser(freshUser);
+    if (error) throw error;
     setLoading(false);
   };
 
-  const logout = async () => {
-    setLoading(true);
-    await supabase.auth.signOut();
-    sessionStorage.removeItem('chatMessages');
+  const signOut = async () => {
+    const { error } = await supabase.auth.signOut();
+    if (error) throw error;
+
+    // ✅ Limpa o contexto manualmente após logout
     setUser(null);
-    setLoading(false);
+    setSession(null);
   };
 
-  const register = async (email: string, password: string, fullName = '') => {
-    setLoading(true);
+  const register = async (email: string, password: string, nome: string) => {
     const { error } = await supabase.auth.signUp({
       email,
       password,
       options: {
-        data: { full_name: fullName },
+        data: {
+          full_name: nome,
+        },
       },
     });
-    if (error) {
-      setLoading(false);
-      throw new Error(error.message || 'Erro ao criar conta');
-    }
 
-    const freshUser = await fetchFreshUser();
-    setUser(freshUser);
-    setLoading(false);
+    if (error) throw error;
   };
 
-  const signInWithOAuth = async (provider: 'google' | 'apple', redirectTo?: string) => {
-    setLoading(true);
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider,
-      options: { redirectTo: redirectTo || `${window.location.origin}/chat` },
-    });
-    setLoading(false);
+  return (
+    <AuthContext.Provider value={{ user, session, loading, signIn, signOut, register }}>
+      {children}
+    </AuthContext.Provider>
+  );
+};
 
-    if (error) {
-      throw new Error(error.message || `Erro ao fazer login com ${provider}`);
-    }
-  };
-
-  const value = {
-    user,
-    loading,
-    login,
-    logout,
-    register,
-    signInWithOAuth,
-  };
-
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
-}
+export const useAuth = () => {
+  const context = useContext(AuthContext);
+  if (!context) {
+    throw new Error('useAuth deve ser usado dentro de um AuthProvider');
+  }
+  return context;
+};

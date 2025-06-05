@@ -1,3 +1,4 @@
+// src/pages/LoginPage.tsx
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
@@ -10,13 +11,14 @@ const LoginPage: React.FC = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
-  const { login, user } = useAuth();
+  const { signIn, user } = useAuth(); // substituído login por signIn
   const navigate = useNavigate();
   const [isTourActive, setIsTourActive] = useState(false);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     if (user) {
+      console.log('[LoginPage] Usuário já autenticado, redirecionando para /chat');
       navigate('/chat');
     }
   }, [user, navigate]);
@@ -35,10 +37,16 @@ const LoginPage: React.FC = () => {
     setLoading(true);
 
     try {
-      await login(email, password);
-      // O redirecionamento ocorre automaticamente no useEffect acima
+      console.log('[LoginPage] Tentando login com:', email);
+      await signIn(email, password); // corrigido aqui também
+      console.log('[LoginPage] Login bem-sucedido, aguardando redirecionamento pelo useEffect');
     } catch (err: any) {
-      setError(err.message || 'Falha na autenticação. Verifique suas credenciais.');
+      console.error('[LoginPage] Erro no login:', err.message || err);
+      if (err.message?.includes('Database error granting user')) {
+        setError('Erro interno ao conceder acesso. Tente novamente em instantes.');
+      } else {
+        setError(err.message || 'Falha na autenticação. Verifique suas credenciais.');
+      }
     } finally {
       setLoading(false);
     }
@@ -48,6 +56,7 @@ const LoginPage: React.FC = () => {
     <PhoneFrame>
       <div className="flex flex-col h-full p-8 justify-center items-center bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50 relative">
         {isTourActive && <TourInicial onClose={handleCloseTour} />}
+
         <motion.div
           className="text-center mb-12"
           initial={{ opacity: 0, y: -20 }}
@@ -75,6 +84,9 @@ const LoginPage: React.FC = () => {
             onChange={(e) => setPassword(e.target.value)}
             required
             autoComplete="current-password"
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleSubmit(e);
+            }}
           />
 
           {error && (
