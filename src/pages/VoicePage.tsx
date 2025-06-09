@@ -1,202 +1,175 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import EcoBubbleIcon from "../components/EcoBubbleIcon";
-import { Mic, StopCircle, Loader, BookOpen } from 'lucide-react'; // Ícones para os botões
+import { Mic, StopCircle, Loader, BookOpen, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { sendVoiceMessage } from '../api/voiceApi';
-import { useAuth } from '../contexts/AuthContext'; // Caminho corrigido
+import { useAuth } from '../contexts/AuthContext';
 
 const VoicePage: React.FC = () => {
-    const { userName } = useAuth();
-    const [isListening, setIsListening] = useState(false);
-    const [isProcessing, setIsProcessing] = useState(false);
-    const [isEcoThinking, setIsEcoThinking] = useState(false);
-    const [ecoAudioURL, setEcoAudioURL] = useState<string | null>(null);
-    const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-    const audioChunks = useRef<Blob[]>([]);
-    const [error, setError] = useState<string | null>(null);
+  const { userName } = useAuth();
+  const [isListening, setIsListening] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [ecoAudioURL, setEcoAudioURL] = useState<string | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunks = useRef<Blob[]>([]);
+  const [error, setError] = useState<string | null>(null);
 
-    const navigate = useNavigate();
+  const navigate = useNavigate();
 
-    const goToMemoryPage = () => {
-        navigate('/memory');
-    };
+  const goToMemoryPage = () => navigate('/memory');
+  const goToChatPage = () => navigate('/chat');
 
-    const handleError = (msg: string) => {
-        setError(msg);
-        console.error(msg);
-        setIsListening(false);
-        setIsProcessing(false);
-        setIsEcoThinking(false);
+  const handleError = (msg: string) => {
+    setError(msg);
+    setIsListening(false);
+    setIsProcessing(false);
+    setEcoAudioURL(null);
+    mediaRecorderRef.current?.stream.getTracks().forEach(track => track.stop());
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop();
+      setIsListening(false);
+    }
+  };
+
+  const startRecording = async () => {
+    setError(null);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+
+      audioChunks.current = [];
+
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunks.current.push(event.data);
+        }
+      };
+
+      recorder.onstop = async () => {
+        recorder.stream.getTracks().forEach(track => track.stop());
+        const audioBlob = new Blob(audioChunks.current, { type: recorder.mimeType });
+
+        if (audioBlob.size === 0) {
+          setIsProcessing(false);
+          return;
+        }
+
+        setIsProcessing(true);
         setEcoAudioURL(null);
-        if (mediaRecorderRef.current && mediaRecorderRef.current.stream) {
-            mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop());
-        }
-    };
 
-    const stopRecording = () => {
-        if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-            mediaRecorderRef.current.stop();
-            setIsListening(false);
-        }
-    };
-
-    const startRecording = async () => {
-        setError(null);
         try {
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            const recorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
-
-            audioChunks.current = [];
-
-            recorder.ondataavailable = (event) => {
-                if (event.data.size > 0) {
-                    audioChunks.current.push(event.data);
-                }
-            };
-
-            recorder.onstop = async () => {
-                recorder.stream.getTracks().forEach(track => track.stop());
-                const audioBlob = new Blob(audioChunks.current, { type: recorder.mimeType });
-
-                if (audioBlob.size === 0) {
-                    console.warn("Gravação muito curta ou sem dados de áudio.");
-                    setIsProcessing(false);
-                    setIsEcoThinking(false);
-                    return;
-                }
-
-                setIsProcessing(true);
-                setIsEcoThinking(true);
-                setEcoAudioURL(null); // Limpa o áudio anterior enquanto processa
-
-                try {
-                    const response = await sendVoiceMessage(audioBlob, [], userName);
-
-                    setEcoAudioURL(URL.createObjectURL(response.audioBlob)); // Define o novo áudio para a Eco
-                    console.log("Resposta da Eco (texto):", response.ecoText); // Para depuração
-                } catch (err: any) {
-                    handleError(`Falha na interação de voz: ${err.message}`);
-                } finally {
-                    setIsProcessing(false);
-                    setIsEcoThinking(false);
-                }
-            };
-
-            recorder.onerror = (event) => {
-                handleError(`Erro no MediaRecorder: ${(event as MediaRecorderErrorEvent).error.name}`);
-            };
-
-            recorder.start();
-            setIsListening(true);
-            mediaRecorderRef.current = recorder;
-
+          const response = await sendVoiceMessage(audioBlob, [], userName);
+          setEcoAudioURL(URL.createObjectURL(response.audioBlob));
         } catch (err: any) {
-            handleError(`Erro ao acessar o microfone: ${err.message || "Permissão de microfone negada ou não disponível."}`);
+          handleError(`Falha na interação de voz: ${err.message}`);
+        } finally {
+          setIsProcessing(false);
         }
+      };
+
+      recorder.onerror = (event) => {
+        handleError(`Erro no MediaRecorder: ${(event as MediaRecorderErrorEvent).error.name}`);
+      };
+
+      recorder.start();
+      setIsListening(true);
+      mediaRecorderRef.current = recorder;
+
+    } catch (err: any) {
+      handleError(`Erro ao acessar o microfone: ${err.message || "Permissão de microfone negada ou não disponível."}`);
+    }
+  };
+
+  const toggleRecording = () => {
+    if (isListening) stopRecording();
+    else startRecording();
+  };
+
+  useEffect(() => {
+    return () => {
+      if (mediaRecorderRef.current?.state === 'recording') {
+        mediaRecorderRef.current.stop();
+      }
+      mediaRecorderRef.current?.stream.getTracks().forEach(track => track.stop());
     };
+  }, []);
 
-    const toggleRecording = () => {
-        if (isListening) {
-            stopRecording();
-        } else {
-            startRecording();
-        }
-    };
+  const isIdle = !isListening && !isProcessing;
 
-    useEffect(() => {
-        return () => {
-            if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
-                mediaRecorderRef.current.stop();
-            }
-            if (mediaRecorderRef.current && mediaRecorderRef.current.stream) {
-                mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop());
-            }
-        };
-    }, []);
+  return (
+    <motion.div
+      className="flex flex-col items-center justify-between min-h-screen bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50 px-4 pt-16 pb-12"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ duration: 0.8 }}
+    >
+      {/* Bolha com efeito vidro + animações refinadas */}
+      <motion.div
+        className={`mt-20 mb-8 w-64 h-64 rounded-full bg-white/30 backdrop-blur-md border border-white/20 shadow-xl transition-all duration-300 ${
+          isListening
+            ? 'animate-pulseListen'
+            : isProcessing
+            ? 'animate-pulseTalk'
+            : 'animate-gentle-pulse'
+        }`}
+        initial={{ opacity: 0, scale: 0.9 }}
+        animate={{ opacity: 1, scale: 1 }}
+        transition={{ duration: 0.7, ease: 'easeOut' }}
+      />
 
-    const renderMicButton = () => {
-        if (isProcessing) {
-            return (
-                <div className="flex items-center justify-center p-3 rounded-full bg-blue-500 text-white animate-pulse">
-                    <Loader size={24} className="animate-spin" />
-                </div>
-            );
-        } else if (isListening) {
-            return (
-                <button
-                    onClick={toggleRecording}
-                    className="p-3 rounded-full bg-red-500 text-white shadow-lg hover:bg-red-600 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-red-400 focus:ring-opacity-75"
-                    aria-label="Parar gravação"
-                >
-                    <StopCircle size={24} />
-                </button>
-            );
-        } else {
-            return (
-                <button
-                    onClick={toggleRecording}
-                    className="p-3 rounded-full bg-blue-500 text-white shadow-lg hover:bg-blue-600 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-opacity-75"
-                    aria-label="Iniciar gravação"
-                >
-                    <Mic size={24} />
-                </button>
-            );
-        }
-    };
+      {/* Erro (se houver) */}
+      {error && (
+        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-2 rounded text-sm mb-4 text-center max-w-sm shadow">
+          {error}
+        </div>
+      )}
 
-    return (
-        <motion.div
-            className="flex flex-col items-center justify-center min-h-screen bg-gradient-to-br from-green-50 to-blue-100 p-4 relative"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ duration: 0.8 }}
+      {/* Botões com entrada em cascata */}
+      <div className="mt-2 flex items-center justify-center space-x-6">
+        <motion.button
+          onClick={goToMemoryPage}
+          className="w-14 h-14 rounded-full bg-white shadow-md hover:shadow-lg flex items-center justify-center transition backdrop-blur-sm"
+          aria-label="Memórias"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.5, duration: 0.4, ease: 'easeOut' }}
         >
-            {/* Botão de Memória - Posicionado no canto superior direito */}
-            <motion.button
-                onClick={goToMemoryPage}
-                className="absolute top-4 right-4 z-10 p-3 rounded-full bg-blue-500 text-white shadow-lg hover:bg-blue-600 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-opacity-75"
-                aria-label="Ir para a página de memória"
-                whileHover={{ scale: 1.1 }}
-                whileTap={{ scale: 0.9 }}
-            >
-                <BookOpen size={24} />
-            </motion.button>
+          <BookOpen size={24} className="text-gray-700" />
+        </motion.button>
 
-            <h1 className="text-4xl font-extrabold text-gray-900 mb-8 tracking-tight text-center playfair-display">
-                Converse com a Eco
-            </h1>
+        <motion.button
+          onClick={toggleRecording}
+          className="w-14 h-14 rounded-full bg-white shadow-md hover:shadow-lg flex items-center justify-center transition backdrop-blur-sm"
+          aria-label={isListening ? 'Parar gravação' : 'Iniciar gravação'}
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.6, duration: 0.4, ease: 'easeOut' }}
+        >
+          {isProcessing ? (
+            <Loader className="animate-spin text-gray-700" size={24} />
+          ) : isListening ? (
+            <StopCircle className="text-red-500" size={24} />
+          ) : (
+            <Mic className="text-gray-700" size={24} />
+          )}
+        </motion.button>
 
-            {/* A GRANDE BOLHA 3D no centro - REATIVADA */}
-            <div className="relative w-full max-w-lg aspect-square mb-8">
-                <EcoBubble
-                    // As props isListening, isProcessing, isEcoThinking e ecoAudioURL são passadas para o EcoBubble
-                    // para que ele possa controlar suas próprias animações com base nesses estados.
-                    isListening={isListening}
-                    isProcessing={isProcessing}
-                    isEcoThinking={isEcoThinking}
-                    ecoAudioURL={ecoAudioURL}
-                    setEcoAudioURL={setEcoAudioURL}
-                    size="w-full h-full" // Definindo o tamanho para preencher o contêiner
-                    isAnimating={!!ecoAudioURL} // A bolha vibra quando há um audioURL (Eco está falando)
-                />
-            </div>
-
-            {/* Controles de Gravação Abaixo da Bolha */}
-            {error && (
-                <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative mb-4" role="alert">
-                    <strong className="font-bold">Erro:</strong>
-                    <span className="block sm:inline ml-2">{error}</span>
-                </div>
-            )}
-            <div className="flex justify-center items-center py-4 px-6 bg-white rounded-full shadow-md">
-                {renderMicButton()}
-                <span className="ml-4 text-gray-600 text-sm">
-                    {isListening ? 'Gravando...' : isProcessing ? 'Processando...' : 'Pressione para falar'}
-                </span>
-            </div>
-        </motion.div>
-    );
+        <motion.button
+          onClick={goToChatPage}
+          className="w-14 h-14 rounded-full bg-white shadow-md hover:shadow-lg flex items-center justify-center transition backdrop-blur-sm"
+          aria-label="Voltar ao chat"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.7, duration: 0.4, ease: 'easeOut' }}
+        >
+          <X size={24} className="text-gray-700" />
+        </motion.button>
+      </div>
+    </motion.div>
+  );
 };
 
 export default VoicePage;

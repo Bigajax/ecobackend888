@@ -31,52 +31,19 @@ h1, h2, h3, h4, h5, h6 {
   justify-content: center;
 }
 
-/* Mensagem Eco (lado esquerdo, estilo Apple) */
-.message-eco {
-  background-color: #ffffff;
-  color: #333333;
-  border-radius: 18px 18px 18px 4px;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-  padding: 10px 14px;
-  max-width: 75%;
-  font-size: 0.95rem;
-  transition: all 0.2s ease-in-out;
+/* Bolha de vidro (Eco) */
+.eco-glass-bubble {
+  width: 256px;
+  height: 256px;
+  border-radius: 9999px;
+  background-color: rgba(255, 255, 255, 0.25);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.1);
 }
 
-/* Mensagem Usuário (lado direito, estilo Apple/iMessage azul) */
-.message-user {
-  background-color: #007aff;
-  color: #ffffff;
-  border-radius: 18px 18px 4px 18px;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-  padding: 10px 14px;
-  max-width: 75%;
-  font-size: 0.95rem;
-  transition: all 0.2s ease-in-out;
-}
-
-/* Ícone bolha (EcoBubbleIcon) */
-.eco-bubble-icon {
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  background: var(--eco-bubble-gradient);
-  box-shadow: 0 2px 6px rgba(0,0,0,0.15);
-}
-
-/* Animações existentes */
-.fade-in,
-.fade-in-delay-1,
-.fade-in-delay-2,
-.fade-in-delay-3 {
-  opacity: 0;
-  animation: fadeIn 1.2s forwards;
-}
-
-.fade-in-delay-1 { animation-delay: 0.5s; }
-.fade-in-delay-2 { animation-delay: 1s; }
-.fade-in-delay-3 { animation-delay: 1.5s; }
-
+/* Animações */
 @keyframes fadeIn {
   from { opacity: 0; transform: translateY(10px); }
   to { opacity: 1; transform: translateY(0); }
@@ -107,9 +74,56 @@ h1, h2, h3, h4, h5, h6 {
   50% { opacity: 1; }
 }
 
+@keyframes gentlePulse {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.03);
+    opacity: 0.95;
+  }
+}
+
+.animate-gentle-pulse {
+  animation: gentlePulse 3s ease-in-out infinite;
+}
+
 .floating { animation: floating-animation 8s ease-in-out infinite; }
 .vibrating { animation: vibrating-animation 0.6s ease-in-out infinite; }
 .animate-pulse-dot { animation: pulse-dot 1.5s infinite ease-in-out; }
+
+/* Mensagens estilo Apple */
+.message-eco {
+  background-color: #ffffff;
+  color: #333333;
+  border-radius: 18px 18px 18px 4px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  padding: 10px 14px;
+  max-width: 75%;
+  font-size: 0.95rem;
+  transition: all 0.2s ease-in-out;
+}
+
+.message-user {
+  background-color: #007aff;
+  color: #ffffff;
+  border-radius: 18px 18px 4px 18px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  padding: 10px 14px;
+  max-width: 75%;
+  font-size: 0.95rem;
+  transition: all 0.2s ease-in-out;
+}
+
+/* Ícone bolha (EcoBubbleIcon) */
+.eco-bubble-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--eco-bubble-gradient);
+  box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+}
 
 /* Scrollbar personalizado */
 ::-webkit-scrollbar {
@@ -123,7 +137,7 @@ h1, h2, h3, h4, h5, h6 {
   border-radius: 10px;
 }
 
-/* Gradientes para textos (se usados) */
+/* Gradientes para textos */
 .text-gradient-blue {
   background: linear-gradient(90deg, var(--cerulean-blue), #5DA9C2);
   -webkit-background-clip: text;

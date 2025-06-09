@@ -6,6 +6,7 @@ import Header from '../components/Header';
 import ChatMessage from '../components/ChatMessage';
 import ChatInput from '../components/ChatInput';
 import EcoBubbleIcon from '../components/EcoBubbleIcon';
+import EcoMessageWithAudio from '../components/EcoMessageWithAudio'; // 👈 Import novo
 import { enviarMensagemParaEco } from '../api/ecoApi';
 import { buscarUltimasMemoriasComTags } from '../api/memoriaApi';
 import { useAuth } from '../contexts/AuthContext';
@@ -133,7 +134,11 @@ const ChatPage: React.FC = () => {
                     <EcoBubbleIcon />
                   </div>
                 )}
-                <ChatMessage message={mensagem} />
+                {mensagem.sender === 'eco' ? (
+                  <EcoMessageWithAudio message={mensagem as any} />
+                ) : (
+                  <ChatMessage message={mensagem} />
+                )}
               </div>
             ))}
 

@@ -20,14 +20,26 @@ export default {
           900: '#0a4970',
         },
       },
-      animation: {
-        ripple: 'ripple 1.5s infinite ease-in-out',
-      },
       keyframes: {
         ripple: {
           '0%': { transform: 'scale(0.8)', opacity: 1 },
           '100%': { transform: 'scale(1.4)', opacity: 0 },
         },
+        pulseListen: {
+          '0%, 100%': { transform: 'scale(1)', opacity: '1' },
+          '50%': { transform: 'scale(1.08)', opacity: '0.85' },
+        },
+        pulseTalk: {
+          '0%': { transform: 'scale(1)', opacity: '1' },
+          '25%': { transform: 'scale(1.06)', opacity: '0.85' },
+          '50%': { transform: 'scale(1)', opacity: '1' },
+          '100%': { transform: 'scale(1)', opacity: '1' },
+        },
+      },
+      animation: {
+        ripple: 'ripple 1.5s infinite ease-in-out',
+        pulseListen: 'pulseListen 1.2s ease-in-out infinite',
+        pulseTalk: 'pulseTalk 3s ease-in-out infinite',
       },
     },
   },

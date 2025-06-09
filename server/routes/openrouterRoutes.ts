@@ -1,6 +1,5 @@
 import { Router, Request, Response } from 'express';
-// Importe a nova função do seu serviço OpenRouter
-import { askOpenRouter } from '../services/openrouterService'; // Certifique-se de que o nome do arquivo de serviço corresponde
+import { getEcoResponse } from '../services/getEcoResponse'; // 🟢 função correta agora
 
 const router = Router();
 
@@ -8,14 +7,20 @@ const router = Router();
  * Rota para interação com a Eco via OpenRouter (usando ChatGPT 4.0 Omni).
  * Espera: messages (array), userName (string), userId (string)
  */
-router.post('/ask-eco', async (req: Request, res: Response) => { // Rota renomeada para '/ask-eco'
+router.post('/ask-eco', async (req: Request, res: Response) => {
   try {
-    await askOpenRouter(req, res); // Chama a função do serviço OpenRouter
-  } catch (error) {
-    console.error('Erro no handler de rota /ask-eco:', error); // Log atualizado
-    if (!res.headersSent) {
-      res.status(500).json({ error: 'Erro interno do servidor.' });
+    const { messages, userName, userId } = req.body;
+
+    if (!messages || !Array.isArray(messages) || messages.length === 0 || !userId) {
+      return res.status(400).json({ error: 'Mensagens ou usuário não fornecidos.' });
     }
+
+    const ecoText = await getEcoResponse({ messages, userName, userId });
+    res.status(200).json({ message: ecoText });
+
+  } catch (error) {
+    console.error('[ask-eco] Erro interno:', error);
+    res.status(500).json({ error: 'Erro ao gerar resposta da Eco.' });
   }
 });
 

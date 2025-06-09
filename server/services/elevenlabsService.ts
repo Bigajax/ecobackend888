@@ -1,54 +1,31 @@
 // server/services/elevenlabsService.ts
-import { ElevenLabsClient } from 'elevenlabs';
-import dotenv from 'dotenv';
-import path from 'path';
-import fs from 'fs/promises';
+import fetch from 'node-fetch';
 
-dotenv.config({ path: path.resolve(__dirname, '../../.env') });
+const ELEVEN_API_KEY = process.env.ELEVEN_API_KEY!;
+const VOICE_ID = process.env.ELEVEN_VOICE_ID!;
 
-const apiKey = process.env.ELEVENLABS_API_KEY;
+export async function generateAudio(text: string): Promise<Buffer> {
+  const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${VOICE_ID}`, {
+    method: 'POST',
+    headers: {
+      'xi-api-key': ELEVEN_API_KEY,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      text,
+      model_id: 'eleven_monolingual_v1',
+      voice_settings: {
+        stability: 0.5,
+        similarity_boost: 0.75,
+      },
+    }),
+  });
 
-if (!apiKey) {
-    console.error('Erro: A chave de API do Eleven Labs não foi encontrada nas variáveis de ambiente.');
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Erro ElevenLabs: ${errorText}`);
+  }
+
+  const buffer = await response.arrayBuffer();
+  return Buffer.from(buffer);
 }
-
-const elevenlabs = new ElevenLabsClient({
-    apiKey: apiKey,
-});
-
-const ECO_VOICE_ID = '21m00Tzpb8CflqYdJpP1';
-
-export const textToSpeech = async (text: string): Promise<NodeJS.ReadableStream> => {
-    if (!apiKey) {
-        throw new Error('Eleven Labs API Key não configurada.');
-    }
-    console.log('Convertendo texto para fala com Eleven Labs...');
-    try {
-        const audio = await elevenlabs.generate({
-            voice: ECO_VOICE_ID,
-            text: text,
-            model_id: "eleven_multilingual_v2",
-        });
-        return audio;
-    } catch (error) {
-        console.error('Erro ao converter texto para fala com Eleven Labs:', error);
-        throw error;
-    }
-};
-
-export const speechToText = async (audioBuffer: Buffer, mimeType: string): Promise<string> => {
-    if (!apiKey) {
-        throw new Error('Eleven Labs API Key não configurada.');
-    }
-    console.log('Convertendo fala para texto com Eleven Labs...');
-    try {
-        const transcription = await elevenlabs.speechToText.convert({
-            file: new Blob([audioBuffer], { type: mimeType }),
-            model_id: "eleven_multilingual_v2", // ADDED: Required for Speech-to-Text conversion
-        });
-        return transcription.text;
-    } catch (error) {
-        console.error('Erro ao converter fala para texto com Eleven Labs:', error);
-        throw error;
-    }
-};
