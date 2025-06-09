@@ -1,6 +1,5 @@
 // ✅ voiceApi.ts - Frontend (src/api/voiceApi.ts)
 
-// Envia texto da IA e recebe áudio (TTS)
 export async function gerarAudioDaMensagem(text: string): Promise<Blob> {
   const response = await fetch('/api/voice/tts', {
     method: 'POST',
@@ -17,15 +16,16 @@ export async function gerarAudioDaMensagem(text: string): Promise<Blob> {
   return await response.blob();
 }
 
-// Envia gravação de voz do usuário e recebe: texto + resposta da IA + áudio da IA
 export async function sendVoiceMessage(
   audioBlob: Blob,
   messages: any[],
-  userName: string
+  userName: string,
+  userId: string
 ): Promise<{ userText: string; ecoText: string; audioBlob: Blob }> {
   const formData = new FormData();
-  formData.append('audio', audioBlob);
+  formData.append('audio', audioBlob, 'gravacao.webm'); // nome explícito do arquivo
   formData.append('userName', userName);
+  formData.append('userId', userId);
 
   const response = await fetch('/api/voice/transcribe-and-respond', {
     method: 'POST',
@@ -33,11 +33,26 @@ export async function sendVoiceMessage(
   });
 
   if (!response.ok) {
+    const errorText = await response.text();
+    console.error('[Erro resposta back-end]', errorText);
     throw new Error('Erro ao enviar áudio para a IA');
   }
 
   const data = await response.json();
-  const audioBlobResult = new Blob([Uint8Array.from(atob(data.audioBase64), c => c.charCodeAt(0))], { type: 'audio/mpeg' });
+
+  // ✅ Garante que audioBase64 está presente
+  if (!data.audioBase64) {
+    throw new Error('Resposta da IA não contém áudio.');
+  }
+
+  // ✅ Converte audioBase64 em Blob para tocar no navegador
+  const byteCharacters = atob(data.audioBase64);
+  const byteArrays = new Uint8Array(byteCharacters.length);
+  for (let i = 0; i < byteCharacters.length; i++) {
+    byteArrays[i] = byteCharacters.charCodeAt(i);
+  }
+
+  const audioBlobResult = new Blob([byteArrays], { type: 'audio/mpeg' });
 
   return {
     userText: data.userText,

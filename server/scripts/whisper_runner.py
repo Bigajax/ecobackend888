@@ -1,7 +1,8 @@
 import sys
 from faster_whisper import WhisperModel
 
-model = WhisperModel("base")
+# ✅ Substituído 'base' por 'small' para melhor precisão
+model = WhisperModel("small")  # Pode usar "medium" se quiser ainda mais qualidade
 
 audio_path = sys.argv[1]
 segments, _ = model.transcribe(audio_path)

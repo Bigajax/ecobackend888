@@ -113,11 +113,11 @@ const ChatInput = ({ onSendMessage, onMoreOptionSelected, onSendAudio }) => {
       animationIdRef.current = requestAnimationFrame(draw);
       analyser.getByteTimeDomainData(dataArray);
 
-      ctx.fillStyle = '#f3f4f6'; // fundo claro
+      ctx.fillStyle = '#f3f4f6';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-      ctx.lineWidth = 1.2; // mais fino
-      ctx.strokeStyle = '#9ca3af'; // cinza claro
+      ctx.lineWidth = 1.2;
+      ctx.strokeStyle = '#9ca3af';
       ctx.lineJoin = 'round';
       ctx.lineCap = 'round';
       ctx.beginPath();
@@ -229,6 +229,12 @@ const ChatInput = ({ onSendMessage, onMoreOptionSelected, onSendAudio }) => {
           <textarea
             value={inputMessage}
             onChange={(e) => setInputMessage(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                handleSend();
+              }
+            }}
             placeholder="Fale com a Eco"
             className="flex-1 py-2 pl-1 pr-2 bg-transparent border-none focus:outline-none text-gray-800 placeholder-gray-400 resize-none overflow-y-auto max-h-40 leading-relaxed"
           />

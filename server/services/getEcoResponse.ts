@@ -1,4 +1,3 @@
-// 📁 server/services/getEcoResponse.ts
 import axios from 'axios';
 import path from 'path';
 import fs from 'fs/promises';
@@ -53,7 +52,9 @@ function limparResposta(text: string): string {
     .trim();
 }
 
-async function buscarContexto(userId: string) {
+async function buscarContexto(userId?: string) {
+  if (!userId) return { perfil: null, mems: [] };
+
   const { data: perfil } = await supabase
     .from('perfis_emocionais')
     .select('*')
@@ -69,7 +70,7 @@ async function buscarContexto(userId: string) {
     .order('data_registro', { ascending: false })
     .limit(3);
 
-  return { perfil, mems };
+  return { perfil, mems: mems || [] };
 }
 
 export async function getEcoResponse({
@@ -78,7 +79,7 @@ export async function getEcoResponse({
   userName,
 }: {
   messages: any[];
-  userId: string;
+  userId?: string;
   userName?: string;
 }) {
   const openRouterApiKey = process.env.OPENROUTER_API_KEY;
@@ -93,7 +94,7 @@ export async function getEcoResponse({
     contexto += `\nPerfil emocional:\n- Emoções: ${Object.keys(perfil.emocoes_frequentes || {}).join(', ') || 'nenhuma'}\n- Temas: ${Object.keys(perfil.temas_recorrentes || {}).join(', ') || 'nenhum'}\n- Última interação: ${perfil.ultima_interacao_significativa || 'não registrada'}\n- Resumo: ${perfil.resumo_geral_ia || 'nenhum'}`;
   }
 
-  if (mems?.length) {
+  if (mems.length > 0) {
     const textos = mems.map(m => `(${m.data_registro?.slice(0, 10)}): ${m.resumo_eco} [tags: ${(m.tags || '').toString()}]`).join('\n');
     contexto += `\n\nÚltimas memórias:\n${textos}`;
   }

@@ -6,7 +6,7 @@ import { sendVoiceMessage } from '../api/voiceApi';
 import { useAuth } from '../contexts/AuthContext';
 
 const VoicePage: React.FC = () => {
-  const { userName } = useAuth();
+  const { userName, userId } = useAuth();
   const [isListening, setIsListening] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [ecoAudioURL, setEcoAudioURL] = useState<string | null>(null);
@@ -61,8 +61,14 @@ const VoicePage: React.FC = () => {
         setEcoAudioURL(null);
 
         try {
-          const response = await sendVoiceMessage(audioBlob, [], userName);
-          setEcoAudioURL(URL.createObjectURL(response.audioBlob));
+          const response = await sendVoiceMessage(audioBlob, [], userName, userId);
+          const audioURL = URL.createObjectURL(response.audioBlob);
+          setEcoAudioURL(audioURL);
+
+          // ✅ Reproduz o áudio da Eco automaticamente
+          const ecoAudio = new Audio(audioURL);
+          await ecoAudio.play();
+
         } catch (err: any) {
           handleError(`Falha na interação de voz: ${err.message}`);
         } finally {
@@ -106,7 +112,6 @@ const VoicePage: React.FC = () => {
       animate={{ opacity: 1 }}
       transition={{ duration: 0.8 }}
     >
-      {/* Bolha com efeito vidro + animações refinadas */}
       <motion.div
         className={`mt-20 mb-8 w-64 h-64 rounded-full bg-white/30 backdrop-blur-md border border-white/20 shadow-xl transition-all duration-300 ${
           isListening
@@ -120,14 +125,12 @@ const VoicePage: React.FC = () => {
         transition={{ duration: 0.7, ease: 'easeOut' }}
       />
 
-      {/* Erro (se houver) */}
       {error && (
         <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-2 rounded text-sm mb-4 text-center max-w-sm shadow">
           {error}
         </div>
       )}
 
-      {/* Botões com entrada em cascata */}
       <div className="mt-2 flex items-center justify-center space-x-6">
         <motion.button
           onClick={goToMemoryPage}

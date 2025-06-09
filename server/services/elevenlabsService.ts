@@ -22,8 +22,8 @@ export async function generateAudio(text: string): Promise<Buffer> {
       text,
       model_id: 'eleven_multilingual_v2', // ✅ modelo atualizado para melhor suporte ao português
       voice_settings: {
-        stability: 0.5,
-        similarity_boost: 0.75,
+        stability: 0.4,
+        similarity_boost: 0.9,
       },
     }),
   });
