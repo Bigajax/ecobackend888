@@ -9,29 +9,10 @@ async function carregarFullSystemPrompt(): Promise<string> {
   if (cachedFullSystemPrompt) return cachedFullSystemPrompt;
 
   const assetsDir = path.join(__dirname, '..', 'assets');
-  const promptFiles = [
-    'eco_prompt_programavel.txt',
-    'eco_manifesto_fonte.txt',
-    'eco_principios_poeticos.txt',
-    'eco_behavioral_instructions.txt',
-    'eco_core_personality.txt',
-    'eco_guidelines_general.txt',
-    'eco_emotions.txt',
-    'eco_examples_realistic.txt',
-    'eco_generic_inputs.txt',
-    'eco_forbidden_patterns.txt',
-    'eco_farewell.txt',
-    'eco_subconscious_guidance.txt'
-  ];
+  const promptPath = path.join(assetsDir, 'eco_prompt_programavel.txt');
+  const fileContent = await fs.readFile(promptPath, 'utf-8');
 
-  const fileContents = await Promise.all(
-    promptFiles.map(f => fs.readFile(path.join(assetsDir, f), 'utf-8'))
-  );
-
-  cachedFullSystemPrompt = promptFiles
-    .map((f, i) => `## ${f.replace('.txt', '').replace(/_/g, ' ').toUpperCase()}\n\n${fileContents[i].trim()}`)
-    .join('\n\n');
-
+  cachedFullSystemPrompt = `## ECO PROMPT PROGRAMAVEL\n\n${fileContent.trim()}`;
   return cachedFullSystemPrompt;
 }
 
@@ -130,7 +111,6 @@ export const getEcoResponse = async ({
     {
       headers: {
         'Authorization': `Bearer ${openRouterApiKey}`,
-        'HTTP-Referer': process.env.YOUR_APP_DOMAIN || 'http://localhost:3001',
         'Content-Type': 'application/json',
       },
     }
@@ -142,7 +122,6 @@ export const getEcoResponse = async ({
   console.log('[ECO IA] Resposta da IA:\n', message);
   const cleaned = limparResposta(message);
 
-  // JSON opcional
   const allJsonMatches = [...message.matchAll(/### INÍCIO BLOCO JSON ###[\s\S]*?(\{[\s\S]*?\})[\s\S]*?### FIM BLOCO JSON ###/g)];
   if (allJsonMatches.length > 0) {
     try {

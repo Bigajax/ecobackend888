@@ -3,49 +3,26 @@ import path from 'path';
 import fs from 'fs/promises';
 import { supabase } from '../lib/supabaseClient';
 
-let cachedFullSystemPrompt: string | null = null;
+let cachedPrompt: string | null = null;
 
-async function carregarFullSystemPrompt(): Promise<string> {
-  if (cachedFullSystemPrompt) return cachedFullSystemPrompt;
+async function carregarPromptProgramavel(): Promise<string> {
+  if (cachedPrompt) return cachedPrompt;
 
-  const assetsDir = path.join(__dirname, '..', 'assets');
-  const promptFiles = [
-    'eco_prompt_programavel.txt',
-    'eco_manifesto_fonte.txt',
-    'eco_principios_poeticos.txt',
-    'eco_behavioral_instructions.txt',
-    'eco_core_personality.txt',
-    'eco_guidelines_general.txt',
-    'eco_emotions.txt',
-    'eco_examples_realistic.txt',
-    'eco_generic_inputs.txt',
-    'eco_forbidden_patterns.txt',
-    'eco_farewell.txt',
-    'eco_subconscious_guidance.txt'
-  ];
+  const promptPath = path.join(__dirname, '..', 'assets', 'eco_prompt_programavel.txt');
+  cachedPrompt = await fs.readFile(promptPath, 'utf-8');
 
-  const fileContents = await Promise.all(
-    promptFiles.map(f => fs.readFile(path.join(assetsDir, f), 'utf-8'))
-  );
-
-  cachedFullSystemPrompt = promptFiles
-    .map((f, i) => `## ${f.replace('.txt', '').replace(/_/g, ' ').toUpperCase()}
-
-${fileContents[i].trim()}`)
-    .join('\n\n');
-
-  return cachedFullSystemPrompt;
+  return cachedPrompt;
 }
 
-function mapRole(role: string): 'user' | 'assistant' | 'system' {
+const mapRoleForOpenAI = (role: string): 'user' | 'assistant' | 'system' => {
   if (role === 'model') return 'assistant';
   if (role === 'system') return 'system';
   return 'user';
-}
+};
 
 function limparResposta(text: string): string {
   return text
-    .replace(/### IN\u00cdCIO RESPOSTA ECO ###/g, '')
+    .replace(/### INÍCIO RESPOSTA ECO ###/g, '')
     .replace(/### FIM RESPOSTA ECO ###/g, '')
     .replace(/```json[\s\S]*```/g, '')
     .replace(/```[\s\S]*```/g, '')
@@ -81,11 +58,11 @@ export async function getEcoResponse({
   messages: any[];
   userId?: string;
   userName?: string;
-}) {
+}): Promise<string> {
   const openRouterApiKey = process.env.OPENROUTER_API_KEY;
   if (!openRouterApiKey) throw new Error('OPENROUTER_API_KEY não configurada.');
 
-  const promptBase = await carregarFullSystemPrompt();
+  const promptBase = await carregarPromptProgramavel();
   const { perfil, mems } = await buscarContexto(userId);
 
   let contexto = '';
@@ -105,7 +82,7 @@ export async function getEcoResponse({
   const chatMessages = [
     { role: 'system', content: systemPrompt },
     ...messages.map(msg => ({
-      role: mapRole(msg.role),
+      role: mapRoleForOpenAI(msg.role),
       content: msg.content
     }))
   ];
@@ -124,14 +101,48 @@ export async function getEcoResponse({
     {
       headers: {
         Authorization: `Bearer ${openRouterApiKey}`,
-        'HTTP-Referer': process.env.YOUR_APP_DOMAIN || 'http://localhost:3001',
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        'HTTP-Referer': 'http://localhost:5173' // ✅ Domínio do frontend local
       }
     }
   );
 
-  const raw = response.data.choices[0].message.content;
+  const raw = response.data.choices[0]?.message?.content;
+  if (!raw) throw new Error('Resposta vazia da IA.');
+
+  console.log('[ECO IA] Resposta da IA:\n', raw);
   const textoFinal = limparResposta(raw);
+
+  const jsonMatches = [...raw.matchAll(/### INÍCIO BLOCO JSON ###[\s\S]*?(\{[\s\S]*?\})[\s\S]*?### FIM BLOCO JSON ###/g)];
+
+  if (jsonMatches.length > 0) {
+    try {
+      const json = JSON.parse(jsonMatches.at(-1)?.[1] || '{}');
+      if (userId && json.intensidade >= 7) {
+        const { error } = await supabase.from('memories').insert([{
+          usuario_id: userId,
+          mensagem_id: messages.at(-1)?.id,
+          resumo_eco: textoFinal,
+          emocao_principal: json.emocao_principal,
+          intensidade: json.intensidade,
+          contexto: messages.at(-1)?.content,
+          categoria: json.rotulo,
+          salvar_memoria: true,
+          data_registro: new Date().toISOString(),
+          dominio_vida: json.dominio_vida,
+          padrao_comportamental: json.padrao_comportamental,
+          nivel_abertura: json.nivel_abertura,
+          analise_resumo: json.analise_resumo,
+          tags: Array.isArray(json.tags) ? json.tags.join(', ') : (json.tags || '')
+        }]);
+
+        if (error) console.warn('[AVISO] Falha ao salvar memória:', error);
+        else console.log('[SUCESSO] Memória salva com sucesso.');
+      }
+    } catch (err) {
+      console.warn('[AVISO] Falha ao processar JSON extraído:', err);
+    }
+  }
 
   return textoFinal;
 }

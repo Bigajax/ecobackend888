@@ -1,3 +1,4 @@
+// ChatPage.tsx
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { v4 as uuidv4 } from 'uuid';
@@ -6,11 +7,12 @@ import Header from '../components/Header';
 import ChatMessage from '../components/ChatMessage';
 import ChatInput from '../components/ChatInput';
 import EcoBubbleIcon from '../components/EcoBubbleIcon';
-import EcoMessageWithAudio from '../components/EcoMessageWithAudio'; // 👈 Import novo
+import EcoMessageWithAudio from '../components/EcoMessageWithAudio';
 import { enviarMensagemParaEco } from '../api/ecoApi';
 import { buscarUltimasMemoriasComTags } from '../api/memoriaApi';
 import { useAuth } from '../contexts/AuthContext';
 import { useChat, Message } from '../contexts/ChatContext';
+import { salvarMensagem } from '../api/mensagem';
 
 const ChatPage: React.FC = () => {
   const { messages, addMessage, clearMessages } = useChat();
@@ -22,22 +24,13 @@ const ChatPage: React.FC = () => {
   const referenciaFinalDasMensagens = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (!user) {
-      console.warn('[ChatPage] Usuário deslogado, redirecionando para login...');
-      navigate('/login');
-    }
+    if (!user) navigate('/login');
   }, [user, navigate]);
 
   if (!user) return null;
 
   const userName = user.user_metadata?.full_name || 'Usuário';
-
-  const hora = new Date().getHours();
-  let saudacao;
-  if (hora >= 5 && hora < 12) saudacao = 'Bom dia';
-  else if (hora >= 12 && hora < 18) saudacao = 'Boa tarde';
-  else saudacao = 'Boa noite';
-
+  const saudacao = new Date().getHours() < 12 ? 'Bom dia' : new Date().getHours() < 18 ? 'Boa tarde' : 'Boa noite';
   const mensagemBoasVindas = `${saudacao}, ${userName}!`;
 
   useEffect(() => {
@@ -45,35 +38,37 @@ const ChatPage: React.FC = () => {
   }, [messages]);
 
   const handleSendMessage = async (text: string) => {
-    const userMessage: Message = { id: uuidv4(), text, sender: 'user' };
-    addMessage(userMessage);
     setDigitando(true);
     setErroApi(null);
 
-    const history = [...messages, userMessage].map(msg => ({
-      role: msg.sender === 'eco' ? 'assistant' : 'user',
-      content: msg.text || ''
-    }));
+    const id = uuidv4();
+    const userMessage: Message = { id, text, sender: 'user' };
+    addMessage(userMessage);
 
     try {
-      let contextoMemorias = '';
+      const mensagemSalva = await salvarMensagem({
+        usuarioId: user.id,
+        conteudo: text,
+        sentimento: '',
+        salvarMemoria: true,
+      });
 
-      if (user?.id) {
-        const memorias = await buscarUltimasMemoriasComTags(user.id);
-        if (memorias.length > 0) {
-          contextoMemorias = memorias.map(m =>
-            `(${new Date(m.data_registro || '').toLocaleDateString()}): ${m.resumo_eco}${m.tags?.length ? ` [tags: ${m.tags.join(', ')}]` : ''}`
-          ).join('\n');
-        }
-      }
+      const mensagemId = mensagemSalva?.[0]?.id || id;
+      const history = [
+        ...messages,
+        { id: mensagemId, role: 'user', content: text },
+      ];
 
-      const mensagensComContexto: Message[] = contextoMemorias
+      const memorias = await buscarUltimasMemoriasComTags(user.id);
+      const contextoMemorias = memorias.map(m => `(${new Date(m.data_registro || '').toLocaleDateString()}): ${m.resumo_eco}${m.tags?.length ? ` [tags: ${m.tags.join(', ')}]` : ''}`).join('\n');
+
+      const mensagensComContexto = contextoMemorias
         ? [
             {
               role: 'system',
-              content: `Contexto emocional do usuário com base em experiências anteriores:\n${contextoMemorias}\nLeve isso em consideração ao responder, mas sem citar diretamente essas memórias.`
+              content: `Contexto emocional do usuário com base em experiências anteriores:\n${contextoMemorias}\nLeve isso em consideração ao responder, mas sem citar diretamente essas memórias.`,
             },
-            ...history
+            ...history,
           ]
         : history;
 
@@ -96,7 +91,6 @@ const ChatPage: React.FC = () => {
         showBackButton={false}
         onOpenMemoryHistory={() => navigate('/memory')}
         onLogout={async () => {
-          console.log('[ChatPage] Logout iniciado');
           await signOut();
           clearMessages();
           navigate('/login');
@@ -118,9 +112,7 @@ const ChatPage: React.FC = () => {
           )}
 
           {erroApi && (
-            <div className="text-red-500 text-center mb-4">
-              Erro: {erroApi}
-            </div>
+            <div className="text-red-500 text-center mb-4">Erro: {erroApi}</div>
           )}
 
           <div className="w-full space-y-4">
@@ -164,9 +156,7 @@ const ChatPage: React.FC = () => {
           <ChatInput
             onSendMessage={handleSendMessage}
             onMoreOptionSelected={(option) => {
-              if (option === 'go_to_voice_page') {
-                navigate('/voice');
-              }
+              if (option === 'go_to_voice_page') navigate('/voice');
             }}
             onSendAudio={() => console.log('Áudio enviado')}
           />

@@ -48,7 +48,7 @@ const MemoryPage: React.FC = () => {
             setPerfil(perfilData);
           } catch (perfilError) {
             console.warn('Perfil emocional ainda não disponível.');
-            setPerfil(null); // continua funcionando normalmente
+            setPerfil(null);
           }
         } catch (err: any) {
           console.error('Erro ao carregar dados:', err);
