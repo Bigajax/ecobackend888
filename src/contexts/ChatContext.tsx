@@ -1,18 +1,26 @@
 // src/contexts/ChatContext.tsx
-import React, { createContext, useContext, useState, ReactNode, useCallback } from 'react';
+import React, {
+  createContext,
+  useContext,
+  useState,
+  ReactNode,
+  useCallback,
+} from 'react';
 
 export interface Message {
   id: string;
-  text: string | null;
+  text?: string | null; // exibição no chat
+  content?: string;     // conteúdo enviado à IA
   sender: 'user' | 'eco';
+  role?: 'user' | 'assistant' | 'system'; // usado no envio para IA
 }
 
 interface ChatContextType {
   messages: Message[];
   addMessage: (message: Message) => void;
   clearMessages: () => void;
-  updateMessage: (messageId: string, newText: string) => void; // Adicionado para a função regenerate
-  setMessages: (messages: Message[]) => void; // Adicionado para carregar estado inicial, se necessário
+  updateMessage: (messageId: string, newText: string) => void;
+  setMessages: (messages: Message[]) => void;
 }
 
 const ChatContext = createContext<ChatContextType | undefined>(undefined);
@@ -23,12 +31,10 @@ interface ChatProviderProps {
 
 export const ChatProvider: React.FC<ChatProviderProps> = ({ children }) => {
   const [messages, setMessages] = useState<Message[]>(() => {
-    // Tenta carregar mensagens do localStorage na inicialização
     const storedMessages = localStorage.getItem('chatMessages');
     return storedMessages ? JSON.parse(storedMessages) : [];
   });
 
-  // Salva mensagens no localStorage sempre que elas mudam
   React.useEffect(() => {
     localStorage.setItem('chatMessages', JSON.stringify(messages));
   }, [messages]);
@@ -50,7 +56,9 @@ export const ChatProvider: React.FC<ChatProviderProps> = ({ children }) => {
   }, []);
 
   return (
-    <ChatContext.Provider value={{ messages, addMessage, clearMessages, updateMessage, setMessages }}>
+    <ChatContext.Provider
+      value={{ messages, addMessage, clearMessages, updateMessage, setMessages }}
+    >
       {children}
     </ChatContext.Provider>
   );

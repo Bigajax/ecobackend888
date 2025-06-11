@@ -3,15 +3,30 @@ import { supabase } from '../lib/supabaseClient';
 
 const router = Router();
 
+// GET /api/profiles/:userId → Retorna perfil emocional de um usuário
 router.get('/:userId', async (req: Request, res: Response) => {
   const { userId } = req.params;
+
+  if (!userId || typeof userId !== 'string') {
+    return res.status(400).json({
+      success: false,
+      error: 'Parâmetro userId ausente ou inválido.',
+    });
+  }
 
   console.log(`[ROTA] Buscando perfil emocional para userId: ${userId}`);
 
   try {
     const { data, error } = await supabase
       .from('perfis_emocionais')
-      .select('*')
+      .select(`
+        id,
+        usuario_id,
+        resumo_geral_ia,
+        emocoes_frequentes,
+        temas_recorrentes,
+        ultima_interacao_significativa
+      `)
       .eq('usuario_id', userId)
       .limit(1)
       .maybeSingle();
@@ -21,7 +36,7 @@ router.get('/:userId', async (req: Request, res: Response) => {
       return res.status(500).json({
         success: false,
         error: 'Erro ao consultar o banco de dados.',
-        details: error.message || error,
+        details: error.message,
       });
     }
 

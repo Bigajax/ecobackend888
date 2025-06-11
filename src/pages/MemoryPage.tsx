@@ -25,10 +25,9 @@ const formatDateToHuman = (dateStr: string) => {
 };
 
 const MemoryPage: React.FC = () => {
-  const { user } = useAuth();
+  const { userId } = useAuth();
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<'memories' | 'profile'>('memories');
-
   const [memories, setMemories] = useState<Memoria[]>([]);
   const [perfil, setPerfil] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -36,17 +35,20 @@ const MemoryPage: React.FC = () => {
 
   useEffect(() => {
     const carregarDados = async () => {
-      if (user?.id) {
+      if (userId) {
         setLoading(true);
         setError(null);
         try {
-          const memData = await buscarMemoriasPorUsuario(user.id);
-          setMemories(memData);
+          const memData = await buscarMemoriasPorUsuario(userId);
+          const memFiltradas = memData.filter(mem => mem.salvar_memoria === true);
+          console.log('[MEMÓRIAS FILTRADAS]', memFiltradas);
+          setMemories(memFiltradas);
 
           try {
-            const perfilData = await buscarPerfilEmocional(user.id);
+            const perfilData = await buscarPerfilEmocional(userId);
+            console.log('[PERFIL RECEBIDO]', perfilData);
             setPerfil(perfilData);
-          } catch (perfilError) {
+          } catch {
             console.warn('Perfil emocional ainda não disponível.');
             setPerfil(null);
           }
@@ -59,7 +61,7 @@ const MemoryPage: React.FC = () => {
       }
     };
     carregarDados();
-  }, [user?.id]);
+  }, [userId]);
 
   const handleBack = () => navigate('/chat');
 
@@ -118,7 +120,10 @@ const MemoryPage: React.FC = () => {
                   >
                     <div className="flex justify-between items-center mb-2">
                       <span className="text-lg font-light text-neutral-800">
-                        {emotionIcons[mem.emocao_principal || ''] || '📝'} {mem.rotulo || mem.emocao_principal || 'Sem rótulo'}
+                        {emotionIcons[mem.emocao_principal || ''] || '📝'}{' '}
+                        {mem.emocao_principal && mem.emocao_principal !== 'vazio'
+                          ? mem.emocao_principal
+                          : mem.resumo_eco?.slice(0, 30) || 'Memória'}
                       </span>
                       {mem.data_registro && (
                         <span className="text-xs text-neutral-500">{formatDateToHuman(mem.data_registro)}</span>
@@ -128,14 +133,20 @@ const MemoryPage: React.FC = () => {
                     <p className="text-neutral-700 mb-2 leading-relaxed text-sm">{mem.resumo_eco}</p>
 
                     <div className="text-xs text-neutral-600 space-y-1">
-                      {mem.intensidade !== null && <p><span className="font-semibold">Intensidade:</span> {mem.intensidade}</p>}
-                      {mem.dominio_vida && <p><span className="font-semibold">Domínio:</span> {mem.dominio_vida}</p>}
-                      {mem.padrao_comportamental && <p><span className="font-semibold">Padrão:</span> {mem.padrao_comportamental}</p>}
+                      {mem.intensidade != null && (
+                        <p><span className="font-semibold">Intensidade:</span> {mem.intensidade}</p>
+                      )}
+                      {mem.dominio_vida && (
+                        <p><span className="font-semibold">Domínio:</span> {mem.dominio_vida}</p>
+                      )}
+                      {mem.padrao_comportamental && (
+                        <p><span className="font-semibold">Padrão:</span> {mem.padrao_comportamental}</p>
+                      )}
                     </div>
 
-                    {mem.categoria && typeof mem.categoria === 'string' && mem.categoria.length > 0 && (
+                    {!!mem.categoria && typeof mem.categoria === 'string' && (
                       <div className="flex flex-wrap items-center mt-2">
-                        {mem.categoria.split(',').map((tag: string, tagIndex: number) => (
+                        {mem.categoria.split(',').map((tag, tagIndex) => (
                           <span
                             key={tagIndex}
                             className="inline-block bg-neutral-200 text-neutral-700 rounded-full px-3 py-1 text-xs font-medium mr-2 mb-2"
@@ -176,7 +187,9 @@ const MemoryPage: React.FC = () => {
 
                   <p className="text-xs text-neutral-500">
                     Última interação significativa:{' '}
-                    {new Date(perfil.ultima_interacao_significativa).toLocaleDateString()}
+                    {perfil.ultima_interacao_significativa
+                      ? new Date(perfil.ultima_interacao_significativa).toLocaleDateString()
+                      : 'Indisponível'}
                   </p>
                 </div>
               ) : (

@@ -1,4 +1,3 @@
-// ChatPage.tsx
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { v4 as uuidv4 } from 'uuid';
@@ -16,7 +15,7 @@ import { salvarMensagem } from '../api/mensagem';
 
 const ChatPage: React.FC = () => {
   const { messages, addMessage, clearMessages } = useChat();
-  const { user, signOut } = useAuth();
+  const { userId, userName = 'Usuário', signOut, user } = useAuth();
   const navigate = useNavigate();
 
   const [digitando, setDigitando] = useState(false);
@@ -29,8 +28,12 @@ const ChatPage: React.FC = () => {
 
   if (!user) return null;
 
-  const userName = user.user_metadata?.full_name || 'Usuário';
-  const saudacao = new Date().getHours() < 12 ? 'Bom dia' : new Date().getHours() < 18 ? 'Boa tarde' : 'Boa noite';
+  const saudacao = new Date().getHours() < 12
+    ? 'Bom dia'
+    : new Date().getHours() < 18
+    ? 'Boa tarde'
+    : 'Boa noite';
+
   const mensagemBoasVindas = `${saudacao}, ${userName}!`;
 
   useEffect(() => {
@@ -47,7 +50,7 @@ const ChatPage: React.FC = () => {
 
     try {
       const mensagemSalva = await salvarMensagem({
-        usuarioId: user.id,
+        usuarioId: userId!,
         conteudo: text,
         sentimento: '',
         salvarMemoria: true,
@@ -59,20 +62,28 @@ const ChatPage: React.FC = () => {
         { id: mensagemId, role: 'user', content: text },
       ];
 
-      const memorias = await buscarUltimasMemoriasComTags(user.id);
-      const contextoMemorias = memorias.map(m => `(${new Date(m.data_registro || '').toLocaleDateString()}): ${m.resumo_eco}${m.tags?.length ? ` [tags: ${m.tags.join(', ')}]` : ''}`).join('\n');
+      const memorias = await buscarUltimasMemoriasComTags(userId!);
+      const contextoMemorias = memorias.map(m => (
+        `(${new Date(m.data_registro || '').toLocaleDateString()}): ${m.resumo_eco}` +
+        (m.tags?.length ? ` [tags: ${m.tags.join(', ')}]` : '')
+      )).join('\n');
 
       const mensagensComContexto = contextoMemorias
         ? [
             {
               role: 'system',
-              content: `Contexto emocional do usuário com base em experiências anteriores:\n${contextoMemorias}\nLeve isso em consideração ao responder, mas sem citar diretamente essas memórias.`,
+              content: `Estas são memórias recentes do usuário que podem servir como contexto emocional:\n${contextoMemorias}`,
             },
             ...history,
           ]
         : history;
 
-      const resposta = await enviarMensagemParaEco(mensagensComContexto, userName, user.id);
+      const mensagensFormatadas = mensagensComContexto.map(m => ({
+        role: m.role || (m.sender === 'eco' ? 'assistant' : 'user'),
+        content: m.text || m.content || '',
+      }));
+
+      const resposta = await enviarMensagemParaEco(mensagensFormatadas, userName, userId!);
       const ecoMessage: Message = { id: uuidv4(), text: resposta, sender: 'eco' };
       addMessage(ecoMessage);
 

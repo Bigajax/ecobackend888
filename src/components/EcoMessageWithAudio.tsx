@@ -1,20 +1,12 @@
 import React, { useState } from 'react';
 import ChatMessage from './ChatMessage';
-import {
-  ClipboardCopy,
-  ThumbsUp,
-  ThumbsDown,
-  Volume2
-} from 'lucide-react';
+import { ClipboardCopy, ThumbsUp, ThumbsDown, Volume2 } from 'lucide-react';
 import AudioPlayerOverlay from './AudioPlayerOverlay';
-import { gerarAudioDaMensagem } from '../api/voiceApi'; // ✅ função correta do voiceApi
+import { gerarAudioDaMensagem } from '../api/voiceApi';
+import { Message } from '../contexts/ChatContext';
 
 interface EcoMessageWithAudioProps {
-  message: {
-    id: string;
-    text: string;
-    sender: 'eco';
-  };
+  message: Message;
 }
 
 const EcoMessageWithAudio: React.FC<EcoMessageWithAudioProps> = ({ message }) => {
@@ -22,16 +14,17 @@ const EcoMessageWithAudio: React.FC<EcoMessageWithAudioProps> = ({ message }) =>
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
 
   const iconClass = 'w-4 h-4 text-gray-500 group-hover:text-black';
+  const displayText = message.text ?? message.content ?? '';
 
   const copiarTexto = () => {
-    navigator.clipboard.writeText(message.text);
+    navigator.clipboard.writeText(displayText);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
 
   const reproduzirAudio = async () => {
     try {
-      const blob = await gerarAudioDaMensagem(message.text);
+      const blob = await gerarAudioDaMensagem(displayText);
       const url = URL.createObjectURL(blob);
       setAudioUrl(url);
     } catch (err) {

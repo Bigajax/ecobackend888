@@ -6,6 +6,8 @@ interface AuthContextType {
   user: User | null;
   session: Session | null;
   loading: boolean;
+  userId?: string;
+  userName?: string;
   signIn: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
   register: (email: string, password: string, nome: string) => Promise<void>;
@@ -25,9 +27,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         error,
       } = await supabase.auth.getSession();
 
-      if (error) {
-        console.error('Erro ao obter sessão:', error.message);
-      }
+      if (error) console.error('Erro ao obter sessão:', error.message);
 
       setSession(session);
       setUser(session?.user ?? null);
@@ -56,28 +56,50 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const signOut = async () => {
     const { error } = await supabase.auth.signOut();
     if (error) throw error;
-
-    // ✅ Limpa o contexto manualmente após logout
     setUser(null);
     setSession(null);
   };
 
   const register = async (email: string, password: string, nome: string) => {
-    const { error } = await supabase.auth.signUp({
+    const { data, error } = await supabase.auth.signUp({
       email,
       password,
       options: {
-        data: {
-          full_name: nome,
-        },
+        data: { full_name: nome },
       },
     });
 
     if (error) throw error;
+
+    // ✅ Cria o usuário também na tabela 'usuarios'
+    const newUserId = data.user?.id;
+    if (newUserId) {
+      await supabase.from('usuarios').insert([
+        {
+          id: newUserId,
+          nome,
+          email,
+          data_criacao: new Date().toISOString(),
+          tipo_plano: 'free',
+          ativo: true,
+        },
+      ]);
+    }
   };
 
   return (
-    <AuthContext.Provider value={{ user, session, loading, signIn, signOut, register }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        session,
+        loading,
+        userId: user?.id,
+        userName: user?.user_metadata?.full_name,
+        signIn,
+        signOut,
+        register,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );
@@ -85,8 +107,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
 export const useAuth = () => {
   const context = useContext(AuthContext);
-  if (!context) {
-    throw new Error('useAuth deve ser usado dentro de um AuthProvider');
-  }
+  if (!context) throw new Error('useAuth deve ser usado dentro de um AuthProvider');
   return context;
 };

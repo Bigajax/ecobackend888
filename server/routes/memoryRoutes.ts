@@ -1,72 +1,107 @@
-import { Router, Request, Response } from 'express';
-import { supabase } from '../lib/supabaseClient';
+import express from "express";
+import { supabase } from "../lib/supabaseClient";
 
-const router = Router();
+const router = express.Router();
 
-router.get('/memories', async (req: Request, res: Response) => {
-  const { usuario_id, emocao, intensidade_min, limite } = req.query;
+// POST /api/memorias/registrar → Salva nova memória
+router.post("/registrar", async (req, res) => {
+  const {
+    usuario_id,
+    texto,
+    tags,
+    intensidade,
+    mensagem_id,
+    emocao_principal,
+    contexto,
+    dominio_vida,
+    padrao_comportamental,
+    salvar_memoria,
+    nivel_abertura,
+    analise_resumo
+  } = req.body;
 
-  if (!usuario_id) {
-    console.warn('[AVISO] Parâmetro usuario_id não fornecido.');
-    return res.status(400).json({
-      success: false,
-      error: 'Parâmetro usuario_id é obrigatório.',
-    });
+  if (!usuario_id || !texto || !Array.isArray(tags) || typeof intensidade !== "number") {
+    return res.status(400).json({ erro: "Campos obrigatórios ausentes ou inválidos." });
   }
 
   try {
-    let query = supabase
-      .from('memories')
-      .select('*')
-      .eq('usuario_id', usuario_id)
-      .order('data_registro', { ascending: false });
-
-    if (emocao) {
-      query = query.eq('emocao_principal', emocao);
-    }
-
-    if (intensidade_min) {
-      const minIntensity = Number(intensidade_min);
-      if (!isNaN(minIntensity)) {
-        query = query.gte('intensidade', minIntensity);
-      } else {
-        console.warn('[AVISO] Parâmetro intensidade_min inválido:', intensidade_min);
-        return res.status(400).json({
-          success: false,
-          error: 'Parâmetro intensidade_min deve ser um número válido.',
-        });
-      }
-    }
-
-    if (limite) {
-      const parsedLimite = Number(limite);
-      if (!isNaN(parsedLimite) && parsedLimite > 0) {
-        query = query.limit(parsedLimite);
-      }
-    }
-
-    const { data, error } = await query;
+    const { data, error } = await supabase
+      .from("memories")
+      .insert([{
+        usuario_id,
+        mensagem_id: mensagem_id ?? null,
+        resumo_eco: texto,
+        tags: tags ?? [],
+        intensidade,
+        emocao_principal: emocao_principal ?? null,
+        contexto: contexto ?? null,
+        dominio_vida: dominio_vida ?? null,
+        padrao_comportamental: padrao_comportamental ?? null,
+        salvar_memoria: salvar_memoria !== false,
+        nivel_abertura: typeof nivel_abertura === "number" ? nivel_abertura : null,
+        analise_resumo: analise_resumo ?? null,
+        data_registro: new Date().toISOString(),
+      }])
+      .select();
 
     if (error) {
-      console.error('[ERRO SUPABASE] Erro ao buscar memórias:', error.message || error);
-      return res.status(500).json({
-        success: false,
-        error: 'Erro ao buscar memórias no banco de dados.',
-      });
+      console.error("❌ Erro ao salvar memória:", error.message, error.details);
+      return res.status(500).json({ erro: "Erro ao salvar memória no Supabase." });
     }
 
-    console.log(`[SUCESSO] Memórias recuperadas para usuario_id ${usuario_id}: ${data?.length || 0} registros.`);
-
-    return res.status(200).json({
-      success: true,
-      memories: data || [],
-    });
-
+    console.log("✅ Memória salva:", data);
+    return res.status(200).json({ sucesso: true, data });
   } catch (err: any) {
-    console.error('[ERRO GERAL] Falha no endpoint /memories:', err.message || err);
+    console.error("❌ Erro inesperado ao salvar memória:", err.message || err);
+    return res.status(500).json({ erro: "Erro inesperado no servidor." });
+  }
+});
+
+// GET /api/memorias?usuario_id=...&limite=5 → Busca memórias de um usuário
+router.get("/", async (req, res) => {
+  const { usuario_id, limite } = req.query;
+
+  if (!usuario_id || typeof usuario_id !== "string") {
+    return res.status(400).json({ error: "usuario_id é obrigatório e deve ser uma string." });
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from("memories")
+      .select(`
+        id,
+        usuario_id,
+        mensagem_id,
+        resumo_eco,
+        data_registro,
+        emocao_principal,
+        intensidade,
+        contexto,
+        categoria,
+        salvar_memoria,
+        dominio_vida,
+        padrao_comportamental,
+        nivel_abertura,
+        analise_resumo,
+        tags
+      `)
+      .eq("usuario_id", usuario_id)
+      .eq("salvar_memoria", true) // ⚠️ adiciona filtro explícito
+      .order("data_registro", { ascending: false })
+      .limit(Number(limite) || 10);
+
+    if (error) {
+      console.error("❌ Erro ao buscar memórias:", error.message, error.details);
+      return res.status(500).json({ error: "Erro ao buscar memórias no Supabase." });
+    }
+
+    console.log("📥 Memórias retornadas:", data);
+    return res.status(200).json({ success: true, memories: data });
+  } catch (err: any) {
+    console.error("❌ Erro inesperado ao buscar memórias:", err.message || err);
     return res.status(500).json({
-      success: false,
-      error: 'Erro interno do servidor ao buscar memórias.',
+      error: "Erro inesperado no servidor.",
+      details: err.message || err,
     });
   }
 });

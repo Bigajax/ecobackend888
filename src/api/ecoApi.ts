@@ -5,7 +5,7 @@ interface Message {
   content: string;
 }
 
-const API_BASE_URL = '/api'; 
+const API_BASE_URL = '/api';
 
 export const enviarMensagemParaEco = async (
   userMessages: Message[],
@@ -13,44 +13,58 @@ export const enviarMensagemParaEco = async (
   userId?: string
 ): Promise<string | undefined> => {
   try {
-    // Limita o histórico enviado para as últimas 3 mensagens
-    const mensagensParaEnviar = userMessages.slice(-3);
+    // Garante apenas as últimas 3 mensagens válidas
+    const mensagensValidas = userMessages
+      .slice(-3)
+      .filter(
+        (msg) =>
+          msg &&
+          typeof msg.role === 'string' &&
+          typeof msg.content === 'string' &&
+          msg.content.trim().length > 0
+      );
 
-    console.log('Enviando para backend (últimas 3 mensagens):', mensagensParaEnviar);
+    if (!userId) {
+      throw new Error('Usuário não autenticado. ID ausente.');
+    }
 
-    const response = await axios.post(`${API_BASE_URL}/ask-eco`, { 
-      messages: mensagensParaEnviar,
-      userName: userName,
-      userId: userId,
+    console.log('✅ Enviando mensagens para /api/ask-eco:', mensagensValidas);
+
+    const response = await axios.post(`${API_BASE_URL}/ask-eco`, {
+      mensagens: mensagensValidas,
+      nome_usuario: userName,
+      usuario_id: userId,
     });
 
     if (response.status >= 200 && response.status < 300) {
-      if (response.data && typeof response.data.message === 'string') {
-        return response.data.message; 
+      const resposta = response.data;
+      if (resposta && typeof resposta.message === 'string') {
+        return resposta.message;
       } else {
-        console.error('Resposta da API da Eco mal formatada:', response.data);
-        throw new Error('Resposta inesperada do servidor: Mensagem não encontrada.');
+        console.warn('⚠️ Resposta inesperada:', resposta);
+        throw new Error('Formato inválido na resposta da Eco.');
       }
     } else {
-      const errorMessage = response.data?.error || 'Erro desconhecido ao comunicar com o back-end.';
-      throw new Error(errorMessage);
+      throw new Error(response.data?.error || 'Erro inesperado da API /ask-eco');
     }
   } catch (error: any) {
-    console.error('Erro ao comunicar com o back-end para a ECO (via OpenRouter):', error);
-    let errorMessage = 'Ocorreu um erro ao obter a resposta da ECO.';
+    let errorMessage = 'Erro ao obter resposta da Eco.';
+
     if (axios.isAxiosError(error)) {
       if (error.response?.data?.error) {
         errorMessage = `Erro do servidor: ${error.response.data.error}`;
       } else if (error.response?.status) {
-        errorMessage = `Erro do servidor (status ${error.response.status}): ${error.response.statusText || 'Resposta inesperada'}`;
+        errorMessage = `Erro HTTP ${error.response.status}: ${error.response.statusText}`;
       } else if (error.request) {
-        errorMessage = `Erro de rede: Nenhuma resposta recebida do servidor. Verifique se o backend está rodando em http://localhost:3001. Detalhes: ${error.message}`;
+        errorMessage = 'Sem resposta do servidor. Verifique se o backend está ativo.';
       } else {
-        errorMessage = `Erro na requisição: ${error.message}`;
+        errorMessage = error.message;
       }
     } else {
-      errorMessage = `Erro inesperado: ${error.message || error.toString()}`;
+      errorMessage = error.message || 'Erro inesperado';
     }
+
+    console.error('❌ [ECO API] Erro ao enviar mensagem:', errorMessage);
     throw new Error(errorMessage);
   }
 };

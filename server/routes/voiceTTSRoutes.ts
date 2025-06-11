@@ -1,15 +1,15 @@
-// ✅ voiceTTSRoutes.ts (rota usada no botão de som do chat)
 import express from 'express';
-import { generateAudio } from '../services/elevenlabsService'; // Import correto da função
+import { generateAudio } from '../services/elevenlabsService';
 
 const router = express.Router();
 
 router.post('/tts', async (req, res) => {
   try {
     const { text } = req.body;
-    if (!text) return res.status(400).json({ error: 'Texto não fornecido' });
+    if (!text || typeof text !== 'string') {
+      return res.status(400).json({ error: 'Texto inválido ou ausente' });
+    }
 
-    // Chamada correta da função
     const audioBuffer = await generateAudio(text);
 
     res.setHeader('Content-Type', 'audio/mpeg');

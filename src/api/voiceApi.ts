@@ -23,9 +23,10 @@ export async function sendVoiceMessage(
   userId: string
 ): Promise<{ userText: string; ecoText: string; audioBlob: Blob }> {
   const formData = new FormData();
-  formData.append('audio', audioBlob, 'gravacao.webm'); // nome explícito do arquivo
-  formData.append('userName', userName);
-  formData.append('userId', userId);
+  formData.append('audio', audioBlob, 'gravacao.webm'); // ✅ nome do arquivo
+  formData.append('nome_usuario', userName);            // ✅ nome correto para o back-end
+  formData.append('usuario_id', userId);                // ✅ nome correto para o back-end
+  formData.append('mensagens', JSON.stringify(messages)); // ✅ opcional: contexto
 
   const response = await fetch('/api/voice/transcribe-and-respond', {
     method: 'POST',
@@ -40,12 +41,11 @@ export async function sendVoiceMessage(
 
   const data = await response.json();
 
-  // ✅ Garante que audioBase64 está presente
   if (!data.audioBase64) {
     throw new Error('Resposta da IA não contém áudio.');
   }
 
-  // ✅ Converte audioBase64 em Blob para tocar no navegador
+  // Converte o base64 em Blob
   const byteCharacters = atob(data.audioBase64);
   const byteArrays = new Uint8Array(byteCharacters.length);
   for (let i = 0; i < byteCharacters.length; i++) {
