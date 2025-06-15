@@ -3,10 +3,27 @@ import { supabase } from "../lib/supabaseClient";
 
 const router = express.Router();
 
-// POST /api/memorias/registrar → Salva nova memória
+// 🔐 Utilitário para extrair usuário autenticado do token Bearer
+async function getUsuarioAutenticado(req: express.Request) {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith("Bearer ")) return null;
+
+  const token = authHeader.replace("Bearer ", "").trim();
+  const { data, error } = await supabase.auth.getUser(token);
+  if (error || !data?.user) {
+    console.warn("[🔐 Auth] Falha ao obter usuário:", error?.message);
+    return null;
+  }
+
+  return data.user;
+}
+
+// 📌 POST /api/memorias/registrar → Salva nova memória
 router.post("/registrar", async (req, res) => {
+  const user = await getUsuarioAutenticado(req);
+  if (!user) return res.status(401).json({ erro: "Usuário não autenticado." });
+
   const {
-    usuario_id,
     texto,
     tags,
     intensidade,
@@ -17,10 +34,11 @@ router.post("/registrar", async (req, res) => {
     padrao_comportamental,
     salvar_memoria,
     nivel_abertura,
-    analise_resumo
+    analise_resumo,
+    categoria
   } = req.body;
 
-  if (!usuario_id || !texto || !Array.isArray(tags) || typeof intensidade !== "number") {
+  if (!texto || typeof intensidade !== "number" || (!Array.isArray(tags) && typeof tags !== "object")) {
     return res.status(400).json({ erro: "Campos obrigatórios ausentes ou inválidos." });
   }
 
@@ -28,7 +46,7 @@ router.post("/registrar", async (req, res) => {
     const { data, error } = await supabase
       .from("memories")
       .insert([{
-        usuario_id,
+        usuario_id: user.id,
         mensagem_id: mensagem_id ?? null,
         resumo_eco: texto,
         tags: tags ?? [],
@@ -40,6 +58,7 @@ router.post("/registrar", async (req, res) => {
         salvar_memoria: salvar_memoria !== false,
         nivel_abertura: typeof nivel_abertura === "number" ? nivel_abertura : null,
         analise_resumo: analise_resumo ?? null,
+        categoria: categoria ?? 'emocional',
         data_registro: new Date().toISOString(),
       }])
       .select();
@@ -57,52 +76,32 @@ router.post("/registrar", async (req, res) => {
   }
 });
 
-// GET /api/memorias?usuario_id=...&limite=5 → Busca memórias de um usuário
+// 📌 GET /api/memorias → Busca memórias do usuário autenticado
 router.get("/", async (req, res) => {
-  const { usuario_id, limite } = req.query;
+  const user = await getUsuarioAutenticado(req);
+  if (!user) return res.status(401).json({ error: "Usuário não autenticado." });
 
-  if (!usuario_id || typeof usuario_id !== "string") {
-    return res.status(400).json({ error: "usuario_id é obrigatório e deve ser uma string." });
-  }
+  const { limite } = req.query;
 
   try {
     const { data, error } = await supabase
       .from("memories")
-      .select(`
-        id,
-        usuario_id,
-        mensagem_id,
-        resumo_eco,
-        data_registro,
-        emocao_principal,
-        intensidade,
-        contexto,
-        categoria,
-        salvar_memoria,
-        dominio_vida,
-        padrao_comportamental,
-        nivel_abertura,
-        analise_resumo,
-        tags
-      `)
-      .eq("usuario_id", usuario_id)
-      .eq("salvar_memoria", true) // ⚠️ adiciona filtro explícito
+      .select("*")
+      .eq("usuario_id", user.id)
+      .eq("salvar_memoria", true) // ✅ CORRETO PARA BOOLEANO
       .order("data_registro", { ascending: false })
-      .limit(Number(limite) || 10);
+      .limit(Number(limite) || 50);
 
     if (error) {
       console.error("❌ Erro ao buscar memórias:", error.message, error.details);
       return res.status(500).json({ error: "Erro ao buscar memórias no Supabase." });
     }
 
-    console.log("📥 Memórias retornadas:", data);
+    console.log(`📥 ${data.length} memórias retornadas para ${user.id}`);
     return res.status(200).json({ success: true, memories: data });
   } catch (err: any) {
     console.error("❌ Erro inesperado ao buscar memórias:", err.message || err);
-    return res.status(500).json({
-      error: "Erro inesperado no servidor.",
-      details: err.message || err,
-    });
+    return res.status(500).json({ error: "Erro inesperado no servidor." });
   }
 });
 

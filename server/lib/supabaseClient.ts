@@ -1,10 +1,17 @@
-import { createClient } from '@supabase/supabase-js'
+import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = process.env.SUPABASE_URL
-const supabaseAnonKey = process.env.SUPABASE_ANON_KEY
+const supabaseUrl = process.env.SUPABASE_URL!;
+const supabaseAnonKey = process.env.SUPABASE_ANON_KEY!;
 
-if (!supabaseUrl || !supabaseAnonKey) {
-  throw new Error("❌ Variáveis de ambiente do Supabase não definidas corretamente.")
+export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+
+// 🔐 Cliente dinâmico com JWT do usuário (para uso no backend com RLS)
+export function createSupabaseWithToken(token: string) {
+  return createClient(supabaseUrl, supabaseAnonKey, {
+    global: {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    },
+  });
 }
-
-export const supabase = createClient(supabaseUrl, supabaseAnonKey)

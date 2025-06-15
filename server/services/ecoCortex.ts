@@ -1,18 +1,7 @@
 import axios from 'axios';
-import path from 'path';
-import fs from 'fs/promises';
-import { supabase } from '../lib/supabaseClient';
 import { updateEmotionalProfile } from './updateEmotionalProfile';
-
-let cachedPrompt: string | null = null;
-
-async function carregarPromptProgramavel(): Promise<string> {
-  if (cachedPrompt) return cachedPrompt;
-  const assetsDir = path.join(__dirname, '..', 'assets');
-  const promptPath = path.join(assetsDir, 'eco_prompt_programavel.txt');
-  cachedPrompt = await fs.readFile(promptPath, 'utf-8');
-  return cachedPrompt.trim();
-}
+import { montarContextoEco } from '../controllers/promptController';
+import { createSupabaseWithToken } from '../lib/supabaseClient';
 
 const mapRoleForOpenAI = (role: string): 'user' | 'assistant' | 'system' => {
   if (role === 'model') return 'assistant';
@@ -21,25 +10,25 @@ const mapRoleForOpenAI = (role: string): 'user' | 'assistant' | 'system' => {
 };
 
 function limparResposta(text: string): string {
-  const match = text.match(/### INÍCIO RESPOSTA ECO\s*([\s\S]*?)\s*### FIM RESPOSTA ECO/);
-  if (match) return match[1].trim();
   return text
-    .replace(/### INÍCIO BLOCO JSON\s*{[\s\S]*?}\s*### FIM BLOCO JSON/gi, '')
     .replace(/```json[\s\S]*?```/g, '')
     .replace(/```[\s\S]*?```/g, '')
+    .replace(/<[^>]*>/g, '')
+    .replace(/###.*?###/g, '')
     .trim();
 }
 
-async function buscarContextoEmocional(userId?: string) {
+async function buscarContextoEmocional(supabaseClient: ReturnType<typeof createSupabaseWithToken>, userId?: string) {
   if (!userId) return { perfil: null, mems: [] };
-  const { data: perfil } = await supabase
+
+  const { data: perfil } = await supabaseClient
     .from('perfis_emocionais')
     .select('*')
     .eq('usuario_id', userId)
     .limit(1)
     .maybeSingle();
 
-  const { data: mems } = await supabase
+  const { data: mems } = await supabaseClient
     .from('memories')
     .select('*')
     .eq('usuario_id', userId)
@@ -53,11 +42,13 @@ async function buscarContextoEmocional(userId?: string) {
 export async function getEcoResponse({
   messages,
   userId,
-  userName
+  userName,
+  accessToken
 }: {
   messages: { id?: string; role: string; content: string }[];
   userId?: string;
   userName?: string;
+  accessToken: string;
 }): Promise<{
   message: string;
   intensidade?: number;
@@ -68,22 +59,11 @@ export async function getEcoResponse({
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) throw new Error('OPENROUTER_API_KEY não configurada.');
 
-  const promptBase = await carregarPromptProgramavel();
-  const { perfil, mems } = await buscarContextoEmocional(userId);
+  const supabaseClient = createSupabaseWithToken(accessToken);
+
   const ultimaMsg = messages.at(-1)?.content;
-
-  let contexto = '';
-
-  if (perfil) {
-    contexto += `\nPerfil emocional:\n- Emoções: ${Object.keys(perfil.emocoes_frequentes || {}).join(', ') || 'nenhuma'}\n- Temas: ${Object.keys(perfil.temas_recorrentes || {}).join(', ') || 'nenhum'}\n- Última interação: ${perfil.ultima_interacao_significativa || 'não registrada'}\n- Resumo: ${perfil.resumo_geral_ia || 'nenhum'}`;
-  }
-
-  if (mems.length > 0) {
-    const textos = mems.map(m => `(${m.data_registro?.slice(0, 10)}): ${m.resumo_eco} [tags: ${(m.tags || []).join(', ')}]`).join('\n');
-    contexto += `\n\nÚltimas memórias com tags:\n${textos}`;
-  }
-
-  const systemPrompt = `${promptBase}\n\n${contexto}`;
+  const { perfil, mems } = await buscarContextoEmocional(supabaseClient, userId);
+  const systemPrompt = await montarContextoEco({ perfil, mems, ultimaMsg, modo_compacto: false });
 
   const chatMessages = [
     { role: 'system', content: systemPrompt },
@@ -98,7 +78,7 @@ export async function getEcoResponse({
   const response = await axios.post(
     'https://openrouter.ai/api/v1/chat/completions',
     {
-      model: 'openai/gpt-4o',
+      model: 'openai/gpt-4',
       messages: chatMessages,
       temperature: 0.8,
       top_p: 0.95,
@@ -122,42 +102,44 @@ export async function getEcoResponse({
   }
 
   const cleaned = limparResposta(raw);
-
   let intensidade: number | undefined;
   let emocao: string | undefined;
   let resumo: string | undefined = cleaned;
   let tags: string[] = [];
 
-  const jsonMatches = [...raw.matchAll(/### INÍCIO BLOCO JSON\s*\n?({[\s\S]*?})\s*### FIM BLOCO JSON/g)];
-
-  if (jsonMatches.length === 0) {
-    console.log('[INFO] Nenhum bloco JSON foi encontrado na resposta da IA.');
-  }
+  const jsonMatches = [...raw.matchAll(/{\s*"emocao_principal"[\s\S]*?}/g)];
 
   if (jsonMatches.length > 0) {
+    console.log('[📦] Bloco JSON detectado:\n', jsonMatches.at(-1)?.[0]);
     try {
-      const json = JSON.parse(jsonMatches.at(-1)?.[1] || '{}');
+      const json = JSON.parse(jsonMatches.at(-1)?.[0] || '{}');
 
-      intensidade = json.intensidade;
+      intensidade = Number(json.intensidade);
+      if (isNaN(intensidade) || intensidade < 0 || intensidade > 10) {
+        console.warn('[⚠️] Intensidade inválida:', json.intensidade);
+        intensidade = undefined;
+      }
+
       emocao = json.emocao_principal;
       tags = Array.isArray(json.tags) ? json.tags : [];
 
       const salvar = userId && typeof intensidade === 'number' && intensidade >= 7;
 
       if (salvar) {
-        const { error } = await supabase.from('memories').insert([{
+        const { error } = await supabaseClient.from('memories').insert([{
           usuario_id: userId,
-          mensagem_id: messages.at(-1)?.id,
+          mensagem_id: messages.at(-1)?.id ?? null,
           resumo_eco: cleaned,
-          emocao_principal: emocao || null,
-          intensidade: intensidade || null,
-          contexto: ultimaMsg || null,
+          emocao_principal: emocao ?? null,
+          intensidade,
+          contexto: ultimaMsg ?? null,
           salvar_memoria: true,
           data_registro: new Date().toISOString(),
-          dominio_vida: json.dominio_vida || null,
-          padrao_comportamental: json.padrao_comportamental || null,
-          nivel_abertura: json.nivel_abertura || null,
-          analise_resumo: json.analise_resumo || null,
+          dominio_vida: json.dominio_vida ?? null,
+          padrao_comportamental: json.padrao_comportamental ?? null,
+          nivel_abertura: json.nivel_abertura ?? null,
+          analise_resumo: json.analise_resumo ?? null,
+          categoria: json.categoria ?? 'emocional',
           tags
         }]);
 
@@ -168,9 +150,12 @@ export async function getEcoResponse({
           console.warn('[⚠️] Falha ao salvar memória:', error);
         }
       }
+
     } catch (err) {
       console.warn('[⚠️] Falha ao processar JSON da IA:', err);
     }
+  } else {
+    console.warn('[ℹ️] Nenhum bloco JSON detectado na resposta da IA.');
   }
 
   return {

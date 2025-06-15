@@ -10,10 +10,10 @@ const upload = multer();
 router.post('/transcribe-and-respond', upload.single('audio'), async (req, res) => {
   try {
     const audioFile = req.file;
-    const { nome_usuario, usuario_id, mensagens } = req.body;
+    const { nome_usuario, usuario_id, mensagens, access_token } = req.body;
 
-    if (!audioFile || !nome_usuario) {
-      return res.status(400).json({ error: 'Áudio e nome do usuário são obrigatórios.' });
+    if (!audioFile || !nome_usuario || !access_token) {
+      return res.status(400).json({ error: 'Áudio, nome do usuário e token são obrigatórios.' });
     }
 
     // 1. Transcreve o áudio
@@ -29,7 +29,8 @@ router.post('/transcribe-and-respond', upload.single('audio'), async (req, res) 
     const ecoResponse = await getEcoResponse({
       messages: mensagensFormatadas,
       userName: nome_usuario,
-      userId: usuario_id || 'anon'
+      userId: usuario_id || 'anon',
+      accessToken: access_token
     });
     console.log('[Resposta da IA]', ecoResponse);
 
@@ -46,6 +47,35 @@ router.post('/transcribe-and-respond', upload.single('audio'), async (req, res) 
   } catch (err: any) {
     console.error('[Erro no fluxo de voz]', err);
     res.status(500).json({ error: 'Erro no fluxo de voz completo' });
+  }
+});
+
+router.post('/ask-eco', async (req, res) => {
+  const { usuario_id, mensagem, mensagens, nome_usuario, access_token } = req.body;
+
+  if (!usuario_id || (!mensagem && !mensagens)) {
+    return res.status(400).json({ error: "usuario_id e mensagens são obrigatórios." });
+  }
+
+  if (!access_token) {
+    return res.status(401).json({ error: "Token de acesso ausente." });
+  }
+
+  try {
+    const mensagensParaIA = mensagens || [{ role: "user", content: mensagem }];
+
+    const resposta = await getEcoResponse({
+      messages: mensagensParaIA,
+      userId: usuario_id,
+      userName: nome_usuario,
+      accessToken: access_token
+    });
+
+    return res.status(200).json({ message: resposta.message });
+
+  } catch (err: any) {
+    console.error("❌ Erro no /ask-eco:", err.message || err);
+    return res.status(500).json({ error: "Erro interno ao processar a requisição." });
   }
 });
 

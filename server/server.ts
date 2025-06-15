@@ -4,9 +4,9 @@ dotenv.config();
 import express from 'express';
 import cors from 'cors';
 
-import promptRoutes from './routes/promptRoutes';
-import memoryRoutes from './routes/memoryRoutes';         // Rotas de /api/memorias
-import profileRoutes from './routes/profileRoutes';
+import promptRoutes from './routes/promptRoutes';         // GET /api/prompt-preview
+import memoryRoutes from './routes/memoryRoutes';         // GET/POST /api/memorias
+import profileRoutes from './routes/perfilEmocionalRoutes';       // GET /api/profiles/:userId
 import voiceTTSRoutes from './routes/voiceTTSRoutes';     // POST /api/voice/tts
 import voiceFullRoutes from './routes/voiceFullRoutes';   // POST /api/voice/transcribe-and-respond
 import openrouterRoutes from './routes/openrouterRoutes'; // POST /api/ask-eco
@@ -14,32 +14,32 @@ import openrouterRoutes from './routes/openrouterRoutes'; // POST /api/ask-eco
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-// Configuração do CORS
+// 🔐 Configuração de CORS
 app.use(cors({
-  origin: 'http://localhost:5173', // ajuste se necessário para produção
+  origin: 'http://localhost:5173', // Altere para domínio de produção se necessário
   methods: ['GET', 'POST', 'PUT', 'DELETE'],
   allowedHeaders: ['Content-Type', 'Authorization'],
 }));
 
-// Parsing de body JSON e URL-encoded
+// 📦 Parsing de body JSON e formulário
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Middleware de log
+// 🧾 Middleware de log
 app.use((req, res, next) => {
   console.log(`Backend: [${req.method}] ${req.originalUrl}`);
   next();
 });
 
 // ✅ Registro das rotas
-app.use('/api', promptRoutes);
-app.use('/api/memorias', memoryRoutes);     // ex: GET /api/memorias?usuario_id=abc
-app.use('/api/profiles', profileRoutes);
-app.use('/api/voice', voiceTTSRoutes);      // ex: POST /api/voice/tts
-app.use('/api/voice', voiceFullRoutes);     // ex: POST /api/voice/transcribe-and-respond
-app.use('/api', openrouterRoutes);          // ex: POST /api/ask-eco
+app.use('/api', promptRoutes);              // GET /api/prompt-preview
+app.use('/api/memorias', memoryRoutes);     // GET/POST /api/memorias
+app.use('/api/profiles', profileRoutes);    // GET /api/profiles/:userId
+app.use('/api/voice', voiceTTSRoutes);      // POST /api/voice/tts
+app.use('/api/voice', voiceFullRoutes);     // POST /api/voice/transcribe-and-respond
+app.use('/api', openrouterRoutes);          // POST /api/ask-eco
 
-// Inicialização do servidor
+// 🚀 Inicialização do servidor
 app.listen(PORT, () => {
   console.log(`Servidor Express rodando na porta ${PORT}`);
 });

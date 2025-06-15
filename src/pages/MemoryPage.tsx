@@ -35,31 +35,37 @@ const MemoryPage: React.FC = () => {
 
   useEffect(() => {
     const carregarDados = async () => {
-      if (userId) {
-        setLoading(true);
-        setError(null);
-        try {
-          const memData = await buscarMemoriasPorUsuario(userId);
-          const memFiltradas = memData.filter(mem => mem.salvar_memoria === true);
-          console.log('[MEMÓRIAS FILTRADAS]', memFiltradas);
-          setMemories(memFiltradas);
+      if (!userId) return;
 
-          try {
-            const perfilData = await buscarPerfilEmocional(userId);
-            console.log('[PERFIL RECEBIDO]', perfilData);
-            setPerfil(perfilData);
-          } catch {
-            console.warn('Perfil emocional ainda não disponível.');
-            setPerfil(null);
-          }
-        } catch (err: any) {
-          console.error('Erro ao carregar dados:', err);
-          setError('Erro ao carregar dados.');
-        } finally {
-          setLoading(false);
+      setLoading(true);
+      setError(null);
+
+      try {
+        const memData = await buscarMemoriasPorUsuario(userId); // ✅ Correto
+        console.log('[🔍 Memórias carregadas]', memData);
+
+        const memFiltradas = memData.filter(
+          mem => mem.salvar_memoria === true || mem.salvar_memoria === 'true'
+        );
+        console.log('[✅ Memórias visíveis na interface]', memFiltradas);
+        setMemories(memFiltradas);
+
+        try {
+          const perfilData = await buscarPerfilEmocional(userId); // ✅ Correto
+          console.log('[🧠 Perfil emocional carregado]', perfilData);
+          setPerfil(perfilData);
+        } catch {
+          console.warn('⚠️ Perfil emocional ainda não disponível.');
+          setPerfil(null);
         }
+      } catch (err: any) {
+        console.error('❌ Erro ao carregar dados:', err);
+        setError('Erro ao carregar dados.');
+      } finally {
+        setLoading(false);
       }
     };
+
     carregarDados();
   }, [userId]);
 
@@ -106,8 +112,8 @@ const MemoryPage: React.FC = () => {
           </div>
         ) : (
           <>
-            {activeTab === 'memories' && (
-              memories.length === 0 ? (
+            {activeTab === 'memories' &&
+              (memories.length === 0 ? (
                 <p className="text-center text-neutral-500 mt-10 text-sm">Nenhuma memória salva ainda.</p>
               ) : (
                 memories.map((mem, index) => (
@@ -126,7 +132,9 @@ const MemoryPage: React.FC = () => {
                           : mem.resumo_eco?.slice(0, 30) || 'Memória'}
                       </span>
                       {mem.data_registro && (
-                        <span className="text-xs text-neutral-500">{formatDateToHuman(mem.data_registro)}</span>
+                        <span className="text-xs text-neutral-500">
+                          {formatDateToHuman(mem.data_registro)}
+                        </span>
                       )}
                     </div>
 
@@ -156,39 +164,61 @@ const MemoryPage: React.FC = () => {
                         ))}
                       </div>
                     )}
+
+                    {Array.isArray(mem.tags) && mem.tags.length > 0 && (
+                      <div className="flex flex-wrap items-center mt-2">
+                        {mem.tags.map((tag: string, tagIndex: number) => (
+                          <span
+                            key={tagIndex}
+                            className="inline-block bg-purple-100 text-purple-800 rounded-full px-3 py-1 text-xs font-medium mr-2 mb-2"
+                          >
+                            {tag.trim()}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </motion.div>
                 ))
-              )
-            )}
+              ))}
 
-            {activeTab === 'profile' && (
-              perfil ? (
+            {activeTab === 'profile' &&
+              (perfil ? (
                 <div className="bg-white/80 border border-neutral-200 p-4 rounded-3xl shadow-lg">
                   <h3 className="text-lg font-light mb-2 text-neutral-800">Resumo Geral</h3>
-                  <p className="text-neutral-700 mb-4 text-sm">{perfil.resumo_geral_ia || 'Nenhum resumo disponível.'}</p>
+                  <p className="text-neutral-700 mb-4 text-sm">
+                    {perfil.resumo_geral_ia || 'Nenhum resumo disponível.'}
+                  </p>
 
                   <div className="mb-4">
                     <h4 className="font-semibold text-neutral-700 text-sm">Emoções Frequentes</h4>
                     <ul className="list-disc ml-5 text-sm text-neutral-600">
-                      {Object.entries(perfil.emocoes_frequentes || {}).map(([emo, count]) => (
-                        <li key={emo}>{emo}: {count}</li>
-                      ))}
+                      {Object.entries(perfil.emocoes_frequentes || {}).length > 0 ? (
+                        Object.entries(perfil.emocoes_frequentes).map(([emo, count]) => (
+                          <li key={emo}>{emo}: {count}</li>
+                        ))
+                      ) : (
+                        <li>Nenhum dado emocional encontrado.</li>
+                      )}
                     </ul>
                   </div>
 
                   <div className="mb-4">
                     <h4 className="font-semibold text-neutral-700 text-sm">Temas/Padrões Recorrentes</h4>
                     <ul className="list-disc ml-5 text-sm text-neutral-600">
-                      {Object.entries(perfil.temas_recorrentes || {}).map(([tema, count]) => (
-                        <li key={tema}>{tema}: {count}</li>
-                      ))}
+                      {Object.entries(perfil.temas_recorrentes || {}).length > 0 ? (
+                        Object.entries(perfil.temas_recorrentes).map(([tema, count]) => (
+                          <li key={tema}>{tema}: {count}</li>
+                        ))
+                      ) : (
+                        <li>Nenhum padrão recorrente identificado.</li>
+                      )}
                     </ul>
                   </div>
 
                   <p className="text-xs text-neutral-500">
                     Última interação significativa:{' '}
-                    {perfil.ultima_interacao_significativa
-                      ? new Date(perfil.ultima_interacao_significativa).toLocaleDateString()
+                    {perfil.ultima_interacao_sig
+                      ? new Date(perfil.ultima_interacao_sig).toLocaleDateString()
                       : 'Indisponível'}
                   </p>
                 </div>
@@ -196,8 +226,7 @@ const MemoryPage: React.FC = () => {
                 <p className="text-center text-neutral-500 mt-10 text-sm">
                   Nenhum perfil emocional foi gerado ainda. Interaja mais com a Eco para que possamos criar um para você 🌱
                 </p>
-              )
-            )}
+              ))}
           </>
         )}
       </div>

@@ -1,6 +1,8 @@
 import axios from 'axios';
+import { v4 as uuidv4 } from 'uuid'; // se ainda não usa, instale: npm install uuid
 
 interface Message {
+  id?: string; // 🔹 adicionado
   role: string;
   content: string;
 }
@@ -13,16 +15,16 @@ export const enviarMensagemParaEco = async (
   userId?: string
 ): Promise<string | undefined> => {
   try {
-    // Garante apenas as últimas 3 mensagens válidas
-    const mensagensValidas = userMessages
+    // Garante que as últimas mensagens tenham IDs únicos
+    const mensagensValidas: Message[] = userMessages
       .slice(-3)
-      .filter(
-        (msg) =>
-          msg &&
-          typeof msg.role === 'string' &&
-          typeof msg.content === 'string' &&
-          msg.content.trim().length > 0
-      );
+      .filter(msg =>
+        msg && typeof msg.role === 'string' && typeof msg.content === 'string' && msg.content.trim().length > 0
+      )
+      .map(msg => ({
+        ...msg,
+        id: msg.id || uuidv4() // 🔹 Garante que cada mensagem tenha ID
+      }));
 
     if (!userId) {
       throw new Error('Usuário não autenticado. ID ausente.');
@@ -33,7 +35,7 @@ export const enviarMensagemParaEco = async (
     const response = await axios.post(`${API_BASE_URL}/ask-eco`, {
       mensagens: mensagensValidas,
       nome_usuario: userName,
-      usuario_id: userId,
+      usuario_id: userId
     });
 
     if (response.status >= 200 && response.status < 300) {

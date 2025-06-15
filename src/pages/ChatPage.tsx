@@ -12,6 +12,7 @@ import { buscarUltimasMemoriasComTags } from '../api/memoriaApi';
 import { useAuth } from '../contexts/AuthContext';
 import { useChat, Message } from '../contexts/ChatContext';
 import { salvarMensagem } from '../api/mensagem';
+import { differenceInDays } from 'date-fns';
 
 const ChatPage: React.FC = () => {
   const { messages, addMessage, clearMessages } = useChat();
@@ -39,6 +40,20 @@ const ChatPage: React.FC = () => {
   useEffect(() => {
     referenciaFinalDasMensagens.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  const gerarMensagemDeRetornoContextual = (memoriaSignificativa: any): string | null => {
+    if (!memoriaSignificativa) return null;
+
+    const dataUltima = new Date(memoriaSignificativa.data_registro);
+    const hoje = new Date();
+    const dias = differenceInDays(hoje, dataUltima);
+
+    if (dias === 0) return null;
+
+    const resumo = memoriaSignificativa.resumo_eco || 'algo não especificado';
+
+    return `O usuário está retornando após ${dias} dias. Na última interação significativa, expressou: "${resumo}". Use isso para adaptar a saudação e refletir o retorno com sensibilidade.`;
+  };
 
   const handleSendMessage = async (text: string) => {
     setDigitando(true);
@@ -68,15 +83,20 @@ const ChatPage: React.FC = () => {
         (m.tags?.length ? ` [tags: ${m.tags.join(', ')}]` : '')
       )).join('\n');
 
-      const mensagensComContexto = contextoMemorias
-        ? [
-            {
-              role: 'system',
-              content: `Estas são memórias recentes do usuário que podem servir como contexto emocional:\n${contextoMemorias}`,
-            },
-            ...history,
-          ]
-        : history;
+      const memoriaSignificativa = memorias.find(m => m.intensidade >= 7);
+      const retornoContextual = gerarMensagemDeRetornoContextual(memoriaSignificativa);
+
+      const mensagensComContexto = [
+        ...(retornoContextual ? [{
+          role: 'system',
+          content: retornoContextual,
+        }] : []),
+        ...(contextoMemorias ? [{
+          role: 'system',
+          content: `Estas são memórias recentes do usuário que podem servir como contexto emocional:\n${contextoMemorias}`,
+        }] : []),
+        ...history,
+      ];
 
       const mensagensFormatadas = mensagensComContexto.map(m => ({
         role: m.role || (m.sender === 'eco' ? 'assistant' : 'user'),

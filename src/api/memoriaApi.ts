@@ -1,5 +1,13 @@
-import axios from 'axios';
+// src/api/memoriaApi.ts
+/* -------------------------------------------------------------------------- */
+/*  Importações                                                               */
+/* -------------------------------------------------------------------------- */
+import axios, { AxiosError } from 'axios';
+import { supabase } from '../lib/supabaseClient';
 
+/* -------------------------------------------------------------------------- */
+/*  Tipagem                                                                    */
+/* -------------------------------------------------------------------------- */
 export interface Memoria {
   id: string;
   usuario_id: string;
@@ -12,71 +20,101 @@ export interface Memoria {
   dominio_vida?: string | null;
   padrao_comportamental?: string | null;
   categoria?: string | null;
-  salvar_memoria?: boolean;
+  salvar_memoria?: boolean | 'true' | 'false';
   nivel_abertura?: number | null;
   analise_resumo?: string | null;
   tags?: string[];
 }
 
-const API_BASE = '/api/memorias';
+/* -------------------------------------------------------------------------- */
+/*  Instância Axios que INJETA o JWT do Supabase                              */
+/* -------------------------------------------------------------------------- */
+const api = axios.create({ baseURL: '/api' });
 
-// 🔍 Busca TODAS as memórias do usuário
-export async function buscarMemoriasPorUsuario(usuarioId: string): Promise<Memoria[]> {
+api.interceptors.request.use(async (config) => {
+  const { data: { session } } = await supabase.auth.getSession();
+
+  if (!session?.access_token) {
+    throw new Error('⚠️ Usuário não autenticado.');
+  }
+
+  config.headers.Authorization = `Bearer ${session.access_token}`;
+  return config;
+});
+
+/* -------------------------------------------------------------------------- */
+/*  Helper de erro                                                            */
+/* -------------------------------------------------------------------------- */
+function tratarErro(err: unknown, acao: string): never {
+  if (axios.isAxiosError(err)) {
+    const e = err as AxiosError<{ error: string }>;
+
+    if (e.response?.data?.error) {
+      throw new Error(`Erro do servidor ao ${acao}: ${e.response.data.error}`);
+    }
+    if (e.response) {
+      throw new Error(`Erro HTTP ${e.response.status} ao ${acao}: ${e.response.statusText}`);
+    }
+    if (e.request) {
+      throw new Error(`Erro de rede ao ${acao}: nenhuma resposta recebida`);
+    }
+    throw new Error(`Erro ao ${acao}: ${e.message}`);
+  }
+
+  throw new Error(`Erro inesperado ao ${acao}: ${(err as any)?.message || String(err)}`);
+}
+
+/* -------------------------------------------------------------------------- */
+/*  API pública                                                                */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * 🔍 Busca TODAS as memórias do usuário autenticado
+ * (Opcionalmente aceita userId – útil se você quiser logar ou depurar.)
+ */
+export async function buscarMemoriasPorUsuario(userId?: string): Promise<Memoria[]> {
   try {
-    const response = await axios.get(API_BASE, {
-      params: { usuario_id: usuarioId },
+    const { data } = await api.get<{ success: boolean; memories: Memoria[] }>('/memorias', {
+      params: userId ? { usuario_id: userId } : undefined,
     });
 
-    const { success, memories } = response.data;
-
-    if (response.status >= 200 && response.status < 300 && success && Array.isArray(memories)) {
-      return memories;
-    } else {
-      console.warn('[memoriaApi] Resposta inesperada:', response.data);
-      return [];
+    if (data.success && Array.isArray(data.memories)) {
+      return data.memories;
     }
-  } catch (error: any) {
-    const mensagem = extrairMensagemErro(error, 'buscar memórias');
-    console.error(mensagem);
-    throw new Error(mensagem);
+
+    console.warn('[memoriaApi] Resposta inesperada:', data);
+    return [];
+  } catch (err) {
+    tratarErro(err, 'buscar memórias');
   }
 }
 
-// 🔍 Busca últimas memórias com tags (ex: para IA usar como contexto)
-export async function buscarUltimasMemoriasComTags(usuarioId: string, limite = 5): Promise<Memoria[]> {
+/**
+ * 🔍 Busca as últimas memórias com TAGS
+ * (default = 5) do usuário autenticado
+ */
+export async function buscarUltimasMemoriasComTags(
+  userId?: string,
+  limite = 5
+): Promise<Memoria[]> {
   try {
-    const response = await axios.get(API_BASE, {
-      params: { usuario_id: usuarioId, limite },
+    const { data } = await api.get<{ success: boolean; memories: Memoria[] }>('/memorias', {
+      params: { limite, ...(userId ? { usuario_id: userId } : {}) },
     });
 
-    const { success, memories } = response.data;
-
-    if (success && Array.isArray(memories)) {
-      return memories
-        .filter((mem: Memoria) => Array.isArray(mem.tags) && mem.tags.length > 0)
-        .sort((a, b) => new Date(b.data_registro || '').getTime() - new Date(a.data_registro || '').getTime())
+    if (data.success && Array.isArray(data.memories)) {
+      return data.memories
+        .filter(m => Array.isArray(m.tags) && m.tags.length)
+        .sort(
+          (a, b) =>
+            new Date(b.data_registro || '').getTime() -
+            new Date(a.data_registro || '').getTime()
+        )
         .slice(0, limite);
     }
 
     return [];
-  } catch (error: any) {
-    console.error('[memoriaApi] Erro ao buscar memórias com tags:', error.message || error);
-    return [];
-  }
-}
-
-// Utilitário de erro
-function extrairMensagemErro(error: any, contexto: string): string {
-  if (axios.isAxiosError(error)) {
-    if (error.response?.data?.error) {
-      return `Erro do servidor ao ${contexto}: ${error.response.data.error}`;
-    } else if (error.response?.status) {
-      return `Erro HTTP ${error.response.status} ao ${contexto}: ${error.response.statusText}`;
-    } else if (error.request) {
-      return `Erro de rede ao ${contexto}: nenhuma resposta do servidor.`;
-    }
-    return `Erro na requisição ao ${contexto}: ${error.message}`;
-  } else {
-    return `Erro inesperado ao ${contexto}: ${error.message || error.toString()}`;
+  } catch (err) {
+    tratarErro(err, 'buscar memórias com tags');
   }
 }
