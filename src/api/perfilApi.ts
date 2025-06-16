@@ -8,7 +8,7 @@ import axios from 'axios';
 const API_BASE = '/api/perfil-emocional';
 
 /* -------------------------------------------------------------------------- */
-/*  Tipagem opcional                                                          */
+/*  Tipagem                                                                   */
 /* -------------------------------------------------------------------------- */
 export interface PerfilEmocional {
   id: string;
@@ -21,7 +21,7 @@ export interface PerfilEmocional {
 }
 
 /* -------------------------------------------------------------------------- */
-/*  JWT do usuário autenticado via Supabase                                  */
+/*  Helper: cabeçalho JWT                                                     */
 /* -------------------------------------------------------------------------- */
 async function getAuthHeaders() {
   const {
@@ -41,19 +41,21 @@ async function getAuthHeaders() {
 }
 
 /* -------------------------------------------------------------------------- */
-/*  API pública: buscar perfil emocional                                     */
+/*  API pública: buscar perfil emocional                                      */
 /* -------------------------------------------------------------------------- */
 
 /**
- * 🔍 Busca o perfil emocional do usuário autenticado
- * (ou de um `userId` específico — se admin quiser usar externamente)
+ * 🔍 Busca o perfil emocional do usuário indicado por `userId`.
+ * `userId` é obrigatório porque o backend só possui GET /api/perfil-emocional/:userId
  */
 export const buscarPerfilEmocional = async (
-  userId?: string
+  userId: string
 ): Promise<PerfilEmocional | null> => {
+  if (!userId) throw new Error('userId é obrigatório para buscar o perfil emocional.');
+
   try {
     const config = await getAuthHeaders();
-    const url = userId ? `${API_BASE}/${userId}` : API_BASE;
+    const url = `${API_BASE}/${userId}`;
 
     const response = await axios.get<{ success: boolean; perfil: PerfilEmocional | null }>(
       url,

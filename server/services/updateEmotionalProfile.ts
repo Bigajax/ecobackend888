@@ -1,4 +1,4 @@
-import { supabase } from '../lib/supabaseClient';
+import { supabaseAdmin } from '../lib/supabaseAdmin';
 
 interface Memoria {
   emocao_principal?: string;
@@ -12,7 +12,7 @@ interface Memoria {
 export async function updateEmotionalProfile(userId: string): Promise<{ success: boolean; message: string }> {
   try {
     // 🔍 Busca memórias salvas e vinculadas ao usuário
-    const { data: memories, error } = await supabase
+    const { data: memories, error } = await supabaseAdmin
       .from('memories')
       .select('*')
       .eq('usuario_id', userId)
@@ -63,7 +63,7 @@ export async function updateEmotionalProfile(userId: string): Promise<{ success:
         `Isso compõe um retrato sensível e vivo do seu momento atual.`;
 
     // 🔁 Faz o UPSERT no perfil emocional
-    const { error: upsertError } = await supabase
+    const { error: upsertError } = await supabaseAdmin
       .from('perfis_emocionais')
       .upsert([{
         usuario_id: userId,

@@ -104,7 +104,10 @@ const ChatPage: React.FC = () => {
       }));
 
       const resposta = await enviarMensagemParaEco(mensagensFormatadas, userName, userId!);
-      const ecoMessage: Message = { id: uuidv4(), text: resposta, sender: 'eco' };
+
+      // REMOVE o bloco JSON ao final da resposta (se existir)
+      const textoLimpo = resposta.replace(/\{[\s\S]*?\}$/, '').trim();
+      const ecoMessage: Message = { id: uuidv4(), text: textoLimpo, sender: 'eco' };
       addMessage(ecoMessage);
 
     } catch (error: any) {

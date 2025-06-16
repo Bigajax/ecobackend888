@@ -1,5 +1,5 @@
 import express from "express";
-import { supabase } from "../lib/supabaseClient";
+import { supabaseAdmin } from "../lib/supabaseAdmin";
 
 const router = express.Router();
 
@@ -9,7 +9,7 @@ async function getUsuarioAutenticado(req: express.Request) {
   if (!authHeader || !authHeader.startsWith("Bearer ")) return null;
 
   const token = authHeader.replace("Bearer ", "").trim();
-  const { data, error } = await supabase.auth.getUser(token);
+  const { data, error } = await supabaseAdmin.auth.getUser(token);
   if (error || !data?.user) {
     console.warn("[🔐 Auth] Falha ao obter usuário:", error?.message);
     return null;
@@ -43,24 +43,26 @@ router.post("/registrar", async (req, res) => {
   }
 
   try {
-    const { data, error } = await supabase
+    const { data, error } = await supabaseAdmin
       .from("memories")
-      .insert([{
-        usuario_id: user.id,
-        mensagem_id: mensagem_id ?? null,
-        resumo_eco: texto,
-        tags: tags ?? [],
-        intensidade,
-        emocao_principal: emocao_principal ?? null,
-        contexto: contexto ?? null,
-        dominio_vida: dominio_vida ?? null,
-        padrao_comportamental: padrao_comportamental ?? null,
-        salvar_memoria: salvar_memoria !== false,
-        nivel_abertura: typeof nivel_abertura === "number" ? nivel_abertura : null,
-        analise_resumo: analise_resumo ?? null,
-        categoria: categoria ?? 'emocional',
-        data_registro: new Date().toISOString(),
-      }])
+      .insert([
+        {
+          usuario_id: user.id,
+          mensagem_id: mensagem_id ?? null,
+          resumo_eco: texto,
+          tags: tags ?? [],
+          intensidade,
+          emocao_principal: emocao_principal ?? null,
+          contexto: contexto ?? null,
+          dominio_vida: dominio_vida ?? null,
+          padrao_comportamental: padrao_comportamental ?? null,
+          salvar_memoria: salvar_memoria !== false,
+          nivel_abertura: typeof nivel_abertura === "number" ? nivel_abertura : null,
+          analise_resumo: analise_resumo ?? null,
+          categoria: categoria ?? "emocional",
+          data_registro: new Date().toISOString()
+        }
+      ])
       .select();
 
     if (error) {
@@ -84,11 +86,11 @@ router.get("/", async (req, res) => {
   const { limite } = req.query;
 
   try {
-    const { data, error } = await supabase
+    const { data, error } = await supabaseAdmin
       .from("memories")
       .select("*")
       .eq("usuario_id", user.id)
-      .eq("salvar_memoria", true) // ✅ CORRETO PARA BOOLEANO
+      .eq("salvar_memoria", true)
       .order("data_registro", { ascending: false })
       .limit(Number(limite) || 50);
 

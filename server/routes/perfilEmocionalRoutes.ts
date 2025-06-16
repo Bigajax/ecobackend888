@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { supabase } from '../lib/supabaseClient';
+import { supabaseAdmin } from '../lib/supabaseAdmin';
 import { updateEmotionalProfile } from '../services/updateEmotionalProfile';
 
 const router = Router();
@@ -13,7 +13,7 @@ router.get('/:userId', async (req: Request, res: Response) => {
   }
 
   try {
-    const { data, error } = await supabase
+    const { data, error } = await supabaseAdmin
       .from('perfis_emocionais')
       .select(`
         id,

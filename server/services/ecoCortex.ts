@@ -1,11 +1,11 @@
 import axios from 'axios';
+import { createClient } from '@supabase/supabase-js';
 import { updateEmotionalProfile } from './updateEmotionalProfile';
 import { montarContextoEco } from '../controllers/promptController';
-import { createSupabaseWithToken } from '../lib/supabaseClient';
 
 const mapRoleForOpenAI = (role: string): 'user' | 'assistant' | 'system' => {
-  if (role === 'model') return 'assistant';
-  if (role === 'system') return 'system';
+  if (role === 'model')   return 'assistant';
+  if (role === 'system')  return 'system';
   return 'user';
 };
 
@@ -16,27 +16,6 @@ function limparResposta(text: string): string {
     .replace(/<[^>]*>/g, '')
     .replace(/###.*?###/g, '')
     .trim();
-}
-
-async function buscarContextoEmocional(supabaseClient: ReturnType<typeof createSupabaseWithToken>, userId?: string) {
-  if (!userId) return { perfil: null, mems: [] };
-
-  const { data: perfil } = await supabaseClient
-    .from('perfis_emocionais')
-    .select('*')
-    .eq('usuario_id', userId)
-    .limit(1)
-    .maybeSingle();
-
-  const { data: mems } = await supabaseClient
-    .from('memories')
-    .select('*')
-    .eq('usuario_id', userId)
-    .not('tags', 'is', null)
-    .order('data_registro', { ascending: false })
-    .limit(3);
-
-  return { perfil, mems: mems || [] };
 }
 
 export async function getEcoResponse({
@@ -56,77 +35,113 @@ export async function getEcoResponse({
   emocao?: string;
   tags?: string[];
 }> {
-  const apiKey = process.env.OPENROUTER_API_KEY;
-  if (!apiKey) throw new Error('OPENROUTER_API_KEY não configurada.');
-
-  const supabaseClient = createSupabaseWithToken(accessToken);
-
-  const ultimaMsg = messages.at(-1)?.content;
-  const { perfil, mems } = await buscarContextoEmocional(supabaseClient, userId);
-  const systemPrompt = await montarContextoEco({ perfil, mems, ultimaMsg, modo_compacto: false });
-
-  const chatMessages = [
-    { role: 'system', content: systemPrompt },
-    ...messages.map(msg => ({
-      role: mapRoleForOpenAI(msg.role),
-      content: msg.content
-    }))
-  ];
-
-  console.log('🧠 Enviando para OpenRouter:\n', JSON.stringify(chatMessages, null, 2));
-
-  const response = await axios.post(
-    'https://openrouter.ai/api/v1/chat/completions',
-    {
-      model: 'openai/gpt-4',
-      messages: chatMessages,
-      temperature: 0.8,
-      top_p: 0.95,
-      presence_penalty: 0.3,
-      frequency_penalty: 0.2,
-      max_tokens: 1500
-    },
-    {
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-        'HTTP-Referer': 'http://localhost:5173'
-      }
+  try {
+    /* ------------------------------------------------------------------ */
+    /*  1. Validação inicial                                              */
+    /* ------------------------------------------------------------------ */
+    if (!Array.isArray(messages) || messages.length === 0) {
+      throw new Error('Parâmetro "messages" vazio ou inválido.');
     }
-  );
+    if (!accessToken) {
+      throw new Error('Token (accessToken) ausente.');
+    }
 
-  const raw = response.data.choices?.[0]?.message?.content;
-  if (!raw || typeof raw !== 'string') {
-    console.error('⚠️ Resposta da IA vazia ou inválida:', raw);
-    throw new Error('Resposta vazia da IA.');
-  }
+    /* ------------------------------------------------------------------ */
+    /*  2. Instâncias                                                     */
+    /* ------------------------------------------------------------------ */
+    const apiKey = process.env.OPENROUTER_API_KEY;
+    if (!apiKey) throw new Error('OPENROUTER_API_KEY não configurada.');
 
-  const cleaned = limparResposta(raw);
-  let intensidade: number | undefined;
-  let emocao: string | undefined;
-  let resumo: string | undefined = cleaned;
-  let tags: string[] = [];
+    const supabase = createClient(
+      process.env.SUPABASE_URL!,
+      process.env.SUPABASE_ANON_KEY!,
+      { global: { headers: { Authorization: `Bearer ${accessToken}` } } }
+    );
 
-  const jsonMatches = [...raw.matchAll(/{\s*"emocao_principal"[\s\S]*?}/g)];
+    /* ------------------------------------------------------------------ */
+    /*  3. Contexto emocional                                             */
+    /* ------------------------------------------------------------------ */
+    const ultimaMsg = messages.at(-1)?.content;
 
-  if (jsonMatches.length > 0) {
-    console.log('[📦] Bloco JSON detectado:\n', jsonMatches.at(-1)?.[0]);
-    try {
-      const json = JSON.parse(jsonMatches.at(-1)?.[0] || '{}');
+    const { data: perfil } = await supabase
+      .from('perfis_emocionais')
+      .select('*')
+      .eq('usuario_id', userId)
+      .limit(1)
+      .maybeSingle();
 
-      intensidade = Number(json.intensidade);
-      if (isNaN(intensidade) || intensidade < 0 || intensidade > 10) {
-        console.warn('[⚠️] Intensidade inválida:', json.intensidade);
-        intensidade = undefined;
+    const { data: mems } = await supabase
+      .from('memories')
+      .select('*')
+      .eq('usuario_id', userId)
+      .not('tags', 'is', null)
+      .order('data_registro', { ascending: false })
+      .limit(3);
+
+    const systemPrompt = await montarContextoEco({
+      perfil,
+      mems: mems || [],
+      ultimaMsg,
+      modo_compacto: false
+    });
+
+    const chatMessages = [
+      { role: 'system', content: systemPrompt },
+      ...messages.map(m => ({
+        role: mapRoleForOpenAI(m.role),
+        content: m.content
+      }))
+    ];
+
+    console.log('🧠 Enviando para OpenRouter:', JSON.stringify(chatMessages, null, 2));
+
+    /* ------------------------------------------------------------------ */
+    /*  4. Chamada ao OpenRouter                                          */
+    /* ------------------------------------------------------------------ */
+    const { data } = await axios.post(
+      'https://openrouter.ai/api/v1/chat/completions',
+      {
+        model: 'openai/gpt-4o',
+        messages: chatMessages,
+        temperature: 0.8,
+        top_p: 0.95,
+        presence_penalty: 0.3,
+        frequency_penalty: 0.2,
+        max_tokens: 1500
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+          'HTTP-Referer': 'http://localhost:5173'
+        }
       }
+    );
 
-      emocao = json.emocao_principal;
-      tags = Array.isArray(json.tags) ? json.tags : [];
+    const raw: string | undefined = data?.choices?.[0]?.message?.content;
+    if (!raw) throw new Error('Resposta vazia da IA.');
 
-      const salvar = userId && typeof intensidade === 'number' && intensidade >= 7;
+    /* ------------------------------------------------------------------ */
+    /*  5. Processa resposta da IA                                        */
+    /* ------------------------------------------------------------------ */
+    const jsonMatches = [...raw.matchAll(/{\s*"emocao_principal"[\s\S]*?}/g)];
+    let cleaned = limparResposta(raw);
+    let intensidade: number | undefined;
+    let emocao: string | undefined;
+    let resumo: string | undefined = cleaned;
+    let tags: string[] = [];
 
+    if (jsonMatches.length) {
+      const json = JSON.parse(jsonMatches.at(-1)![0]);
+      intensidade = Number(json.intensidade);
+      emocao      = json.emocao_principal;
+      tags        = Array.isArray(json.tags) ? json.tags : [];
+      cleaned     = cleaned.replace(jsonMatches.at(-1)![0], '').trim();
+      resumo      = cleaned;
+
+      const salvar = userId && intensidade >= 7;
       if (salvar) {
-        const { error } = await supabaseClient.from('memories').insert([{
+        const { error } = await supabase.from('memories').insert([{
           usuario_id: userId,
           mensagem_id: messages.at(-1)?.id ?? null,
           resumo_eco: cleaned,
@@ -143,26 +158,14 @@ export async function getEcoResponse({
           tags
         }]);
 
-        if (!error) {
-          console.log('[✅] Memória salva com sucesso.');
-          await updateEmotionalProfile(userId);
-        } else {
-          console.warn('[⚠️] Falha ao salvar memória:', error);
-        }
+        if (error) console.warn('[⚠️] Falha ao salvar memória:', error);
+        else       await updateEmotionalProfile(userId);
       }
-
-    } catch (err) {
-      console.warn('[⚠️] Falha ao processar JSON da IA:', err);
     }
-  } else {
-    console.warn('[ℹ️] Nenhum bloco JSON detectado na resposta da IA.');
-  }
 
-  return {
-    message: cleaned,
-    intensidade,
-    resumo,
-    emocao,
-    tags
-  };
+    return { message: cleaned, intensidade, resumo, emocao, tags };
+  } catch (err: any) {
+    console.error('❌ getEcoResponse error:', err.message || err);
+    throw err; // Propaga para o caller (rota) retornar 500 com log detalhado
+  }
 }

@@ -62,13 +62,16 @@ const VoicePage: React.FC = () => {
 
         try {
           const response = await sendVoiceMessage(audioBlob, [], userName, userId);
+
+          // 🧠 Remove bloco JSON do final do texto da IA
+          const ecoTextoLimpo = response.ecoText?.replace(/\{[\s\S]*?\}$/, '').trim();
+          console.log('[🧠 Eco disse]:', ecoTextoLimpo);
+
           const audioURL = URL.createObjectURL(response.audioBlob);
           setEcoAudioURL(audioURL);
 
-          // ✅ Reproduz o áudio da Eco automaticamente
           const ecoAudio = new Audio(audioURL);
           await ecoAudio.play();
-
         } catch (err: any) {
           handleError(`Falha na interação de voz: ${err.message}`);
         } finally {
@@ -83,7 +86,6 @@ const VoicePage: React.FC = () => {
       recorder.start();
       setIsListening(true);
       mediaRecorderRef.current = recorder;
-
     } catch (err: any) {
       handleError(`Erro ao acessar o microfone: ${err.message || "Permissão de microfone negada ou não disponível."}`);
     }
