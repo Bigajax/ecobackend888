@@ -1,14 +1,13 @@
-// src/api/perfilApi.ts
 import { supabase } from '../lib/supabaseClient';
 import axios from 'axios';
 
 /* -------------------------------------------------------------------------- */
-/*  Base da API                                                               */
+/*  Configurações gerais                                                     */
 /* -------------------------------------------------------------------------- */
 const API_BASE = '/api/perfil-emocional';
 
 /* -------------------------------------------------------------------------- */
-/*  Tipagem                                                                   */
+/*  Tipagens                                                                  */
 /* -------------------------------------------------------------------------- */
 export interface PerfilEmocional {
   id: string;
@@ -21,16 +20,16 @@ export interface PerfilEmocional {
 }
 
 /* -------------------------------------------------------------------------- */
-/*  Helper: cabeçalho JWT                                                     */
+/*  Utilitário: Recupera cabeçalhos com JWT válido                           */
 /* -------------------------------------------------------------------------- */
 async function getAuthHeaders() {
   const {
     data: { session },
-    error,
+    error
   } = await supabase.auth.getSession();
 
   if (error || !session?.access_token) {
-    throw new Error('⚠️ Usuário não autenticado ou sessão inválida.');
+    throw new Error('⚠️ Sessão inválida ou usuário não autenticado.');
   }
 
   return {
@@ -41,17 +40,20 @@ async function getAuthHeaders() {
 }
 
 /* -------------------------------------------------------------------------- */
-/*  API pública: buscar perfil emocional                                      */
+/*  API: Buscar perfil emocional completo                                    */
 /* -------------------------------------------------------------------------- */
 
 /**
- * 🔍 Busca o perfil emocional do usuário indicado por `userId`.
- * `userId` é obrigatório porque o backend só possui GET /api/perfil-emocional/:userId
+ * 🔍 Recupera o perfil emocional do usuário por ID.
+ * @param userId ID do usuário
+ * @returns PerfilEmocional | null
  */
 export const buscarPerfilEmocional = async (
   userId: string
 ): Promise<PerfilEmocional | null> => {
-  if (!userId) throw new Error('userId é obrigatório para buscar o perfil emocional.');
+  if (!userId) {
+    throw new Error('userId é obrigatório para buscar o perfil emocional.');
+  }
 
   try {
     const config = await getAuthHeaders();
@@ -63,13 +65,13 @@ export const buscarPerfilEmocional = async (
     );
 
     if (!response.data?.perfil) {
-      console.info('[ℹ️ API] Nenhum perfil emocional encontrado');
+      console.info('[ℹ️ API] Nenhum perfil emocional encontrado.');
       return null;
     }
 
     return response.data.perfil;
   } catch (err: any) {
-    console.error('[❌ Erro] ao buscar perfil emocional:', err?.message || err);
+    console.error('❌ Erro ao buscar perfil emocional:', err?.message || err);
     return null;
   }
 };

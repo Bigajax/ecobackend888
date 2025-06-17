@@ -7,13 +7,14 @@ import { useAuth } from '../contexts/AuthContext';
 import { buscarMemoriasPorUsuario, Memoria } from '../api/memoriaApi';
 import { buscarPerfilEmocional } from '../api/perfilApi';
 
-const emotionIcons: Record<string, string> = {
-  alegria: '😊',
-  calma: '🌿',
-  tristeza: '😢',
-  incerteza: '🤔',
-  raiva: '😡',
-  medo: '😨',
+const tagColors: Record<string, string> = {
+  'silêncio': 'bg-white text-neutral-500 border border-neutral-200',
+  'peso': 'bg-neutral-300 text-neutral-700',
+  'desconexão': 'bg-blue-100 text-blue-800',
+  'desânimo': 'bg-gray-200 text-gray-700',
+  'perda de sentido': 'bg-slate-100 text-slate-600',
+  'perda de cor': 'bg-purple-100 text-purple-800',
+  'distanciamento': 'bg-purple-200 text-purple-900'
 };
 
 const formatDateToHuman = (dateStr: string) => {
@@ -41,25 +42,19 @@ const MemoryPage: React.FC = () => {
       setError(null);
 
       try {
-        const memData = await buscarMemoriasPorUsuario(userId); // ✅ Correto
-        console.log('[🔍 Memórias carregadas]', memData);
-
+        const memData = await buscarMemoriasPorUsuario(userId);
         const memFiltradas = memData.filter(
           mem => mem.salvar_memoria === true || mem.salvar_memoria === 'true'
         );
-        console.log('[✅ Memórias visíveis na interface]', memFiltradas);
         setMemories(memFiltradas);
 
         try {
-          const perfilData = await buscarPerfilEmocional(userId); // ✅ Correto
-          console.log('[🧠 Perfil emocional carregado]', perfilData);
+          const perfilData = await buscarPerfilEmocional(userId);
           setPerfil(perfilData);
         } catch {
-          console.warn('⚠️ Perfil emocional ainda não disponível.');
           setPerfil(null);
         }
       } catch (err: any) {
-        console.error('❌ Erro ao carregar dados:', err);
         setError('Erro ao carregar dados.');
       } finally {
         setLoading(false);
@@ -125,12 +120,9 @@ const MemoryPage: React.FC = () => {
                     transition={{ delay: index * 0.05 }}
                   >
                     <div className="flex justify-between items-center mb-2">
-                      <span className="text-lg font-light text-neutral-800">
-                        {emotionIcons[mem.emocao_principal || ''] || '📝'}{' '}
-                        {mem.emocao_principal && mem.emocao_principal !== 'vazio'
-                          ? mem.emocao_principal
-                          : mem.resumo_eco?.slice(0, 30) || 'Memória'}
-                      </span>
+                      <h3 className="text-base font-semibold text-neutral-800">
+                        {mem.emocao_principal || 'Memória'}
+                      </h3>
                       {mem.data_registro && (
                         <span className="text-xs text-neutral-500">
                           {formatDateToHuman(mem.data_registro)}
@@ -138,43 +130,24 @@ const MemoryPage: React.FC = () => {
                       )}
                     </div>
 
-                    <p className="text-neutral-700 mb-2 leading-relaxed text-sm">{mem.resumo_eco}</p>
-
-                    <div className="text-xs text-neutral-600 space-y-1">
-                      {mem.intensidade != null && (
-                        <p><span className="font-semibold">Intensidade:</span> {mem.intensidade}</p>
-                      )}
-                      {mem.dominio_vida && (
-                        <p><span className="font-semibold">Domínio:</span> {mem.dominio_vida}</p>
-                      )}
-                      {mem.padrao_comportamental && (
-                        <p><span className="font-semibold">Padrão:</span> {mem.padrao_comportamental}</p>
-                      )}
-                    </div>
-
-                    {!!mem.categoria && typeof mem.categoria === 'string' && (
-                      <div className="flex flex-wrap items-center mt-2">
-                        {mem.categoria.split(',').map((tag, tagIndex) => (
-                          <span
-                            key={tagIndex}
-                            className="inline-block bg-neutral-200 text-neutral-700 rounded-full px-3 py-1 text-xs font-medium mr-2 mb-2"
-                          >
-                            {tag.trim()}
-                          </span>
-                        ))}
-                      </div>
-                    )}
+                    <p className="text-neutral-700 text-sm mb-2">
+                      {mem.resumo_eco || 'Sem descrição disponível.'}
+                    </p>
 
                     {Array.isArray(mem.tags) && mem.tags.length > 0 && (
-                      <div className="flex flex-wrap items-center mt-2">
-                        {mem.tags.map((tag: string, tagIndex: number) => (
-                          <span
-                            key={tagIndex}
-                            className="inline-block bg-purple-100 text-purple-800 rounded-full px-3 py-1 text-xs font-medium mr-2 mb-2"
-                          >
-                            {tag.trim()}
-                          </span>
-                        ))}
+                      <div className="flex flex-wrap items-center gap-2">
+                        {mem.tags.map((tag: string, tagIndex: number) => {
+                          const baseTag = tag.toLowerCase();
+                          const colorClass = tagColors[baseTag] || 'bg-purple-100 text-purple-800';
+                          return (
+                            <span
+                              key={tagIndex}
+                              className={`inline-block px-3 py-1 text-xs font-medium rounded-full ${colorClass}`}
+                            >
+                              {tag.trim()}
+                            </span>
+                          );
+                        })}
                       </div>
                     )}
                   </motion.div>

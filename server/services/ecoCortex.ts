@@ -4,8 +4,8 @@ import { updateEmotionalProfile } from './updateEmotionalProfile';
 import { montarContextoEco } from '../controllers/promptController';
 
 const mapRoleForOpenAI = (role: string): 'user' | 'assistant' | 'system' => {
-  if (role === 'model')   return 'assistant';
-  if (role === 'system')  return 'system';
+  if (role === 'model') return 'assistant';
+  if (role === 'system') return 'system';
   return 'user';
 };
 
@@ -36,9 +36,6 @@ export async function getEcoResponse({
   tags?: string[];
 }> {
   try {
-    /* ------------------------------------------------------------------ */
-    /*  1. Validação inicial                                              */
-    /* ------------------------------------------------------------------ */
     if (!Array.isArray(messages) || messages.length === 0) {
       throw new Error('Parâmetro "messages" vazio ou inválido.');
     }
@@ -46,9 +43,6 @@ export async function getEcoResponse({
       throw new Error('Token (accessToken) ausente.');
     }
 
-    /* ------------------------------------------------------------------ */
-    /*  2. Instâncias                                                     */
-    /* ------------------------------------------------------------------ */
     const apiKey = process.env.OPENROUTER_API_KEY;
     if (!apiKey) throw new Error('OPENROUTER_API_KEY não configurada.');
 
@@ -58,10 +52,31 @@ export async function getEcoResponse({
       { global: { headers: { Authorization: `Bearer ${accessToken}` } } }
     );
 
-    /* ------------------------------------------------------------------ */
-    /*  3. Contexto emocional                                             */
-    /* ------------------------------------------------------------------ */
     const ultimaMsg = messages.at(-1)?.content;
+    const palavrasChave = (ultimaMsg || '')
+      .toLowerCase()
+      .split(/\W+/)
+      .filter(p => p.length > 3);
+
+    const { data: memsPorTags } = await supabase
+      .from('memories')
+      .select('*')
+      .eq('usuario_id', userId)
+      .not('tags', 'is', null);
+
+    const memsFiltradas =
+      memsPorTags?.filter(mem =>
+        Array.isArray(mem.tags) &&
+        mem.tags.some((tag: string) =>
+          palavrasChave.includes(tag.toLowerCase())
+        )
+      ).slice(0, 3) || [];
+
+    console.log('[🧠] Memórias puxadas com tags relacionadas:', memsFiltradas.map(m => ({
+      id: m.id,
+      tags: m.tags,
+      resumo: m.resumo_eco
+    })));
 
     const { data: perfil } = await supabase
       .from('perfis_emocionais')
@@ -70,19 +85,11 @@ export async function getEcoResponse({
       .limit(1)
       .maybeSingle();
 
-    const { data: mems } = await supabase
-      .from('memories')
-      .select('*')
-      .eq('usuario_id', userId)
-      .not('tags', 'is', null)
-      .order('data_registro', { ascending: false })
-      .limit(3);
-
     const systemPrompt = await montarContextoEco({
       perfil,
-      mems: mems || [],
       ultimaMsg,
-      modo_compacto: false
+      userId,
+      mems: memsFiltradas
     });
 
     const chatMessages = [
@@ -93,11 +100,6 @@ export async function getEcoResponse({
       }))
     ];
 
-    console.log('🧠 Enviando para OpenRouter:', JSON.stringify(chatMessages, null, 2));
-
-    /* ------------------------------------------------------------------ */
-    /*  4. Chamada ao OpenRouter                                          */
-    /* ------------------------------------------------------------------ */
     const { data } = await axios.post(
       'https://openrouter.ai/api/v1/chat/completions',
       {
@@ -121,9 +123,6 @@ export async function getEcoResponse({
     const raw: string | undefined = data?.choices?.[0]?.message?.content;
     if (!raw) throw new Error('Resposta vazia da IA.');
 
-    /* ------------------------------------------------------------------ */
-    /*  5. Processa resposta da IA                                        */
-    /* ------------------------------------------------------------------ */
     const jsonMatches = [...raw.matchAll(/{\s*"emocao_principal"[\s\S]*?}/g)];
     let cleaned = limparResposta(raw);
     let intensidade: number | undefined;
@@ -133,11 +132,14 @@ export async function getEcoResponse({
 
     if (jsonMatches.length) {
       const json = JSON.parse(jsonMatches.at(-1)![0]);
+
+      console.log('[📦] Bloco técnico extraído da IA:', json);
+
       intensidade = Number(json.intensidade);
-      emocao      = json.emocao_principal;
-      tags        = Array.isArray(json.tags) ? json.tags : [];
-      cleaned     = cleaned.replace(jsonMatches.at(-1)![0], '').trim();
-      resumo      = cleaned;
+      emocao = json.emocao_principal;
+      tags = Array.isArray(json.tags) ? json.tags : [];
+      cleaned = cleaned.replace(jsonMatches.at(-1)![0], '').trim();
+      resumo = cleaned;
 
       const salvar = userId && intensidade >= 7;
       if (salvar) {
@@ -158,14 +160,28 @@ export async function getEcoResponse({
           tags
         }]);
 
-        if (error) console.warn('[⚠️] Falha ao salvar memória:', error);
-        else       await updateEmotionalProfile(userId);
+        if (error) {
+          console.warn('[⚠️] Falha ao salvar memória:', error);
+        } else {
+          console.log('[💾] Memória registrada com sucesso:', {
+            emocao,
+            intensidade,
+            tags,
+            resumo,
+            userId
+          });
+          await updateEmotionalProfile(userId);
+        }
+      } else {
+        console.log('[ℹ️] Intensidade abaixo do limite para salvar memória:', intensidade);
       }
+    } else {
+      console.log('[❌] Nenhum bloco técnico JSON encontrado na resposta da IA.');
     }
 
     return { message: cleaned, intensidade, resumo, emocao, tags };
   } catch (err: any) {
     console.error('❌ getEcoResponse error:', err.message || err);
-    throw err; // Propaga para o caller (rota) retornar 500 com log detalhado
+    throw err;
   }
 }

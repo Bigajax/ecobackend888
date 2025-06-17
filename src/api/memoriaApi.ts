@@ -1,12 +1,8 @@
-// src/api/memoriaApi.ts
-/* -------------------------------------------------------------------------- */
-/*  Importações                                                               */
-/* -------------------------------------------------------------------------- */
 import axios, { AxiosError } from 'axios';
 import { supabase } from '../lib/supabaseClient';
 
 /* -------------------------------------------------------------------------- */
-/*  Tipagem                                                                    */
+/*  Tipagens                                                                  */
 /* -------------------------------------------------------------------------- */
 export interface Memoria {
   id: string;
@@ -27,7 +23,7 @@ export interface Memoria {
 }
 
 /* -------------------------------------------------------------------------- */
-/*  Instância Axios que INJETA o JWT do Supabase                              */
+/*  Axios com JWT automático                                                  */
 /* -------------------------------------------------------------------------- */
 const api = axios.create({ baseURL: '/api' });
 
@@ -43,7 +39,7 @@ api.interceptors.request.use(async (config) => {
 });
 
 /* -------------------------------------------------------------------------- */
-/*  Helper de erro                                                            */
+/*  Tratamento de Erro padrão                                                 */
 /* -------------------------------------------------------------------------- */
 function tratarErro(err: unknown, acao: string): never {
   if (axios.isAxiosError(err)) {
@@ -65,12 +61,12 @@ function tratarErro(err: unknown, acao: string): never {
 }
 
 /* -------------------------------------------------------------------------- */
-/*  API pública                                                                */
+/*  API Pública                                                               */
 /* -------------------------------------------------------------------------- */
 
 /**
- * 🔍 Busca TODAS as memórias do usuário autenticado
- * (Opcionalmente aceita userId – útil se você quiser logar ou depurar.)
+ * 🔍 Busca todas as memórias do usuário autenticado.
+ * @param userId (opcional) - útil para debug/admin
  */
 export async function buscarMemoriasPorUsuario(userId?: string): Promise<Memoria[]> {
   try {
@@ -90,8 +86,9 @@ export async function buscarMemoriasPorUsuario(userId?: string): Promise<Memoria
 }
 
 /**
- * 🔍 Busca as últimas memórias com TAGS
- * (default = 5) do usuário autenticado
+ * 🔍 Busca as últimas memórias com tags válidas do usuário autenticado.
+ * @param userId (opcional)
+ * @param limite Número máximo de memórias retornadas (default: 5)
  */
 export async function buscarUltimasMemoriasComTags(
   userId?: string,
@@ -104,11 +101,9 @@ export async function buscarUltimasMemoriasComTags(
 
     if (data.success && Array.isArray(data.memories)) {
       return data.memories
-        .filter(m => Array.isArray(m.tags) && m.tags.length)
-        .sort(
-          (a, b) =>
-            new Date(b.data_registro || '').getTime() -
-            new Date(a.data_registro || '').getTime()
+        .filter(m => Array.isArray(m.tags) && m.tags.length > 0)
+        .sort((a, b) =>
+          new Date(b.data_registro || '').getTime() - new Date(a.data_registro || '').getTime()
         )
         .slice(0, limite);
     }
