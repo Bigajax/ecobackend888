@@ -85,13 +85,21 @@ router.get('/', async (req, res) => {
   const { limite } = req.query;
 
   try {
-    const { data, error } = await supabaseAdmin
+    let query = supabaseAdmin
       .from('memories')
       .select('*')
       .eq('usuario_id', user.id)
       .eq('salvar_memoria', true)
-      .order('data_registro', { ascending: false })
-      .limit(Number(limite) || 50);
+      .order('data_registro', { ascending: false });
+
+    if (limite) {
+      const lim = Number(limite);
+      if (!isNaN(lim) && lim > 0) {
+        query = query.range(0, lim - 1);
+      }
+    }
+
+    const { data, error } = await query;
 
     if (error) {
       console.error('❌ Erro ao buscar memórias:', error.message, error.details);

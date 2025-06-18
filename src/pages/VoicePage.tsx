@@ -4,6 +4,7 @@ import { Mic, StopCircle, Loader, BookOpen, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { sendVoiceMessage } from '../api/voiceApi';
 import { useAuth } from '../contexts/AuthContext';
+import { supabase } from '../lib/supabaseClient';
 
 const VoicePage: React.FC = () => {
   const { userName, userId } = useAuth();
@@ -61,9 +62,10 @@ const VoicePage: React.FC = () => {
         setEcoAudioURL(null);
 
         try {
-          const response = await sendVoiceMessage(audioBlob, [], userName, userId);
+          const session = await supabase.auth.getSession();
+          const accessToken = session.data.session?.access_token;
+          const response = await sendVoiceMessage(audioBlob, [], userName, userId, accessToken);
 
-          // 🧠 Remove bloco JSON do final do texto da IA
           const ecoTextoLimpo = response.ecoText?.replace(/\{[\s\S]*?\}$/, '').trim();
           console.log('[🧠 Eco disse]:', ecoTextoLimpo);
 
@@ -104,8 +106,6 @@ const VoicePage: React.FC = () => {
       mediaRecorderRef.current?.stream.getTracks().forEach(track => track.stop());
     };
   }, []);
-
-  const isIdle = !isListening && !isProcessing;
 
   return (
     <motion.div

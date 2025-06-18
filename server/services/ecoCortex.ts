@@ -11,11 +11,65 @@ const mapRoleForOpenAI = (role: string): 'user' | 'assistant' | 'system' => {
 
 function limparResposta(text: string): string {
   return text
-    .replace(/```json[\s\S]*?```/g, '')
-    .replace(/```[\s\S]*?```/g, '')
+    .replace(/```json[\s\S]*?```/gi, '')
+    .replace(/```[\s\S]*?```/gi, '')
+    .replace(/{\s*"emocao_principal"[\s\S]*?}/gi, '')
     .replace(/<[^>]*>/g, '')
     .replace(/###.*?###/g, '')
     .trim();
+}
+
+async function gerarBlocoTecnicoSeparado({
+  mensagemUsuario,
+  respostaIa,
+  apiKey
+}: {
+  mensagemUsuario: string;
+  respostaIa: string;
+  apiKey: string;
+}): Promise<any | null> {
+  try {
+    const { data } = await axios.post(
+      'https://openrouter.ai/api/v1/chat/completions',
+      {
+        model: 'openai/gpt-4o',
+        messages: [
+          {
+            role: 'system',
+            content:
+              `Você é uma IA sensível que reconhece emoções humanas com profundidade, mesmo quando expressas de forma sutil. Analise a conversa abaixo e gere um bloco JSON com os campos: emocao_principal, intensidade (de 0 a 10), tags, dominio_vida, padrao_comportamental, nivel_abertura, analise_resumo e categoria.
+
+Se houver indício de emoção significativa (mesmo não verbalizada com força), estime a intensidade emocional. Se a intensidade for igual ou maior que 7, gere o bloco. Se não, responda apenas: null.
+
+Erro por excesso é melhor do que por omissão.`
+          },
+          {
+            role: 'user',
+            content: `Mensagem do usuário: ${mensagemUsuario}\n\nResposta da IA: ${respostaIa}`
+          }
+        ]
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json'
+        }
+      }
+    );
+
+    const raw = data?.choices?.[0]?.message?.content?.trim();
+    if (!raw || raw === 'null') return null;
+
+    const jsonClean = raw
+      .replace(/```json/gi, '')
+      .replace(/```/g, '')
+      .trim();
+
+    return JSON.parse(jsonClean);
+  } catch (err) {
+    console.warn('[⚠️] Erro ao gerar bloco técnico separado:', err);
+    return null;
+  }
 }
 
 export async function getEcoResponse({
@@ -53,43 +107,11 @@ export async function getEcoResponse({
     );
 
     const ultimaMsg = messages.at(-1)?.content;
-    const palavrasChave = (ultimaMsg || '')
-      .toLowerCase()
-      .split(/\W+/)
-      .filter(p => p.length > 3);
-
-    const { data: memsPorTags } = await supabase
-      .from('memories')
-      .select('*')
-      .eq('usuario_id', userId)
-      .not('tags', 'is', null);
-
-    const memsFiltradas =
-      memsPorTags?.filter(mem =>
-        Array.isArray(mem.tags) &&
-        mem.tags.some((tag: string) =>
-          palavrasChave.includes(tag.toLowerCase())
-        )
-      ).slice(0, 3) || [];
-
-    console.log('[🧠] Memórias puxadas com tags relacionadas:', memsFiltradas.map(m => ({
-      id: m.id,
-      tags: m.tags,
-      resumo: m.resumo_eco
-    })));
-
-    const { data: perfil } = await supabase
-      .from('perfis_emocionais')
-      .select('*')
-      .eq('usuario_id', userId)
-      .limit(1)
-      .maybeSingle();
-
     const systemPrompt = await montarContextoEco({
-      perfil,
-      ultimaMsg,
       userId,
-      mems: memsFiltradas
+      ultimaMsg,
+      perfil: null,
+      mems: []
     });
 
     const chatMessages = [
@@ -123,23 +145,35 @@ export async function getEcoResponse({
     const raw: string | undefined = data?.choices?.[0]?.message?.content;
     if (!raw) throw new Error('Resposta vazia da IA.');
 
-    const jsonMatches = [...raw.matchAll(/{\s*"emocao_principal"[\s\S]*?}/g)];
-    let cleaned = limparResposta(raw);
+    const cleaned = limparResposta(raw);
+
+    const bloco = await gerarBlocoTecnicoSeparado({
+      mensagemUsuario: ultimaMsg || '',
+      respostaIa: cleaned,
+      apiKey
+    });
+
     let intensidade: number | undefined;
     let emocao: string | undefined;
-    let resumo: string | undefined = cleaned;
     let tags: string[] = [];
+    let resumo: string | undefined = cleaned;
 
-    if (jsonMatches.length) {
-      const json = JSON.parse(jsonMatches.at(-1)![0]);
+    if (bloco) {
+      intensidade = Number(bloco.intensidade);
+      emocao = bloco.emocao_principal;
+      tags = Array.isArray(bloco.tags) ? bloco.tags : [];
 
-      console.log('[📦] Bloco técnico extraído da IA:', json);
-
-      intensidade = Number(json.intensidade);
-      emocao = json.emocao_principal;
-      tags = Array.isArray(json.tags) ? json.tags : [];
-      cleaned = cleaned.replace(jsonMatches.at(-1)![0], '').trim();
-      resumo = cleaned;
+      // Correção aqui: normaliza nivel_abertura para número
+      const nivelNumerico =
+        typeof bloco.nivel_abertura === 'number'
+          ? bloco.nivel_abertura
+          : bloco.nivel_abertura === 'baixo'
+          ? 1
+          : bloco.nivel_abertura === 'médio'
+          ? 2
+          : bloco.nivel_abertura === 'alto'
+          ? 3
+          : null;
 
       const salvar = userId && intensidade >= 7;
       if (salvar) {
@@ -152,11 +186,11 @@ export async function getEcoResponse({
           contexto: ultimaMsg ?? null,
           salvar_memoria: true,
           data_registro: new Date().toISOString(),
-          dominio_vida: json.dominio_vida ?? null,
-          padrao_comportamental: json.padrao_comportamental ?? null,
-          nivel_abertura: json.nivel_abertura ?? null,
-          analise_resumo: json.analise_resumo ?? null,
-          categoria: json.categoria ?? 'emocional',
+          dominio_vida: bloco.dominio_vida ?? null,
+          padrao_comportamental: bloco.padrao_comportamental ?? null,
+          nivel_abertura: nivelNumerico,
+          analise_resumo: bloco.analise_resumo ?? null,
+          categoria: bloco.categoria ?? 'emocional',
           tags
         }]);
 
@@ -172,11 +206,9 @@ export async function getEcoResponse({
           });
           await updateEmotionalProfile(userId);
         }
-      } else {
-        console.log('[ℹ️] Intensidade abaixo do limite para salvar memória:', intensidade);
       }
     } else {
-      console.log('[❌] Nenhum bloco técnico JSON encontrado na resposta da IA.');
+      console.log('[ℹ️] Nenhum bloco técnico necessário. Intensidade provavelmente abaixo de 7.');
     }
 
     return { message: cleaned, intensidade, resumo, emocao, tags };

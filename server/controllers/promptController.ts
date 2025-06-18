@@ -31,6 +31,7 @@ function extrairTagsRelevantes(mensagem: string): string[] {
     raiva: ['raiva', 'ódio'],
     vazio: ['vazio', 'sem sentido'],
     confusao: ['confuso', 'incerto'],
+    felicidade: ['feliz', 'leve', 'paz', 'alívio', 'gratidão', 'alegria', 'sorrindo', 'encantado', 'riso', 'presença']
   };
 
   const mensagemLower = mensagem.toLowerCase();
@@ -96,12 +97,15 @@ export async function montarContextoEco({
 
   let memsUsadas = mems;
 
-  if (!memsUsadas || memsUsadas.length === 0) {
-    const tagsDetectadas = extrairTagsRelevantes(ultimaMsg || '');
+  // 🔍 Só busca memórias se a mensagem tiver carga emocional
+  const tagsDetectadas = extrairTagsRelevantes(ultimaMsg || '');
+  const temCargaEmocional = tagsDetectadas.length > 0;
+
+  if ((!memsUsadas || memsUsadas.length === 0) && temCargaEmocional) {
     memsUsadas = userId ? await buscarMemoriasRelacionadas(userId, tagsDetectadas) : [];
   }
 
-  if (memsUsadas.length) {
+  if (memsUsadas?.length) {
     const blocos = memsUsadas.map(m => {
       const data = m.data_registro?.slice(0, 10);
       const tags = m.tags?.join(', ') || '';
@@ -133,6 +137,14 @@ export async function montarContextoEco({
     } catch {
       console.warn('[⚠️] Falha ao carregar eco_farewell.txt');
     }
+  }
+
+  // ⚙️ Módulo de critérios para bloco JSON
+  try {
+    const criterios = await fs.readFile(path.join(modulosDir, 'eco_json_trigger_criteria.txt'), 'utf-8');
+    modulosAdicionais.push(`\n\n[Módulo: eco_json_trigger_criteria]\n${criterios.trim()}`);
+  } catch {
+    console.warn('[⚠️] Falha ao carregar eco_json_trigger_criteria.txt');
   }
 
   modulosAdicionais.push(`\n\n[Módulo: eco_forbidden_patterns]\n${forbidden.trim()}`);

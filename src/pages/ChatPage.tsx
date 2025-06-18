@@ -59,6 +59,42 @@ const ChatPage: React.FC = () => {
     setDigitando(true);
     setErroApi(null);
 
+    const saudacoesSimples = ['oi', 'olá', 'bom dia', 'boa tarde', 'boa noite'];
+    const textoNormalizado = text.trim().toLowerCase();
+
+    const hoje = new Date().toDateString();
+    const agora = new Date().toISOString();
+    const ultimaInteracao = localStorage.getItem('eco_ultima_interacao');
+    const interacaoHoje = ultimaInteracao && new Date(ultimaInteracao).toDateString() === hoje;
+    localStorage.setItem('eco_ultima_interacao', agora);
+
+    const mensagensHoje = messages.filter(m =>
+      m.sender === 'user' &&
+      new Date(m.id ? parseInt(m.id.slice(0, 8), 16) * 1000 : Date.now()).toDateString() === hoje
+    );
+
+    const numeroMensagensHoje = mensagensHoje.length;
+    let ecoResposta: string | null = null;
+
+    if (saudacoesSimples.includes(textoNormalizado)) {
+      if (!interacaoHoje || numeroMensagensHoje === 0) {
+        ecoResposta = `Oi, eu sou a Eco. Estou aqui para acolher o que você sente, ${userName}. Podemos explorar juntos — sem pressa, sem destino.`;
+      } else if (numeroMensagensHoje === 1) {
+        ecoResposta = `Oi de novo, ${userName}. Que bom te encontrar aqui outra vez. Podemos continuar de onde paramos — ou seguir por outro caminho, se preferir.`;
+      }
+
+      if (ecoResposta) {
+        const id = uuidv4();
+        const userMessage: Message = { id, text, sender: 'user' };
+        const ecoMessage: Message = { id: uuidv4(), text: ecoResposta, sender: 'eco' };
+
+        addMessage(userMessage);
+        addMessage(ecoMessage);
+        setDigitando(false);
+        return;
+      }
+    }
+
     const id = uuidv4();
     const userMessage: Message = { id, text, sender: 'user' };
     addMessage(userMessage);
@@ -104,8 +140,6 @@ const ChatPage: React.FC = () => {
       }));
 
       const resposta = await enviarMensagemParaEco(mensagensFormatadas, userName, userId!);
-
-      // REMOVE o bloco JSON ao final da resposta (se existir)
       const textoLimpo = resposta.replace(/\{[\s\S]*?\}$/, '').trim();
       const ecoMessage: Message = { id: uuidv4(), text: textoLimpo, sender: 'eco' };
       addMessage(ecoMessage);
