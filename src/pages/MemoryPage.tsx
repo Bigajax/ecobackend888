@@ -7,28 +7,10 @@ import { useAuth } from '../contexts/AuthContext';
 import { buscarMemoriasPorUsuario, Memoria } from '../api/memoriaApi';
 import { buscarPerfilEmocional } from '../api/perfilApi';
 
-const tagColors: Record<string, string> = {
-  'silêncio': 'bg-white text-neutral-500 border border-neutral-200',
-  'peso': 'bg-neutral-300 text-neutral-700',
-  'desconexão': 'bg-blue-100 text-blue-800',
-  'desânimo': 'bg-gray-200 text-gray-700',
-  'perda de sentido': 'bg-slate-100 text-slate-600',
-  'perda de cor': 'bg-purple-100 text-purple-800',
-  'distanciamento': 'bg-purple-200 text-purple-900'
-};
-
-const formatDateToHuman = (dateStr: string) => {
-  const date = new Date(dateStr);
-  const diff = Math.floor((Date.now() - date.getTime()) / (1000 * 60 * 60 * 24));
-  if (diff === 0) return 'Hoje';
-  if (diff === 1) return 'Ontem';
-  return `${diff} dias atrás`;
-};
-
 const MemoryPage: React.FC = () => {
   const { userId } = useAuth();
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState<'memories' | 'profile'>('memories');
+  const [activeTab, setActiveTab] = useState<'memories' | 'profile'>('profile');
   const [memories, setMemories] = useState<Memoria[]>([]);
   const [perfil, setPerfil] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -65,6 +47,24 @@ const MemoryPage: React.FC = () => {
   }, [userId]);
 
   const handleBack = () => navigate('/chat');
+
+  const renderBar = (label: string, value: number, total: number) => {
+    const percent = (value / total) * 100;
+    return (
+      <div className="mb-3">
+        <div className="flex justify-between text-xs text-neutral-600 mb-1">
+          <span>{label}</span>
+          <span>{value}</span>
+        </div>
+        <div className="w-full h-2 bg-neutral-200 rounded-full overflow-hidden">
+          <div
+            className="h-full bg-pink-400 rounded-full"
+            style={{ width: `${percent}%` }}
+          />
+        </div>
+      </div>
+    );
+  };
 
   return (
     <PhoneFrame className="flex flex-col h-full bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50">
@@ -107,99 +107,49 @@ const MemoryPage: React.FC = () => {
           </div>
         ) : (
           <>
-            {activeTab === 'memories' &&
-              (memories.length === 0 ? (
-                <p className="text-center text-neutral-500 mt-10 text-sm">Nenhuma memória salva ainda.</p>
-              ) : (
-                memories.map((mem, index) => (
-                  <motion.div
-                    key={mem.id}
-                    className="backdrop-blur bg-white/80 border border-neutral-200 p-4 mb-4 rounded-3xl shadow-lg hover:shadow-xl transition-all"
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: index * 0.05 }}
-                  >
-                    <div className="flex justify-between items-center mb-2">
-                      <h3 className="text-base font-semibold text-neutral-800">
-                        {mem.emocao_principal || 'Memória'}
-                      </h3>
-                      {mem.data_registro && (
-                        <span className="text-xs text-neutral-500">
-                          {formatDateToHuman(mem.data_registro)}
-                        </span>
-                      )}
-                    </div>
-
-                    <p className="text-neutral-700 text-sm mb-2">
-                      {mem.resumo_eco || 'Sem descrição disponível.'}
-                    </p>
-
-                    {Array.isArray(mem.tags) && mem.tags.length > 0 && (
-                      <div className="flex flex-wrap items-center gap-2">
-                        {mem.tags.map((tag: string, tagIndex: number) => {
-                          const baseTag = tag.toLowerCase();
-                          const colorClass = tagColors[baseTag] || 'bg-purple-100 text-purple-800';
-                          return (
-                            <span
-                              key={tagIndex}
-                              className={`inline-block px-3 py-1 text-xs font-medium rounded-full ${colorClass}`}
-                            >
-                              {tag.trim()}
-                            </span>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </motion.div>
-                ))
-              ))}
-
-            {activeTab === 'profile' &&
-              (perfil ? (
-                <div className="bg-white/80 border border-neutral-200 p-4 rounded-3xl shadow-lg">
-                  <h3 className="text-lg font-light mb-2 text-neutral-800">Resumo Geral</h3>
-                  <p className="text-neutral-700 mb-4 text-sm">
-                    {perfil.resumo_geral_ia || 'Nenhum resumo disponível.'}
-                  </p>
-
-                  <div className="mb-4">
-                    <h4 className="font-semibold text-neutral-700 text-sm">Emoções Frequentes</h4>
-                    <ul className="list-disc ml-5 text-sm text-neutral-600">
-                      {Object.entries(perfil.emocoes_frequentes || {}).length > 0 ? (
-                        Object.entries(perfil.emocoes_frequentes).map(([emo, count]) => (
-                          <li key={emo}>{emo}: {count}</li>
-                        ))
-                      ) : (
-                        <li>Nenhum dado emocional encontrado.</li>
-                      )}
-                    </ul>
-                  </div>
-
-                  <div className="mb-4">
-                    <h4 className="font-semibold text-neutral-700 text-sm">Temas/Padrões Recorrentes</h4>
-                    <ul className="list-disc ml-5 text-sm text-neutral-600">
-                      {Object.entries(perfil.temas_recorrentes || {}).length > 0 ? (
-                        Object.entries(perfil.temas_recorrentes).map(([tema, count]) => (
-                          <li key={tema}>{tema}: {count}</li>
-                        ))
-                      ) : (
-                        <li>Nenhum padrão recorrente identificado.</li>
-                      )}
-                    </ul>
-                  </div>
-
-                  <p className="text-xs text-neutral-500">
-                    Última interação significativa:{' '}
-                    {perfil.ultima_interacao_sig
-                      ? new Date(perfil.ultima_interacao_sig).toLocaleDateString()
-                      : 'Indisponível'}
-                  </p>
-                </div>
-              ) : (
-                <p className="text-center text-neutral-500 mt-10 text-sm">
-                  Nenhum perfil emocional foi gerado ainda. Interaja mais com a Eco para que possamos criar um para você 🌱
+            {activeTab === 'profile' && perfil && (
+              <div className="bg-white/80 border border-neutral-200 p-4 rounded-3xl shadow-lg">
+                <h3 className="text-lg font-light mb-2 text-neutral-800">Resumo Geral</h3>
+                <p className="text-neutral-700 mb-6 text-sm leading-relaxed whitespace-pre-line">
+                  {perfil.resumo_geral_ia || 'Nenhum resumo disponível.'}
                 </p>
-              ))}
+
+                <div className="mb-6">
+                  <h4 className="font-semibold text-neutral-700 text-sm mb-3">Emoções Frequentes</h4>
+                  {Object.entries(perfil.emocoes_frequentes || {}).length > 0 ? (
+                    Object.entries(perfil.emocoes_frequentes).map(([emo, count]) =>
+                      renderBar(emo, Number(count), perfil.total_emocoes || 100)
+                    )
+                  ) : (
+                    <p className="text-neutral-500 text-sm">Nenhum dado emocional encontrado.</p>
+                  )}
+                </div>
+
+                <div className="mb-6">
+                  <h4 className="font-semibold text-neutral-700 text-sm mb-3">Temas/Padrões Recorrentes</h4>
+                  {Object.entries(perfil.temas_recorrentes || {}).length > 0 ? (
+                    Object.entries(perfil.temas_recorrentes).map(([tema, count]) =>
+                      renderBar(tema, Number(count), perfil.total_temas || 100)
+                    )
+                  ) : (
+                    <p className="text-neutral-500 text-sm">Nenhum padrão recorrente identificado.</p>
+                  )}
+                </div>
+
+                <p className="text-xs text-neutral-500">
+                  Última interação significativa:{' '}
+                  {perfil.ultima_interacao_sig
+                    ? new Date(perfil.ultima_interacao_sig).toLocaleDateString()
+                    : 'Indisponível'}
+                </p>
+              </div>
+            )}
+
+            {activeTab === 'memories' && (
+              <p className="text-center text-neutral-500 mt-10 text-sm">
+                (Em breve) Exibição interativa das suas memórias 🌱
+              </p>
+            )}
           </>
         )}
       </div>

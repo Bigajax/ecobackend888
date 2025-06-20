@@ -13,6 +13,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useChat, Message } from '../contexts/ChatContext';
 import { salvarMensagem } from '../api/mensagem';
 import { differenceInDays } from 'date-fns';
+import { extrairTagsRelevantes } from '../utils/extrairTagsRelevantes';
 
 const ChatPage: React.FC = () => {
   const { messages, addMessage, clearMessages } = useChat();
@@ -113,7 +114,14 @@ const ChatPage: React.FC = () => {
         { id: mensagemId, role: 'user', content: text },
       ];
 
-      const memorias = await buscarUltimasMemoriasComTags(userId!);
+      // ➕ Verifica se há carga emocional antes de puxar memórias
+      const tags = extrairTagsRelevantes(text);
+      let memorias: any[] = [];
+
+      if (tags.length > 0) {
+        memorias = await buscarUltimasMemoriasComTags(userId!, tags);
+      }
+
       const contextoMemorias = memorias.map(m => (
         `(${new Date(m.data_registro || '').toLocaleDateString()}): ${m.resumo_eco}` +
         (m.tags?.length ? ` [tags: ${m.tags.join(', ')}]` : '')

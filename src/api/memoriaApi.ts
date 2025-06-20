@@ -1,3 +1,4 @@
+// src/api/memoriaApi.ts
 import axios, { AxiosError } from 'axios';
 import { supabase } from '../lib/supabaseClient';
 
@@ -39,7 +40,7 @@ api.interceptors.request.use(async (config) => {
 });
 
 /* -------------------------------------------------------------------------- */
-/*  Tratamento de Erro padrão                                                 */
+/*  Tratamento de erro padrão                                                 */
 /* -------------------------------------------------------------------------- */
 function tratarErro(err: unknown, acao: string): never {
   if (axios.isAxiosError(err)) {
@@ -65,9 +66,45 @@ function tratarErro(err: unknown, acao: string): never {
 /* -------------------------------------------------------------------------- */
 
 /**
- * 🔍 Busca todas as memórias do usuário autenticado.
- * @param userId (opcional) - útil para debug/admin
+ * 🔍 Busca as últimas memórias do usuário que possuam *alguma* das tags pedidas.
+ *   – Se `tags` vier vazio, devolve [] imediatamente (não faz request).
+ *   – O backend deve filtrar via `.overlaps('tags', tags)` ou equivalente.
  */
+export async function buscarUltimasMemoriasComTags(
+  userId: string,
+  tags: string[],
+  limite = 5
+): Promise<Memoria[]> {
+  try {
+    if (!tags.length) return [];                        // 🚫 Sem emoção → sem chamada
+
+    const { data } = await api.get<{ success: boolean; memories: Memoria[] }>('/memorias', {
+      params: {
+        usuario_id: userId,
+        tags: tags.join(','),                          // ajuste se seu backend espera outro formato
+        limite,
+      },
+    });
+
+    if (data.success && Array.isArray(data.memories)) {
+      return data.memories
+        .filter(m => Array.isArray(m.tags) && m.tags.length > 0)
+        .sort((a, b) =>
+          new Date(b.data_registro || '').getTime() -
+          new Date(a.data_registro || '').getTime()
+        )
+        .slice(0, limite);
+    }
+
+    return [];
+  } catch (err) {
+    tratarErro(err, 'buscar memórias com tags');
+  }
+}
+
+/* -------------------------------------------------------------------------- */
+/*  (mantive a função buscarMemoriasPorUsuario intacta, se ainda precisar)    */
+/* -------------------------------------------------------------------------- */
 export async function buscarMemoriasPorUsuario(userId?: string): Promise<Memoria[]> {
   try {
     const { data } = await api.get<{ success: boolean; memories: Memoria[] }>('/memorias', {
@@ -82,34 +119,5 @@ export async function buscarMemoriasPorUsuario(userId?: string): Promise<Memoria
     return [];
   } catch (err) {
     tratarErro(err, 'buscar memórias');
-  }
-}
-
-/**
- * 🔍 Busca as últimas memórias com tags válidas do usuário autenticado.
- * @param userId (opcional)
- * @param limite Número máximo de memórias retornadas (default: 5)
- */
-export async function buscarUltimasMemoriasComTags(
-  userId?: string,
-  limite = 5
-): Promise<Memoria[]> {
-  try {
-    const { data } = await api.get<{ success: boolean; memories: Memoria[] }>('/memorias', {
-      params: { limite, ...(userId ? { usuario_id: userId } : {}) },
-    });
-
-    if (data.success && Array.isArray(data.memories)) {
-      return data.memories
-        .filter(m => Array.isArray(m.tags) && m.tags.length > 0)
-        .sort((a, b) =>
-          new Date(b.data_registro || '').getTime() - new Date(a.data_registro || '').getTime()
-        )
-        .slice(0, limite);
-    }
-
-    return [];
-  } catch (err) {
-    tratarErro(err, 'buscar memórias com tags');
   }
 }

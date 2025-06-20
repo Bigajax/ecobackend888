@@ -96,8 +96,6 @@ export async function montarContextoEco({
   }
 
   let memsUsadas = mems;
-
-  // 🔍 Só busca memórias se a mensagem tiver carga emocional
   const tagsDetectadas = extrairTagsRelevantes(ultimaMsg || '');
   const temCargaEmocional = tagsDetectadas.length > 0;
 
@@ -139,7 +137,6 @@ export async function montarContextoEco({
     }
   }
 
-  // ⚙️ Módulo de critérios para bloco JSON
   try {
     const criterios = await fs.readFile(path.join(modulosDir, 'eco_json_trigger_criteria.txt'), 'utf-8');
     modulosAdicionais.push(`\n\n[Módulo: eco_json_trigger_criteria]\n${criterios.trim()}`);

@@ -13,9 +13,20 @@ function limparResposta(text: string): string {
   return text
     .replace(/```json[\s\S]*?```/gi, '')
     .replace(/```[\s\S]*?```/gi, '')
-    .replace(/{\s*"emocao_principal"[\s\S]*?}/gi, '')
     .replace(/<[^>]*>/g, '')
     .replace(/###.*?###/g, '')
+    .replace(/\r\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function formatarTextoEco(texto: string): string {
+  return texto
+    .replace(/\n{3,}/g, '\n\n') // reduz espaçamentos triplos ou mais para duplo
+    .replace(/\s*\n\s*/g, '\n') // limpa espaços extras nas bordas das linhas
+    .replace(/(?<!\n)\n(?!\n)/g, '\n\n') // garante que toda quebra simples se torne um parágrafo
+    .replace(/^-\s+/gm, '— ') // substitui traços soltos por travessão correto
+    .replace(/^\s+/gm, '') // remove espaços iniciais de cada linha
     .trim();
 }
 
@@ -145,7 +156,7 @@ export async function getEcoResponse({
     const raw: string | undefined = data?.choices?.[0]?.message?.content;
     if (!raw) throw new Error('Resposta vazia da IA.');
 
-    const cleaned = limparResposta(raw);
+    const cleaned = formatarTextoEco(limparResposta(raw));
 
     const bloco = await gerarBlocoTecnicoSeparado({
       mensagemUsuario: ultimaMsg || '',
@@ -163,7 +174,6 @@ export async function getEcoResponse({
       emocao = bloco.emocao_principal;
       tags = Array.isArray(bloco.tags) ? bloco.tags : [];
 
-      // Correção aqui: normaliza nivel_abertura para número
       const nivelNumerico =
         typeof bloco.nivel_abertura === 'number'
           ? bloco.nivel_abertura
