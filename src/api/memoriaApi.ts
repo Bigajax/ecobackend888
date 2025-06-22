@@ -1,4 +1,3 @@
-// src/api/memoriaApi.ts
 import axios, { AxiosError } from 'axios';
 import { supabase } from '../lib/supabaseClient';
 
@@ -67,8 +66,6 @@ function tratarErro(err: unknown, acao: string): never {
 
 /**
  * 🔍 Busca as últimas memórias do usuário que possuam *alguma* das tags pedidas.
- *   – Se `tags` vier vazio, devolve [] imediatamente (não faz request).
- *   – O backend deve filtrar via `.overlaps('tags', tags)` ou equivalente.
  */
 export async function buscarUltimasMemoriasComTags(
   userId: string,
@@ -76,22 +73,28 @@ export async function buscarUltimasMemoriasComTags(
   limite = 5
 ): Promise<Memoria[]> {
   try {
-    if (!tags.length) return [];                        // 🚫 Sem emoção → sem chamada
+    if (!tags.length) return [];
 
     const { data } = await api.get<{ success: boolean; memories: Memoria[] }>('/memorias', {
       params: {
-        usuario_id: userId,
-        tags: tags.join(','),                          // ajuste se seu backend espera outro formato
-        limite,
+        tags,
+        limite
       },
+      paramsSerializer: (params) => {
+        const search = new URLSearchParams();
+        if (Array.isArray(params.tags)) {
+          params.tags.forEach(tag => search.append('tags', tag));
+        }
+        if (params.limite) search.set('limite', params.limite);
+        return search.toString();
+      }
     });
 
     if (data.success && Array.isArray(data.memories)) {
       return data.memories
         .filter(m => Array.isArray(m.tags) && m.tags.length > 0)
         .sort((a, b) =>
-          new Date(b.data_registro || '').getTime() -
-          new Date(a.data_registro || '').getTime()
+          new Date(b.data_registro || '').getTime() - new Date(a.data_registro || '').getTime()
         )
         .slice(0, limite);
     }
@@ -102,13 +105,13 @@ export async function buscarUltimasMemoriasComTags(
   }
 }
 
-/* -------------------------------------------------------------------------- */
-/*  (mantive a função buscarMemoriasPorUsuario intacta, se ainda precisar)    */
-/* -------------------------------------------------------------------------- */
+/**
+ * 📥 Busca todas as memórias do usuário (opcional: por ID).
+ */
 export async function buscarMemoriasPorUsuario(userId?: string): Promise<Memoria[]> {
   try {
     const { data } = await api.get<{ success: boolean; memories: Memoria[] }>('/memorias', {
-      params: userId ? { usuario_id: userId } : undefined,
+      params: userId ? { usuario_id: userId } : undefined
     });
 
     if (data.success && Array.isArray(data.memories)) {

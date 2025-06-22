@@ -2,6 +2,7 @@ import axios from 'axios';
 import { createClient } from '@supabase/supabase-js';
 import { updateEmotionalProfile } from './updateEmotionalProfile';
 import { montarContextoEco } from '../controllers/promptController';
+import { embedTextoCompleto } from './embeddingService';
 
 const mapRoleForOpenAI = (role: string): 'user' | 'assistant' | 'system' => {
   if (role === 'model') return 'assistant';
@@ -22,11 +23,11 @@ function limparResposta(text: string): string {
 
 function formatarTextoEco(texto: string): string {
   return texto
-    .replace(/\n{3,}/g, '\n\n') // reduz espaçamentos triplos ou mais para duplo
-    .replace(/\s*\n\s*/g, '\n') // limpa espaços extras nas bordas das linhas
-    .replace(/(?<!\n)\n(?!\n)/g, '\n\n') // garante que toda quebra simples se torne um parágrafo
-    .replace(/^-\s+/gm, '— ') // substitui traços soltos por travessão correto
-    .replace(/^\s+/gm, '') // remove espaços iniciais de cada linha
+    .replace(/\n{3,}/g, '\n\n')
+    .replace(/\s*\n\s*/g, '\n')
+    .replace(/(?<!\n)\n(?!\n)/g, '\n\n')
+    .replace(/^-\s+/gm, '— ')
+    .replace(/^\s+/gm, '')
     .trim();
 }
 
@@ -47,8 +48,7 @@ async function gerarBlocoTecnicoSeparado({
         messages: [
           {
             role: 'system',
-            content:
-              `Você é uma IA sensível que reconhece emoções humanas com profundidade, mesmo quando expressas de forma sutil. Analise a conversa abaixo e gere um bloco JSON com os campos: emocao_principal, intensidade (de 0 a 10), tags, dominio_vida, padrao_comportamental, nivel_abertura, analise_resumo e categoria.
+            content: `Você é uma IA sensível que reconhece emoções humanas com profundidade, mesmo quando expressas de forma sutil. Analise a conversa abaixo e gere um bloco JSON com os campos: emocao_principal, intensidade (de 0 a 10), tags, dominio_vida, padrao_comportamental, nivel_abertura, analise_resumo e categoria.
 
 Se houver indício de emoção significativa (mesmo não verbalizada com força), estime a intensidade emocional. Se a intensidade for igual ou maior que 7, gere o bloco. Se não, responda apenas: null.
 
@@ -71,11 +71,7 @@ Erro por excesso é melhor do que por omissão.`
     const raw = data?.choices?.[0]?.message?.content?.trim();
     if (!raw || raw === 'null') return null;
 
-    const jsonClean = raw
-      .replace(/```json/gi, '')
-      .replace(/```/g, '')
-      .trim();
-
+    const jsonClean = raw.replace(/```json/gi, '').replace(/```/g, '').trim();
     return JSON.parse(jsonClean);
   } catch (err) {
     console.warn('[⚠️] Erro ao gerar bloco técnico separado:', err);
@@ -157,7 +153,6 @@ export async function getEcoResponse({
     if (!raw) throw new Error('Resposta vazia da IA.');
 
     const cleaned = formatarTextoEco(limparResposta(raw));
-
     const bloco = await gerarBlocoTecnicoSeparado({
       mensagemUsuario: ultimaMsg || '',
       respostaIa: cleaned,
@@ -186,7 +181,11 @@ export async function getEcoResponse({
           : null;
 
       const salvar = userId && intensidade >= 7;
+
       if (salvar) {
+        const textoParaEmbedding = [cleaned, bloco.analise_resumo ?? ''].join('\n');
+        const embedding = await embedTextoCompleto(textoParaEmbedding);
+
         const { error } = await supabase.from('memories').insert([{
           usuario_id: userId,
           mensagem_id: messages.at(-1)?.id ?? null,
@@ -201,7 +200,8 @@ export async function getEcoResponse({
           nivel_abertura: nivelNumerico,
           analise_resumo: bloco.analise_resumo ?? null,
           categoria: bloco.categoria ?? 'emocional',
-          tags
+          tags,
+          embedding
         }]);
 
         if (error) {
