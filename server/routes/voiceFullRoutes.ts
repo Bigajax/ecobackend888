@@ -12,8 +12,8 @@ router.post('/transcribe-and-respond', upload.single('audio'), async (req, res) 
     const audioFile = req.file;
     const { nome_usuario, usuario_id, mensagens, access_token } = req.body;
 
-    if (!audioFile || !nome_usuario || !access_token) {
-      return res.status(400).json({ error: 'Áudio, nome do usuário e token são obrigatórios.' });
+    if (!audioFile || !access_token) {
+      return res.status(400).json({ error: 'Áudio e token são obrigatórios.' });
     }
 
     console.log('📥 Dados recebidos:', {
@@ -45,7 +45,6 @@ router.post('/transcribe-and-respond', upload.single('audio'), async (req, res) 
     console.log('🤖 Chamando getEcoResponse...');
     const ecoResponse = await getEcoResponse({
       messages: mensagensFormatadas,
-      userName: nome_usuario,
       userId: usuario_id || 'anon',
       accessToken: access_token
     });
@@ -70,7 +69,7 @@ router.post('/transcribe-and-respond', upload.single('audio'), async (req, res) 
 });
 
 router.post('/ask-eco', async (req, res) => {
-  const { usuario_id, mensagem, mensagens, nome_usuario, access_token } = req.body;
+  const { usuario_id, mensagem, mensagens, access_token } = req.body;
 
   if (!usuario_id || (!mensagem && !mensagens)) {
     return res.status(400).json({ error: "usuario_id e mensagens são obrigatórios." });
@@ -86,7 +85,6 @@ router.post('/ask-eco', async (req, res) => {
     const resposta = await getEcoResponse({
       messages: mensagensParaIA,
       userId: usuario_id,
-      userName: nome_usuario,
       accessToken: access_token
     });
 

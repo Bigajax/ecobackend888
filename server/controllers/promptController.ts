@@ -2,6 +2,7 @@ import path from 'path';
 import fs from 'fs/promises';
 import { Request, Response } from 'express';
 import { createClient } from '@supabase/supabase-js';
+import { embedTextoCompleto } from '../services/embeddingService';
 
 const supabase = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_ANON_KEY!);
 
@@ -19,48 +20,17 @@ interface Memoria {
   intensidade?: number;
 }
 
-function extrairTagsRelevantes(mensagem: string): string[] {
-  const mapa: Record<string, string[]> = {
-    tristeza: ['triste', 'chorar', 'desânimo', 'abatido'],
-    medo: ['medo', 'receio', 'inseguro'],
-    culpa: ['culpa', 'remorso'],
-    rejeicao: ['rejeição', 'recusado'],
-    fracasso: ['fracasso', 'erro', 'falhei'],
-    pressao: ['pressão', 'cobrança'],
-    ansioso: ['ansioso', 'afobado'],
-    raiva: ['raiva', 'ódio'],
-    vazio: ['vazio', 'sem sentido'],
-    confusao: ['confuso', 'incerto'],
-    felicidade: ['feliz', 'leve', 'paz', 'alívio', 'gratidão', 'alegria', 'sorrindo', 'encantado', 'riso', 'presença']
-  };
+async function buscarMemoriasSemelhantes(userId: string, input: string): Promise<Memoria[]> {
+  const vetor = await embedTextoCompleto(input);
+  const vetorSQL = `'[${vetor.join(',')}]'`;
 
-  const mensagemLower = mensagem.toLowerCase();
-  const tags = new Set<string>();
-
-  for (const [tag, palavras] of Object.entries(mapa)) {
-    if (palavras.some(p => mensagemLower.includes(p))) {
-      tags.add(tag);
-    }
-  }
-
-  return Array.from(tags);
-}
-
-async function buscarMemoriasRelacionadas(userId: string, tags: string[]): Promise<Memoria[]> {
-  if (!tags.length) return [];
-
-  const { data, error } = await supabase
-    .from('memories')
-    .select('*')
-    .eq('usuario_id', userId)
-    .eq('salvar_memoria', true)
-    .overlaps('tags', tags)
-    .gte('intensidade', 7)
-    .order('data_registro', { ascending: false })
-    .limit(3);
+  const { data, error } = await supabase.rpc('buscar_memorias_semelhantes', {
+    usuario_id_param: userId,
+    vetor_param: vetorSQL
+  });
 
   if (error) {
-    console.warn('[⚠️] Erro ao buscar memórias por tags:', error.message);
+    console.warn('[⚠️] Erro ao buscar memórias por similaridade:', error.message);
     return [];
   }
 
@@ -96,11 +66,10 @@ export async function montarContextoEco({
   }
 
   let memsUsadas = mems;
-  const tagsDetectadas = extrairTagsRelevantes(ultimaMsg || '');
-  const temCargaEmocional = tagsDetectadas.length > 0;
+  const entrada = ultimaMsg?.toLowerCase().trim() || '';
 
-  if ((!memsUsadas || memsUsadas.length === 0) && temCargaEmocional) {
-    memsUsadas = userId ? await buscarMemoriasRelacionadas(userId, tagsDetectadas) : [];
+  if ((!memsUsadas || memsUsadas.length === 0) && entrada && userId) {
+    memsUsadas = await buscarMemoriasSemelhantes(userId, entrada);
   }
 
   if (memsUsadas?.length) {
@@ -113,9 +82,7 @@ export async function montarContextoEco({
     contexto += `\n\n📘 Memórias relacionadas ao momento atual:\n${blocos}`;
   }
 
-  const entrada = ultimaMsg?.toLowerCase().trim() || '';
   const modulosAdicionais: string[] = [];
-
   const entradasAmorfas = ['oi', '...', 'não sei', 'tô aqui', 'vim', 'só passei', 'só queria conversar'];
   const palavrasDespedida = ['obrigado', 'valeu', 'por hoje', 'preciso ir', 'até logo', 'encerrou'];
 
