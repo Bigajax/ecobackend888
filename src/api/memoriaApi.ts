@@ -1,3 +1,6 @@
+/* src/api/memoriaApi.ts
+   — funções de acesso ao backend de memórias — */
+
 import axios, { AxiosError } from 'axios';
 import { supabase } from '../lib/supabaseClient';
 
@@ -20,6 +23,25 @@ export interface Memoria {
   nivel_abertura?: number | null;
   analise_resumo?: string | null;
   tags?: string[];
+}
+
+export interface MemoriaSimilar {
+  id: string;
+  contexto: string;
+  resumo_eco: string;
+  data_registro?: string | null;
+  tags?: string[];
+  similaridade: number;
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Utilitários                                                               */
+/* -------------------------------------------------------------------------- */
+function serializarParametrosTags(tags: string[], limite: number): string {
+  const search = new URLSearchParams();
+  tags.forEach(tag => search.append('tags', tag));
+  search.set('limite', String(limite));
+  return search.toString();
 }
 
 /* -------------------------------------------------------------------------- */
@@ -76,27 +98,22 @@ export async function buscarUltimasMemoriasComTags(
     if (!tags.length) return [];
 
     const { data } = await api.get<{ success: boolean; memories: Memoria[] }>('/memorias', {
-      params: {
-        tags,
-        limite
-      },
-      paramsSerializer: (params) => {
-        const search = new URLSearchParams();
-        if (Array.isArray(params.tags)) {
-          params.tags.forEach(tag => search.append('tags', tag));
-        }
-        if (params.limite) search.set('limite', params.limite);
-        return search.toString();
-      }
+      params: { tags, limite },
+      paramsSerializer: () => serializarParametrosTags(tags, limite),
     });
 
     if (data.success && Array.isArray(data.memories)) {
       return data.memories
         .filter(m => Array.isArray(m.tags) && m.tags.length > 0)
         .sort((a, b) =>
-          new Date(b.data_registro || '').getTime() - new Date(a.data_registro || '').getTime()
+          new Date(b.data_registro || '').getTime() -
+          new Date(a.data_registro || '').getTime()
         )
         .slice(0, limite);
+    }
+
+    if (process.env.NODE_ENV !== 'production') {
+      console.warn('[memoriaApi] Resposta inesperada em buscarUltimasMemoriasComTags:', data);
     }
 
     return [];
@@ -106,21 +123,52 @@ export async function buscarUltimasMemoriasComTags(
 }
 
 /**
- * 📥 Busca todas as memórias do usuário (opcional: por ID).
+ * 📥 Busca todas as memórias do usuário (ou somente as dele, se userId passado).
  */
 export async function buscarMemoriasPorUsuario(userId?: string): Promise<Memoria[]> {
   try {
     const { data } = await api.get<{ success: boolean; memories: Memoria[] }>('/memorias', {
-      params: userId ? { usuario_id: userId } : undefined
+      params: userId ? { usuario_id: userId } : undefined,
     });
 
     if (data.success && Array.isArray(data.memories)) {
       return data.memories;
     }
 
-    console.warn('[memoriaApi] Resposta inesperada:', data);
+    if (process.env.NODE_ENV !== 'production') {
+      console.warn('[memoriaApi] Resposta inesperada em buscarMemoriasPorUsuario:', data);
+    }
+
     return [];
   } catch (err) {
     tratarErro(err, 'buscar memórias');
+  }
+}
+
+/**
+ * 🧠 Busca memórias semanticamente parecidas com um texto.
+ * (usa o endpoint POST /api/memorias/similares)
+ */
+export async function buscarMemoriasSimilares(
+  texto: string,
+  limite = 3
+): Promise<MemoriaSimilar[]> {
+  try {
+    const { data } = await api.post<{
+      sucesso: boolean;
+      similares: MemoriaSimilar[];
+    }>('/memorias/similares', { texto, limite });
+
+    if (data.sucesso && Array.isArray(data.similares)) {
+      return data.similares;
+    }
+
+    if (process.env.NODE_ENV !== 'production') {
+      console.warn('[memoriaApi] Resposta inesperada de similares:', data);
+    }
+
+    return [];
+  } catch (err) {
+    tratarErro(err, 'buscar memórias semelhantes');
   }
 }

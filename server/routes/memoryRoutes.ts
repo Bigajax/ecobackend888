@@ -44,7 +44,6 @@ router.post('/registrar', async (req, res) => {
     categoria = 'emocional',
   } = req.body;
 
-  /* ✓ Validação mínima */
   if (
     !texto ||
     typeof intensidade !== 'number' ||
@@ -56,19 +55,13 @@ router.post('/registrar', async (req, res) => {
   }
 
   try {
-    /* 1️⃣  Texto base para embedding */
     const textoBase = [texto, analise_resumo ?? ''].join('\n');
-
-    /* 2️⃣  Gera embedding (OpenAI / Router) */
     const embedding = await embedTextoCompleto(textoBase);
-
-    /* 3️⃣  Calcula nível de abertura se não veio */
     const nivelCalc =
       typeof nivel_abertura === 'number'
         ? nivel_abertura
         : heuristicaNivelAbertura(texto);
 
-    /* 4️⃣  Insere no Supabase */
     const { data, error } = await supabaseAdmin
       .from('memories')
       .insert([
@@ -87,16 +80,14 @@ router.post('/registrar', async (req, res) => {
           analise_resumo: analise_resumo ?? null,
           categoria,
           data_registro: new Date().toISOString(),
-          embedding, // <— novo campo
+          embedding,
         },
       ])
       .select();
 
     if (error) {
       console.error('❌ Erro ao salvar memória:', error.message, error.details);
-      return res
-        .status(500)
-        .json({ erro: 'Erro ao salvar memória no Supabase.' });
+      return res.status(500).json({ erro: 'Erro ao salvar memória no Supabase.' });
     }
 
     console.log('✅ Memória salva com sucesso:', data);
@@ -135,9 +126,7 @@ router.get('/', async (req, res) => {
 
     if (error) {
       console.error('❌ Erro ao buscar memórias:', error.message, error.details);
-      return res
-        .status(500)
-        .json({ error: 'Erro ao buscar memórias no Supabase.' });
+      return res.status(500).json({ error: 'Erro ao buscar memórias no Supabase.' });
     }
 
     const memoriesFiltradas = (data || []).filter(
@@ -152,6 +141,46 @@ router.get('/', async (req, res) => {
   } catch (err: any) {
     console.error('❌ Erro inesperado ao buscar memórias:', err.message || err);
     return res.status(500).json({ error: 'Erro inesperado no servidor.' });
+  }
+});
+
+/* ────────────────────────────────────────────────
+   POST /api/memorias/similares → busca memórias similares
+────────────────────────────────────────────────── */
+router.post('/similares', async (req, res) => {
+  const user = await getUsuarioAutenticado(req);
+  if (!user) return res.status(401).json({ erro: 'Usuário não autenticado.' });
+
+  const { texto, limite = 5 } = req.body;
+
+  if (!texto || typeof texto !== 'string') {
+    return res.status(400).json({ erro: 'Texto para análise é obrigatório.' });
+  }
+
+  try {
+    const embedding = await embedTextoCompleto(texto);
+
+    const { data, error } = await supabaseAdmin.rpc(
+      'buscar_memorias_semelhantes',
+      {
+        consulta_embedding: embedding,
+        filtro_usuario: user.id,
+        limite,
+      }
+    );
+
+    if (error) {
+      console.error('❌ Erro ao buscar memórias similares:', error.message);
+      return res
+        .status(500)
+        .json({ erro: 'Erro ao buscar memórias similares no Supabase.' });
+    }
+
+    console.log(`🔍 ${data.length} memórias semelhantes encontradas.`);
+    return res.status(200).json({ sucesso: true, similares: data });
+  } catch (err: any) {
+    console.error('❌ Erro inesperado ao buscar similares:', err.message || err);
+    return res.status(500).json({ erro: 'Erro inesperado no servidor.' });
   }
 });
 

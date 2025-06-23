@@ -35,8 +35,66 @@ const formatarTextoEco = (t: string) =>
 /* ---------------------------------------------------- */
 /* 🔧 Gera bloco técnico separado (memória)             */
 /* ---------------------------------------------------- */
-// ... (mantém igual)
-async function gerarBlocoTecnicoSeparado({ /* ... */ }): Promise<any | null> { /* ... */ }
+async function gerarBlocoTecnicoSeparado({
+  mensagemUsuario,
+  respostaIa,
+  apiKey,
+}: {
+  mensagemUsuario: string;
+  respostaIa: string;
+  apiKey: string;
+}): Promise<any | null> {
+  try {
+    const prompt = `
+Extraia e retorne em JSON os dados abaixo com base na resposta a seguir.
+
+Resposta da IA:
+"""
+${respostaIa}
+"""
+
+Mensagem original do usuário:
+"${mensagemUsuario}"
+
+Retorne neste formato:
+{
+  "emocao_principal": "",
+  "intensidade": 0,
+  "tags": [],
+  "dominio_vida": "",
+  "padrao_comportamental": "",
+  "nivel_abertura": "baixo" | "médio" | "alto",
+  "analise_resumo": "",
+  "categoria": "emocional"
+}`;
+
+    const { data } = await axios.post(
+      "https://openrouter.ai/api/v1/chat/completions",
+      {
+        model: "openai/gpt-4o",
+        messages: [{ role: "user", content: prompt }],
+        temperature: 0.4,
+        max_tokens: 500,
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+      }
+    );
+
+    const jsonText = data?.choices?.[0]?.message?.content ?? "";
+    const match = jsonText.match(/\{[\s\S]*\}/);
+    const json = match ? JSON.parse(match[0]) : null;
+
+    console.log("🧠 Bloco técnico extraído:", json);
+    return json;
+  } catch (err: any) {
+    console.warn("⚠️ Erro ao gerar bloco técnico:", err.message || err);
+    return null;
+  }
+}
 
 /* ---------------------------------------------------- */
 /* 🧠 Função principal                                  */
@@ -44,9 +102,9 @@ async function gerarBlocoTecnicoSeparado({ /* ... */ }): Promise<any | null> { /
 export async function getEcoResponse({
   messages,
   userId,
-  userName,      // ⬅️ agora aceito, mesmo que não usado internamente
+  userName,
   accessToken,
-  mems = [],     // ⬅️ agora aceito
+  mems = [],
 }: {
   messages: { id?: string; role: string; content: string }[];
   userId?: string;
@@ -75,13 +133,11 @@ export async function getEcoResponse({
     );
 
     const ultimaMsg = messages.at(-1)?.content || "";
-    // — emulação: já tem mems via parâmetro se buscado antes
-
     const systemPrompt = await montarContextoEco({
       userId,
       ultimaMsg,
       perfil: null,
-      mems,      // usa o array de memórias semelhantes passadas
+      mems,
     });
 
     const chatMessages = [
@@ -144,14 +200,16 @@ export async function getEcoResponse({
           : null;
 
       const deveSalvar = userId && intensidade >= 7;
+
       if (deveSalvar) {
         const textoParaEmbedding = [cleaned, bloco.analise_resumo ?? ""].join("\n");
-        const embeddingMem = await embedTextoCompleto(textoParaEmbedding);
+        const embeddingMem = await embedTextoCompleto(textoParaEmbedding, "salvar memória");
+
         const { error } = await supabase.from("memories").insert([
           {
             usuario_id: userId,
             mensagem_id: messages.at(-1)?.id ?? null,
-            resumo_eco: cleaned,
+            resumo_eco: bloco.analise_resumo ?? cleaned,
             emocao_principal: emocao ?? null,
             intensidade,
             contexto: ultimaMsg,
@@ -166,8 +224,22 @@ export async function getEcoResponse({
             embedding: embeddingMem,
           },
         ]);
-        if (!error) await updateEmotionalProfile(userId!);
+
+        if (error) {
+          console.warn("⚠️ Erro ao salvar memória:", error.message);
+        } else {
+          console.log(`✅ Memória salva com sucesso para o usuário ${userId}.`);
+          try {
+            console.log(`🔄 Atualizando perfil emocional de ${userId}...`);
+            await updateEmotionalProfile(userId!);
+            console.log(`🧠 Perfil emocional atualizado com sucesso para ${userId}.`);
+          } catch (err: any) {
+            console.error("❌ Erro ao atualizar perfil emocional:", err.message || err);
+          }
+        }
       }
+    } else {
+      console.log("ℹ️ Nenhum bloco técnico retornado.");
     }
 
     return { message: cleaned, intensidade, resumo, emocao, tags };
