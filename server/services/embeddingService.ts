@@ -4,13 +4,12 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
 });
 
-// Função para gerar embedding completo a partir de um texto.
-// Texto base = mensagem original + resumo_eco + analise_resumo
-export async function embedTextoCompleto(texto: string, origem?: string): Promise<number[]> {
+// Principal (nome padrão novo)
+export async function gerarEmbeddingOpenAI(texto: string, origem?: string): Promise<number[]> {
   try {
     const response = await openai.embeddings.create({
       model: "text-embedding-3-small",
-      input: texto.slice(0, 8000) // segurança contra limite de tokens
+      input: texto.slice(0, 8000)
     });
 
     const embedding = response.data?.[0]?.embedding;
@@ -27,3 +26,6 @@ export async function embedTextoCompleto(texto: string, origem?: string): Promis
     throw error;
   }
 }
+
+// Alias para compatibilidade com outros arquivos que ainda usam o nome antigo
+export const embedTextoCompleto = gerarEmbeddingOpenAI;

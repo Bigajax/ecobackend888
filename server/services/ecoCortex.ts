@@ -3,6 +3,8 @@ import { createClient } from "@supabase/supabase-js";
 import { updateEmotionalProfile } from "./updateEmotionalProfile";
 import { montarContextoEco } from "../controllers/promptController";
 import { embedTextoCompleto } from "./embeddingService";
+import { respostaSaudacaoAutomatica } from "../utils/respostaSaudacaoAutomatica";
+import { buscarHeuristicasSemelhantes } from "./heuristicaService"; // ✅ NOVO IMPORT
 
 /* ---------------------------------------------------- */
 /* 🔄 Utilidades                                        */
@@ -31,6 +33,28 @@ const formatarTextoEco = (t: string) =>
     .replace(/^-\s+/gm, "— ")
     .replace(/^\s+/gm, "")
     .trim();
+
+/* ---------------------------------------------------- */
+/* 🔍 Loga heurísticas semelhantes                      */
+/* ---------------------------------------------------- */
+async function logHeuristicasEmbedding(texto: string) {
+  try {
+    const heuristicas = await buscarHeuristicasSemelhantes(texto);
+    if (!heuristicas || heuristicas.length === 0) {
+      console.log("🔍 Nenhuma heurística ativada por embedding.");
+      return;
+    }
+
+    console.log("📊 Heurísticas ativadas por embedding:");
+    heuristicas.forEach((h: any, i: number) => {
+      const nome = h.nome || h.arquivo || `Heurística ${i + 1}`;
+      const similaridade = h.similaridade?.toFixed(3) ?? "N/A";
+      console.log(`• ${nome} (similaridade: ${similaridade})`);
+    });
+  } catch (err: any) {
+    console.warn("⚠️ Erro ao logar heurísticas:", err.message || err);
+  }
+}
 
 /* ---------------------------------------------------- */
 /* 🔧 Gera bloco técnico separado (memória)             */
@@ -123,6 +147,9 @@ export async function getEcoResponse({
       throw new Error('Parâmetro "messages" vazio ou inválido.');
     if (!accessToken) throw new Error("Token (accessToken) ausente.");
 
+    const respostaInicial = respostaSaudacaoAutomatica({ messages, userName });
+    if (respostaInicial) return { message: respostaInicial };
+
     const apiKey = process.env.OPENROUTER_API_KEY;
     if (!apiKey) throw new Error("OPENROUTER_API_KEY não configurada.");
 
@@ -133,6 +160,10 @@ export async function getEcoResponse({
     );
 
     const ultimaMsg = messages.at(-1)?.content || "";
+
+    // ✅ LOGA HEURÍSTICAS ATIVADAS POR EMBEDDING
+    await logHeuristicasEmbedding(ultimaMsg);
+
     const systemPrompt = await montarContextoEco({
       userId,
       ultimaMsg,

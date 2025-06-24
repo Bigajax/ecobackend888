@@ -4,44 +4,57 @@ dotenv.config();
 import express from 'express';
 import cors from 'cors';
 
-import promptRoutes from './routes/promptRoutes';               // GET /api/prompt-preview
-import memoryRoutes from './routes/memoryRoutes';               // GET/POST /api/memorias
-import profileRoutes from './routes/perfilEmocionalRoutes';    // GET /api/perfil-emocional/:userId
-import voiceTTSRoutes from './routes/voiceTTSRoutes';          // POST /api/voice/tts
-import voiceFullRoutes from './routes/voiceFullRoutes';        // POST /api/voice/transcribe-and-respond
-import openrouterRoutes from './routes/openrouterRoutes';      // POST /api/ask-eco
+import promptRoutes from './routes/promptRoutes';
+import memoryRoutes from './routes/memoryRoutes';
+import profileRoutes from './routes/perfilEmocionalRoutes';
+import voiceTTSRoutes from './routes/voiceTTSRoutes';
+import voiceFullRoutes from './routes/voiceFullRoutes';
+import openrouterRoutes from './routes/openrouterRoutes';
+
+import { registrarTodasHeuristicas } from './services/registrarTodasHeuristicas';
+import { registrarModulosFilosoficos } from './services/registrarModulosFilosoficos'; // ✅ Corrigido aqui
 
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-// 🔐 Configuração de CORS
+// 🔐 CORS
 app.use(cors({
-  origin: 'http://localhost:5173', // Altere para domínio de produção se necessário
+  origin: 'http://localhost:5173',
   methods: ['GET', 'POST', 'PUT', 'DELETE'],
   allowedHeaders: ['Content-Type', 'Authorization'],
 }));
 
-// 📦 Parsing de body JSON e formulário
+// 📦 Body parsing
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// 🧾 Middleware de log
+// 🧾 Logger
 app.use((req, res, next) => {
   console.log(`Backend: [${req.method}] ${req.originalUrl}`);
   next();
 });
 
-// ✅ Registro das rotas
-app.use('/api', promptRoutes);                    // GET /api/prompt-preview
-app.use('/api/memorias', memoryRoutes);           // GET/POST /api/memorias
-app.use('/api/perfil-emocional', profileRoutes);  // ✅ Agora: /api/perfil-emocional/:userId
-app.use('/api/voice', voiceTTSRoutes);            // POST /api/voice/tts
-app.use('/api/voice', voiceFullRoutes);           // POST /api/voice/transcribe-and-respond
-app.use('/api', openrouterRoutes);                // POST /api/ask-eco
+// ✅ Rotas
+app.use('/api', promptRoutes);
+app.use('/api/memorias', memoryRoutes);
+app.use('/api/perfil-emocional', profileRoutes);
+app.use('/api/voice', voiceTTSRoutes);
+app.use('/api/voice', voiceFullRoutes);
+app.use('/api', openrouterRoutes);
 
-// 🚀 Inicialização do servidor
-app.listen(PORT, () => {
+// 🚀 Inicialização
+app.listen(PORT, async () => {
   console.log(`Servidor Express rodando na porta ${PORT}`);
+
+  if (process.env.REGISTRAR_HEURISTICAS === 'true') {
+    await registrarTodasHeuristicas();
+    console.log('🎯 Registro de heurísticas finalizado (executado conforme .env)');
+  }
+
+  if (process.env.REGISTRAR_FILOSOFICOS === 'true') {
+    await registrarModulosFilosoficos();
+    console.log('🧘 Registro de módulos filosóficos finalizado (executado conforme .env)');
+  }
 });
 
 export default app;
