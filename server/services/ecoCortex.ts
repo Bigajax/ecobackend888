@@ -210,18 +210,33 @@ export async function getEcoResponse({
       tags = Array.isArray(bloco.tags) ? bloco.tags : [];
 
       const nivelNumerico =
-        typeof bloco.nivel_abertura === "number"
-          ? bloco.nivel_abertura
-          : bloco.nivel_abertura === "baixo"
-          ? 1
-          : bloco.nivel_abertura === "médio"
-          ? 2
-          : bloco.nivel_abertura === "alto"
-          ? 3
-          : null;
+  typeof bloco.nivel_abertura === "number"
+    ? Math.round(bloco.nivel_abertura) // garante inteiro
+    : bloco.nivel_abertura === "baixo"
+    ? 1
+    : bloco.nivel_abertura === "médio"
+    ? 2
+    : bloco.nivel_abertura === "alto"
+    ? 3
+    : null;
+
 
       const textoParaEmbedding = [cleaned, bloco.analise_resumo ?? ""].join("\n");
       const embeddingFinal = await embedTextoCompleto(textoParaEmbedding, "memoria ou referencia");
+
+      // 🔗 Buscar última memória para encadeamento
+      let referenciaAnteriorId: string | null = null;
+      if (userId) {
+        const { data: ultimaMemoria } = await supabase
+          .from("memories")
+          .select("id")
+          .eq("usuario_id", userId)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        referenciaAnteriorId = ultimaMemoria?.id ?? null;
+      }
 
       const payload = {
         usuario_id: userId!,
@@ -237,6 +252,7 @@ export async function getEcoResponse({
         categoria: bloco.categoria ?? "emocional",
         tags,
         embedding: embeddingFinal,
+        referencia_anterior_id: referenciaAnteriorId, // ✅ encadeamento corrigido
       };
 
       if (userId && intensidade >= 7) {

@@ -3,6 +3,7 @@ import { supabaseAdmin } from '../lib/supabaseAdmin';
 export interface BlocoTecnico {
   usuario_id: string;
   mensagem_id?: string | null;
+  referencia_anterior_id?: string | null; // ✅ adicionado
   resumo_eco: string;
   emocao_principal: string;
   intensidade: number;
@@ -22,6 +23,7 @@ export async function salvarReferenciaTemporaria(bloco: BlocoTecnico) {
     salvar_memoria: false,
     data_registro: new Date().toISOString(),
     mensagem_id: bloco.mensagem_id ?? null,
+    referencia_anterior_id: bloco.referencia_anterior_id ?? null, // ✅ adicionado
     dominio_vida: bloco.dominio_vida ?? null,
     padrao_comportamental: bloco.padrao_comportamental ?? null,
     nivel_abertura: bloco.nivel_abertura ?? null,

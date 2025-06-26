@@ -1,4 +1,4 @@
-// IMPORTS
+
 import path from 'path';
 import fs from 'fs/promises';
 import { Request, Response } from 'express';
@@ -14,6 +14,7 @@ import { buscarHeuristicasSemelhantes } from '../services/heuristicaService';
 import { buscarHeuristicaPorSimilaridade } from '../services/heuristicaFuzzyService';
 import { buscarMemoriasSemelhantes } from '../services/buscarMemorias';
 import { buscarReferenciasSemelhantes } from '../services/buscarReferenciasSemelhantes';
+import { buscarEncadeamentosPassados } from '../services/buscarEncadeamentos';
 
 // INTERFACES
 interface PerfilEmocional {
@@ -43,7 +44,6 @@ interface ModuloFilosoficoTrigger {
   gatilhos: string[];
 }
 
-// SUPABASE
 const supabase = createClient(
   process.env.SUPABASE_URL!,
   process.env.SUPABASE_ANON_KEY!
@@ -53,7 +53,6 @@ function normalizarTexto(texto: string): string {
   return texto.toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '');
 }
 
-// FUNÇÃO PRINCIPAL
 export async function montarContextoEco({
   perfil,
   ultimaMsg,
@@ -115,10 +114,7 @@ export async function montarContextoEco({
   );
 
   const modulosEstoicosAtivos = estoicosTriggerMap.filter((e: ModuloFilosoficoTrigger) =>
-    e.gatilhos.some((g) => {
-      const palavras = normalizarTexto(g).split(' ');
-      return palavras.every(p => entradaSemAcentos.includes(p));
-    })
+    e.gatilhos.every((g) => entradaSemAcentos.includes(normalizarTexto(g)))
   );
 
   const tagsAlvo = heuristicaAtiva ? tagsPorHeuristica[heuristicaAtiva.arquivo] ?? [] : [];
@@ -152,6 +148,18 @@ export async function montarContextoEco({
     memsUsadas = [memoriaAtual, ...(memsUsadas || [])];
   }
 
+  // 🔗 Adiciona encadeamentos
+  let encadeamentos: Memoria[] = [];
+  if (entrada && userId) {
+    try {
+      encadeamentos = await buscarEncadeamentosPassados(userId, entrada);
+      if (encadeamentos?.length) encadeamentos = encadeamentos.slice(0, 3);
+    } catch (e) {
+      console.warn("⚠️ Erro ao buscar encadeamentos:", (e as Error).message);
+    }
+  }
+
+  // 🧠 Organiza memórias e evita redundâncias
   if (memsUsadas?.length) {
     const memoriaUnica = new Map();
     memsUsadas = memsUsadas.filter(m => {
@@ -161,28 +169,46 @@ export async function montarContextoEco({
       return true;
     });
 
-    const blocos = memsUsadas
-      .map(m => {
-        const d = m.data_registro?.slice(0, 10);
-        const tg = m.tags?.join(', ') || '';
-        const leve = (m.intensidade ?? 0) < 7 ? 'Nota leve: ' : '';
-        const resumo = m.resumo_eco.length > 220 ? m.resumo_eco.slice(0, 217) + '...' : m.resumo_eco;
-        return `${leve}(${d}) ${resumo}${tg ? ` [tags: ${tg}]` : ''}`;
-      }).join('\n');
+    const marcantes = memsUsadas.filter(m => (m.intensidade ?? 0) >= 7);
+    const leves = memsUsadas.filter(m => (m.intensidade ?? 0) < 7);
 
-    contexto += `\n\n📘 Memórias relacionadas:\n${blocos}`;
+    const blocosMarcantes = marcantes.map(m => {
+      const d = m.data_registro?.slice(0, 10);
+      const tg = m.tags?.join(', ') || '';
+      const resumo = m.resumo_eco.length > 220 ? m.resumo_eco.slice(0, 217) + '...' : m.resumo_eco;
+      return `(${d}) ${resumo}${tg ? ` [tags: ${tg}]` : ''}`;
+    }).join('\n');
+
+    const blocosLeves = leves.map(m => {
+      const d = m.data_registro?.slice(0, 10);
+      const tg = m.tags?.join(', ') || '';
+      const resumo = m.resumo_eco.length > 220 ? m.resumo_eco.slice(0, 217) + '...' : m.resumo_eco;
+      return `(${d}) ${resumo}${tg ? ` [tags: ${tg}]` : ''}`;
+    }).join('\n');
+
+    if (blocosMarcantes) contexto += `\n\n📘 Memórias marcantes:\n${blocosMarcantes}`;
+    if (blocosLeves) contexto += `\n\n📗 Referências leves:\n${blocosLeves}`;
   }
 
+  if (encadeamentos?.length) {
+    const blocosEncadeados = encadeamentos.map(m => {
+      const d = m.data_registro?.slice(0, 10);
+      const tg = m.tags?.join(', ') || '';
+      const resumo = m.resumo_eco.length > 220 ? m.resumo_eco.slice(0, 217) + '...' : m.resumo_eco;
+      return `(${d}) ${resumo}${tg ? ` [tags: ${tg}]` : ''}`;
+    }).join('\n');
+    contexto += `\n\n🔗 Encadeamentos passados:\n${blocosEncadeados}`;
+  }
+
+  // ⚙️ Insere módulos ativados
   const modulosAdic: string[] = [];
   const modulosInseridos = new Set<string>();
-
   const inserirModuloUnico = async (arquivo: string, tipo: string, caminhoBase: string) => {
     if (modulosInseridos.has(arquivo)) return;
     try {
       const conteudo = await fs.readFile(path.join(caminhoBase, arquivo), 'utf-8');
       modulosAdic.push(`\n\n[Módulo ${tipo} → ${arquivo}]\n${conteudo.trim()}`);
       modulosInseridos.add(arquivo);
-      console.log(`📎 Módulo ${tipo} inserido: ${arquivo}`);
     } catch (e) {
       console.warn(`⚠️ Falha ao carregar módulo ${arquivo}:`, (e as Error).message);
     }
@@ -208,7 +234,6 @@ export async function montarContextoEco({
   });
 
   for (const me of modulosEmocionaisAtivos) {
-    console.log(`🧠 Módulo emocional ativado por critérios: ${me.arquivo}`);
     await inserirModuloUnico(me.arquivo, 'Emocional', modEmocDir);
     if (me.relacionado?.length) {
       for (const rel of me.relacionado) {

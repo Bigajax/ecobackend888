@@ -10,9 +10,19 @@ interface ReferenciaTemporaria {
   data_registro?: string;
 }
 
-export async function buscarReferenciasSemelhantes(userId: string, entrada: string): Promise<ReferenciaTemporaria[]> {
+export async function buscarReferenciasSemelhantes(
+  userId: string,
+  entrada: string
+): Promise<ReferenciaTemporaria[]> {
   try {
+    if (!entrada?.trim()) return [];
+
     const vetorConsulta = await embedTextoCompleto(entrada, 'referencia');
+
+    if (!vetorConsulta || !Array.isArray(vetorConsulta)) {
+      console.error('❌ Vetor de embedding inválido.');
+      return [];
+    }
 
     const { data, error } = await supabaseAdmin.rpc('buscar_referencias_similares', {
       usuario_id: userId,
