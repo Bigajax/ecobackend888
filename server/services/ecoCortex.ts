@@ -1,14 +1,14 @@
+// IMPORTS
 import axios from "axios";
 import { createClient } from "@supabase/supabase-js";
 import { updateEmotionalProfile } from "./updateEmotionalProfile";
 import { montarContextoEco } from "../controllers/promptController";
 import { embedTextoCompleto } from "./embeddingService";
 import { respostaSaudacaoAutomatica } from "../utils/respostaSaudacaoAutomatica";
-import { buscarHeuristicasSemelhantes } from "./heuristicaService"; // ✅ NOVO IMPORT
+import { buscarHeuristicasSemelhantes } from "./heuristicaService";
+import { salvarReferenciaTemporaria } from "./referenciasService";
 
-/* ---------------------------------------------------- */
-/* 🔄 Utilidades                                        */
-/* ---------------------------------------------------- */
+// UTILS
 const mapRoleForOpenAI = (role: string): "user" | "assistant" | "system" => {
   if (role === "model") return "assistant";
   if (role === "system") return "system";
@@ -16,8 +16,7 @@ const mapRoleForOpenAI = (role: string): "user" | "assistant" | "system" => {
 };
 
 const limparResposta = (t: string) =>
-  t
-    .replace(/```json[\s\S]*?```/gi, "")
+  t.replace(/```json[\s\S]*?```/gi, "")
     .replace(/```[\s\S]*?```/gi, "")
     .replace(/<[^>]*>/g, "")
     .replace(/###.*?###/g, "")
@@ -26,17 +25,14 @@ const limparResposta = (t: string) =>
     .trim();
 
 const formatarTextoEco = (t: string) =>
-  t
-    .replace(/\n{3,}/g, "\n\n")
+  t.replace(/\n{3,}/g, "\n\n")
     .replace(/\s*\n\s*/g, "\n")
     .replace(/(?<!\n)\n(?!\n)/g, "\n\n")
     .replace(/^-\s+/gm, "— ")
     .replace(/^\s+/gm, "")
     .trim();
 
-/* ---------------------------------------------------- */
-/* 🔍 Loga heurísticas semelhantes                      */
-/* ---------------------------------------------------- */
+// LOG HEURÍSTICAS
 async function logHeuristicasEmbedding(texto: string) {
   try {
     const heuristicas = await buscarHeuristicasSemelhantes(texto);
@@ -44,7 +40,6 @@ async function logHeuristicasEmbedding(texto: string) {
       console.log("🔍 Nenhuma heurística ativada por embedding.");
       return;
     }
-
     console.log("📊 Heurísticas ativadas por embedding:");
     heuristicas.forEach((h: any, i: number) => {
       const nome = h.nome || h.arquivo || `Heurística ${i + 1}`;
@@ -56,9 +51,7 @@ async function logHeuristicasEmbedding(texto: string) {
   }
 }
 
-/* ---------------------------------------------------- */
-/* 🔧 Gera bloco técnico separado (memória)             */
-/* ---------------------------------------------------- */
+// BLOCO TÉCNICO
 async function gerarBlocoTecnicoSeparado({
   mensagemUsuario,
   respostaIa,
@@ -120,9 +113,7 @@ Retorne neste formato:
   }
 }
 
-/* ---------------------------------------------------- */
-/* 🧠 Função principal                                  */
-/* ---------------------------------------------------- */
+// FUNÇÃO PRINCIPAL
 export async function getEcoResponse({
   messages,
   userId,
@@ -161,7 +152,6 @@ export async function getEcoResponse({
 
     const ultimaMsg = messages.at(-1)?.content || "";
 
-    // ✅ LOGA HEURÍSTICAS ATIVADAS POR EMBEDDING
     await logHeuristicasEmbedding(ultimaMsg);
 
     const systemPrompt = await montarContextoEco({
@@ -199,7 +189,7 @@ export async function getEcoResponse({
       }
     );
 
-    const raw: string | undefined = data?.choices?.[0]?.message?.content;
+    const raw: string = data?.choices?.[0]?.message?.content ?? "";
     if (!raw) throw new Error("Resposta vazia da IA.");
 
     const cleaned = formatarTextoEco(limparResposta(raw));
@@ -210,13 +200,13 @@ export async function getEcoResponse({
     });
 
     let intensidade: number | undefined;
-    let emocao: string | undefined;
+    let emocao: string = "indefinida";
     let tags: string[] = [];
     let resumo: string | undefined = cleaned;
 
     if (bloco) {
       intensidade = Number(bloco.intensidade);
-      emocao = bloco.emocao_principal;
+      emocao = bloco.emocao_principal || "indefinida";
       tags = Array.isArray(bloco.tags) ? bloco.tags : [];
 
       const nivelNumerico =
@@ -230,29 +220,31 @@ export async function getEcoResponse({
           ? 3
           : null;
 
-      const deveSalvar = userId && intensidade >= 7;
+      const textoParaEmbedding = [cleaned, bloco.analise_resumo ?? ""].join("\n");
+      const embeddingFinal = await embedTextoCompleto(textoParaEmbedding, "memoria ou referencia");
 
-      if (deveSalvar) {
-        const textoParaEmbedding = [cleaned, bloco.analise_resumo ?? ""].join("\n");
-        const embeddingMem = await embedTextoCompleto(textoParaEmbedding, "salvar memória");
+      const payload = {
+        usuario_id: userId!,
+        mensagem_id: messages.at(-1)?.id ?? null,
+        resumo_eco: bloco.analise_resumo ?? cleaned,
+        emocao_principal: emocao,
+        intensidade,
+        contexto: ultimaMsg,
+        dominio_vida: bloco.dominio_vida ?? null,
+        padrao_comportamental: bloco.padrao_comportamental ?? null,
+        nivel_abertura: nivelNumerico,
+        analise_resumo: bloco.analise_resumo ?? null,
+        categoria: bloco.categoria ?? "emocional",
+        tags,
+        embedding: embeddingFinal,
+      };
 
+      if (userId && intensidade >= 7) {
         const { error } = await supabase.from("memories").insert([
           {
-            usuario_id: userId,
-            mensagem_id: messages.at(-1)?.id ?? null,
-            resumo_eco: bloco.analise_resumo ?? cleaned,
-            emocao_principal: emocao ?? null,
-            intensidade,
-            contexto: ultimaMsg,
+            ...payload,
             salvar_memoria: true,
             data_registro: new Date().toISOString(),
-            dominio_vida: bloco.dominio_vida ?? null,
-            padrao_comportamental: bloco.padrao_comportamental ?? null,
-            nivel_abertura: nivelNumerico,
-            analise_resumo: bloco.analise_resumo ?? null,
-            categoria: bloco.categoria ?? "emocional",
-            tags,
-            embedding: embeddingMem,
           },
         ]);
 
@@ -262,15 +254,16 @@ export async function getEcoResponse({
           console.log(`✅ Memória salva com sucesso para o usuário ${userId}.`);
           try {
             console.log(`🔄 Atualizando perfil emocional de ${userId}...`);
-            await updateEmotionalProfile(userId!);
-            console.log(`🧠 Perfil emocional atualizado com sucesso para ${userId}.`);
+            await updateEmotionalProfile(userId);
+            console.log(`🧠 Perfil emocional atualizado com sucesso.`);
           } catch (err: any) {
             console.error("❌ Erro ao atualizar perfil emocional:", err.message || err);
           }
         }
+      } else if (userId && intensidade < 7) {
+        await salvarReferenciaTemporaria(payload);
+        console.log(`📎 Referência emocional leve registrada para ${userId}`);
       }
-    } else {
-      console.log("ℹ️ Nenhum bloco técnico retornado.");
     }
 
     return { message: cleaned, intensidade, resumo, emocao, tags };

@@ -1,3 +1,4 @@
+// IMPORTS
 import path from 'path';
 import fs from 'fs/promises';
 import { Request, Response } from 'express';
@@ -12,7 +13,9 @@ import { heuristicaNivelAbertura } from '../utils/heuristicaNivelAbertura';
 import { buscarHeuristicasSemelhantes } from '../services/heuristicaService';
 import { buscarHeuristicaPorSimilaridade } from '../services/heuristicaFuzzyService';
 import { buscarMemoriasSemelhantes } from '../services/buscarMemorias';
+import { buscarReferenciasSemelhantes } from '../services/buscarReferenciasSemelhantes';
 
+// INTERFACES
 interface PerfilEmocional {
   emocoes_frequentes?: Record<string, number>;
   temas_recorrentes?: Record<string, number>;
@@ -40,6 +43,7 @@ interface ModuloFilosoficoTrigger {
   gatilhos: string[];
 }
 
+// SUPABASE
 const supabase = createClient(
   process.env.SUPABASE_URL!,
   process.env.SUPABASE_ANON_KEY!
@@ -49,6 +53,7 @@ function normalizarTexto(texto: string): string {
   return texto.toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '');
 }
 
+// FUNÇÃO PRINCIPAL
 export async function montarContextoEco({
   perfil,
   ultimaMsg,
@@ -109,7 +114,6 @@ export async function montarContextoEco({
     f.gatilhos.some((g) => entradaSemAcentos.includes(normalizarTexto(g)))
   );
 
-  // ✅ CORREÇÃO AQUI – verificação palavra a palavra dos gatilhos estoicos
   const modulosEstoicosAtivos = estoicosTriggerMap.filter((e: ModuloFilosoficoTrigger) =>
     e.gatilhos.some((g) => {
       const palavras = normalizarTexto(g).split(' ');
@@ -120,14 +124,20 @@ export async function montarContextoEco({
   const tagsAlvo = heuristicaAtiva ? tagsPorHeuristica[heuristicaAtiva.arquivo] ?? [] : [];
 
   let memsUsadas = mems;
+
   if ((!memsUsadas?.length) && entrada && userId) {
     try {
-      memsUsadas = await buscarMemoriasSemelhantes(userId, entrada);
+      const [memorias, referencias] = await Promise.all([
+        buscarMemoriasSemelhantes(userId, entrada),
+        buscarReferenciasSemelhantes(userId, entrada)
+      ]);
+      memsUsadas = [...(memorias || []), ...(referencias || [])];
+
       if (tagsAlvo.length) {
-        memsUsadas = (memsUsadas ?? []).filter(m => m.tags?.some(t => tagsAlvo.includes(t)));
+        memsUsadas = memsUsadas.filter(m => m.tags?.some(t => tagsAlvo.includes(t)));
       }
     } catch (e) {
-      console.warn("⚠️ Erro ao buscar memórias semelhantes:", (e as Error).message);
+      console.warn("⚠️ Erro ao buscar memórias/referências:", (e as Error).message);
       memsUsadas = [];
     }
   }
@@ -155,8 +165,9 @@ export async function montarContextoEco({
       .map(m => {
         const d = m.data_registro?.slice(0, 10);
         const tg = m.tags?.join(', ') || '';
+        const leve = (m.intensidade ?? 0) < 7 ? 'Nota leve: ' : '';
         const resumo = m.resumo_eco.length > 220 ? m.resumo_eco.slice(0, 217) + '...' : m.resumo_eco;
-        return `(${d}) ${resumo}${tg ? ` [tags: ${tg}]` : ''}`;
+        return `${leve}(${d}) ${resumo}${tg ? ` [tags: ${tg}]` : ''}`;
       }).join('\n');
 
     contexto += `\n\n📘 Memórias relacionadas:\n${blocos}`;
