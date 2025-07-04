@@ -166,7 +166,10 @@ export async function montarContextoEco({
     console.log("📌 Vetor de embedding (parcial):", queryEmbedding.slice(0, 6), "...");
   }
 
-  const heuristicasEmbedding = entrada ? await buscarHeuristicasSemelhantes(entrada) : [];
+  const heuristicasEmbedding = entrada 
+  ? await buscarHeuristicasSemelhantes(entrada, userId ?? null) 
+  : [];
+
 
   const modulosFilosoficosAtivos = filosoficosTriggerMap.filter((f: ModuloFilosoficoTrigger) =>
     f.gatilhos.some((g) => entradaSemAcentos.includes(normalizarTexto(g)))

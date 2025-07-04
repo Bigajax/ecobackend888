@@ -33,9 +33,9 @@ const formatarTextoEco = (t: string) =>
     .trim();
 
 // LOG HEURÍSTICAS
-async function logHeuristicasEmbedding(texto: string) {
+async function logHeuristicasEmbedding(texto: string, usuarioId: string) {
   try {
-    const heuristicas = await buscarHeuristicasSemelhantes(texto);
+    const heuristicas = await buscarHeuristicasSemelhantes(texto, usuarioId);
     if (!heuristicas || heuristicas.length === 0) {
       console.log("🔍 Nenhuma heurística ativada por embedding.");
       return;
@@ -177,7 +177,7 @@ export async function getEcoResponse({
 
     const ultimaMsg = messages.at(-1)?.content || "";
 
-    await logHeuristicasEmbedding(ultimaMsg);
+    await logHeuristicasEmbedding(ultimaMsg, userId!);
 
     const systemPrompt = await montarContextoEco({
       userId,
