@@ -7,7 +7,7 @@ interface ReferenciaTemporaria {
   emocao_principal?: string;
   intensidade?: number;
   similaridade: number;
-  data_registro?: string;
+  created_at?: string; 
 }
 
 export async function buscarReferenciasSemelhantes(

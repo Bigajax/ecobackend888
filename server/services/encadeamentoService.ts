@@ -31,7 +31,7 @@ export async function salvarMemoriaComEncadeamento(mem: EntradaMemoria) {
     emocao_principal: mem.emocao_principal,
     tags: mem.tags,
     referencia_anterior_id: anterior?.id ?? null,
-    data_registro: new Date().toISOString()
+    created_at: new Date().toISOString() // ✅ Alterado aqui
   });
 
   if (error) console.error('Erro ao salvar memória encadeada:', error.message);
@@ -47,7 +47,7 @@ export async function salvarReferenciaComEncadeamento(mem: EntradaMemoria) {
     emocao_principal: mem.emocao_principal,
     tags: mem.tags,
     referencia_anterior_id: anterior?.id ?? null,
-    data_registro: new Date().toISOString()
+    created_at: new Date().toISOString() // ✅ Alterado aqui também
   });
 
   if (error) console.error('Erro ao salvar referência encadeada:', error.message);

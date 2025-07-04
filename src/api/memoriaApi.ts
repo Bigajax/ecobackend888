@@ -1,4 +1,4 @@
-/* src/api/memoriaApi.ts
+/* src/api/memoriaApi.ts 
    — funções de acesso ao backend de memórias — */
 
 import axios, { AxiosError } from 'axios';
@@ -12,7 +12,7 @@ export interface Memoria {
   usuario_id: string;
   mensagem_id: string | null;
   resumo_eco: string;
-  data_registro?: string | null;
+  created_at?: string | null;
   emocao_principal?: string | null;
   intensidade?: number | null;
   contexto?: string | null;
@@ -29,7 +29,7 @@ export interface MemoriaSimilar {
   id: string;
   contexto: string;
   resumo_eco: string;
-  data_registro?: string | null;
+  created_at?: string | null;
   tags?: string[];
   similaridade: number;
 }
@@ -106,8 +106,8 @@ export async function buscarUltimasMemoriasComTags(
       return data.memories
         .filter(m => Array.isArray(m.tags) && m.tags.length > 0)
         .sort((a, b) =>
-          new Date(b.data_registro || '').getTime() -
-          new Date(a.data_registro || '').getTime()
+          new Date(b.created_at || '').getTime() -
+          new Date(a.created_at || '').getTime()
         )
         .slice(0, limite);
     }

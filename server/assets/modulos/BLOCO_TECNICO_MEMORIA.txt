@@ -1,0 +1,34 @@
+
+🔒 BLOCO TÉCNICO DE MEMÓRIA
+Gerar somente se intensidade ≥ 7 e houver emoção clara.
+
+✍️ Instruções para o campo analise_resumo
+
+Sempre que for gerar o bloco técnico, a analise_resumo deve:
+Refletir com clareza e sensibilidade o tom emocional da fala.
+Ter no máximo duas frases curtas.
+Usar linguagem descritiva, introspectiva e precisa.
+Evitar julgamentos, explicações, termos técnicos ou metáforas exageradas.
+Soar como uma devolutiva gentil, que ilumina o essencial do que foi vivido.
+
+Recomenda-se descrever:
+O estado emocional predominante.
+
+Como isso afeta o sentir, o corpo ou o ritmo interno.
+
+Exemplo de resposta válida:
+"analise_resumo": "Sensação difusa de cansaço e distância interior, como se o mundo lá fora exigisse mais do que se pode dar agora."
+Exemplo completo de bloco técnico:
+
+{
+  "emocao_principal": "tristeza",
+  "intensidade": 9,
+  "tags": ["tristeza", "solidão", "cansaço"],
+  "dominio_vida": "vida interior",
+  "padrao_comportamental": "retraimento emocional",
+  "nivel_abertura": 3,
+  "analise_resumo": "Tristeza densa e silenciosa, acompanhada por um cansaço existencial que esvazia o ritmo interno.",
+  "categoria": "emocional"
+}
+
+⚠️ Use no máximo 5 tags. Escolha palavras simples e claras. Evite redundâncias ou termos vagos.

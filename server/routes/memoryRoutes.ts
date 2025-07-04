@@ -79,7 +79,7 @@ router.post('/registrar', async (req, res) => {
           nivel_abertura: nivelCalc,
           analise_resumo: analise_resumo ?? null,
           categoria,
-          data_registro: new Date().toISOString(),
+          created_at: new Date().toISOString(),
           embedding,
         },
       ])
@@ -113,7 +113,7 @@ router.get('/', async (req, res) => {
       .select('*')
       .eq('usuario_id', user.id)
       .eq('salvar_memoria', true)
-      .order('data_registro', { ascending: false });
+      .order('created_at', { ascending: false });
 
     if (limite) {
       const lim = Number(limite);
@@ -133,7 +133,7 @@ router.get('/', async (req, res) => {
       (mem) =>
         typeof mem.resumo_eco === 'string' &&
         mem.resumo_eco.trim() !== '' &&
-        mem.data_registro,
+        mem.created_at,
     );
 
     console.log(`📥 ${memoriesFiltradas.length} memórias retornadas para ${user.id}`);

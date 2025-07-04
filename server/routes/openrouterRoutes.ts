@@ -75,8 +75,9 @@ router.post("/ask-eco", async (req, res) => {
     const resposta = await getEcoResponse({
       messages: mensagensParaIA,
       userId: usuario_id,
+      userName: nome_usuario,       // ✅ agora passando o nome do usuário
       accessToken: token,
-      mems: memsSimilares,           // ⬅️ novo parâmetro
+      mems: memsSimilares,
     });
 
     return res.status(200).json({ message: resposta.message });

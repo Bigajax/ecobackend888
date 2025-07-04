@@ -10,9 +10,10 @@ import profileRoutes from './routes/perfilEmocionalRoutes';
 import voiceTTSRoutes from './routes/voiceTTSRoutes';
 import voiceFullRoutes from './routes/voiceFullRoutes';
 import openrouterRoutes from './routes/openrouterRoutes';
+import relatorioRoutes from './routes/relatorioEmocionalRoutes'; // ✅ Adicionado aqui
 
 import { registrarTodasHeuristicas } from './services/registrarTodasHeuristicas';
-import { registrarModulosFilosoficos } from './services/registrarModulosFilosoficos'; // ✅ Corrigido aqui
+import { registrarModulosFilosoficos } from './services/registrarModulosFilosoficos';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -41,6 +42,7 @@ app.use('/api/perfil-emocional', profileRoutes);
 app.use('/api/voice', voiceTTSRoutes);
 app.use('/api/voice', voiceFullRoutes);
 app.use('/api', openrouterRoutes);
+app.use('/api/relatorio-emocional', relatorioRoutes); // ✅ Aqui também
 
 // 🚀 Inicialização
 app.listen(PORT, async () => {

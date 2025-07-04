@@ -21,9 +21,9 @@ export async function salvarReferenciaTemporaria(bloco: BlocoTecnico) {
   const payload = {
     ...bloco,
     salvar_memoria: false,
-    data_registro: new Date().toISOString(),
+    created_at: new Date().toISOString(), // ✅ substituído aqui
     mensagem_id: bloco.mensagem_id ?? null,
-    referencia_anterior_id: bloco.referencia_anterior_id ?? null, // ✅ adicionado
+    referencia_anterior_id: bloco.referencia_anterior_id ?? null,
     dominio_vida: bloco.dominio_vida ?? null,
     padrao_comportamental: bloco.padrao_comportamental ?? null,
     nivel_abertura: bloco.nivel_abertura ?? null,

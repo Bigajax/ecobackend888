@@ -4,7 +4,7 @@ interface Memoria {
   emocao_principal?: string;
   dominio_vida?: string;
   intensidade?: number;
-  data_registro?: string;
+  created_at?: string; // 🔄 Alterado de data_registro para created_at
   salvar_memoria?: boolean;
 }
 
@@ -16,7 +16,7 @@ export async function updateEmotionalProfile(userId: string): Promise<{ success:
   try {
     const { data: memories, error } = await supabaseAdmin
       .from('memories')
-      .select('emocao_principal, dominio_vida, intensidade, data_registro')
+      .select('emocao_principal, dominio_vida, intensidade, created_at') // 🔄 Aqui também
       .eq('usuario_id', userId)
       .eq('salvar_memoria', true);
 
@@ -45,8 +45,8 @@ export async function updateEmotionalProfile(userId: string): Promise<{ success:
       if (emocao) emocoesFreq[emocao] = (emocoesFreq[emocao] || 0) + 1;
       if (dominio) temasFreq[dominio] = (temasFreq[dominio] || 0) + 1;
 
-      if (mem.data_registro && (!ultimaDataSignificativa || new Date(mem.data_registro) > new Date(ultimaDataSignificativa))) {
-        ultimaDataSignificativa = mem.data_registro;
+      if (mem.created_at && (!ultimaDataSignificativa || new Date(mem.created_at) > new Date(ultimaDataSignificativa))) {
+        ultimaDataSignificativa = mem.created_at;
       }
     }
 

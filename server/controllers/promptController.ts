@@ -1,4 +1,3 @@
-
 import path from 'path';
 import fs from 'fs/promises';
 import { Request, Response } from 'express';
@@ -16,7 +15,11 @@ import { buscarMemoriasSemelhantes } from '../services/buscarMemorias';
 import { buscarReferenciasSemelhantes } from '../services/buscarReferenciasSemelhantes';
 import { buscarEncadeamentosPassados } from '../services/buscarEncadeamentos';
 
+import { matrizPromptBase } from './matrizPromptBase';
+
+// ----------------------------------
 // INTERFACES
+// ----------------------------------
 interface PerfilEmocional {
   emocoes_frequentes?: Record<string, number>;
   temas_recorrentes?: Record<string, number>;
@@ -25,7 +28,7 @@ interface PerfilEmocional {
 }
 
 interface Memoria {
-  data_registro?: string;
+  created_at?: string;
   resumo_eco: string;
   tags?: string[];
   intensidade?: number;
@@ -44,26 +47,43 @@ interface ModuloFilosoficoTrigger {
   gatilhos: string[];
 }
 
+// ----------------------------------
+// SUPABASE CLIENT
+// ----------------------------------
 const supabase = createClient(
   process.env.SUPABASE_URL!,
   process.env.SUPABASE_ANON_KEY!
 );
 
+// ----------------------------------
+// UTILS
+// ----------------------------------
 function normalizarTexto(texto: string): string {
   return texto.toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '');
 }
 
+function capitalizarNome(nome?: string): string {
+  if (!nome) return '';
+  return nome.trim().replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+// ----------------------------------
+// MAIN FUNCTION
+// ----------------------------------
 export async function montarContextoEco({
   perfil,
   ultimaMsg,
   userId,
+  userName,
   mems
 }: {
   perfil?: PerfilEmocional | null;
   ultimaMsg?: string;
   userId?: string;
+  userName?: string;
   mems?: Memoria[];
 }): Promise<string> {
+
   const assetsDir = path.join(process.cwd(), 'assets');
   const modulosDir = path.join(assetsDir, 'modulos');
   const modCogDir = path.join(assetsDir, 'modulos_cognitivos');
@@ -71,34 +91,73 @@ export async function montarContextoEco({
   const modEstoicosDir = path.join(modFilosDir, 'estoicos');
   const modEmocDir = path.join(assetsDir, 'modulos_emocionais');
 
-  const promptBase = await fs.readFile(path.join(assetsDir, 'eco_prompt_programavel.txt'), 'utf-8');
   const forbidden = await fs.readFile(path.join(modulosDir, 'eco_forbidden_patterns.txt'), 'utf-8');
 
   let contexto = '';
   const entrada = (ultimaMsg || '').trim();
   const entradaSemAcentos = normalizarTexto(entrada);
 
+  // ----------------------------------
+  // SAUDAÇÃO ESPECIAL
+  // ----------------------------------
+  const saudacoesCurtaLista = ['oi', 'ola', 'olá', 'bom dia', 'boa tarde', 'boa noite'];
+  const isSaudacaoCurta = saudacoesCurtaLista.some((saud) =>
+    entradaSemAcentos.startsWith(saud)
+  );
+
+  if (isSaudacaoCurta) {
+    console.log('🌱 Detecção de saudação curta. Aplicando regra exclusiva de saudação.');
+    try {
+      let saudacaoConteudo = await fs.readFile(path.join(modulosDir, 'REGRA_SAUDACAO.txt'), 'utf-8');
+      if (userName) {
+        saudacaoConteudo = saudacaoConteudo.replace(/\[nome\]/gi, capitalizarNome(userName));
+      }
+      return `📶 Entrada detectada como saudação breve.\n\n[Módulo REGRA_SAUDACAO]\n${saudacaoConteudo.trim()}\n\n[Módulo eco_forbidden_patterns]\n${forbidden.trim()}`;
+    } catch (e) {
+      console.warn(`⚠️ Falha ao carregar módulo REGRA_SAUDACAO.txt:`, (e as Error).message);
+      return `⚠️ Erro ao carregar REGRA_SAUDACAO.`;
+    }
+  }
+
+  // ----------------------------------
+  // NÍVEL DE ABERTURA
+  // ----------------------------------
+  let nivel = heuristicaNivelAbertura(entrada) || 1;
+  if (nivel < 1 || nivel > 3) {
+    console.warn('⚠️ Nível de abertura ambíguo ou inválido. Aplicando fallback para nível 1.');
+    nivel = 1;
+  }
+  const desc = nivel === 1 ? 'superficial' : nivel === 2 ? 'reflexiva' : 'profunda';
+  contexto += `\n📶 Abertura emocional sugerida (heurística): ${desc}`;
+
+  // ----------------------------------
+  // PERFIL EMOCIONAL
+  // ----------------------------------
   if (perfil) {
     const emocoes = Object.keys(perfil.emocoes_frequentes || {}).join(', ') || 'nenhuma';
     const temas = Object.keys(perfil.temas_recorrentes || {}).join(', ') || 'nenhum';
     contexto += `\n🧠 Perfil emocional:\n• Emoções: ${emocoes}\n• Temas: ${temas}`;
   }
 
-  if (entrada) {
-    const nivel = heuristicaNivelAbertura(entrada);
-    const desc = nivel === 1 ? 'superficial' : nivel === 2 ? 'reflexiva' : 'profunda';
-    contexto += `\n📶 Abertura emocional sugerida (heurística): ${desc}`;
+  // ----------------------------------
+  // MEMÓRIAS
+  // ----------------------------------
+  if (nivel === 1) {
+    console.log('⚠️ Ignorando embeddings/memórias por abertura superficial.');
+    mems = [];
   }
 
+  // ----------------------------------
+  // HEURÍSTICAS DIRETAS E FUZZY
+  // ----------------------------------
   let heuristicaAtiva = heuristicasTriggerMap.find((h: Heuristica) =>
     h.gatilhos.some((g) => entradaSemAcentos.includes(normalizarTexto(g)))
   );
 
   if (entrada && !heuristicaAtiva) {
-    const heuristicaFuzzy = await buscarHeuristicaPorSimilaridade(entrada);
-    if (heuristicaFuzzy) {
-      console.log("✨ Heurística fuzzy ativada:", heuristicaFuzzy.arquivo);
-      heuristicaAtiva = heuristicaFuzzy;
+    heuristicaAtiva = await buscarHeuristicaPorSimilaridade(entrada);
+    if (heuristicaAtiva) {
+      console.log("✨ Heurística fuzzy ativada:", heuristicaAtiva.arquivo);
     }
   }
 
@@ -120,17 +179,21 @@ export async function montarContextoEco({
   const tagsAlvo = heuristicaAtiva ? tagsPorHeuristica[heuristicaAtiva.arquivo] ?? [] : [];
 
   let memsUsadas = mems;
-
-  if ((!memsUsadas?.length) && entrada && userId) {
+  if (nivel > 1 && (!memsUsadas?.length) && entrada && userId) {
     try {
       const [memorias, referencias] = await Promise.all([
         buscarMemoriasSemelhantes(userId, entrada),
         buscarReferenciasSemelhantes(userId, entrada)
       ]);
-      memsUsadas = [...(memorias || []), ...(referencias || [])];
+
+      const MIN_SIMILARIDADE = 0.55;
+      const memoriasFiltradas = (memorias || []).filter((m: Memoria) => (m.similaridade ?? 0) >= MIN_SIMILARIDADE);
+      const referenciasFiltradas = (referencias || []).filter((r: Memoria) => (r.similaridade ?? 0) >= MIN_SIMILARIDADE);
+
+      memsUsadas = [...memoriasFiltradas, ...referenciasFiltradas];
 
       if (tagsAlvo.length) {
-        memsUsadas = memsUsadas.filter(m => m.tags?.some(t => tagsAlvo.includes(t)));
+        memsUsadas = memsUsadas.filter((m: Memoria) => m.tags?.some(t => tagsAlvo.includes(t)));
       }
     } catch (e) {
       console.warn("⚠️ Erro ao buscar memórias/referências:", (e as Error).message);
@@ -138,7 +201,7 @@ export async function montarContextoEco({
     }
   }
 
-  if (entrada && perfil) {
+  if (entrada && perfil && nivel > 1) {
     const memoriaAtual: Memoria = {
       resumo_eco: entrada,
       tags: perfil.temas_recorrentes ? Object.keys(perfil.temas_recorrentes) : [],
@@ -148,9 +211,8 @@ export async function montarContextoEco({
     memsUsadas = [memoriaAtual, ...(memsUsadas || [])];
   }
 
-  // 🔗 Adiciona encadeamentos
   let encadeamentos: Memoria[] = [];
-  if (entrada && userId) {
+  if (entrada && userId && nivel > 1) {
     try {
       encadeamentos = await buscarEncadeamentosPassados(userId, entrada);
       if (encadeamentos?.length) encadeamentos = encadeamentos.slice(0, 3);
@@ -159,50 +221,9 @@ export async function montarContextoEco({
     }
   }
 
-  // 🧠 Organiza memórias e evita redundâncias
-  if (memsUsadas?.length) {
-    const memoriaUnica = new Map();
-    memsUsadas = memsUsadas.filter(m => {
-      const key = m.resumo_eco.trim();
-      if (memoriaUnica.has(key)) return false;
-      memoriaUnica.set(key, true);
-      return true;
-    });
-
-    const marcantes = memsUsadas.filter(m => (m.intensidade ?? 0) >= 7);
-    const leves = memsUsadas.filter(m => (m.intensidade ?? 0) < 7);
-
-    const blocosMarcantes = marcantes.map(m => {
-      const d = m.data_registro?.slice(0, 10);
-      const tg = m.tags?.join(', ') || '';
-      const resumo = m.resumo_eco.length > 220 ? m.resumo_eco.slice(0, 217) + '...' : m.resumo_eco;
-      return `(${d}) ${resumo}${tg ? ` [tags: ${tg}]` : ''}`;
-    }).join('\n');
-
-    const blocosLeves = leves.map(m => {
-      const d = m.data_registro?.slice(0, 10);
-      const tg = m.tags?.join(', ') || '';
-      const resumo = m.resumo_eco.length > 220 ? m.resumo_eco.slice(0, 217) + '...' : m.resumo_eco;
-      return `(${d}) ${resumo}${tg ? ` [tags: ${tg}]` : ''}`;
-    }).join('\n');
-
-    if (blocosMarcantes) contexto += `\n\n📘 Memórias marcantes:\n${blocosMarcantes}`;
-    if (blocosLeves) contexto += `\n\n📗 Referências leves:\n${blocosLeves}`;
-  }
-
-  if (encadeamentos?.length) {
-    const blocosEncadeados = encadeamentos.map(m => {
-      const d = m.data_registro?.slice(0, 10);
-      const tg = m.tags?.join(', ') || '';
-      const resumo = m.resumo_eco.length > 220 ? m.resumo_eco.slice(0, 217) + '...' : m.resumo_eco;
-      return `(${d}) ${resumo}${tg ? ` [tags: ${tg}]` : ''}`;
-    }).join('\n');
-    contexto += `\n\n🔗 Encadeamentos passados:\n${blocosEncadeados}`;
-  }
-
-  // ⚙️ Insere módulos ativados
   const modulosAdic: string[] = [];
   const modulosInseridos = new Set<string>();
+
   const inserirModuloUnico = async (arquivo: string, tipo: string, caminhoBase: string) => {
     if (modulosInseridos.has(arquivo)) return;
     try {
@@ -214,23 +235,41 @@ export async function montarContextoEco({
     }
   };
 
+  for (const arquivo of matrizPromptBase.alwaysInclude) {
+    await inserirModuloUnico(arquivo, 'Base', modulosDir);
+  }
+
+  const nivelPrompts = (matrizPromptBase.byNivel[nivel as 2 | 3] ?? []).filter((arquivo: string) => {
+    if (arquivo === 'METODO_VIVA.txt') {
+      const intensidadeAlta = memsUsadas?.some((mem: Memoria) => (mem.intensidade ?? 0) >= 7);
+      return intensidadeAlta || nivel === 3;
+    }
+    return true;
+  });
+
+  for (const arquivo of nivelPrompts) {
+    await inserirModuloUnico(arquivo, 'Base', modulosDir);
+  }
+
   if (heuristicaAtiva) await inserirModuloUnico(heuristicaAtiva.arquivo, 'Cognitivo', modCogDir);
   for (const h of heuristicasEmbedding) await inserirModuloUnico(h.arquivo, 'Cognitivo', modCogDir);
   for (const mf of modulosFilosoficosAtivos) await inserirModuloUnico(mf.arquivo, 'Filosófico', modFilosDir);
   for (const es of modulosEstoicosAtivos) await inserirModuloUnico(es.arquivo, 'Estoico', modEstoicosDir);
 
   const modulosEmocionaisAtivos = emocionaisTriggerMap.filter((m: ModuloEmocionalTrigger) => {
-    const intensidadeOk = m.intensidadeMinima !== undefined
-      ? memsUsadas?.some(mem => (mem.intensidade ?? 0) >= m.intensidadeMinima!)
-      : true;
+    let intensidadeOk = true;
+    if (typeof m.intensidadeMinima === 'number') {
+      const min = m.intensidadeMinima;
+      intensidadeOk = memsUsadas?.some((mem: Memoria) => (mem.intensidade ?? 0) >= min) ?? false;
+    }
 
     const tagsPresentes = memsUsadas?.flatMap(mem => mem.tags ?? []) ?? [];
     const emocoesPrincipais = memsUsadas?.map(mem => mem.emocao_principal).filter(Boolean) ?? [];
 
-    const tagsCombinam = m.tags?.some(tag => tagsPresentes.includes(tag));
-    const emocaoCondiz = m.tags?.some(tag => emocoesPrincipais.includes(tag));
-
-    return intensidadeOk && (tagsCombinam || emocaoCondiz);
+    return intensidadeOk && (
+      m.tags?.some(tag => tagsPresentes.includes(tag)) ||
+      m.tags?.some(tag => emocoesPrincipais.includes(tag))
+    );
   });
 
   for (const me of modulosEmocionaisAtivos) {
@@ -246,10 +285,17 @@ export async function montarContextoEco({
   modulosAdic.push(`\n\n[Módulo: eco_json_trigger_criteria]\n${criterios.trim()}`);
   modulosAdic.push(`\n\n[Módulo: eco_forbidden_patterns]\n${forbidden.trim()}`);
 
-  const promptFinal = `${promptBase.trim()}\n\n${contexto.trim()}\n${modulosAdic.join('\n')}`.trim();
+  modulosAdic.push(
+    `\n\n⚠️ INSTRUÇÃO FINAL AO MODELO:\nPor favor, gere a resposta seguindo rigorosamente a estrutura definida no ECO_ESTRUTURA_DE_RESPOSTA.txt. Use as seções numeradas e marcadas com colchetes.`
+  );
+
+  const promptFinal = `${contexto.trim()}\n${modulosAdic.join('\n')}`.trim();
   return promptFinal;
 }
 
+// ----------------------------------
+// EXPRESS HANDLER
+// ----------------------------------
 export const getPromptEcoPreview = async (_req: Request, res: Response) => {
   try {
     const promptFinal = await montarContextoEco({});

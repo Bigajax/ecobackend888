@@ -51,7 +51,7 @@ async function logHeuristicasEmbedding(texto: string) {
   }
 }
 
-// BLOCO TÉCNICO
+// BLOCO TÉCNICO AJUSTADO
 async function gerarBlocoTecnicoSeparado({
   mensagemUsuario,
   respostaIa,
@@ -63,7 +63,7 @@ async function gerarBlocoTecnicoSeparado({
 }): Promise<any | null> {
   try {
     const prompt = `
-Extraia e retorne em JSON os dados abaixo com base na resposta a seguir.
+Extraia e retorne em JSON **somente os campos especificados** com base na resposta a seguir.
 
 Resposta da IA:
 """
@@ -73,7 +73,7 @@ ${respostaIa}
 Mensagem original do usuário:
 "${mensagemUsuario}"
 
-Retorne neste formato:
+Retorne neste formato JSON puro:
 {
   "emocao_principal": "",
   "intensidade": 0,
@@ -81,16 +81,17 @@ Retorne neste formato:
   "dominio_vida": "",
   "padrao_comportamental": "",
   "nivel_abertura": "baixo" | "médio" | "alto",
-  "analise_resumo": "",
-  "categoria": "emocional"
-}`;
+  "analise_resumo": ""
+}
+
+⚠️ NÃO adicione mais nada além deste JSON. Não explique, não comente.`;
 
     const { data } = await axios.post(
       "https://openrouter.ai/api/v1/chat/completions",
       {
         model: "openai/gpt-4o",
         messages: [{ role: "user", content: prompt }],
-        temperature: 0.4,
+        temperature: 0.2,
         max_tokens: 500,
       },
       {
@@ -101,12 +102,36 @@ Retorne neste formato:
       }
     );
 
-    const jsonText = data?.choices?.[0]?.message?.content ?? "";
-    const match = jsonText.match(/\{[\s\S]*\}/);
-    const json = match ? JSON.parse(match[0]) : null;
+    const rawContent = data?.choices?.[0]?.message?.content ?? "";
+    if (!rawContent) {
+      console.warn("⚠️ Resposta vazia ao tentar extrair bloco técnico.");
+      return null;
+    }
 
-    console.log("🧠 Bloco técnico extraído:", json);
-    return json;
+    const match = rawContent.match(/\{[\s\S]*\}/);
+    if (!match) {
+      console.warn("⚠️ Nenhum JSON encontrado no bloco técnico.");
+      return null;
+    }
+
+    let parsed = JSON.parse(match[0]);
+
+    const permitido = [
+      "emocao_principal",
+      "intensidade",
+      "tags",
+      "dominio_vida",
+      "padrao_comportamental",
+      "nivel_abertura",
+      "analise_resumo"
+    ];
+    const cleanJson: any = {};
+    for (const key of permitido) {
+      cleanJson[key] = parsed[key] ?? null;
+    }
+
+    console.log("🧠 Bloco técnico extraído e sanitizado:", cleanJson);
+    return cleanJson;
   } catch (err: any) {
     console.warn("⚠️ Erro ao gerar bloco técnico:", err.message || err);
     return null;
@@ -157,6 +182,7 @@ export async function getEcoResponse({
     const systemPrompt = await montarContextoEco({
       userId,
       ultimaMsg,
+      userName,   // ✅ CORREÇÃO AQUI: passa o nome para personalização
       perfil: null,
       mems,
     });
@@ -205,26 +231,31 @@ export async function getEcoResponse({
     let resumo: string | undefined = cleaned;
 
     if (bloco) {
+      // 👇 FIX CRÍTICO para Postgres: garantir inteiro
       intensidade = Number(bloco.intensidade);
+      if (!isNaN(intensidade)) {
+        intensidade = Math.round(intensidade);
+      } else {
+        intensidade = undefined;
+      }
+
       emocao = bloco.emocao_principal || "indefinida";
       tags = Array.isArray(bloco.tags) ? bloco.tags : [];
 
       const nivelNumerico =
-  typeof bloco.nivel_abertura === "number"
-    ? Math.round(bloco.nivel_abertura) // garante inteiro
-    : bloco.nivel_abertura === "baixo"
-    ? 1
-    : bloco.nivel_abertura === "médio"
-    ? 2
-    : bloco.nivel_abertura === "alto"
-    ? 3
-    : null;
-
+        typeof bloco.nivel_abertura === "number"
+          ? Math.round(bloco.nivel_abertura)
+          : bloco.nivel_abertura === "baixo"
+          ? 1
+          : bloco.nivel_abertura === "médio"
+          ? 2
+          : bloco.nivel_abertura === "alto"
+          ? 3
+          : null;
 
       const textoParaEmbedding = [cleaned, bloco.analise_resumo ?? ""].join("\n");
       const embeddingFinal = await embedTextoCompleto(textoParaEmbedding, "memoria ou referencia");
 
-      // 🔗 Buscar última memória para encadeamento
       let referenciaAnteriorId: string | null = null;
       if (userId) {
         const { data: ultimaMemoria } = await supabase
@@ -243,42 +274,45 @@ export async function getEcoResponse({
         mensagem_id: messages.at(-1)?.id ?? null,
         resumo_eco: bloco.analise_resumo ?? cleaned,
         emocao_principal: emocao,
-        intensidade,
+        intensidade: intensidade ?? 0,
         contexto: ultimaMsg,
         dominio_vida: bloco.dominio_vida ?? null,
         padrao_comportamental: bloco.padrao_comportamental ?? null,
         nivel_abertura: nivelNumerico,
         analise_resumo: bloco.analise_resumo ?? null,
-        categoria: bloco.categoria ?? "emocional",
         tags,
         embedding: embeddingFinal,
-        referencia_anterior_id: referenciaAnteriorId, // ✅ encadeamento corrigido
+        referencia_anterior_id: referenciaAnteriorId,
       };
 
-      if (userId && intensidade >= 7) {
-        const { error } = await supabase.from("memories").insert([
-          {
-            ...payload,
-            salvar_memoria: true,
-            data_registro: new Date().toISOString(),
-          },
-        ]);
+      if (userId && intensidade !== undefined) {
+        if (intensidade >= 7) {
+          const { error } = await supabase.from("memories").insert([
+            {
+              ...payload,
+              salvar_memoria: true,
+              created_at: new Date().toISOString(),
+            },
+          ]);
 
-        if (error) {
-          console.warn("⚠️ Erro ao salvar memória:", error.message);
-        } else {
-          console.log(`✅ Memória salva com sucesso para o usuário ${userId}.`);
-          try {
-            console.log(`🔄 Atualizando perfil emocional de ${userId}...`);
-            await updateEmotionalProfile(userId);
-            console.log(`🧠 Perfil emocional atualizado com sucesso.`);
-          } catch (err: any) {
-            console.error("❌ Erro ao atualizar perfil emocional:", err.message || err);
+          if (error) {
+            console.warn("⚠️ Erro ao salvar memória:", error.message);
+          } else {
+            console.log(`✅ Memória salva com sucesso para o usuário ${userId}.`);
+            try {
+              console.log(`🔄 Atualizando perfil emocional de ${userId}...`);
+              await updateEmotionalProfile(userId);
+              console.log(`🧠 Perfil emocional atualizado com sucesso.`);
+            } catch (err: any) {
+              console.error("❌ Erro ao atualizar perfil emocional:", err.message || err);
+            }
           }
+        } else {
+          await salvarReferenciaTemporaria(payload);
+          console.log(`📎 Referência emocional leve registrada para ${userId}`);
         }
-      } else if (userId && intensidade < 7) {
-        await salvarReferenciaTemporaria(payload);
-        console.log(`📎 Referência emocional leve registrada para ${userId}`);
+      } else {
+        console.warn("⚠️ Intensidade não definida ou inválida. Nada será salvo no banco.");
       }
     }
 
