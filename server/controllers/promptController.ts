@@ -1,7 +1,6 @@
 import path from 'path';
 import fs from 'fs/promises';
 import { Request, Response } from 'express';
-import { createClient } from '@supabase/supabase-js';
 
 import { embedTextoCompleto } from '../services/embeddingService';
 import { heuristicasTriggerMap, tagsPorHeuristica } from '../assets/config/heuristicasTriggers';
@@ -46,14 +45,6 @@ interface ModuloFilosoficoTrigger {
   arquivo: string;
   gatilhos: string[];
 }
-
-// ----------------------------------
-// SUPABASE CLIENT
-// ----------------------------------
-const supabase = createClient(
-  process.env.SUPABASE_URL!,
-  process.env.SUPABASE_ANON_KEY!
-);
 
 // ----------------------------------
 // UTILS
@@ -167,16 +158,19 @@ export async function montarContextoEco({
   }
 
   const heuristicasEmbedding = entrada 
-  ? await buscarHeuristicasSemelhantes(entrada, userId ?? null) 
-  : [];
+    ? await buscarHeuristicasSemelhantes(entrada, userId ?? null) 
+    : [];
 
-
-  const modulosFilosoficosAtivos = filosoficosTriggerMap.filter((f: ModuloFilosoficoTrigger) =>
-    f.gatilhos.some((g) => entradaSemAcentos.includes(normalizarTexto(g)))
+  const modulosFilosoficosAtivos = filosoficosTriggerMap.filter((f) =>
+    f?.arquivo && f?.arquivo.trim() && f.gatilhos.some((g) =>
+      entradaSemAcentos.includes(normalizarTexto(g))
+    )
   );
 
-  const modulosEstoicosAtivos = estoicosTriggerMap.filter((e: ModuloFilosoficoTrigger) =>
-    e.gatilhos.every((g) => entradaSemAcentos.includes(normalizarTexto(g)))
+  const modulosEstoicosAtivos = estoicosTriggerMap.filter((e) =>
+    e?.arquivo && e?.arquivo.trim() && e.gatilhos.every((g) =>
+      entradaSemAcentos.includes(normalizarTexto(g))
+    )
   );
 
   const tagsAlvo = heuristicaAtiva ? tagsPorHeuristica[heuristicaAtiva.arquivo] ?? [] : [];
@@ -196,7 +190,7 @@ export async function montarContextoEco({
       memsUsadas = [...memoriasFiltradas, ...referenciasFiltradas];
 
       if (tagsAlvo.length) {
-        memsUsadas = memsUsadas.filter((m: Memoria) => m.tags?.some(t => tagsAlvo.includes(t)));
+        memsUsadas = memsUsadas.filter((m) => m.tags?.some(t => tagsAlvo.includes(t)));
       }
     } catch (e) {
       console.warn("⚠️ Erro ao buscar memórias/referências:", (e as Error).message);
@@ -224,28 +218,59 @@ export async function montarContextoEco({
     }
   }
 
+  // ----------------------------------
+  // INSERÇÃO DE MÓDULOS
+  // ----------------------------------
   const modulosAdic: string[] = [];
   const modulosInseridos = new Set<string>();
 
-  const inserirModuloUnico = async (arquivo: string, tipo: string, caminhoBase: string) => {
+  const inserirModuloUnico = async (arquivo: string | undefined, tipo: string, caminhoBase: string) => {
+    if (!arquivo || !arquivo.trim()) {
+      console.warn(`⚠️ Ignorando chamada para inserirModuloUnico com arquivo inválido: "${arquivo}" (tipo: ${tipo})`);
+      return;
+    }
     if (modulosInseridos.has(arquivo)) return;
     try {
-      const conteudo = await fs.readFile(path.join(caminhoBase, arquivo), 'utf-8');
+      const caminho = path.join(caminhoBase, arquivo);
+      const conteudo = await fs.readFile(caminho, 'utf-8');
       modulosAdic.push(`\n\n[Módulo ${tipo} → ${arquivo}]\n${conteudo.trim()}`);
       modulosInseridos.add(arquivo);
     } catch (e) {
       console.warn(`⚠️ Falha ao carregar módulo ${arquivo}:`, (e as Error).message);
     }
   };
-
-  for (const arquivo of matrizPromptBase.alwaysInclude) {
+  // ----------------------------------
+  // Always Include
+  // ----------------------------------
+  for (const arquivo of matrizPromptBase.alwaysInclude ?? []) {
     await inserirModuloUnico(arquivo, 'Base', modulosDir);
   }
 
+  // ----------------------------------
+  // Prompts por Nível
+  // ----------------------------------
   const nivelPrompts = (matrizPromptBase.byNivel[nivel as 2 | 3] ?? []).filter((arquivo: string) => {
-    if (arquivo === 'METODO_VIVA.txt') {
-      const intensidadeAlta = memsUsadas?.some((mem: Memoria) => (mem.intensidade ?? 0) >= 7);
-      return intensidadeAlta || nivel === 3;
+    if (!arquivo || !arquivo.trim()) {
+      console.warn(`⚠️ Ignorando arquivo vazio ou inválido na matrizPromptBase.byNivel: "${arquivo}"`);
+      return false;
+    }
+    const intensidadeMin = matrizPromptBase.intensidadeMinima?.[arquivo];
+    if (typeof intensidadeMin === 'number') {
+      const temIntensa = memsUsadas?.some(mem => (mem.intensidade ?? 0) >= intensidadeMin);
+      if (!temIntensa) {
+        console.log(`⚠️ Ignorando ${arquivo} por intensidade < ${intensidadeMin}`);
+        return false;
+      }
+    }
+    const condicao = matrizPromptBase.condicoesEspeciais?.[arquivo];
+    if (condicao) {
+      if (arquivo === 'METODO_VIVA.txt') {
+        const intensidadeAlta = memsUsadas?.some(mem => (mem.intensidade ?? 0) >= 7);
+        if (!intensidadeAlta && nivel !== 3) {
+          console.log(`⚠️ Ignorando ${arquivo} por condição especial (intensidade <7 e nivel!=3)`);
+          return false;
+        }
+      }
     }
     return true;
   });
@@ -254,16 +279,35 @@ export async function montarContextoEco({
     await inserirModuloUnico(arquivo, 'Base', modulosDir);
   }
 
-  if (heuristicaAtiva) await inserirModuloUnico(heuristicaAtiva.arquivo, 'Cognitivo', modCogDir);
-  for (const h of heuristicasEmbedding) await inserirModuloUnico(h.arquivo, 'Cognitivo', modCogDir);
-  for (const mf of modulosFilosoficosAtivos) await inserirModuloUnico(mf.arquivo, 'Filosófico', modFilosDir);
-  for (const es of modulosEstoicosAtivos) await inserirModuloUnico(es.arquivo, 'Estoico', modEstoicosDir);
+  // ----------------------------------
+  // Heurísticas Cognitivas
+  // ----------------------------------
+  if (heuristicaAtiva?.arquivo) await inserirModuloUnico(heuristicaAtiva.arquivo, 'Cognitivo', modCogDir);
+  for (const h of heuristicasEmbedding ?? []) {
+    if (h?.arquivo) await inserirModuloUnico(h.arquivo, 'Cognitivo', modCogDir);
+  }
 
+  // ----------------------------------
+  // Filosóficos e Estoicos
+  // ----------------------------------
+  for (const mf of modulosFilosoficosAtivos ?? []) {
+    if (mf?.arquivo) await inserirModuloUnico(mf.arquivo, 'Filosófico', modFilosDir);
+  }
+
+  for (const es of modulosEstoicosAtivos ?? []) {
+    if (es?.arquivo) await inserirModuloUnico(es.arquivo, 'Estoico', modEstoicosDir);
+  }
+
+  // ----------------------------------
+  // Emocionais
+  // ----------------------------------
   const modulosEmocionaisAtivos = emocionaisTriggerMap.filter((m: ModuloEmocionalTrigger) => {
+    if (!m?.arquivo) return false;
+
     let intensidadeOk = true;
     if (typeof m.intensidadeMinima === 'number') {
       const min = m.intensidadeMinima;
-      intensidadeOk = memsUsadas?.some((mem: Memoria) => (mem.intensidade ?? 0) >= min) ?? false;
+      intensidadeOk = memsUsadas?.some((mem) => (mem.intensidade ?? 0) >= min) ?? false;
     }
 
     const tagsPresentes = memsUsadas?.flatMap(mem => mem.tags ?? []) ?? [];
@@ -275,8 +319,8 @@ export async function montarContextoEco({
     );
   });
 
-  for (const me of modulosEmocionaisAtivos) {
-    await inserirModuloUnico(me.arquivo, 'Emocional', modEmocDir);
+  for (const me of modulosEmocionaisAtivos ?? []) {
+    if (me?.arquivo) await inserirModuloUnico(me.arquivo, 'Emocional', modEmocDir);
     if (me.relacionado?.length) {
       for (const rel of me.relacionado) {
         await inserirModuloUnico(rel, 'Relacionado', modFilosDir);
@@ -284,6 +328,37 @@ export async function montarContextoEco({
     }
   }
 
+  // ----------------------------------
+  // INSERÇÃO DE MEMÓRIAS E REFERÊNCIAS NO PROMPT
+  // ----------------------------------
+  if (memsUsadas && memsUsadas.length > 0 && nivel > 1) {
+    const memoriaFrases: string[] = [];
+    const referenciaFrases: string[] = [];
+
+    for (const m of memsUsadas) {
+      if (!m || !m.resumo_eco) continue;
+      const textoBase = m.resumo_eco.trim();
+      if (!textoBase) continue;
+
+      if ((m.intensidade ?? 0) >= 7) {
+        memoriaFrases.push(`• Você já trouxe antes que ${textoBase}.`);
+      } else {
+        referenciaFrases.push(`• Houve algo que sugeria "${textoBase}".`);
+      }
+    }
+
+    if (memoriaFrases.length > 0) {
+      modulosAdic.push(`\n\n[Módulo Memórias Salvas]\n${memoriaFrases.join('\n')}`);
+    }
+
+    if (referenciaFrases.length > 0) {
+      modulosAdic.push(`\n\n[Módulo Referências Temporárias]\n${referenciaFrases.join('\n')}`);
+    }
+  }
+
+  // ----------------------------------
+  // CRITÉRIOS E INSTRUÇÃO FINAL
+  // ----------------------------------
   const criterios = await fs.readFile(path.join(modulosDir, 'eco_json_trigger_criteria.txt'), 'utf-8');
   modulosAdic.push(`\n\n[Módulo: eco_json_trigger_criteria]\n${criterios.trim()}`);
   modulosAdic.push(`\n\n[Módulo: eco_forbidden_patterns]\n${forbidden.trim()}`);
@@ -292,6 +367,9 @@ export async function montarContextoEco({
     `\n\n⚠️ INSTRUÇÃO FINAL AO MODELO:\nPor favor, gere a resposta seguindo rigorosamente a estrutura definida no ECO_ESTRUTURA_DE_RESPOSTA.txt. Use as seções numeradas e marcadas com colchetes.`
   );
 
+  // ----------------------------------
+  // MONTAGEM FINAL
+  // ----------------------------------
   const promptFinal = `${contexto.trim()}\n${modulosAdic.join('\n')}`.trim();
   return promptFinal;
 }
