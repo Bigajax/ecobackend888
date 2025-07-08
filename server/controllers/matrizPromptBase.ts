@@ -1,5 +1,3 @@
-// matrizPromptBase.ts
-
 export interface CondicaoEspecial {
   descricao: string;
   regra: string;
@@ -18,7 +16,8 @@ export const matrizPromptBase: MatrizPromptBase = {
     'IDENTIDADE.txt',
     'REGRA_SAUDACAO.txt',
     'ECO_ESTRUTURA_DE_RESPOSTA.txt',
-    'POLITICA_REDIRECIONAMENTO.txt'
+    'POLITICA_REDIRECIONAMENTO.txt',
+    'MEMORIAS_NO_CONTEXTO.txt'   // ✅ Adicionado aqui
   ],
   byNivel: {
     2: [

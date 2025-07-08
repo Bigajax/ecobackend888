@@ -18,19 +18,34 @@ import {
   Cell,
 } from 'recharts';
 
-// 🎨 Paleta pré-definida para emoções principais
+/**
+ * 🎨 Paleta fixada de cores para emoções — sem acento/minúsculo
+ */
 const EMOTION_COLORS: Record<string, string> = {
-  raiva: '#F4A261',
-  alegria: '#E9C46A',
-  calmo: '#2A9D8F',
-  medo: '#264653',
-  triste: '#A9D6E5',
-  surpresa: '#F6BD60',
-  antecipacao: '#F7E07D',
-  irritado: '#E76F51'
+  frustracao: '#F472B6',
+  medo: '#60A5FA',
+  incerteza: '#A3E635',
+  raiva: '#F87171',
+  alegria: '#FCD34D',
+  calmo: '#34D399',
+  tristeza: '#93C5FD',
+  surpresa: '#FBBF24',
+  antecipacao: '#FDE68A',
+  irritado: '#FB7185'
 };
 
-// ⚡️ Função geradora de cor pastel consistente
+/**
+ * 🔤 Normaliza string removendo acentos
+ */
+const normalizeEmotion = (name: string) =>
+  name
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+
+/**
+ * ⚡️ Função geradora de cor pastel consistente
+ */
 const hashStringToHue = (str: string) => {
   let hash = 0;
   for (let i = 0; i < str.length; i++) {
@@ -39,17 +54,23 @@ const hashStringToHue = (str: string) => {
   return Math.abs(hash) % 360;
 };
 
-const generateConsistentPastelColor = (str: string) => {
+const generateConsistentPastelColor = (str: string, options = {}) => {
   const hue = hashStringToHue(str);
-  return `hsl(${hue}, 65%, 72%)`; // Mais vibrante e pastel ao mesmo tempo
+  const {
+    saturation = 68,
+    lightness = 68
+  } = options;
+  return `hsl(${hue}, ${saturation}%, ${lightness}%)`;
 };
 
 const getEmotionColor = (name: string) => {
-  const clean = name?.toLowerCase().trim();
+  const clean = normalizeEmotion(name);
   return EMOTION_COLORS[clean] || generateConsistentPastelColor(clean);
 };
 
-// Tooltip estilizado Apple-like
+/**
+ * 🏷️ Tooltip
+ */
 const CustomTooltip = ({ active, payload, label }) => {
   if (active && payload && payload.length) {
     return (
@@ -84,6 +105,104 @@ const humanDate = (raw: string) => {
 
 const clamp = (val: number, min = -1, max = 1) => Math.max(min, Math.min(max, val));
 
+/**
+ * 📜 MemoryCard
+ */
+const MemoryCard: React.FC<{ mem: Memoria }> = ({ mem }) => {
+  const [expanded, setExpanded] = useState(false);
+
+  const capitalize = (str: string) =>
+    str ? str.charAt(0).toUpperCase() + str.slice(1) : '';
+
+  return (
+    <li className="p-4 rounded-3xl border border-neutral-200 bg-white/80 backdrop-blur shadow-md transition-all">
+      <div className="mb-2">
+        <span className="text-sm text-neutral-800">
+          {mem.emocao_principal
+            ? capitalize(mem.emocao_principal)
+            : 'Emoção desconhecida'}
+        </span>
+      </div>
+
+      <div className="text-sm text-neutral-800 mb-2">
+        {mem.resumo_eco || <span className="italic text-neutral-400">Sem resumo</span>}
+      </div>
+
+      {mem.tags?.length > 0 && (
+        <div className="flex flex-wrap gap-2 mb-2">
+          {mem.tags.map((tag, i) => (
+            <span
+              key={i}
+              className="text-xs px-3 py-1 rounded-full shadow-sm font-medium"
+              style={{
+                backgroundColor: getEmotionColor(tag),
+                color: '#333',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.15)',
+                border: '1px solid rgba(0,0,0,0.05)'
+              }}
+            >
+              {tag}
+            </span>
+          ))}
+        </div>
+      )}
+
+      <div className="text-xs text-neutral-400">
+        {mem.created_at ? humanDate(mem.created_at) : ''}
+      </div>
+
+      <div className="mt-3 flex justify-end">
+        <button
+          className="text-xs font-medium text-blue-600 flex items-center gap-1 hover:opacity-80 transition"
+          onClick={() => setExpanded(!expanded)}
+        >
+          {expanded ? (
+            <>
+              Fechar <span>↑</span>
+            </>
+          ) : (
+            <>
+              Ver mais <span>↓</span>
+            </>
+          )}
+        </button>
+      </div>
+
+      {expanded && (
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="mt-3 border-t pt-3 border-neutral-200 text-sm text-neutral-700 space-y-2"
+        >
+          {mem.analise_resumo && (
+            <div>
+              <strong>Análise:</strong> {mem.analise_resumo}
+            </div>
+          )}
+          {mem.contexto && (
+            <div>
+              <strong>Contexto:</strong> {mem.contexto}
+            </div>
+          )}
+          {mem.dominio_vida && (
+            <div>
+              <strong>Domínio:</strong> {mem.dominio_vida}
+            </div>
+          )}
+          {mem.categoria && (
+            <div>
+              <strong>Categoria:</strong> {mem.categoria}
+            </div>
+          )}
+        </motion.div>
+      )}
+    </li>
+  );
+};
+
+/**
+ * 📱 Main Page
+ */
 const MemoryPage: React.FC = () => {
   const { userId } = useAuth();
   const navigate = useNavigate();
@@ -200,35 +319,7 @@ const MemoryPage: React.FC = () => {
                 {memories.length > 0 ? (
                   <ul className="space-y-3">
                     {memories.map(mem => (
-                      <li
-                        key={mem.id}
-                        className="p-4 rounded-xl border border-neutral-200 bg-white/80 backdrop-blur shadow-sm"
-                      >
-                        <div className="text-sm text-neutral-800 mb-2">
-                          {mem.resumo_eco || <span className="italic text-neutral-400">Sem resumo</span>}
-                        </div>
-                        <div className="flex flex-wrap gap-2 mb-2">
-                          {mem.tags?.map((tag, i) => (
-                            <span
-                              key={i}
-                              className="text-xs px-3 py-1 rounded-full shadow-inner border"
-                              style={{
-                                backgroundColor: getEmotionColor(tag),
-                                color: '#333'
-                              }}
-                            >
-                              {tag}
-                            </span>
-                          ))}
-                        </div>
-                        <div className="text-xs text-neutral-500 flex justify-between">
-                          <span>{mem.emocao_principal ?? 'Emoção desconhecida'}</span>
-                          <span>{mem.intensidade != null ? `Intensidade: ${mem.intensidade}` : ''}</span>
-                        </div>
-                        <div className="text-xs text-neutral-400 mt-1">
-                          {mem.created_at ? humanDate(mem.created_at) : ''}
-                        </div>
-                      </li>
+                      <MemoryCard key={mem.id} mem={mem} />
                     ))}
                   </ul>
                 ) : (
@@ -249,12 +340,12 @@ const MemoryPage: React.FC = () => {
                           dataKey="name"
                           axisLine={false}
                           tickLine={false}
-                          tick={{ fill: '#6B7280', fontSize: 12 }}
+                          tick={{ fill: '#333', fontSize: 14 }}
                         />
                         <YAxis
                           axisLine={false}
                           tickLine={false}
-                          tick={{ fill: '#9CA3AF', fontSize: 12 }}
+                          tick={{ fill: '#9CA3AF', fontSize: 14 }}
                         />
                         <Tooltip content={<CustomTooltip />} />
                         <Bar dataKey="value" radius={[6, 6, 0, 0]}>
@@ -277,12 +368,12 @@ const MemoryPage: React.FC = () => {
                           dataKey="name"
                           axisLine={false}
                           tickLine={false}
-                          tick={{ fill: '#6B7280', fontSize: 12 }}
+                          tick={{ fill: '#333', fontSize: 14 }}
                         />
                         <YAxis
                           axisLine={false}
                           tickLine={false}
-                          tick={{ fill: '#9CA3AF', fontSize: 12 }}
+                          tick={{ fill: '#9CA3AF', fontSize: 14 }}
                         />
                         <Tooltip content={<CustomTooltip />} />
                         <Bar dataKey="value" radius={[6, 6, 0, 0]}>

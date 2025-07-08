@@ -110,16 +110,26 @@ export async function montarContextoEco({
     }
   }
 
-  // ----------------------------------
-  // NÍVEL DE ABERTURA
-  // ----------------------------------
-  let nivel = heuristicaNivelAbertura(entrada) || 1;
-  if (nivel < 1 || nivel > 3) {
-    console.warn('⚠️ Nível de abertura ambíguo ou inválido. Aplicando fallback para nível 1.');
-    nivel = 1;
-  }
-  const desc = nivel === 1 ? 'superficial' : nivel === 2 ? 'reflexiva' : 'profunda';
-  contexto += `\n📶 Abertura emocional sugerida (heurística): ${desc}`;
+// ----------------------------------
+// NÍVEL DE ABERTURA
+// ----------------------------------
+let nivel = heuristicaNivelAbertura(entrada) || 1;
+
+// ✅ Normalização para garantir que nivel é sempre número
+if (typeof nivel === 'string') {
+  if (nivel === 'baixo') nivel = 1;
+  else if (nivel === 'médio') nivel = 2;
+  else if (nivel === 'alto') nivel = 3;
+  else nivel = 1;
+}
+
+if (nivel < 1 || nivel > 3) {
+  console.warn('⚠️ Nível de abertura ambíguo ou inválido. Aplicando fallback para nível 1.');
+  nivel = 1;
+}
+
+const desc = nivel === 1 ? 'superficial' : nivel === 2 ? 'reflexiva' : 'profunda';
+contexto += `\n📶 Abertura emocional sugerida (heurística): ${desc}`;
 
   // ----------------------------------
   // PERFIL EMOCIONAL
@@ -176,27 +186,40 @@ export async function montarContextoEco({
   const tagsAlvo = heuristicaAtiva ? tagsPorHeuristica[heuristicaAtiva.arquivo] ?? [] : [];
 
   let memsUsadas = mems;
-  if (nivel > 1 && (!memsUsadas?.length) && entrada && userId) {
-    try {
-      const [memorias, referencias] = await Promise.all([
-        buscarMemoriasSemelhantes(userId, entrada),
-        buscarReferenciasSemelhantes(userId, entrada)
-      ]);
-
-      const MIN_SIMILARIDADE = 0.55;
-      const memoriasFiltradas = (memorias || []).filter((m: Memoria) => (m.similaridade ?? 0) >= MIN_SIMILARIDADE);
-      const referenciasFiltradas = (referencias || []).filter((r: Memoria) => (r.similaridade ?? 0) >= MIN_SIMILARIDADE);
-
-      memsUsadas = [...memoriasFiltradas, ...referenciasFiltradas];
-
-      if (tagsAlvo.length) {
-        memsUsadas = memsUsadas.filter((m) => m.tags?.some(t => tagsAlvo.includes(t)));
-      }
-    } catch (e) {
-      console.warn("⚠️ Erro ao buscar memórias/referências:", (e as Error).message);
-      memsUsadas = [];
+if (nivel > 1 && (!memsUsadas?.length) && entrada && userId) {
+  try {
+    // Detecta se é pergunta sobre lembrança
+    let MIN_SIMILARIDADE = 0.55;
+    const consultaParaLembranca = /lembr|record|memória|memorias|memoria|recorda/i.test(entrada);
+    if (consultaParaLembranca) {
+      console.log("🔎 Detecção de pergunta sobre lembrança: reduzindo threshold.");
+      MIN_SIMILARIDADE = 0.3;
     }
+
+    const [memorias, referencias] = await Promise.all([
+      buscarMemoriasSemelhantes(userId, entrada),
+      buscarReferenciasSemelhantes(userId, entrada)
+    ]);
+
+    const memoriasFiltradas = (memorias || []).filter(
+      (m: Memoria) => (m.similaridade ?? 0) >= MIN_SIMILARIDADE
+    );
+    const referenciasFiltradas = (referencias || []).filter(
+      (r: Memoria) => (r.similaridade ?? 0) >= MIN_SIMILARIDADE
+    );
+
+    memsUsadas = [...memoriasFiltradas, ...referenciasFiltradas];
+
+    if (tagsAlvo.length) {
+      memsUsadas = memsUsadas.filter((m) =>
+        m.tags?.some((t) => tagsAlvo.includes(t))
+      );
+    }
+  } catch (e) {
+    console.warn("⚠️ Erro ao buscar memórias/referências:", (e as Error).message);
+    memsUsadas = [];
   }
+}
 
   if (entrada && perfil && nivel > 1) {
     const memoriaAtual: Memoria = {
@@ -328,44 +351,64 @@ export async function montarContextoEco({
     }
   }
 
-  // ----------------------------------
-  // INSERÇÃO DE MEMÓRIAS E REFERÊNCIAS NO PROMPT
-  // ----------------------------------
-  if (memsUsadas && memsUsadas.length > 0 && nivel > 1) {
-    const memoriaFrases: string[] = [];
-    const referenciaFrases: string[] = [];
+// ---------------------------------- 
+// INSERÇÃO DE MEMÓRIAS E REFERÊNCIAS NO CONTEXTO
+// ----------------------------------
+if (memsUsadas && memsUsadas.length > 0 && nivel > 1) {
+  const frasesContexto: string[] = [];
 
-    for (const m of memsUsadas) {
-      if (!m || !m.resumo_eco) continue;
-      const textoBase = m.resumo_eco.trim();
-      if (!textoBase) continue;
+  for (const m of memsUsadas) {
+    if (!m || !m.resumo_eco) continue;
+    const textoBase = m.resumo_eco.trim();
+    if (!textoBase) continue;
 
-      if ((m.intensidade ?? 0) >= 7) {
-        memoriaFrases.push(`• Você já trouxe antes que ${textoBase}.`);
-      } else {
-        referenciaFrases.push(`• Houve algo que sugeria "${textoBase}".`);
-      }
-    }
+    const avisoSim = (m.similaridade && m.similaridade < 0.5) 
+      ? ` (memória de similaridade baixa ~${m.similaridade.toFixed(2)})` 
+      : '';
 
-    if (memoriaFrases.length > 0) {
-      modulosAdic.push(`\n\n[Módulo Memórias Salvas]\n${memoriaFrases.join('\n')}`);
-    }
-
-    if (referenciaFrases.length > 0) {
-      modulosAdic.push(`\n\n[Módulo Referências Temporárias]\n${referenciaFrases.join('\n')}`);
-    }
+    frasesContexto.push(
+      `• Anotação anterior${avisoSim}: "${textoBase}"`
+    );
   }
 
-  // ----------------------------------
-  // CRITÉRIOS E INSTRUÇÃO FINAL
-  // ----------------------------------
-  const criterios = await fs.readFile(path.join(modulosDir, 'eco_json_trigger_criteria.txt'), 'utf-8');
-  modulosAdic.push(`\n\n[Módulo: eco_json_trigger_criteria]\n${criterios.trim()}`);
-  modulosAdic.push(`\n\n[Módulo: eco_forbidden_patterns]\n${forbidden.trim()}`);
+  if (frasesContexto.length > 0) {
+    contexto += `\n\n💭 Retomando suas experiências anteriores que podem ajudar nesta conversa:\n${frasesContexto.join('\n')}`;
+  }
+}
+if (encadeamentos && encadeamentos.length > 0) {
+  const encadeamentoTextos = encadeamentos
+    .filter(e => e?.resumo_eco?.trim())
+    .map(e => `• Encadeamento narrativo anterior: "${e.resumo_eco.trim()}"`)
+    .join('\n')
+    .trim();
 
-  modulosAdic.push(
-    `\n\n⚠️ INSTRUÇÃO FINAL AO MODELO:\nPor favor, gere a resposta seguindo rigorosamente a estrutura definida no ECO_ESTRUTURA_DE_RESPOSTA.txt. Use as seções numeradas e marcadas com colchetes.`
-  );
+  if (encadeamentoTextos) {
+    contexto += `\n\n📝 Resgatando encadeamentos narrativos relacionados para manter coerência e continuidade:\n${encadeamentoTextos}`;
+  }
+}
+
+
+
+ // ----------------------------------
+// CRITÉRIOS E INSTRUÇÃO FINAL
+// ----------------------------------
+const criterios = await fs.readFile(path.join(modulosDir, 'eco_json_trigger_criteria.txt'), 'utf-8');
+modulosAdic.push(`\n\n[Módulo: eco_json_trigger_criteria]\n${criterios.trim()}`);
+modulosAdic.push(`\n\n[Módulo: eco_forbidden_patterns]\n${forbidden.trim()}`);
+
+// Novo módulo de instrução de memória no contexto
+try {
+  const memoriaInstrucoes = await fs.readFile(path.join(modulosDir, 'MEMORIAS_NO_CONTEXTO.txt'), 'utf-8');
+  modulosAdic.push(`\n\n[Módulo: MEMORIAS_NO_CONTEXTO]\n${memoriaInstrucoes.trim()}`);
+} catch (e) {
+  console.warn('⚠️ Falha ao carregar MEMORIAS_NO_CONTEXTO.txt:', (e as Error).message);
+}
+
+// Instrução final
+modulosAdic.push(
+  `\n\n⚠️ INSTRUÇÃO FINAL AO MODELO:\nPor favor, gere a resposta seguindo rigorosamente a estrutura definida no ECO_ESTRUTURA_DE_RESPOSTA.txt. Use as seções numeradas e marcadas com colchetes.`
+);
+
 
   // ----------------------------------
   // MONTAGEM FINAL

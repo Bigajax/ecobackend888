@@ -10,7 +10,7 @@ import profileRoutes from './routes/perfilEmocionalRoutes';
 import voiceTTSRoutes from './routes/voiceTTSRoutes';
 import voiceFullRoutes from './routes/voiceFullRoutes';
 import openrouterRoutes from './routes/openrouterRoutes';
-import relatorioRoutes from './routes/relatorioEmocionalRoutes'; // ✅ Adicionado aqui
+import relatorioRoutes from './routes/relatorioEmocionalRoutes';
 
 import { registrarTodasHeuristicas } from './services/registrarTodasHeuristicas';
 import { registrarModulosFilosoficos } from './services/registrarModulosFilosoficos';
@@ -42,7 +42,7 @@ app.use('/api/perfil-emocional', profileRoutes);
 app.use('/api/voice', voiceTTSRoutes);
 app.use('/api/voice', voiceFullRoutes);
 app.use('/api', openrouterRoutes);
-app.use('/api/relatorio-emocional', relatorioRoutes); // ✅ Aqui também
+app.use('/api/relatorio-emocional', relatorioRoutes);
 
 // 🚀 Inicialização
 app.listen(PORT, async () => {
