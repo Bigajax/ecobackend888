@@ -19,19 +19,25 @@ import {
 } from 'recharts';
 
 /**
- * 🎨 Paleta fixada de cores para emoções — sem acento/minúsculo
+ * 🎨 Paleta mais viva para emoções — azul = leve, roxo = neutro, rosa = forte
  */
 const EMOTION_COLORS: Record<string, string> = {
-  frustracao: '#F472B6',
-  medo: '#60A5FA',
-  incerteza: '#A3E635',
-  raiva: '#F87171',
-  alegria: '#FCD34D',
-  calmo: '#34D399',
-  tristeza: '#93C5FD',
-  surpresa: '#FBBF24',
-  antecipacao: '#FDE68A',
-  irritado: '#FB7185'
+  // Fortes / negativas (rosa/vivo)
+  raiva: '#DB2777',         // rosa-600
+  irritado: '#EC4899',      // rosa-500
+  frustracao: '#BE185D',    // rosa-700
+  medo: '#DB2777',          // rosa-600
+  incerteza: '#BE185D',     // rosa-700
+
+  // Leves / positivas (azul vivo)
+  alegria: '#3B82F6',       // azul-500
+  calmo: '#2563EB',         // azul-600
+  surpresa: '#3B82F6',      // azul-500
+  antecipacao: '#2563EB',   // azul-600
+
+  // Neutras (roxo vivo)
+  tristeza: '#A855F7',      // roxo-500
+  neutro: '#8B5CF6'         // roxo-600
 };
 
 /**
@@ -44,7 +50,7 @@ const normalizeEmotion = (name: string) =>
     .replace(/[\u0300-\u036f]/g, '');
 
 /**
- * ⚡️ Função geradora de cor pastel consistente
+ * ⚡️ Função geradora de cor viva consistente
  */
 const hashStringToHue = (str: string) => {
   let hash = 0;
@@ -57,8 +63,8 @@ const hashStringToHue = (str: string) => {
 const generateConsistentPastelColor = (str: string, options = {}) => {
   const hue = hashStringToHue(str);
   const {
-    saturation = 68,
-    lightness = 68
+    saturation = 85,
+    lightness = 55
   } = options;
   return `hsl(${hue}, ${saturation}%, ${lightness}%)`;
 };
@@ -133,15 +139,15 @@ const MemoryCard: React.FC<{ mem: Memoria }> = ({ mem }) => {
           {mem.tags.map((tag, i) => (
             <span
               key={i}
-              className="text-xs px-3 py-1 rounded-full shadow-sm font-medium"
+              className="text-xs px-2.5 py-0.5 rounded-full font-medium"
               style={{
                 backgroundColor: getEmotionColor(tag),
-                color: '#333',
-                boxShadow: '0 1px 3px rgba(0,0,0,0.15)',
-                border: '1px solid rgba(0,0,0,0.05)'
+                color: '#111',
+                border: '1px solid rgba(0,0,0,0.1)',
+                boxShadow: '0 1px 2px rgba(0,0,0,0.1)'
               }}
             >
-              {tag}
+              {capitalize(tag)}
             </span>
           ))}
         </div>

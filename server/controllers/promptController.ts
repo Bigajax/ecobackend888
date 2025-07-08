@@ -209,6 +209,17 @@ if (nivel > 1 && (!memsUsadas?.length) && entrada && userId) {
     );
 
     memsUsadas = [...memoriasFiltradas, ...referenciasFiltradas];
+// 🎯 Ajuste heurístico: promover intensidade se achou memória muito intensa
+const memoriaIntensa = memsUsadas.find(m => (m.intensidade ?? 0) >= 7 && (m.similaridade ?? 0) >= MIN_SIMILARIDADE);
+
+if (memoriaIntensa) {
+  console.log("✨ Ajuste de intensidade por memória semelhante forte:", memoriaIntensa);
+
+  // Adiciona essa memória no topo para garantir uso
+  memsUsadas = [memoriaIntensa, ...memsUsadas.filter(m => m !== memoriaIntensa)];
+
+  console.log("✅ Ajuste minimalista: usando memória intensa recuperada sem clonar entrada.");
+}
 
     if (tagsAlvo.length) {
       memsUsadas = memsUsadas.filter((m) =>

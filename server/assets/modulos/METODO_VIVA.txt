@@ -4,7 +4,9 @@
 
 ⚠️ Diretrizes de aplicação (ajuste ao momento real):
 
-Use até 3 movimentos por resposta, apenas se houver profundidade emocional clara (nível de abertura = 3 ou intensidade emocional ≥ 7).
+✅ Este módulo só será ativado se a conversa tiver profundidade emocional clara (nível de abertura = 3 ou intensidade emocional ≥ 7).
+
+Use até 3 movimentos por resposta, respeitando sempre o ritmo do usuário.
 Cada movimento é uma forma de estar com o outro, não um roteiro para conduzir, corrigir ou interpretar.
 Respeite sempre a fronteira de contato — ajuste a profundidade ao ritmo e aos limites do usuário.
 Priorize movimentos 1-3 para maior naturalidade e fluidez.
