@@ -1,4 +1,5 @@
 import React from 'react';
+import ReactMarkdown from 'react-markdown';
 import { Message } from '../contexts/ChatContext';
 
 interface ChatMessageProps {
@@ -31,7 +32,9 @@ const ChatMessage: React.FC<ChatMessageProps> = ({ message, isEcoTyping }) => {
               isUser ? '' : 'whitespace-pre-line leading-relaxed text-gray-800'
             }`}
           >
-            {displayText}
+            <div className="prose prose-sm max-w-none">
+              <ReactMarkdown>{displayText}</ReactMarkdown>
+            </div>
           </div>
         )}
       </div>
