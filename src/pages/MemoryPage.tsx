@@ -355,10 +355,33 @@ const MemoryPage: React.FC = () => {
                         />
                         <Tooltip content={<CustomTooltip />} />
                         <Bar dataKey="value" radius={[6, 6, 0, 0]}>
-                          {emotionChart.map((entry, index) => (
-                            <Cell key={`cell-${index}`} fill={getEmotionColor(entry.name)} />
-                          ))}
-                        </Bar>
+  {emotionChart.map((entry, index) => (
+    <Cell
+      key={`cell-${index}`}
+      fill={getEmotionColor(entry.name)}
+      content={({ x, y, width, height }) => (
+        <motion.rect
+          x={x}
+          y={y + height}
+          width={width}
+          height={0}
+          animate={{
+            y,
+            height,
+            transition: {
+              delay: index * 0.1,    
+              duration: 0.6,
+              ease: "easeOut"
+            }
+          }}
+          fill={getEmotionColor(entry.name)}
+          rx={6}
+          ry={6}
+        />
+      )}
+    />
+  ))}
+</Bar>
                       </BarChart>
                     </ResponsiveContainer>
                   ) : (
@@ -383,10 +406,33 @@ const MemoryPage: React.FC = () => {
                         />
                         <Tooltip content={<CustomTooltip />} />
                         <Bar dataKey="value" radius={[6, 6, 0, 0]}>
-                          {themeChart.map((entry, index) => (
-                            <Cell key={`cell-theme-${index}`} fill={generateConsistentPastelColor(entry.name)} />
-                          ))}
-                        </Bar>
+  {themeChart.map((entry, index) => (
+    <Cell
+      key={`cell-theme-${index}`}
+      fill={generateConsistentPastelColor(entry.name)}
+      content={({ x, y, width, height }) => (
+        <motion.rect
+          x={x}
+          y={y + height}
+          width={width}
+          height={0}
+          animate={{
+            y,
+            height,
+            transition: {
+              delay: index * 0.1,
+              duration: 0.6,
+              ease: "easeOut"
+            }
+          }}
+          fill={generateConsistentPastelColor(entry.name)}
+          rx={6}
+          ry={6}
+        />
+      )}
+    />
+  ))}
+</Bar>
                       </BarChart>
                     </ResponsiveContainer>
                   ) : (
