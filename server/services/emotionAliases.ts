@@ -22,6 +22,6 @@ export const EMOTION_ALIASES: Record<string, string> = {
   rejeicao: 'triste',
   satisfacao: 'feliz',
   saudade: 'nostalgia',
-  sensacao de instabilidade: 'ansiedade',
+  sensacao_de_instabilidade: 'ansiedade',
   coragem: 'coragem'
 };

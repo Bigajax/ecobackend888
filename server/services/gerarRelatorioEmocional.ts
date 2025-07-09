@@ -1,6 +1,7 @@
 import { supabaseAdmin } from '../lib/supabaseAdmin';
+import { loadEmotionStore, saveEmotionStore } from '../utils/emotionMapStore';
 
-// 🎯 Mapeamento de aliases mais rico e variado
+// 🎯 Mapeamento de aliases
 export const EMOTION_ALIASES: Record<string, string> = {
   alegria: 'feliz',
   alivio: 'calmo',
@@ -30,7 +31,7 @@ export const EMOTION_ALIASES: Record<string, string> = {
 };
 
 // 🎯 Mapeamento de cores
-const EMOTION_COLORS: Record<string, string> = {
+export const EMOTION_COLORS: Record<string, string> = {
   feliz: '#fcd34d',
   calmo: '#6ee7b7',
   triste: '#60a5fa',
@@ -40,7 +41,6 @@ const EMOTION_COLORS: Record<string, string> = {
   antecipacao: '#38bdf8',
   raiva: '#f87171',
   outros: '#999999',
-  // novas cores
   angustia: '#9CA3AF',
   ansiedade: '#C084FC',
   confusao: '#FCD34D',
@@ -50,27 +50,22 @@ const EMOTION_COLORS: Record<string, string> = {
   coragem: '#4ADE80'
 };
 
-// 🎯 Mapeamento com coordenadas adicionais
-const EMOTION_MAP: Record<string, { valencia: number; excitacao: number }> = {
-  feliz: { valencia: 0.8, excitacao: 0.7 },
-  calmo: { valencia: 0.6, excitacao: -0.5 },
-  triste: { valencia: -0.8, excitacao: -0.6 },
-  irritado: { valencia: -0.7, excitacao: 0.9 },
-  medo: { valencia: -0.6, excitacao: 0.8 },
-  surpresa: { valencia: 0.1, excitacao: 0.9 },
-  antecipacao: { valencia: 0.4, excitacao: 0.5 },
-  raiva: { valencia: -0.7, excitacao: 0.9 },
-  outros: { valencia: 0, excitacao: 0 },
-
-  // novas emoções
-  angustia: { valencia: -0.7, excitacao: 0.6 },
-  ansiedade: { valencia: -0.5, excitacao: 0.8 },
-  confusao: { valencia: -0.2, excitacao: 0.4 },
-  confianca: { valencia: 0.7, excitacao: 0.3 },
-  conflito: { valencia: -0.6, excitacao: 0.7 },
-  nostalgia: { valencia: 0.2, excitacao: 0.2 },
-  coragem: { valencia: 0.6, excitacao: 0.5 }
+export const DOMINIO_ALIASES: Record<string, string> = {
+  saude_mental: 'saude',
+  saude_fisica: 'saude',
+  bem_estar: 'saude',
+  relacionamento_familiar: 'familia',
+  familia_e_amigos: 'familia',
+  relacoes_familiares: 'familia',
+  trabalho_profissional: 'trabalho',
+  carreira: 'trabalho',
+  // ... adicione mais alias conforme seus dados
 };
+
+function mapearDominio(raw: string): string {
+  const normalizado = normalizarTexto(raw);
+  return DOMINIO_ALIASES[normalizado] || normalizado || 'outros';
+}
 
 // ✅ Utils
 function normalizarTexto(texto: string): string {
@@ -95,7 +90,8 @@ function normalizar(valor: number, min: number, max: number): number {
 }
 
 export async function gerarRelatorioEmocional(userId: string) {
-  // 1️⃣ Buscar memórias do banco
+  const emotionStore = await loadEmotionStore();
+
   const { data: memorias, error } = await supabaseAdmin
     .from('memories')
     .select('emocao_principal, dominio_vida, intensidade, created_at, salvar_memoria, tags')
@@ -104,51 +100,74 @@ export async function gerarRelatorioEmocional(userId: string) {
 
   if (error || !memorias) throw new Error('Erro ao buscar memórias.');
 
-  // 2️⃣ Filtrar memórias significativas
-  const significativas = memorias.filter(m => m.intensidade && m.intensidade >= 7);
+  // ✅ Filtrar memórias significativas (intensidade >= 7)
+  let significativas = memorias.filter(m => m.intensidade && m.intensidade >= 7);
 
+  // ✅ Agrupar por emoção e limitar a 5 mais fortes por tipo
+  const agrupadasPorEmocao: Record<string, typeof significativas> = {};
+  for (const mem of significativas) {
+    const key = normalizarTexto(mem.emocao_principal?.trim() || 'outros');
+    if (!agrupadasPorEmocao[key]) agrupadasPorEmocao[key] = [];
+    agrupadasPorEmocao[key].push(mem);
+  }
+
+  // Ordenar cada grupo por intensidade DESC e limitar a 5
+  for (const key in agrupadasPorEmocao) {
+    agrupadasPorEmocao[key].sort((a, b) => (b.intensidade || 0) - (a.intensidade || 0));
+    agrupadasPorEmocao[key] = agrupadasPorEmocao[key].slice(0, 5);
+  }
+
+  // 🔥 Unificar de volta em uma lista plana
+  significativas = Object.values(agrupadasPorEmocao).flat();
+
+  // ✅ Linha do tempo emocional agrupada por data + dominio
+  const intensidadePorData: Record<string, Record<string, number>> = {};
+  for (const mem of significativas) {
+    if (!mem.created_at) continue;
+    const data = mem.created_at.slice(0, 10);
+    const dominioRaw = mem.dominio_vida?.trim() || 'outros';
+    const dominio = mapearDominio(dominioRaw);
+
+    if (!intensidadePorData[data]) intensidadePorData[data] = {};
+    if (!intensidadePorData[data][dominio]) intensidadePorData[data][dominio] = 0;
+    intensidadePorData[data][dominio] += mem.intensidade ?? 0;
+  }
+
+  const linhaDoTempoIntensidadeArray = Object.entries(intensidadePorData)
+    .map(([data, dominios]) => ({ data, ...dominios }))
+    .filter(item => Object.keys(item).length > 1);
+
+  // ✅ Processar dados para mapa 2D
   const emocoes: string[] = [];
   const dominios: string[] = [];
   const tags: string[] = [];
-  const linhaDoTempoArray: {
-    data: string;
-    emocao: string;
-    intensidade: number;
-    dominio: string;
-    cor: string;
-  }[] = [];
-
   const pontosEmocionais: { emocao: string, valencia: number, excitacao: number, cor: string }[] = [];
-
-  // 🎯 Ajuste: jitter para espalhar pontos
   const jitterAmount = 0.2;
 
-  // 3️⃣ Processar cada memória individualmente
   for (const mem of significativas) {
     if (!mem.emocao_principal || !mem.created_at) continue;
 
     const emocaoRaw = normalizarTexto(mem.emocao_principal.trim());
     const emocaoBase = EMOTION_ALIASES[emocaoRaw] || emocaoRaw;
 
+    emocoes.push(emocaoBase);
+
     const dominio = mem.dominio_vida
       ? normalizarTexto(mem.dominio_vida.trim())
       : 'outros';
-
-    const data = mem.created_at.slice(0, 10);
-
-    emocoes.push(emocaoBase);
     dominios.push(dominio);
+
     if (mem.tags) tags.push(...mem.tags.map(t => normalizarTexto(t)));
 
-    linhaDoTempoArray.push({
-      data,
-      emocao: emocaoBase,
-      intensidade: mem.intensidade ?? 0,
-      dominio,
-      cor: EMOTION_COLORS[emocaoBase] || EMOTION_COLORS.outros
-    });
+    let coords = emotionStore[emocaoBase];
+    if (!coords) {
+      coords = {
+        valencia: (Math.random() * 2 - 1) * 0.7,
+        excitacao: (Math.random() * 2 - 1) * 0.7
+      };
+      emotionStore[emocaoBase] = coords;
+    }
 
-    const coords = EMOTION_MAP[emocaoBase] || EMOTION_MAP.outros;
     const jitterX = (Math.random() - 0.5) * jitterAmount;
     const jitterY = (Math.random() - 0.5) * jitterAmount;
 
@@ -160,16 +179,16 @@ export async function gerarRelatorioEmocional(userId: string) {
     });
   }
 
-  // 4️⃣ Calcular extremos para normalizar
+  await saveEmotionStore(emotionStore);
+
+  // ✅ Normalização do mapa 2D
   const valencias = pontosEmocionais.map(p => p.valencia);
   const excitacoes = pontosEmocionais.map(p => p.excitacao);
-
   const minValencia = Math.min(...valencias);
   const maxValencia = Math.max(...valencias);
   const minExcitacao = Math.min(...excitacoes);
   const maxExcitacao = Math.max(...excitacoes);
 
-  // 5️⃣ Normalizar pontos para 0–1
   const mapaEmocionalNormalizado = pontosEmocionais.map(p => ({
     emocao: p.emocao,
     valenciaNormalizada: normalizar(p.valencia, minValencia, maxValencia),
@@ -177,7 +196,7 @@ export async function gerarRelatorioEmocional(userId: string) {
     cor: p.cor
   }));
 
-  // 6️⃣ Frequências
+  // ✅ Frequências
   const freqEmocoes = agruparPorFrequencia(emocoes);
   const freqDominios = agruparPorFrequencia(dominios);
   const freqTags = agruparPorFrequencia(tags);
@@ -190,10 +209,9 @@ export async function gerarRelatorioEmocional(userId: string) {
       cor: EMOTION_COLORS[emocao] || EMOTION_COLORS.outros
     }));
 
-  // 7️⃣ Resultado final
   return {
     emocoes_dominantes: emocoesDominantes,
-    linha_do_tempo: linhaDoTempoArray,
+    linha_do_tempo_intensidade: linhaDoTempoIntensidadeArray,
     mapa_emocional_2d: mapaEmocionalNormalizado,
     dominios_dominantes: Object.entries(freqDominios).map(([dominio, valor]) => ({ dominio, valor })),
     tags_dominantes: Object.entries(freqTags).map(([tag, valor]) => ({ tag, valor })),

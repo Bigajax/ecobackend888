@@ -9,14 +9,31 @@ const API_BASE = '/api/relatorio-emocional';
 /* -------------------------------------------------------------------------- */
 /*  Tipagens                                                                  */
 /* -------------------------------------------------------------------------- */
+export interface LinhaTempoItem {
+  data: string;
+  [dominioOuEmocao: string]: number | string;
+}
+
 export interface RelatorioEmocional {
-  resumo_geral_ia: string;
-  emocoes_frequentes: Record<string, number>;
-  temas_recorrentes: Record<string, number>;
-  ultima_interacao_sig: string | null;
+  resumo_geral_ia?: string;
+  emocoes_frequentes?: Record<string, number>;
+  temas_recorrentes?: Record<string, number>;
+  ultima_interacao_sig?: string | null;
+
   mapa_emocional?: { emocao: string; x: number; y: number }[];
-  emocoes_dominantes?: { emocao: string; valor: number }[];
-  linha_tempo?: { data: string; [dominio: string]: number }[];
+  mapa_emocional_2d?: {
+    emocao: string;
+    valenciaNormalizada: number;
+    excitacaoNormalizada: number;
+    cor: string;
+  }[];
+
+  emocoes_dominantes?: { emocao: string; valor: number; cor?: string }[];
+
+  linha_tempo?: LinhaTempoItem[];                    // ✅ Timeline por DOMÍNIO
+  linha_do_tempo_intensidade?: LinhaTempoItem[];     // ✅ Timeline por EMOÇÃO
+
+  dominios_dominantes?: { dominio: string; valor: number }[];
   tags_dominantes?: { tag: string; valor: number }[];
   total_memorias?: number;
 }
@@ -27,7 +44,7 @@ export interface RelatorioEmocional {
 async function getAuthHeaders() {
   const {
     data: { session },
-    error
+    error,
   } = await supabase.auth.getSession();
 
   if (error || !session?.access_token) {

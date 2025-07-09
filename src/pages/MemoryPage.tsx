@@ -8,6 +8,7 @@ import { buscarMemoriasPorUsuario, Memoria } from '../api/memoriaApi';
 import { buscarPerfilEmocional } from '../api/perfilApi';
 import { buscarRelatorioEmocional, RelatorioEmocional } from '../api/relatorioEmocionalApi';
 import MapaEmocional2D from '../components/MapaEmocional2D';
+import LinhaDoTempoEmocional from '../components/LinhaDoTempoEmocional';
 import {
   BarChart,
   Bar,
@@ -277,15 +278,16 @@ const MemoryPage: React.FC = () => {
   }, [perfil]);
 
   const mapaEmocional2D = useMemo(() => {
-    if (!Array.isArray(relatorio?.mapa_emocional)) return [];
-    return relatorio.mapa_emocional
-      .map(p => ({
-        ...p,
-        valencia: clamp(typeof p.valencia === 'number' ? p.valencia : p.x ?? 0),
-        excitacao: clamp(typeof p.excitacao === 'number' ? p.excitacao : p.y ?? 0),
-      }))
-      .filter(p => typeof p.valencia === 'number' && typeof p.excitacao === 'number');
-  }, [relatorio]);
+  if (!Array.isArray(relatorio?.mapa_emocional)) return [];
+  return relatorio.mapa_emocional
+    .map(p => ({
+      emocao: p.emocao ?? p.emocao_principal ?? 'Desconhecida',
+      valenciaNormalizada: clamp(typeof p.valencia === 'number' ? p.valencia : p.x ?? 0),
+      excitacaoNormalizada: clamp(typeof p.excitacao === 'number' ? p.excitacao : p.y ?? 0),
+      cor: p.cor ?? undefined,
+    }))
+    .filter(p => typeof p.valenciaNormalizada === 'number' && typeof p.excitacaoNormalizada === 'number');
+}, [relatorio]);
 
   const ChartCard: React.FC<{ title: string; children: React.ReactNode }> = ({ title, children }) => (
     <motion.div
@@ -453,10 +455,15 @@ const MemoryPage: React.FC = () => {
                 </ChartCard>
 
                 <ChartCard title="Linha do Tempo Emocional">
-                  <div className="h-64 w-full flex items-center justify-center text-neutral-400 text-sm">
-                    [Gráfico linha do tempo — em breve]
-                  </div>
+                {relatorio?.linha_do_tempo_intensidade && relatorio.linha_do_tempo_intensidade.length > 0 ? (
+  <LinhaDoTempoEmocional data={relatorio.linha_do_tempo_intensidade} />
+) : (
+  <div className="text-sm text-neutral-400 italic text-center p-6">
+    Nenhum dado para exibir na linha do tempo.
+  </div>
+)}
                 </ChartCard>
+
 
                 <p className="text-xs text-neutral-500 text-center">
                   Total de memórias significativas: {relatorio.total_memorias ?? 'Indisponível'}

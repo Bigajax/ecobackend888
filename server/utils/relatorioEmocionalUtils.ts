@@ -74,37 +74,49 @@ export async function gerarRelatorioEmocional(userId: string) {
     if (!linhaTempo[data]) linhaTempo[data] = {};
     linhaTempo[data][dominio] = (linhaTempo[data][dominio] || 0) + 1;
 
-    if (mapaEmocionalBase[emocao]) {
-      const base = mapaEmocionalBase[emocao];
-      const intensidade = mem.intensidade ?? 7;
+    let base = mapaEmocionalBase[emocao];
 
-      // Mapeia intensidade 1–10 para -1 a +1
-      const excitacao = (intensidade - 5) / 5;
-
-      // Adiciona ruído para espalhamento visual
-      const jitterX = (Math.random() - 0.5) * 0.3;
-      const jitterY = (Math.random() - 0.5) * 0.3;
-
-      mapaEmocional.push({
-        emocao,
-        x: Math.max(-1, Math.min(1, base.x + jitterX)),
-        y: Math.max(-1, Math.min(1, excitacao + jitterY)),
-      });
+    if (!base) {
+      const randomX = (Math.random() * 2 - 1) * 0.7;
+      const randomY = (Math.random() * 2 - 1) * 0.7;
+      base = { x: randomX, y: randomY };
+      mapaEmocionalBase[emocao] = base;
     }
+
+    const intensidade = mem.intensidade ?? 7;
+    const excitacao = (intensidade - 5) / 5;
+    const jitterX = (Math.random() - 0.5) * 0.3;
+    const jitterY = (Math.random() - 0.5) * 0.3;
+
+    mapaEmocional.push({
+      emocao,
+      x: Math.max(-1, Math.min(1, base.x + jitterX)),
+      y: Math.max(-1, Math.min(1, excitacao + jitterY)),
+    });
   }
 
+  // ✅ AGORA fora do for 👇
   const freqEmocoes = agruparPorFrequencia(emocoes);
   const freqDominios = agruparPorFrequencia(dominios);
   const freqTags = agruparPorFrequencia(tags);
 
-  const emocoesDominantes = Object.entries(freqEmocoes).sort((a, b) => b[1] - a[1]).map(([emocao, valor]) => ({ emocao, valor }));
-  const tagsDominantes = Object.entries(freqTags).sort((a, b) => b[1] - a[1]).map(([tag, valor]) => ({ tag, valor }));
-  const linhaTempoArray = Object.entries(linhaTempo).map(([data, dominios]) => ({ data, ...dominios }));
+  const emocoesDominantes = Object.entries(freqEmocoes)
+    .sort((a, b) => b[1] - a[1])
+    .map(([emocao, valor]) => ({ emocao, valor }));
+
+  const tagsDominantes = Object.entries(freqTags)
+    .sort((a, b) => b[1] - a[1])
+    .map(([tag, valor]) => ({ tag, valor }));
+
+  const linhaTempoArray = Object.entries(linhaTempo).map(([data, dominios]) => ({
+    data,
+    ...dominios
+  }));
 
   return {
     mapa_emocional: mapaEmocional,
     emocoes_dominantes: emocoesDominantes,
-    linha_tempo: linhaTempoArray,
+    linha_do_tempo_intensidade: linhaTempoArray,
     tags_dominantes: tagsDominantes,
     insight_narrativo: gerarInsight(freqEmocoes, freqDominios),
     total_memorias: significativas.length,
