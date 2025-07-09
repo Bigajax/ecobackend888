@@ -63,8 +63,8 @@ const hashStringToHue = (str: string) => {
 const generateConsistentPastelColor = (str: string, options = {}) => {
   const hue = hashStringToHue(str);
   const {
-    saturation = 85,
-    lightness = 55
+    saturation = 25,
+    lightness = 88
   } = options;
   return `hsl(${hue}, ${saturation}%, ${lightness}%)`;
 };
@@ -112,7 +112,7 @@ const humanDate = (raw: string) => {
 const clamp = (val: number, min = -1, max = 1) => Math.max(min, Math.min(max, val));
 
 /**
- * 📜 MemoryCard
+ * 📜 MemoryCard estilizado
  */
 const MemoryCard: React.FC<{ mem: Memoria }> = ({ mem }) => {
   const [expanded, setExpanded] = useState(false);
@@ -122,29 +122,38 @@ const MemoryCard: React.FC<{ mem: Memoria }> = ({ mem }) => {
 
   return (
     <li className="p-4 rounded-3xl border border-neutral-200 bg-white/80 backdrop-blur shadow-md transition-all">
-      <div className="mb-2">
-        <span className="text-sm text-neutral-800">
+      {/* TÍTULO */}
+      <div className="mb-2 text-center">
+        <span className="block text-lg font-bold text-neutral-800 tracking-tight">
           {mem.emocao_principal
             ? capitalize(mem.emocao_principal)
             : 'Emoção desconhecida'}
         </span>
       </div>
 
-      <div className="text-sm text-neutral-800 mb-2">
-        {mem.resumo_eco || <span className="italic text-neutral-400">Sem resumo</span>}
+      {/* RESUMO */}
+      <div className="text-sm text-neutral-800 mb-2 text-center">
+        {mem.resumo_eco || (
+          <span className="italic text-neutral-400">Sem resumo</span>
+        )}
       </div>
 
+      {/* TAGS */}
       {mem.tags?.length > 0 && (
-        <div className="flex flex-wrap gap-2 mb-2">
+        <div className="flex flex-wrap gap-2 mb-2 justify-center">
           {mem.tags.map((tag, i) => (
             <span
               key={i}
-              className="text-xs px-2.5 py-0.5 rounded-full font-medium"
+              className="
+                text-xs px-3 py-1 rounded-full font-medium
+                border border-neutral-300
+                bg-white/60 backdrop-blur-sm
+                shadow hover:bg-white/80 transition
+              "
               style={{
-                backgroundColor: getEmotionColor(tag),
                 color: '#111',
-                border: '1px solid rgba(0,0,0,0.1)',
-                boxShadow: '0 1px 2px rgba(0,0,0,0.1)'
+                borderColor: 'rgba(0,0,0,0.1)',
+                backgroundColor: getEmotionColor(tag),
               }}
             >
               {capitalize(tag)}
@@ -153,10 +162,12 @@ const MemoryCard: React.FC<{ mem: Memoria }> = ({ mem }) => {
         </div>
       )}
 
-      <div className="text-xs text-neutral-400">
+      {/* DATA */}
+      <div className="text-xs text-neutral-400 text-center">
         {mem.created_at ? humanDate(mem.created_at) : ''}
       </div>
 
+      {/* BOTÃO VER MAIS */}
       <div className="mt-3 flex justify-end">
         <button
           className="text-xs font-medium text-blue-600 flex items-center gap-1 hover:opacity-80 transition"
@@ -174,30 +185,38 @@ const MemoryCard: React.FC<{ mem: Memoria }> = ({ mem }) => {
         </button>
       </div>
 
+      {/* DETALHES EXPANDIDOS */}
       {expanded && (
         <motion.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
-          className="mt-3 border-t pt-3 border-neutral-200 text-sm text-neutral-700 space-y-2"
+          className="space-y-3 mt-3 border-t pt-3 border-neutral-200 text-sm text-neutral-700"
         >
           {mem.analise_resumo && (
-            <div>
-              <strong>Análise:</strong> {mem.analise_resumo}
+            <div className="bg-neutral-50 rounded-xl p-3 border border-neutral-200 shadow-sm">
+              <div className="font-semibold mb-1 text-neutral-800">Análise</div>
+              <div>{mem.analise_resumo}</div>
             </div>
           )}
+
           {mem.contexto && (
-            <div>
-              <strong>Contexto:</strong> {mem.contexto}
+            <div className="bg-neutral-50 rounded-xl p-3 border border-neutral-200 shadow-sm">
+              <div className="font-semibold mb-1 text-neutral-800">Contexto</div>
+              <div>{mem.contexto}</div>
             </div>
           )}
+
           {mem.dominio_vida && (
-            <div>
-              <strong>Domínio:</strong> {mem.dominio_vida}
+            <div className="bg-neutral-50 rounded-xl p-3 border border-neutral-200 shadow-sm">
+              <div className="font-semibold mb-1 text-neutral-800">Domínio</div>
+              <div>{mem.dominio_vida}</div>
             </div>
           )}
+
           {mem.categoria && (
-            <div>
-              <strong>Categoria:</strong> {mem.categoria}
+            <div className="bg-neutral-50 rounded-xl p-3 border border-neutral-200 shadow-sm">
+              <div className="font-semibold mb-1 text-neutral-800">Categoria</div>
+              <div>{mem.categoria}</div>
             </div>
           )}
         </motion.div>
@@ -337,110 +356,95 @@ const MemoryPage: React.FC = () => {
             )}
 
             {activeTab === 'profile' && perfil && (
-              <>
-                <ChartCard title="Emoções mais frequentes">
-                  {emotionChart.length > 0 ? (
-                    <ResponsiveContainer width="100%" height={220}>
-                      <BarChart data={emotionChart}>
-                        <XAxis
-                          dataKey="name"
-                          axisLine={false}
-                          tickLine={false}
-                          tick={{ fill: '#333', fontSize: 14 }}
-                        />
-                        <YAxis
-                          axisLine={false}
-                          tickLine={false}
-                          tick={{ fill: '#9CA3AF', fontSize: 14 }}
-                        />
-                        <Tooltip content={<CustomTooltip />} />
-                        <Bar dataKey="value" radius={[6, 6, 0, 0]}>
-  {emotionChart.map((entry, index) => (
-    <Cell
-      key={`cell-${index}`}
-      fill={getEmotionColor(entry.name)}
-      content={({ x, y, width, height }) => (
-        <motion.rect
-          x={x}
-          y={y + height}
-          width={width}
-          height={0}
-          animate={{
-            y,
-            height,
-            transition: {
-              delay: index * 0.1,    
-              duration: 0.6,
-              ease: "easeOut"
-            }
-          }}
+  <>
+    <ChartCard title="Emoções mais frequentes">
+      {emotionChart.length > 0 ? (
+<ResponsiveContainer width="100%" height={230}>
+  <BarChart
+    data={emotionChart}
+    margin={{ top: 20, right: 5, left: 5, bottom: 40 }}
+    barCategoryGap="30%"
+  >
+    <XAxis
+      dataKey="name"
+      axisLine={false}
+      tickLine={false}
+      tick={{
+        fill: '#333',
+        fontSize: 12, // fonte menor
+      }}
+    />
+    <YAxis
+      domain={[0, 'dataMax + 5']}
+      axisLine={false}
+      tickLine={false}
+      tick={{
+        fill: '#9CA3AF',
+        fontSize: 12, // fonte menor
+      }}
+    />
+    <Tooltip content={<CustomTooltip />} />
+    <Bar dataKey="value" barSize={37} radius={[6, 6, 0, 0]}>
+      {emotionChart.map((entry, index) => (
+        <Cell
+          key={`cell-${index}`}
           fill={getEmotionColor(entry.name)}
-          rx={6}
-          ry={6}
         />
+      ))}
+    </Bar>
+  </BarChart>
+</ResponsiveContainer>
+      ) : (
+        <p className="text-sm text-neutral-400 italic">
+          Nenhuma emoção frequente identificada ainda.
+        </p>
       )}
-    />
-  ))}
-</Bar>
-                      </BarChart>
-                    </ResponsiveContainer>
-                  ) : (
-                    <p className="text-sm text-neutral-400 italic">Nenhuma emoção frequente identificada ainda.</p>
-                  )}
-                </ChartCard>
+    </ChartCard>
 
-                <ChartCard title="Temas mais recorrentes">
-                  {themeChart.length > 0 ? (
-                    <ResponsiveContainer width="100%" height={220}>
-                      <BarChart data={themeChart}>
-                        <XAxis
-                          dataKey="name"
-                          axisLine={false}
-                          tickLine={false}
-                          tick={{ fill: '#333', fontSize: 14 }}
-                        />
-                        <YAxis
-                          axisLine={false}
-                          tickLine={false}
-                          tick={{ fill: '#9CA3AF', fontSize: 14 }}
-                        />
-                        <Tooltip content={<CustomTooltip />} />
-                        <Bar dataKey="value" radius={[6, 6, 0, 0]}>
-  {themeChart.map((entry, index) => (
-    <Cell
-      key={`cell-theme-${index}`}
-      fill={generateConsistentPastelColor(entry.name)}
-      content={({ x, y, width, height }) => (
-        <motion.rect
-          x={x}
-          y={y + height}
-          width={width}
-          height={0}
-          animate={{
-            y,
-            height,
-            transition: {
-              delay: index * 0.1,
-              duration: 0.6,
-              ease: "easeOut"
-            }
-          }}
-          fill={generateConsistentPastelColor(entry.name)}
-          rx={6}
-          ry={6}
-        />
-      )}
+    <ChartCard title="Temas mais recorrentes">
+      {themeChart.length > 0 ? (
+        <ResponsiveContainer width="100%" height={230}>
+  <BarChart
+    data={themeChart}
+    margin={{ top: 20, right: 10, left: 10, bottom: 20 }}
+    barCategoryGap="30%"
+  >
+    <XAxis
+      dataKey="name"
+      axisLine={false}
+      tickLine={false}
+      tick={{
+        fill: '#333',
+        fontSize: 12,
+      }}
     />
-  ))}
-</Bar>
-                      </BarChart>
-                    </ResponsiveContainer>
-                  ) : (
-                    <p className="text-sm text-neutral-400 italic">Nenhum tema recorrente identificado ainda.</p>
-                  )}
-                </ChartCard>
-              </>
-            )}
+    <YAxis
+      axisLine={false}
+      tickLine={false}
+      tick={{
+        fill: '#9CA3AF',
+        fontSize: 12,
+      }}
+    />
+    <Tooltip content={<CustomTooltip />} />
+    <Bar dataKey="value" barSize={37} radius={[6, 6, 0, 0]}>
+      {themeChart.map((entry, index) => (
+        <Cell
+          key={`cell-theme-${index}`}
+          fill={generateConsistentPastelColor(entry.name)}
+        />
+      ))}
+    </Bar>
+  </BarChart>
+</ResponsiveContainer>
+      ) : (
+        <p className="text-sm text-neutral-400 italic">
+          Nenhum tema recorrente identificado ainda.
+        </p>
+      )}
+    </ChartCard>
+  </>
+)}
 
             {activeTab === 'report' && relatorio && (
               <>
