@@ -303,19 +303,28 @@ const MemoryPage: React.FC = () => {
 
   return (
     <PhoneFrame className="flex flex-col h-full bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50">
-      <div className="flex items-center p-4">
-        <button onClick={() => navigate('/chat')} className="text-neutral-700 hover:text-black">
-          <ArrowLeft size={28} />
+      <div className="relative px-4 pt-4 pb-2 flex flex-col items-center">
+        <button
+    onClick={() => navigate('/chat')}
+    className="absolute left-4 top-4 text-neutral-700 hover:text-black"
+  >
+          <ArrowLeft size={26} />
         </button>
-        <h2 className="text-xl font-semibold ml-4 text-neutral-900 tracking-tight">
+         <h1 className="text-[22px] font-semibold text-neutral-900 tracking-tight text-center">
           {{
             memories: 'Minhas Memórias',
             profile: 'Meu Perfil Emocional',
             report: 'Relatório Emocional',
           }[activeTab]}
-        </h2>
-      </div>
-
+           </h1>
+         <p className="text-sm text-neutral-400 mt-1 text-center">
+    {{
+      memories: 'Registre e relembre seus sentimentos',
+      profile: 'Seu panorama emocional em destaque',
+      report: 'Análise aprofundada das suas memórias',
+    }[activeTab]}
+  </p>
+</div>
       <div className="flex space-x-2 px-4 mb-2">
         {(['memories', 'profile', 'report'] as const).map(tab => (
           <button
@@ -330,7 +339,7 @@ const MemoryPage: React.FC = () => {
               profile: 'Perfil Emocional',
               report: 'Relatório',
             }[tab]}
-          </button>
+          </button> 
         ))}
       </div>
 
@@ -350,126 +359,181 @@ const MemoryPage: React.FC = () => {
                     ))}
                   </ul>
                 ) : (
-                  <p className="text-sm text-neutral-400 italic text-center mt-8">
-                    Nenhuma memória significativa registrada ainda.
-                  </p>
+                  <div className="flex flex-col items-center text-center mt-20 text-neutral-500 px-6">
+  <p className="text-lg font-medium mb-2 text-neutral-800">
+    Você ainda não tem memórias salvas
+  </p>
+  <p className="text-sm mb-6 max-w-xs">
+    Crie sua primeira agora mesmo.
+  </p>
+  <button
+    onClick={() => navigate('/chat')}
+    className="
+      px-4 py-2 rounded-full text-sm font-medium
+      border border-neutral-300
+      backdrop-blur-sm bg-white/40
+      text-neutral-800
+      hover:bg-white/60 transition
+    "
+  >
+    + Nova memória
+  </button>
+</div>
+
                 )}
               </>
             )}
 
-            {activeTab === 'profile' && perfil && (
+            {activeTab === 'profile' && (
   <>
-    <ChartCard title="Emoções mais frequentes">
-      {emotionChart.length > 0 ? (
-<ResponsiveContainer width="100%" height={230}>
-  <BarChart
-    data={emotionChart}
-    margin={{ top: 20, right: 5, left: 5, bottom: 40 }}
-    barCategoryGap="30%"
-  >
-    <XAxis
-      dataKey="name"
-      axisLine={false}
-      tickLine={false}
-      tick={{
-        fill: '#333',
-        fontSize: 12, // fonte menor
-      }}
-    />
-    <YAxis
-      domain={[0, 'dataMax + 5']}
-      axisLine={false}
-      tickLine={false}
-      tick={{
-        fill: '#9CA3AF',
-        fontSize: 12, // fonte menor
-      }}
-    />
-    <Tooltip content={<CustomTooltip />} />
-    <Bar dataKey="value" barSize={37} radius={[6, 6, 0, 0]}>
-      {emotionChart.map((entry, index) => (
-        <Cell
-          key={`cell-${index}`}
-          fill={getEmotionColor(entry.name)}
-        />
-      ))}
-    </Bar>
-  </BarChart>
-</ResponsiveContainer>
-      ) : (
-        <p className="text-sm text-neutral-400 italic">
-          Nenhuma emoção frequente identificada ainda.
-        </p>
-      )}
-    </ChartCard>
+    {(perfil && (emotionChart.length > 0 || themeChart.length > 0)) ? (
+      <>
+        <ChartCard title="Emoções mais frequentes">
+          {emotionChart.length > 0 ? (
+            <ResponsiveContainer width="100%" height={230}>
+              <BarChart
+                data={emotionChart}
+                margin={{ top: 20, right: 5, left: 5, bottom: 40 }}
+                barCategoryGap="30%"
+              >
+                <XAxis
+                  dataKey="name"
+                  axisLine={false}
+                  tickLine={false}
+                  tick={{ fill: '#333', fontSize: 12 }}
+                />
+                <YAxis
+                  domain={[0, 'dataMax + 5']}
+                  axisLine={false}
+                  tickLine={false}
+                  tick={{ fill: '#9CA3AF', fontSize: 12 }}
+                />
+                <Tooltip content={<CustomTooltip />} />
+                <Bar dataKey="value" barSize={37} radius={[6, 6, 0, 0]}>
+                  {emotionChart.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={getEmotionColor(entry.name)} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="flex flex-col items-center text-center py-8 text-neutral-500">
+              <p className="text-base mb-2 text-neutral-800">
+                Nenhum dado emocional ainda
+              </p>
+              <p className="text-sm max-w-xs">
+                Registre suas memórias para ver seu perfil aqui.
+              </p>
+            </div>
+          )}
+        </ChartCard>
 
-    <ChartCard title="Temas mais recorrentes">
-      {themeChart.length > 0 ? (
-        <ResponsiveContainer width="100%" height={230}>
-  <BarChart
-    data={themeChart}
-    margin={{ top: 20, right: 10, left: 10, bottom: 20 }}
-    barCategoryGap="30%"
-  >
-    <XAxis
-      dataKey="name"
-      axisLine={false}
-      tickLine={false}
-      tick={{
-        fill: '#333',
-        fontSize: 12,
-      }}
-    />
-    <YAxis
-      axisLine={false}
-      tickLine={false}
-      tick={{
-        fill: '#9CA3AF',
-        fontSize: 12,
-      }}
-    />
-    <Tooltip content={<CustomTooltip />} />
-    <Bar dataKey="value" barSize={37} radius={[6, 6, 0, 0]}>
-      {themeChart.map((entry, index) => (
-        <Cell
-          key={`cell-theme-${index}`}
-          fill={generateConsistentPastelColor(entry.name)}
-        />
-      ))}
-    </Bar>
-  </BarChart>
-</ResponsiveContainer>
-      ) : (
-        <p className="text-sm text-neutral-400 italic">
-          Nenhum tema recorrente identificado ainda.
+        <ChartCard title="Temas mais recorrentes">
+          {themeChart.length > 0 ? (
+            <ResponsiveContainer width="100%" height={230}>
+              <BarChart
+                data={themeChart}
+                margin={{ top: 20, right: 10, left: 10, bottom: 20 }}
+                barCategoryGap="30%"
+              >
+                <XAxis
+                  dataKey="name"
+                  axisLine={false}
+                  tickLine={false}
+                  tick={{ fill: '#333', fontSize: 12 }}
+                />
+                <YAxis
+                  axisLine={false}
+                  tickLine={false}
+                  tick={{ fill: '#9CA3AF', fontSize: 12 }}
+                />
+                <Tooltip content={<CustomTooltip />} />
+                <Bar dataKey="value" barSize={37} radius={[6, 6, 0, 0]}>
+                  {themeChart.map((entry, index) => (
+                    <Cell key={`cell-theme-${index}`} fill={generateConsistentPastelColor(entry.name)} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="flex flex-col items-center text-center py-8 text-neutral-500">
+              <p className="text-base mb-2 text-neutral-800">
+                Nenhum tema ainda
+              </p>
+              <p className="text-sm max-w-xs">
+                Crie registros para descobrir seus principais temas.
+              </p>
+            </div>
+          )}
+        </ChartCard>
+      </>
+    ) : (
+      <div className="flex flex-col items-center text-center mt-20 text-neutral-500 px-6">
+        <p className="text-lg font-medium mb-2 text-neutral-800">
+          Seu perfil emocional está vazio
         </p>
-      )}
-    </ChartCard>
+        <p className="text-sm mb-6 max-w-xs">
+          Compartilhe o que sente com a Eco para criar seu panorama emocional.
+        </p>
+        <button
+          onClick={() => navigate('/chat')}
+          className="
+            px-4 py-2 rounded-full text-sm font-medium
+            border border-neutral-300
+            backdrop-blur-sm bg-white/40
+            text-neutral-800
+            hover:bg-white/60 transition
+          "
+        >
+          + Nova memória
+        </button>
+      </div>
+    )}
   </>
 )}
 
-            {activeTab === 'report' && relatorio && (
-              <>
-                <ChartCard title="Mapa Emocional 2D">
-                  <MapaEmocional2D data={mapaEmocional2D} />
-                </ChartCard>
+            {activeTab === 'report' && (
+  <>
+    {relatorio && (mapaEmocional2D.length > 0 || (relatorio.linha_do_tempo_intensidade?.length > 0)) ? (
+      <>
+        <ChartCard title="Mapa Emocional 2D">
+          <MapaEmocional2D data={mapaEmocional2D} />
+        </ChartCard>
 
-                <ChartCard title="Linha do Tempo Emocional">
-                {relatorio?.linha_do_tempo_intensidade && relatorio.linha_do_tempo_intensidade.length > 0 ? (
-  <LinhaDoTempoEmocional data={relatorio.linha_do_tempo_intensidade} />
-) : (
-  <div className="text-sm text-neutral-400 italic text-center p-6">
-    Nenhum dado para exibir na linha do tempo.
-  </div>
+        <ChartCard title="Linha do Tempo Emocional">
+          <LinhaDoTempoEmocional data={relatorio.linha_do_tempo_intensidade} />
+        </ChartCard>
+
+        <p className="text-xs text-neutral-500 text-center">
+          Total de memórias significativas: {relatorio.total_memorias ?? 'Indisponível'}
+        </p>
+      </>
+    ) : (
+      <div className="flex flex-col items-center text-center mt-20 text-neutral-500 px-6">
+        <div className="text-5xl mb-4">🪷</div>
+        <p className="text-lg font-medium mb-2 text-neutral-800">
+          Seu Relatório Emocional está em branco
+        </p>
+        <p className="text-sm mb-6 max-w-xs">
+          Para criar seu primeiro relatório, compartilhe suas memórias mais marcantes com a Eco.
+        </p>
+        <button
+          onClick={() => navigate('/chat')}
+          className="
+            px-4 py-2 rounded-full text-sm font-medium
+            border border-neutral-300
+            backdrop-blur-sm bg-white/40
+            text-neutral-800
+            hover:bg-white/60 transition
+          "
+        >
+          + Registrar memória
+        </button>
+      </div>
+    )}
+  </>
 )}
-                </ChartCard>
 
-
-                <p className="text-xs text-neutral-500 text-center">
-                  Total de memórias significativas: {relatorio.total_memorias ?? 'Indisponível'}
-                </p>
-              </>
-            )}
           </>
         )}
       </div>

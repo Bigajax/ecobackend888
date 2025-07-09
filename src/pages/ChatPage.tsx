@@ -48,7 +48,7 @@ const ChatPage: React.FC = () => {
     : new Date().getHours() < 18
     ? 'Boa tarde'
     : 'Boa noite';
-  const mensagemBoasVindas = `${saudacao}, ${userName}!`;
+  const mensagemBoasVindas = `${saudacao}, ${userName}`;
 
   useEffect(() => {
     refFimMensagens.current?.scrollIntoView({ behavior: 'smooth' });
@@ -152,8 +152,8 @@ const ChatPage: React.FC = () => {
               animate={{ opacity: 1 }}
               transition={{ duration: 0.5 }}
             >
-              <h2 className="text-4xl font-light text-black">{mensagemBoasVindas}</h2>
-              <p className="text-xl font-light text-black mt-2">Aqui, você se escuta.</p>
+              <h2 className="text-3xl md:text-4xl font-light text-gray-600">{mensagemBoasVindas}</h2>
+              <p className="text-base md:text-lg font-light text-gray-400 mt-2">Aqui, você se escuta.</p>
             </motion.div>
           )}
 
