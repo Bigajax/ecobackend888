@@ -491,49 +491,47 @@ const MemoryPage: React.FC = () => {
     )}
   </>
 )}
-
             {activeTab === 'report' && (
-  <>
-    {relatorio && (mapaEmocional2D.length > 0 || (relatorio.linha_do_tempo_intensidade?.length > 0)) ? (
-      <>
-        <ChartCard title="Mapa Emocional 2D">
-          <MapaEmocional2D data={mapaEmocional2D} />
-        </ChartCard>
+              <>
+                {relatorio && (mapaEmocional2D.length > 0 || (relatorio.linha_do_tempo_intensidade?.length > 0)) ? (
+                  <>
+                    <ChartCard title="Mapa Emocional 2D">
+                      <MapaEmocional2D data={mapaEmocional2D} />
+                    </ChartCard>
 
-        <ChartCard title="Linha do Tempo Emocional">
-          <LinhaDoTempoEmocional data={relatorio.linha_do_tempo_intensidade} />
-        </ChartCard>
+                    <ChartCard title="Linha do Tempo Emocional">
+                      <LinhaDoTempoEmocional data={relatorio.linha_do_tempo_intensidade} />
+                    </ChartCard>
 
-        <p className="text-xs text-neutral-500 text-center">
-          Total de memórias significativas: {relatorio.total_memorias ?? 'Indisponível'}
-        </p>
-      </>
-    ) : (
-      <div className="flex flex-col items-center text-center mt-20 text-neutral-500 px-6">
-        <div className="text-5xl mb-4">🪷</div>
-        <p className="text-lg font-medium mb-2 text-neutral-800">
-          Seu Relatório Emocional está em branco
-        </p>
-        <p className="text-sm mb-6 max-w-xs">
-          Para criar seu primeiro relatório, compartilhe suas memórias mais marcantes com a Eco.
-        </p>
-        <button
-          onClick={() => navigate('/chat')}
-          className="
-            px-4 py-2 rounded-full text-sm font-medium
-            border border-neutral-300
-            backdrop-blur-sm bg-white/40
-            text-neutral-800
-            hover:bg-white/60 transition
-          "
-        >
-          + Registrar memória
-        </button>
-      </div>
-    )}
-  </>
-)}
-
+                    <p className="text-xs text-neutral-500 text-center">
+                      Total de memórias significativas: {relatorio.total_memorias ?? 'Indisponível'}
+                    </p>
+                  </>
+                ) : (
+                  <div className="flex flex-col items-center text-center mt-20 text-neutral-500 px-6">
+                    <div className="text-5xl mb-4">🪷</div>
+                    <p className="text-lg font-medium mb-2 text-neutral-800">
+                      Seu Relatório Emocional está em branco
+                    </p>
+                    <p className="text-sm mb-6 max-w-xs">
+                      Para criar seu primeiro relatório, compartilhe suas memórias mais marcantes com a Eco.
+                    </p>
+                    <button
+                      onClick={() => navigate('/chat')}
+                      className="
+                        px-4 py-2 rounded-full text-sm font-medium
+                        border border-neutral-300
+                        backdrop-blur-sm bg-white/40
+                        text-neutral-800
+                        hover:bg-white/60 transition
+                      "
+                    >
+                      + Registrar memória
+                    </button>
+                  </div>
+                )}
+              </>
+            )}
           </>
         )}
       </div>

@@ -84,8 +84,8 @@ const ChatPage: React.FC = () => {
       let mems: any[] = [];
 
       const [similar, porTag] = await Promise.all([
-        buscarMemoriasSimilares(text, 5).catch(() => []),
-        tags.length ? buscarUltimasMemoriasComTags(userId!, tags, 5).catch(() => []) : [],
+        buscarMemoriasSimilares(text, 2).catch(() => []),
+        tags.length ? buscarUltimasMemoriasComTags(userId!, tags, 2).catch(() => []) : [],
       ]);
 
       const vistos = new Set<string>();
@@ -109,7 +109,7 @@ const ChatPage: React.FC = () => {
       const mensagensComContexto = [
         ...(retorno ? [{ role: 'system', content: retorno }] : []),
         ...(ctxMems ? [{ role: 'system', content: `Memórias recentes relevantes:\n${ctxMems}` }] : []),
-        ...history,
+        ...history,(-3)
       ];
 
       const formatted = mensagensComContexto.map((m) => ({
