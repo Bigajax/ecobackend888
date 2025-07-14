@@ -34,7 +34,9 @@ interface Memoria {
   similaridade?: number;
   score?: number;
   emocao_principal?: string;
+  nivel_abertura?: number;    
 }
+
 
 interface Heuristica {
   arquivo: string;
@@ -57,6 +59,19 @@ function capitalizarNome(nome?: string): string {
   if (!nome) return '';
   return nome.trim().replace(/\b\w/g, (c) => c.toUpperCase());
 }
+function nivelAberturaParaNumero(valor: string | number | undefined): number {
+  if (typeof valor === 'string') {
+    const clean = valor.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase();
+    if (clean === 'baixo') return 1;
+    if (clean === 'medio') return 2;
+    if (clean === 'alto') return 3;
+    return 1;
+  }
+  if (typeof valor === 'number') {
+    return valor;
+  }
+  return 1;
+}
 
 // ----------------------------------
 // MAIN FUNCTION
@@ -66,13 +81,17 @@ export async function montarContextoEco({
   ultimaMsg,
   userId,
   userName,
-  mems
+  mems,
+  forcarMetodoViva = false,
+  blocoTecnicoForcado = null
 }: {
   perfil?: PerfilEmocional | null;
   ultimaMsg?: string;
   userId?: string;
   userName?: string;
   mems?: Memoria[];
+  forcarMetodoViva?: boolean;
+  blocoTecnicoForcado?: any;
 }): Promise<string> {
 
   const assetsDir = path.join(process.cwd(), 'assets');
@@ -110,27 +129,22 @@ export async function montarContextoEco({
     }
   }
 
-// ----------------------------------
-// NÍVEL DE ABERTURA
-// ----------------------------------
-let nivel = heuristicaNivelAbertura(entrada) || 1;
-
-// ✅ Normalização para garantir que nivel é sempre número
-if (typeof nivel === 'string') {
-  if (nivel === 'baixo') nivel = 1;
-  else if (nivel === 'médio') nivel = 2;
-  else if (nivel === 'alto') nivel = 3;
-  else nivel = 1;
-}
-
-if (nivel < 1 || nivel > 3) {
-  console.warn('⚠️ Nível de abertura ambíguo ou inválido. Aplicando fallback para nível 1.');
-  nivel = 1;
-}
-
-const desc = nivel === 1 ? 'superficial' : nivel === 2 ? 'reflexiva' : 'profunda';
-contexto += `\n📶 Abertura emocional sugerida (heurística): ${desc}`;
-
+  // ----------------------------------
+  // NÍVEL DE ABERTURA
+  // ----------------------------------
+  let nivel = heuristicaNivelAbertura(entrada) || 1;
+  if (typeof nivel === 'string') {
+    if (nivel === 'baixo') nivel = 1;
+    else if (nivel === 'médio') nivel = 2;
+    else if (nivel === 'alto') nivel = 3;
+    else nivel = 1;
+  }
+  if (nivel < 1 || nivel > 3) {
+    console.warn('⚠️ Nível de abertura ambíguo ou inválido. Aplicando fallback para nível 1.');
+    nivel = 1;
+  }
+  const desc = nivel === 1 ? 'superficial' : nivel === 2 ? 'reflexiva' : 'profunda';
+  contexto += `\n📶 Abertura emocional sugerida (heurística): ${desc}`;
   // ----------------------------------
   // PERFIL EMOCIONAL
   // ----------------------------------
@@ -143,9 +157,31 @@ contexto += `\n📶 Abertura emocional sugerida (heurística): ${desc}`;
   // ----------------------------------
   // MEMÓRIAS
   // ----------------------------------
-  if (nivel === 1) {
-    console.log('⚠️ Ignorando embeddings/memórias por abertura superficial.');
-    mems = [];
+  let memsUsadas = mems;
+
+  if (forcarMetodoViva && blocoTecnicoForcado) {
+    console.log('✅ Ativando modo forçado METODO_VIVA com bloco técnico fornecido.');
+    memsUsadas = [{
+      resumo_eco: blocoTecnicoForcado.analise_resumo ?? ultimaMsg ?? "",
+      intensidade: Number(blocoTecnicoForcado.intensidade ?? 0),
+      emocao_principal: blocoTecnicoForcado.emocao_principal ?? "",
+      tags: blocoTecnicoForcado.tags ?? [],
+    }];
+  } else {
+    if (nivel === 1) {
+      console.log('⚠️ Ignorando embeddings/memórias por abertura superficial.');
+      memsUsadas = [];
+    }
+  }
+
+  // ----------------------------------
+  // CONVERSÃO de nivel_abertura para número
+  // ----------------------------------
+  if (memsUsadas && memsUsadas.length > 0) {
+    memsUsadas = memsUsadas.map(mem => ({
+      ...mem,
+      nivel_abertura: nivelAberturaParaNumero(mem.nivel_abertura)
+    }));
   }
 
   // ----------------------------------
@@ -156,20 +192,35 @@ contexto += `\n📶 Abertura emocional sugerida (heurística): ${desc}`;
   );
 
   if (entrada && !heuristicaAtiva) {
-    heuristicaAtiva = await buscarHeuristicaPorSimilaridade(entrada);
-    if (heuristicaAtiva) {
-      console.log("✨ Heurística fuzzy ativada:", heuristicaAtiva.arquivo);
+    const heuristicasFuzzy = await buscarHeuristicaPorSimilaridade(entrada);
+    if (heuristicasFuzzy?.length > 0) {
+      heuristicaAtiva = heuristicasFuzzy[0];
+      if (heuristicaAtiva?.arquivo) {
+        console.log(`✨ Heurística fuzzy ativada: ${heuristicaAtiva.arquivo} (similaridade mais alta)`);
+      }
+    } else {
+      console.log('ℹ️ Nenhuma heurística fuzzy ativada.');
     }
   }
 
   if (entrada) {
     const queryEmbedding = await embedTextoCompleto(entrada, "🔍 heuristica");
-    console.log("📌 Vetor de embedding (parcial):", queryEmbedding.slice(0, 6), "...");
+    if (process.env.NODE_ENV && process.env.NODE_ENV.trim() !== 'production') {
+      console.log("📌 Vetor de embedding (sumário):", queryEmbedding.slice(0, 3), "...");
+    }
   }
 
-  const heuristicasEmbedding = entrada 
-    ? await buscarHeuristicasSemelhantes(entrada, userId ?? null) 
+  const heuristicasEmbedding = entrada
+    ? await buscarHeuristicasSemelhantes(entrada, userId ?? null)
     : [];
+
+  if (process.env.NODE_ENV && process.env.NODE_ENV.trim() !== 'production') {
+    if (heuristicasEmbedding?.length) {
+      console.log(`✅ ${heuristicasEmbedding.length} heurística(s) cognitivas embedding encontradas.`);
+    } else {
+      console.log('ℹ️ Nenhuma heurística embedding encontrada.');
+    }
+  }
 
   const modulosFilosoficosAtivos = filosoficosTriggerMap.filter((f) =>
     f?.arquivo && f?.arquivo.trim() && f.gatilhos.some((g) =>
@@ -184,53 +235,57 @@ contexto += `\n📶 Abertura emocional sugerida (heurística): ${desc}`;
   );
 
   const tagsAlvo = heuristicaAtiva ? tagsPorHeuristica[heuristicaAtiva.arquivo] ?? [] : [];
+  if (nivel > 1 && (!memsUsadas?.length) && entrada && userId) {
+    try {
+      let MIN_SIMILARIDADE = 0.55;
+      const consultaParaLembranca = /lembr|record|memória|memorias|memoria|recorda/i.test(entrada);
+      if (consultaParaLembranca) {
+        console.log("🔎 Detecção de pergunta sobre lembrança: reduzindo threshold.");
+        MIN_SIMILARIDADE = 0.3;
+      }
 
-  let memsUsadas = mems;
-if (nivel > 1 && (!memsUsadas?.length) && entrada && userId) {
-  try {
-    // Detecta se é pergunta sobre lembrança
-    let MIN_SIMILARIDADE = 0.55;
-    const consultaParaLembranca = /lembr|record|memória|memorias|memoria|recorda/i.test(entrada);
-    if (consultaParaLembranca) {
-      console.log("🔎 Detecção de pergunta sobre lembrança: reduzindo threshold.");
-      MIN_SIMILARIDADE = 0.3;
-    }
+      const [memorias, referencias] = await Promise.all([
+        buscarMemoriasSemelhantes(userId, entrada),
+        buscarReferenciasSemelhantes(userId, entrada)
+      ]);
 
-    const [memorias, referencias] = await Promise.all([
-      buscarMemoriasSemelhantes(userId, entrada),
-      buscarReferenciasSemelhantes(userId, entrada)
-    ]);
-
-    const memoriasFiltradas = (memorias || []).filter(
-      (m: Memoria) => (m.similaridade ?? 0) >= MIN_SIMILARIDADE
-    );
-    const referenciasFiltradas = (referencias || []).filter(
-      (r: Memoria) => (r.similaridade ?? 0) >= MIN_SIMILARIDADE
-    );
-
-    memsUsadas = [...memoriasFiltradas, ...referenciasFiltradas];
-// 🎯 Ajuste heurístico: promover intensidade se achou memória muito intensa
-const memoriaIntensa = memsUsadas.find(m => (m.intensidade ?? 0) >= 7 && (m.similaridade ?? 0) >= MIN_SIMILARIDADE);
-
-if (memoriaIntensa) {
-  console.log("✨ Ajuste de intensidade por memória semelhante forte:", memoriaIntensa);
-
-  // Adiciona essa memória no topo para garantir uso
-  memsUsadas = [memoriaIntensa, ...memsUsadas.filter(m => m !== memoriaIntensa)];
-
-  console.log("✅ Ajuste minimalista: usando memória intensa recuperada sem clonar entrada.");
-}
-
-    if (tagsAlvo.length) {
-      memsUsadas = memsUsadas.filter((m) =>
-        m.tags?.some((t) => tagsAlvo.includes(t))
+      const memoriasFiltradas = (memorias || []).filter(
+        (m: Memoria) => (m.similaridade ?? 0) >= MIN_SIMILARIDADE
       );
+      const referenciasFiltradas = (referencias || []).filter(
+        (r: Memoria) => (r.similaridade ?? 0) >= MIN_SIMILARIDADE
+      );
+
+      memsUsadas = [...memoriasFiltradas, ...referenciasFiltradas];
+
+      const memoriaIntensa = memsUsadas.find(m => (m.intensidade ?? 0) >= 7 && (m.similaridade ?? 0) >= MIN_SIMILARIDADE);
+      if (memoriaIntensa) {
+        console.log("✅ Ajuste minimalista: usando memória intensa recuperada sem clonar entrada.");
+        memsUsadas = [memoriaIntensa, ...memsUsadas.filter(m => m !== memoriaIntensa)];
+      }
+
+      if (process.env.NODE_ENV && process.env.NODE_ENV.trim() !== 'production') {
+        if (memsUsadas?.length) {
+          console.log(`🧠 Memórias finais usadas no contexto:`);
+          memsUsadas.forEach((m, idx) => {
+            console.log(`• [${idx + 1}] "${m.resumo_eco.slice(0, 30)}..." | Intensidade: ${m.intensidade} | Similaridade: ${m.similaridade}`);
+          });
+        } else {
+          console.log('ℹ️ Nenhuma memória usada no contexto.');
+        }
+      }
+
+      if (tagsAlvo.length) {
+        memsUsadas = memsUsadas.filter((m) =>
+          m.tags?.some((t) => tagsAlvo.includes(t))
+        );
+      }
+
+    } catch (e) {
+      console.warn("⚠️ Erro ao buscar memórias/referências:", (e as Error).message);
+      memsUsadas = [];
     }
-  } catch (e) {
-    console.warn("⚠️ Erro ao buscar memórias/referências:", (e as Error).message);
-    memsUsadas = [];
   }
-}
 
   if (entrada && perfil && nivel > 1) {
     const memoriaAtual: Memoria = {
@@ -251,43 +306,72 @@ if (memoriaIntensa) {
       console.warn("⚠️ Erro ao buscar encadeamentos:", (e as Error).message);
     }
   }
-
   // ----------------------------------
   // INSERÇÃO DE MÓDULOS
   // ----------------------------------
   const modulosAdic: string[] = [];
   const modulosInseridos = new Set<string>();
 
-  const inserirModuloUnico = async (arquivo: string | undefined, tipo: string, caminhoBase: string) => {
-    if (!arquivo || !arquivo.trim()) {
-      console.warn(`⚠️ Ignorando chamada para inserirModuloUnico com arquivo inválido: "${arquivo}" (tipo: ${tipo})`);
-      return;
-    }
-    if (modulosInseridos.has(arquivo)) return;
+  const inserirModuloUnico = async (arquivo: string | undefined, tipo: string) => {
+  console.log(`[DEBUG inserirModuloUnico] tipo=${tipo} | arquivo=${arquivo}`);
+
+  if (!arquivo || !arquivo.trim()) {
+    console.warn(`⚠️ Ignorando chamada para inserirModuloUnico com arquivo inválido: "${arquivo}" (tipo: ${tipo})`);
+    return;
+  }
+
+  if (modulosInseridos.has(arquivo)) {
+    console.log(`ℹ️ Módulo já inserido anteriormente: ${arquivo}`);
+    return;
+  }
+
+  const pastasPossiveis = [
+    modEmocDir,
+    modEstoicosDir,
+    modFilosDir,
+    modCogDir,
+    modulosDir
+  ];
+
+  let encontrado = false;
+
+  for (const base of pastasPossiveis) {
     try {
-      const caminho = path.join(caminhoBase, arquivo);
+      const caminho = path.join(base, arquivo);
       const conteudo = await fs.readFile(caminho, 'utf-8');
       modulosAdic.push(`\n\n[Módulo ${tipo} → ${arquivo}]\n${conteudo.trim()}`);
       modulosInseridos.add(arquivo);
-    } catch (e) {
-      console.warn(`⚠️ Falha ao carregar módulo ${arquivo}:`, (e as Error).message);
+      console.log(`✅ Módulo carregado de: ${caminho}`);
+      encontrado = true;
+      break;
+    } catch {
+      // Tenta na próxima pasta
     }
-  };
+  }
+
+  if (!encontrado) {
+    console.warn(`⚠️ Falha ao carregar módulo ${arquivo}: não encontrado em nenhuma pasta`);
+  }
+};
+
+
   // ----------------------------------
   // Always Include
   // ----------------------------------
   for (const arquivo of matrizPromptBase.alwaysInclude ?? []) {
-    await inserirModuloUnico(arquivo, 'Base', modulosDir);
+    await inserirModuloUnico(arquivo, 'Base');
   }
 
   // ----------------------------------
   // Prompts por Nível
   // ----------------------------------
-  const nivelPrompts = (matrizPromptBase.byNivel[nivel as 2 | 3] ?? []).filter((arquivo: string) => {
+  const nivelPrompts = (matrizPromptBase.byNivel[nivel as 2 | 3] ?? [])
+  .filter((arquivo: string) => {
     if (!arquivo || !arquivo.trim()) {
       console.warn(`⚠️ Ignorando arquivo vazio ou inválido na matrizPromptBase.byNivel: "${arquivo}"`);
       return false;
     }
+
     const intensidadeMin = matrizPromptBase.intensidadeMinima?.[arquivo];
     if (typeof intensidadeMin === 'number') {
       const temIntensa = memsUsadas?.some(mem => (mem.intensidade ?? 0) >= intensidadeMin);
@@ -296,40 +380,54 @@ if (memoriaIntensa) {
         return false;
       }
     }
+
     const condicao = matrizPromptBase.condicoesEspeciais?.[arquivo];
     if (condicao) {
       if (arquivo === 'METODO_VIVA.txt') {
-        const intensidadeAlta = memsUsadas?.some(mem => (mem.intensidade ?? 0) >= 7);
-        if (!intensidadeAlta && nivel !== 3) {
-          console.log(`⚠️ Ignorando ${arquivo} por condição especial (intensidade <7 e nivel!=3)`);
+        if (!blocoTecnicoForcado) {
+          console.log(`⚠️ Ignorando ${arquivo} pois não há bloco técnico para a mensagem atual.`);
+          return false;
+        }
+
+        const intensidade = Number(blocoTecnicoForcado.intensidade ?? 0);
+        const nivelAbertura = nivelAberturaParaNumero(blocoTecnicoForcado.nivel_abertura);
+
+        const ativa = intensidade >= 7 && (nivelAbertura === 2 || nivelAbertura === 3);
+
+        if (!ativa) {
+          console.log(`⚠️ Ignorando ${arquivo} por condição especial (mensagem do usuário com intensidade < 7 ou nível_abertura não 2 ou 3)`);
           return false;
         }
       }
     }
+
     return true;
   });
 
+
   for (const arquivo of nivelPrompts) {
-    await inserirModuloUnico(arquivo, 'Base', modulosDir);
+    await inserirModuloUnico(arquivo, 'Base');
   }
 
   // ----------------------------------
   // Heurísticas Cognitivas
   // ----------------------------------
-  if (heuristicaAtiva?.arquivo) await inserirModuloUnico(heuristicaAtiva.arquivo, 'Cognitivo', modCogDir);
+  if (heuristicaAtiva?.arquivo) {
+    await inserirModuloUnico(heuristicaAtiva.arquivo, 'Cognitivo');
+  }
   for (const h of heuristicasEmbedding ?? []) {
-    if (h?.arquivo) await inserirModuloUnico(h.arquivo, 'Cognitivo', modCogDir);
+    if (h?.arquivo) await inserirModuloUnico(h.arquivo, 'Cognitivo');
   }
 
   // ----------------------------------
   // Filosóficos e Estoicos
   // ----------------------------------
   for (const mf of modulosFilosoficosAtivos ?? []) {
-    if (mf?.arquivo) await inserirModuloUnico(mf.arquivo, 'Filosófico', modFilosDir);
+    if (mf?.arquivo) await inserirModuloUnico(mf.arquivo, 'Filosófico');
   }
 
   for (const es of modulosEstoicosAtivos ?? []) {
-    if (es?.arquivo) await inserirModuloUnico(es.arquivo, 'Estoico', modEstoicosDir);
+    if (es?.arquivo) await inserirModuloUnico(es.arquivo, 'Estoico');
   }
 
   // ----------------------------------
@@ -339,9 +437,9 @@ if (memoriaIntensa) {
     if (!m?.arquivo) return false;
 
     let intensidadeOk = true;
-    if (typeof m.intensidadeMinima === 'number') {
-      const min = m.intensidadeMinima;
-      intensidadeOk = memsUsadas?.some((mem) => (mem.intensidade ?? 0) >= min) ?? false;
+    const minInt = m.intensidadeMinima;
+    if (typeof minInt === 'number') {
+      intensidadeOk = memsUsadas?.some((mem) => (mem.intensidade ?? 0) >= minInt) ?? false;
     }
 
     const tagsPresentes = memsUsadas?.flatMap(mem => mem.tags ?? []) ?? [];
@@ -354,72 +452,93 @@ if (memoriaIntensa) {
   });
 
   for (const me of modulosEmocionaisAtivos ?? []) {
-    if (me?.arquivo) await inserirModuloUnico(me.arquivo, 'Emocional', modEmocDir);
-    if (me.relacionado?.length) {
-      for (const rel of me.relacionado) {
-        await inserirModuloUnico(rel, 'Relacionado', modFilosDir);
+  if (me?.arquivo) {
+    await inserirModuloUnico(me.arquivo, 'Emocional');
+  }
+
+  if (me?.relacionado?.length) {
+    for (const rel of me.relacionado) {
+      let carregado = false;
+
+      try {
+        await inserirModuloUnico(rel, 'Relacionado');
+        carregado = true;
+      } catch (e) {
+        console.warn(`⚠️ Não encontrado em modulos_emocionais: ${rel}`);
+      }
+
+      if (!carregado) {
+        try {
+          await inserirModuloUnico(rel, 'Relacionado');
+          carregado = true;
+        } catch (e) {
+          console.warn(`⚠️ Não encontrado em modulos_filosoficos/estoicos: ${rel}`);
+        }
+      }
+
+      if (!carregado) {
+        try {
+          await inserirModuloUnico(rel, 'Relacionado');
+          console.log(`✅ Fallback bem-sucedido em modulos_filosoficos para: ${rel}`);
+        } catch (e) {
+          console.warn(`⚠️ Falha ao carregar módulo relacionado em qualquer pasta: ${rel}`);
+        }
       }
     }
   }
-
-// ---------------------------------- 
-// INSERÇÃO DE MEMÓRIAS E REFERÊNCIAS NO CONTEXTO
-// ----------------------------------
-if (memsUsadas && memsUsadas.length > 0 && nivel > 1) {
-  const frasesContexto: string[] = [];
-
-  for (const m of memsUsadas) {
-    if (!m || !m.resumo_eco) continue;
-    const textoBase = m.resumo_eco.trim();
-    if (!textoBase) continue;
-
-    const avisoSim = (m.similaridade && m.similaridade < 0.5) 
-      ? ` (memória de similaridade baixa ~${m.similaridade.toFixed(2)})` 
-      : '';
-
-    frasesContexto.push(
-      `• Anotação anterior${avisoSim}: "${textoBase}"`
-    );
-  }
-
-  if (frasesContexto.length > 0) {
-    contexto += `\n\n💭 Retomando suas experiências anteriores que podem ajudar nesta conversa:\n${frasesContexto.join('\n')}`;
-  }
-}
-if (encadeamentos && encadeamentos.length > 0) {
-  const encadeamentoTextos = encadeamentos
-    .filter(e => e?.resumo_eco?.trim())
-    .map(e => `• Encadeamento narrativo anterior: "${e.resumo_eco.trim()}"`)
-    .join('\n')
-    .trim();
-
-  if (encadeamentoTextos) {
-    contexto += `\n\n📝 Resgatando encadeamentos narrativos relacionados para manter coerência e continuidade:\n${encadeamentoTextos}`;
-  }
 }
 
+  // ----------------------------------
+  // INSERÇÃO DE MEMÓRIAS E REFERÊNCIAS NO CONTEXTO
+  // ----------------------------------
+  if (memsUsadas && memsUsadas.length > 0 && nivel > 1) {
+    const frasesContexto: string[] = [];
+    for (const m of memsUsadas) {
+      if (!m || !m.resumo_eco) continue;
+      const textoBase = m.resumo_eco.trim();
+      if (!textoBase) continue;
 
+      const avisoSim = (m.similaridade && m.similaridade < 0.5)
+        ? ` (memória de similaridade baixa ~${m.similaridade.toFixed(2)})`
+        : '';
 
- // ----------------------------------
-// CRITÉRIOS E INSTRUÇÃO FINAL
-// ----------------------------------
-const criterios = await fs.readFile(path.join(modulosDir, 'eco_json_trigger_criteria.txt'), 'utf-8');
-modulosAdic.push(`\n\n[Módulo: eco_json_trigger_criteria]\n${criterios.trim()}`);
-modulosAdic.push(`\n\n[Módulo: eco_forbidden_patterns]\n${forbidden.trim()}`);
+      frasesContexto.push(`• Anotação anterior${avisoSim}: "${textoBase}"`);
+    }
 
-// Novo módulo de instrução de memória no contexto
-try {
-  const memoriaInstrucoes = await fs.readFile(path.join(modulosDir, 'MEMORIAS_NO_CONTEXTO.txt'), 'utf-8');
-  modulosAdic.push(`\n\n[Módulo: MEMORIAS_NO_CONTEXTO]\n${memoriaInstrucoes.trim()}`);
-} catch (e) {
-  console.warn('⚠️ Falha ao carregar MEMORIAS_NO_CONTEXTO.txt:', (e as Error).message);
-}
+    if (frasesContexto.length > 0) {
+      contexto += `\n\n💭 Retomando suas experiências anteriores que podem ajudar nesta conversa:\n${frasesContexto.join('\n')}`;
+    }
+  }
 
-// Instrução final
-modulosAdic.push(
-  `\n\n⚠️ INSTRUÇÃO FINAL AO MODELO:\nPor favor, gere a resposta seguindo rigorosamente a estrutura definida no ECO_ESTRUTURA_DE_RESPOSTA.txt. Use as seções numeradas e marcadas com colchetes.`
-);
+  if (encadeamentos && encadeamentos.length > 0) {
+    const encadeamentoTextos = encadeamentos
+      .filter(e => e?.resumo_eco?.trim())
+      .map(e => `• Encadeamento narrativo anterior: "${e.resumo_eco.trim()}"`)
+      .join('\n')
+      .trim();
 
+    if (encadeamentoTextos) {
+      contexto += `\n\n📝 Resgatando encadeamentos narrativos relacionados para manter coerência e continuidade:\n${encadeamentoTextos}`;
+    }
+  }
+
+  // ----------------------------------
+  // CRITÉRIOS E INSTRUÇÃO FINAL
+  // ----------------------------------
+  const criterios = await fs.readFile(path.join(modulosDir, 'eco_json_trigger_criteria.txt'), 'utf-8');
+  modulosAdic.push(`\n\n[Módulo: eco_json_trigger_criteria]\n${criterios.trim()}`);
+  modulosAdic.push(`\n\n[Módulo: eco_forbidden_patterns]\n${forbidden.trim()}`);
+
+  try {
+    const memoriaInstrucoes = await fs.readFile(path.join(modulosDir, 'MEMORIAS_NO_CONTEXTO.txt'), 'utf-8');
+    modulosAdic.push(`\n\n[Módulo: MEMORIAS_NO_CONTEXTO]\n${memoriaInstrucoes.trim()}`);
+  } catch (e) {
+    console.warn('⚠️ Falha ao carregar MEMORIAS_NO_CONTEXTO.txt:', (e as Error).message);
+  }
+
+  modulosAdic.push(
+    `\n\n⚠️ INSTRUÇÃO FINAL AO MODELO:\nPor favor, gere a resposta seguindo rigorosamente a estrutura definida no ECO_ESTRUTURA_DE_RESPOSTA.txt. Use as seções numeradas e marcadas com colchetes.`
+  );
 
   // ----------------------------------
   // MONTAGEM FINAL

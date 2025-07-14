@@ -51,7 +51,7 @@ async function logHeuristicasEmbedding(texto: string, usuarioId: string) {
   }
 }
 
-// BLOCO TÉCNICO AJUSTADO
+// BLOCO TÉCNICO
 async function gerarBlocoTecnicoSeparado({
   mensagemUsuario,
   respostaIa,
@@ -114,7 +114,7 @@ Retorne neste formato JSON puro:
       return null;
     }
 
-    let parsed = JSON.parse(match[0]);
+    const parsed = JSON.parse(match[0]);
 
     const permitido = [
       "emocao_principal",
@@ -123,7 +123,7 @@ Retorne neste formato JSON puro:
       "dominio_vida",
       "padrao_comportamental",
       "nivel_abertura",
-      "analise_resumo"
+      "analise_resumo",
     ];
     const cleanJson: any = {};
     for (const key of permitido) {
@@ -137,7 +137,6 @@ Retorne neste formato JSON puro:
     return null;
   }
 }
-
 // FUNÇÃO PRINCIPAL
 export async function getEcoResponse({
   messages,
@@ -145,12 +144,16 @@ export async function getEcoResponse({
   userName,
   accessToken,
   mems = [],
+  forcarMetodoViva = false,
+  blocoTecnicoForcado = null,
 }: {
   messages: { id?: string; role: string; content: string }[];
   userId?: string;
   userName?: string;
   accessToken: string;
   mems?: any[];
+  forcarMetodoViva?: boolean;
+  blocoTecnicoForcado?: any;
 }): Promise<{
   message: string;
   intensidade?: number;
@@ -177,14 +180,18 @@ export async function getEcoResponse({
 
     const ultimaMsg = messages.at(-1)?.content || "";
 
-    await logHeuristicasEmbedding(ultimaMsg, userId!);
+    if (!forcarMetodoViva) {
+      await logHeuristicasEmbedding(ultimaMsg, userId!);
+    }
 
     const systemPrompt = await montarContextoEco({
       userId,
       ultimaMsg,
-      userName,   // ✅ CORREÇÃO AQUI: passa o nome para personalização
+      userName,
       perfil: null,
       mems,
+      forcarMetodoViva,
+      blocoTecnicoForcado,
     });
 
     const chatMessages = [
@@ -219,11 +226,34 @@ export async function getEcoResponse({
     if (!raw) throw new Error("Resposta vazia da IA.");
 
     const cleaned = formatarTextoEco(limparResposta(raw));
+
+    if (forcarMetodoViva) {
+      console.log("✅ Rodada forçada (METODO_VIVA). Pulando salvar no banco.");
+      return { message: cleaned };
+    }
+
     const bloco = await gerarBlocoTecnicoSeparado({
       mensagemUsuario: ultimaMsg,
       respostaIa: cleaned,
       apiKey,
     });
+
+    // 🔥 NOVO TRECHO: checa intensidade e força segunda rodada
+    if (bloco && bloco.intensidade >= 7) {
+      console.log(`⚡ Intensidade alta detectada (${bloco.intensidade}), iniciando segunda rodada METODO_VIVA...`);
+
+      const vivaResponse = await getEcoResponse({
+        messages,
+        userId,
+        userName,
+        accessToken,
+        mems,
+        forcarMetodoViva: true,
+        blocoTecnicoForcado: bloco,
+      });
+
+      return vivaResponse;
+    }
 
     let intensidade: number | undefined;
     let emocao: string = "indefinida";
@@ -231,7 +261,6 @@ export async function getEcoResponse({
     let resumo: string | undefined = cleaned;
 
     if (bloco) {
-      // 👇 FIX CRÍTICO para Postgres: garantir inteiro
       intensidade = Number(bloco.intensidade);
       if (!isNaN(intensidade)) {
         intensidade = Math.round(intensidade);
@@ -294,7 +323,6 @@ export async function getEcoResponse({
               created_at: new Date().toISOString(),
             },
           ]);
-
           if (error) {
             console.warn("⚠️ Erro ao salvar memória:", error.message);
           } else {

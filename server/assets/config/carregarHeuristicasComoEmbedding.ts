@@ -1,5 +1,5 @@
-import { supabase } from "@/lib/supabase"; // ajuste conforme seu projeto
-import { embedTextoCompleto } from "@/services/embeddingService";
+import { supabase } from "../../lib/supabaseAdmin";
+import { embedTextoCompleto } from "../../services/embeddingService";
 
 export async function buscarHeuristicasSemelhantes(texto: string) {
   const query_embedding = await embedTextoCompleto(texto, "🔍 heuristica");
