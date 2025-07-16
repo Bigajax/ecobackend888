@@ -72,6 +72,48 @@ function nivelAberturaParaNumero(valor: string | number | undefined): number {
   }
   return 1;
 }
+function construirStateSummary(perfil: PerfilEmocional | null, nivel: number): string {
+  if (!perfil) return '';
+
+  const emocoes = Object.keys(perfil.emocoes_frequentes || {}).join(', ') || 'nenhuma';
+  const temas = Object.keys(perfil.temas_recorrentes || {}).join(', ') || 'nenhum';
+  const abertura = nivel === 1 ? 'superficial' : nivel === 2 ? 'reflexiva' : 'profunda';
+  const resumo = perfil.resumo_geral_ia || 'sem resumo geral registrado';
+
+  return `
+🗺️ Estado Emocional Consolidado:
+- Emoções frequentes: ${emocoes}
+- Temas recorrentes: ${temas}
+- Nível de abertura estimado: ${abertura}
+- Última interação significativa: ${perfil.ultima_interacao_significativa ?? 'nenhuma'}
+- Resumo geral: ${resumo}
+`.trim();
+}
+
+function construirNarrativaMemorias(mems: Memoria[]): string {
+  if (!mems || mems.length === 0) return '';
+
+  const temas = new Set<string>();
+  const emocoes = new Set<string>();
+  const frases = [];
+
+  for (const m of mems) {
+    if (m.tags) m.tags.forEach(t => temas.add(t));
+    if (m.emocao_principal) emocoes.add(m.emocao_principal);
+    if (m.resumo_eco) frases.push(`"${m.resumo_eco.trim()}"`);
+  }
+
+  const temasTxt = [...temas].join(', ') || 'nenhum tema específico';
+  const emocoesTxt = [...emocoes].join(', ') || 'nenhuma emoção destacada';
+  const frasesTxt = frases.join(' ');
+
+  return `
+📜 Narrativa Integrada das Memórias:
+Em outros momentos, você trouxe temas como ${temasTxt}, com emoções de ${emocoesTxt}.
+Você compartilhou pensamentos como ${frasesTxt}.
+Considere como isso pode ressoar com o que sente agora.
+`.trim();
+}
 
 // ----------------------------------
 // MAIN FUNCTION
@@ -149,10 +191,9 @@ export async function montarContextoEco({
   // PERFIL EMOCIONAL
   // ----------------------------------
   if (perfil) {
-    const emocoes = Object.keys(perfil.emocoes_frequentes || {}).join(', ') || 'nenhuma';
-    const temas = Object.keys(perfil.temas_recorrentes || {}).join(', ') || 'nenhum';
-    contexto += `\n🧠 Perfil emocional:\n• Emoções: ${emocoes}\n• Temas: ${temas}`;
-  }
+  const stateSummary = construirStateSummary(perfil, nivel);
+  contexto += `\n\n${stateSummary}`;
+}
 
   // ----------------------------------
   // MEMÓRIAS
@@ -363,9 +404,9 @@ export async function montarContextoEco({
   }
 
   // ----------------------------------
-  // Prompts por Nível
-  // ----------------------------------
-  const nivelPrompts = (matrizPromptBase.byNivel[nivel as 2 | 3] ?? [])
+// Prompts por Nível
+// ----------------------------------
+const nivelPrompts = (matrizPromptBase.byNivel[nivel as 2 | 3] ?? [])
   .filter((arquivo: string) => {
     if (!arquivo || !arquivo.trim()) {
       console.warn(`⚠️ Ignorando arquivo vazio ou inválido na matrizPromptBase.byNivel: "${arquivo}"`);
@@ -383,31 +424,42 @@ export async function montarContextoEco({
 
     const condicao = matrizPromptBase.condicoesEspeciais?.[arquivo];
     if (condicao) {
-      if (arquivo === 'METODO_VIVA.txt') {
-        if (!blocoTecnicoForcado) {
-          console.log(`⚠️ Ignorando ${arquivo} pois não há bloco técnico para a mensagem atual.`);
-          return false;
-        }
+      const intensidade = memsUsadas && memsUsadas.length > 0
+        ? memsUsadas[0].intensidade ?? 0
+        : 0;
+      const nivelAbertura = nivel;
 
-        const intensidade = Number(blocoTecnicoForcado.intensidade ?? 0);
-        const nivelAbertura = nivelAberturaParaNumero(blocoTecnicoForcado.nivel_abertura);
+      const regraAvaliavel = condicao.regra
+        .replace(/intensidade/g, intensidade.toString())
+        .replace(/nivel/g, nivelAbertura.toString());
 
-        const ativa = intensidade >= 7 && (nivelAbertura === 2 || nivelAbertura === 3);
+      let ativa = false;
+      try {
+        ativa = eval(regraAvaliavel);
+      } catch (e) {
+        console.warn(`⚠️ Erro ao avaliar regra para ${arquivo}:`, regraAvaliavel, (e as Error).message);
+        return false;
+      }
 
-        if (!ativa) {
-          console.log(`⚠️ Ignorando ${arquivo} por condição especial (mensagem do usuário com intensidade < 7 ou nível_abertura não 2 ou 3)`);
-          return false;
-        }
+      console.log(
+        `🧭 Avaliando condição para ${arquivo}:`,
+        `regra='${condicao.regra}'`,
+        `-> intensidade=${intensidade}, nivel=${nivelAbertura}`,
+        `-> resultado=${ativa}`
+      );
+
+      if (!ativa) {
+        console.log(`⚠️ Ignorando ${arquivo} por condição especial não satisfeita: ${condicao.descricao}`);
+        return false;
       }
     }
 
     return true;
   });
+ console.log('📌 [DEBUG] NivelPrompts (filtrados):', JSON.stringify(nivelPrompts, null, 2));
+console.log('📌 [DEBUG] Nivel atual:', nivel);
+console.log('📌 [DEBUG] Memórias usadas:', JSON.stringify(memsUsadas, null, 2));
 
-
-  for (const arquivo of nivelPrompts) {
-    await inserirModuloUnico(arquivo, 'Base');
-  }
 
   // ----------------------------------
   // Heurísticas Cognitivas
@@ -492,23 +544,9 @@ export async function montarContextoEco({
   // INSERÇÃO DE MEMÓRIAS E REFERÊNCIAS NO CONTEXTO
   // ----------------------------------
   if (memsUsadas && memsUsadas.length > 0 && nivel > 1) {
-    const frasesContexto: string[] = [];
-    for (const m of memsUsadas) {
-      if (!m || !m.resumo_eco) continue;
-      const textoBase = m.resumo_eco.trim();
-      if (!textoBase) continue;
-
-      const avisoSim = (m.similaridade && m.similaridade < 0.5)
-        ? ` (memória de similaridade baixa ~${m.similaridade.toFixed(2)})`
-        : '';
-
-      frasesContexto.push(`• Anotação anterior${avisoSim}: "${textoBase}"`);
-    }
-
-    if (frasesContexto.length > 0) {
-      contexto += `\n\n💭 Retomando suas experiências anteriores que podem ajudar nesta conversa:\n${frasesContexto.join('\n')}`;
-    }
-  }
+  const narrativa = construirNarrativaMemorias(memsUsadas);
+  contexto += `\n\n${narrativa}`;
+}
 
   if (encadeamentos && encadeamentos.length > 0) {
     const encadeamentoTextos = encadeamentos
@@ -536,9 +574,19 @@ export async function montarContextoEco({
     console.warn('⚠️ Falha ao carregar MEMORIAS_NO_CONTEXTO.txt:', (e as Error).message);
   }
 
-  modulosAdic.push(
-    `\n\n⚠️ INSTRUÇÃO FINAL AO MODELO:\nPor favor, gere a resposta seguindo rigorosamente a estrutura definida no ECO_ESTRUTURA_DE_RESPOSTA.txt. Use as seções numeradas e marcadas com colchetes.`
-  );
+  const instrucoesFinais = `
+⚠️ INSTRUÇÃO AO MODELO:
+- Use as memórias e o estado emocional consolidado como parte do seu raciocínio.
+- Conecte os temas e emoções anteriores ao que o usuário traz agora.
+- Ajuste a profundidade e o tom conforme o nível de abertura (superficial, reflexiva, profunda).
+- Respeite o ritmo e a autonomia do usuário.
+- Evite soluções prontas e interpretações rígidas.
+- Estruture sua resposta conforme ECO_ESTRUTURA_DE_RESPOSTA.txt, usando as seções numeradas.
+- Se notar padrões, convide à consciência, mas não diagnostique.
+`.trim();
+
+modulosAdic.push(`\n\n${instrucoesFinais}`);
+
 
   // ----------------------------------
   // MONTAGEM FINAL

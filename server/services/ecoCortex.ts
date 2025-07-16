@@ -193,6 +193,8 @@ export async function getEcoResponse({
       forcarMetodoViva,
       blocoTecnicoForcado,
     });
+console.log('==== SYSTEM PROMPT USADO ====');
+console.log(systemPrompt);
 
     const chatMessages = [
       { role: "system", content: systemPrompt },
