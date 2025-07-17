@@ -81,6 +81,7 @@ Retorne neste formato JSON puro:
   "dominio_vida": "",
   "padrao_comportamental": "",
   "nivel_abertura": "baixo" | "médio" | "alto",
+  "categoria": "",
   "analise_resumo": ""
 }
 
@@ -117,14 +118,15 @@ Retorne neste formato JSON puro:
     const parsed = JSON.parse(match[0]);
 
     const permitido = [
-      "emocao_principal",
-      "intensidade",
-      "tags",
-      "dominio_vida",
-      "padrao_comportamental",
-      "nivel_abertura",
-      "analise_resumo",
-    ];
+  "emocao_principal",
+  "intensidade",
+  "tags",
+  "dominio_vida",
+  "padrao_comportamental",
+  "nivel_abertura",
+  "categoria",
+  "analise_resumo",
+];
     const cleanJson: any = {};
     for (const key of permitido) {
       cleanJson[key] = parsed[key] ?? null;
@@ -160,6 +162,7 @@ export async function getEcoResponse({
   resumo?: string;
   emocao?: string;
   tags?: string[];
+  categoria?: string; // ✅ adiciona isso
 }> {
   try {
     if (!Array.isArray(messages) || messages.length === 0)
@@ -193,8 +196,6 @@ export async function getEcoResponse({
       forcarMetodoViva,
       blocoTecnicoForcado,
     });
-console.log('==== SYSTEM PROMPT USADO ====');
-console.log(systemPrompt);
 
     const chatMessages = [
       { role: "system", content: systemPrompt },
@@ -229,124 +230,151 @@ console.log(systemPrompt);
 
     const cleaned = formatarTextoEco(limparResposta(raw));
 
-    if (forcarMetodoViva) {
-      console.log("✅ Rodada forçada (METODO_VIVA). Pulando salvar no banco.");
-      return { message: cleaned };
-    }
+    // ⚠️ Aqui está o conserto: definimos o bloco técnico agora
+    const bloco =
+  blocoTecnicoForcado ||
+  (await gerarBlocoTecnicoSeparado({
+    mensagemUsuario: ultimaMsg,
+    respostaIa: cleaned,
+    apiKey,
+  }));
 
-    const bloco = await gerarBlocoTecnicoSeparado({
-      mensagemUsuario: ultimaMsg,
-      respostaIa: cleaned,
-      apiKey,
-    });
+    if (bloco && bloco.intensidade !== undefined) {
+  let intensidade: number | undefined;
+  let emocao: string = "indefinida";
+  let tags: string[] = [];
+  let resumo: string | undefined =
+  typeof bloco?.analise_resumo === "string" && bloco.analise_resumo.trim().length > 0
+    ? bloco.analise_resumo.trim()
+    : cleaned;
 
-    // 🔥 NOVO TRECHO: checa intensidade e força segunda rodada
-    if (bloco && bloco.intensidade >= 7) {
-      console.log(`⚡ Intensidade alta detectada (${bloco.intensidade}), iniciando segunda rodada METODO_VIVA...`);
 
-      const vivaResponse = await getEcoResponse({
-        messages,
-        userId,
-        userName,
-        accessToken,
-        mems,
-        forcarMetodoViva: true,
-        blocoTecnicoForcado: bloco,
-      });
+  intensidade = Number(bloco.intensidade);
+  if (!isNaN(intensidade)) {
+    intensidade = Math.round(intensidade);
+  } else {
+    intensidade = undefined;
+  }
 
-      return vivaResponse;
-    }
+  emocao = bloco.emocao_principal || "indefinida";
+  tags = Array.isArray(bloco.tags) ? bloco.tags : [];
 
-    let intensidade: number | undefined;
-    let emocao: string = "indefinida";
-    let tags: string[] = [];
-    let resumo: string | undefined = cleaned;
+  const nivelNumerico =
+    typeof bloco.nivel_abertura === "number"
+      ? Math.round(bloco.nivel_abertura)
+      : bloco.nivel_abertura === "baixo"
+      ? 1
+      : bloco.nivel_abertura === "médio"
+      ? 2
+      : bloco.nivel_abertura === "alto"
+      ? 3
+      : null;
 
-    if (bloco) {
-      intensidade = Number(bloco.intensidade);
-      if (!isNaN(intensidade)) {
-        intensidade = Math.round(intensidade);
+  const cleanedSafe = typeof cleaned === "string" ? cleaned.trim() : "";
+  const analiseResumoSafe =
+    typeof bloco?.analise_resumo === "string"
+      ? bloco.analise_resumo.trim()
+      : "";
+
+  let textoParaEmbedding = [cleanedSafe, analiseResumoSafe]
+    .filter((s) => typeof s === "string" && s.trim().length > 0)
+    .join("\n")
+    .trim();
+
+  if (!textoParaEmbedding || textoParaEmbedding.length < 3) {
+    textoParaEmbedding = "PLACEHOLDER EMBEDDING";
+  } else {
+    textoParaEmbedding = textoParaEmbedding.slice(0, 8000);
+  }
+
+  console.log("🧭 Texto final para embed:", textoParaEmbedding);
+  const embeddingFinal = await embedTextoCompleto(
+    textoParaEmbedding,
+    "memoria ou referencia"
+  );
+
+  let referenciaAnteriorId: string | null = null;
+  if (userId) {
+    const { data: ultimaMemoria } = await supabase
+      .from("memories")
+      .select("id")
+      .eq("usuario_id", userId)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    referenciaAnteriorId = ultimaMemoria?.id ?? null;
+  }
+
+  const payload = {
+  usuario_id: userId!,
+  mensagem_id: messages.at(-1)?.id ?? null,
+  resumo_eco: bloco.analise_resumo ?? cleaned,
+  emocao_principal: emocao,
+  intensidade: intensidade ?? 0,
+  contexto: ultimaMsg,
+  dominio_vida: bloco.dominio_vida ?? null,
+  padrao_comportamental: bloco.padrao_comportamental ?? null,
+  nivel_abertura: nivelNumerico,
+  categoria: bloco.categoria ?? null,
+  analise_resumo: bloco.analise_resumo ?? null,
+  tags,
+  embedding: embeddingFinal,
+  referencia_anterior_id: referenciaAnteriorId,
+};
+
+
+  if (userId && intensidade !== undefined) {
+    if (intensidade >= 7) {
+      const { error } = await supabase.from("memories").insert([
+        {
+          ...payload,
+          salvar_memoria: true,
+          created_at: new Date().toISOString(),
+        },
+      ]);
+      if (error) {
+        console.warn("⚠️ Erro ao salvar memória:", error.message);
       } else {
-        intensidade = undefined;
-      }
-
-      emocao = bloco.emocao_principal || "indefinida";
-      tags = Array.isArray(bloco.tags) ? bloco.tags : [];
-
-      const nivelNumerico =
-        typeof bloco.nivel_abertura === "number"
-          ? Math.round(bloco.nivel_abertura)
-          : bloco.nivel_abertura === "baixo"
-          ? 1
-          : bloco.nivel_abertura === "médio"
-          ? 2
-          : bloco.nivel_abertura === "alto"
-          ? 3
-          : null;
-
-      const textoParaEmbedding = [cleaned, bloco.analise_resumo ?? ""].join("\n");
-      const embeddingFinal = await embedTextoCompleto(textoParaEmbedding, "memoria ou referencia");
-
-      let referenciaAnteriorId: string | null = null;
-      if (userId) {
-        const { data: ultimaMemoria } = await supabase
-          .from("memories")
-          .select("id")
-          .eq("usuario_id", userId)
-          .order("created_at", { ascending: false })
-          .limit(1)
-          .maybeSingle();
-
-        referenciaAnteriorId = ultimaMemoria?.id ?? null;
-      }
-
-      const payload = {
-        usuario_id: userId!,
-        mensagem_id: messages.at(-1)?.id ?? null,
-        resumo_eco: bloco.analise_resumo ?? cleaned,
-        emocao_principal: emocao,
-        intensidade: intensidade ?? 0,
-        contexto: ultimaMsg,
-        dominio_vida: bloco.dominio_vida ?? null,
-        padrao_comportamental: bloco.padrao_comportamental ?? null,
-        nivel_abertura: nivelNumerico,
-        analise_resumo: bloco.analise_resumo ?? null,
-        tags,
-        embedding: embeddingFinal,
-        referencia_anterior_id: referenciaAnteriorId,
-      };
-
-      if (userId && intensidade !== undefined) {
-        if (intensidade >= 7) {
-          const { error } = await supabase.from("memories").insert([
-            {
-              ...payload,
-              salvar_memoria: true,
-              created_at: new Date().toISOString(),
-            },
-          ]);
-          if (error) {
-            console.warn("⚠️ Erro ao salvar memória:", error.message);
-          } else {
-            console.log(`✅ Memória salva com sucesso para o usuário ${userId}.`);
-            try {
-              console.log(`🔄 Atualizando perfil emocional de ${userId}...`);
-              await updateEmotionalProfile(userId);
-              console.log(`🧠 Perfil emocional atualizado com sucesso.`);
-            } catch (err: any) {
-              console.error("❌ Erro ao atualizar perfil emocional:", err.message || err);
-            }
-          }
-        } else {
-          await salvarReferenciaTemporaria(payload);
-          console.log(`📎 Referência emocional leve registrada para ${userId}`);
+        console.log(`✅ Memória salva com sucesso para o usuário ${userId}.`);
+        try {
+          console.log(`🔄 Atualizando perfil emocional de ${userId}...`);
+          await updateEmotionalProfile(userId);
+          console.log(`🧠 Perfil emocional atualizado com sucesso.`);
+        } catch (err: any) {
+          console.error(
+            "❌ Erro ao atualizar perfil emocional:",
+            err.message || err
+          );
         }
-      } else {
-        console.warn("⚠️ Intensidade não definida ou inválida. Nada será salvo no banco.");
       }
+    } else {
+      await salvarReferenciaTemporaria(payload);
+      console.log(`📎 Referência emocional leve registrada para ${userId}`);
     }
+  } else {
+    console.warn(
+      "⚠️ Intensidade não definida ou inválida. Nada será salvo no banco."
+    );
+  }
+  const categoria = bloco.categoria ?? null;
 
-    return { message: cleaned, intensidade, resumo, emocao, tags };
+return {
+  message: cleaned,
+  intensidade: bloco?.intensidade ?? undefined,
+  resumo: bloco?.analise_resumo ?? cleaned,
+  emocao: bloco?.emocao_principal ?? "indefinida",
+  tags: bloco?.tags ?? [],
+  categoria: bloco?.categoria ?? null,
+};
+
+}
+console.log("🧩 BLOCO TÉCNICO:", bloco);
+// 🟡 Caso não seja rodada forçada e não tenha intensidade relevante, apenas retorne a resposta limpa.
+return {
+  message: cleaned,
+  categoria: bloco ? bloco.categoria ?? null : null,
+};
   } catch (err: any) {
     console.error("❌ getEcoResponse error:", err.message || err);
     throw err;

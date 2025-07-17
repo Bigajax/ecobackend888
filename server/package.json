@@ -21,6 +21,7 @@
     "node": ">=14.0.0"
   },
   "dependencies": {
+    "@dqbd/tiktoken": "^1.0.21",
     "@google-cloud/language": "^7.0.2",
     "@google/generative-ai": "^0.24.1",
     "@supabase/supabase-js": "^2.49.5",

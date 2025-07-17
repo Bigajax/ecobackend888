@@ -3,55 +3,43 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.speechToText = exports.textToSpeech = void 0;
-// server/services/elevenlabsService.ts
-const elevenlabs_1 = require("elevenlabs");
+exports.generateAudio = generateAudio;
 const dotenv_1 = __importDefault(require("dotenv"));
-const path_1 = __importDefault(require("path"));
-dotenv_1.default.config({ path: path_1.default.resolve(__dirname, '../../.env') });
-const apiKey = process.env.ELEVENLABS_API_KEY;
-if (!apiKey) {
-    console.error('Erro: A chave de API do Eleven Labs não foi encontrada nas variáveis de ambiente.');
+dotenv_1.default.config();
+const node_fetch_1 = __importDefault(require("node-fetch"));
+const ELEVEN_API_KEY = process.env.ELEVEN_API_KEY;
+const VOICE_ID = process.env.ELEVEN_VOICE_ID;
+if (!ELEVEN_API_KEY) {
+    throw new Error('❌ ELEVEN_API_KEY não está definida no .env');
 }
-const elevenlabs = new elevenlabs_1.ElevenLabsClient({
-    apiKey: apiKey,
-});
-const ECO_VOICE_ID = '21m00Tzpb8CflqYdJpP1';
-const textToSpeech = async (text) => {
-    if (!apiKey) {
-        throw new Error('Eleven Labs API Key não configurada.');
+if (!VOICE_ID) {
+    throw new Error('❌ ELEVEN_VOICE_ID não está definida no .env');
+}
+async function generateAudio(text) {
+    if (!text || typeof text !== 'string') {
+        throw new Error('Texto inválido para conversão em áudio.');
     }
-    console.log('Convertendo texto para fala com Eleven Labs...');
-    try {
-        const audio = await elevenlabs.generate({
-            voice: ECO_VOICE_ID,
-            text: text,
-            model_id: "eleven_multilingual_v2",
-        });
-        return audio;
+    const response = await (0, node_fetch_1.default)(`https://api.elevenlabs.io/v1/text-to-speech/${VOICE_ID}`, {
+        method: 'POST',
+        headers: {
+            'xi-api-key': ELEVEN_API_KEY, // ✅ garante que não é undefined
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            text,
+            model_id: 'eleven_multilingual_v2', // ✅ ótimo para português
+            voice_settings: {
+                stability: 0.4,
+                similarity_boost: 0.9,
+            },
+        }),
+    });
+    if (!response.ok) {
+        const errorText = await response.text();
+        console.error('[TTS Error ElevenLabs]', errorText);
+        throw new Error(`Erro ElevenLabs: ${response.status} - ${errorText}`);
     }
-    catch (error) {
-        console.error('Erro ao converter texto para fala com Eleven Labs:', error);
-        throw error;
-    }
-};
-exports.textToSpeech = textToSpeech;
-const speechToText = async (audioBuffer, mimeType) => {
-    if (!apiKey) {
-        throw new Error('Eleven Labs API Key não configurada.');
-    }
-    console.log('Convertendo fala para texto com Eleven Labs...');
-    try {
-        const transcription = await elevenlabs.speechToText.convert({
-            file: new Blob([audioBuffer], { type: mimeType }),
-            model_id: "eleven_multilingual_v2", // ADDED: Required for Speech-to-Text conversion
-        });
-        return transcription.text;
-    }
-    catch (error) {
-        console.error('Erro ao converter fala para texto com Eleven Labs:', error);
-        throw error;
-    }
-};
-exports.speechToText = speechToText;
+    const arrayBuffer = await response.arrayBuffer();
+    return Buffer.from(arrayBuffer);
+}
 //# sourceMappingURL=elevenlabsService.js.map

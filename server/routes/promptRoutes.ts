@@ -3,6 +3,8 @@
 import { Router, Request, Response } from 'express';
 import { getPromptEcoPreview } from '../controllers/promptController';
 
+
+
 const router = Router();
 
 console.log('Backend: promptRoutes carregado.');
