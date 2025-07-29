@@ -5,6 +5,7 @@ import { motion } from 'framer-motion';
 import { useAuth } from '../contexts/AuthContext';
 import PhoneFrame from '../components/PhoneFrame';
 import Input from '../components/Input';
+import MaskedInput from '../components/MaskedInput';
 
 const CreateProfilePage: React.FC = () => {
   const [fullName, setFullName] = useState('');
@@ -16,6 +17,8 @@ const CreateProfilePage: React.FC = () => {
 
   const { register } = useAuth();
   const navigate = useNavigate();
+  const [phone, setPhone] = useState('');
+
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -29,7 +32,15 @@ const CreateProfilePage: React.FC = () => {
     }
 
     try {
-      await register(email, password, fullName);
+      const cleanedPhone = phone.replace(/\D/g, '');
+
+if (cleanedPhone.length !== 11) {
+  setError('Número de celular inválido. Use o formato (99) 99999-9999.');
+  setLoading(false);
+  return;
+}
+
+await register(email, password, fullName, cleanedPhone);
       navigate('/chat');
     } catch (err: any) {
       console.error('Erro ao criar perfil:', err);
@@ -67,7 +78,17 @@ const CreateProfilePage: React.FC = () => {
               onChange={(e) => setEmail(e.target.value)}
               required
               autoComplete="email"
+              
             />
+            <MaskedInput
+  type="tel"
+  placeholder="Celular (com DDD)"
+  mask="(99) 99999-9999"
+  value={phone}
+  onChange={(e) => setPhone(e.target.value)}
+  required
+  autoComplete="tel"
+/>
             <Input
               type="password"
               placeholder="Senha"

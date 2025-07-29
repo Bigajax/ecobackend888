@@ -12,8 +12,17 @@ const ChatInput = ({ onSendMessage, onMoreOptionSelected, onSendAudio }) => {
   const speechRecognitionRef = useRef(null);
   const plusButtonRef = useRef(null);
   const popoverRef   = useRef(null);
+  const textareaRef = useRef(null);
+  const sendButtonRef = useRef<HTMLButtonElement>(null);
 
   /* ────────────────────────────  WEB KIT SPEECH  ─────────────────────────── */
+  useEffect(() => {
+  if (textareaRef.current) {
+    textareaRef.current.style.height = 'auto';
+    textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
+  }
+}, [inputMessage]);
+
   useEffect(() => {
     if ('webkitSpeechRecognition' in window) {
       const recognition = new window.webkitSpeechRecognition();
@@ -86,11 +95,23 @@ const ChatInput = ({ onSendMessage, onMoreOptionSelected, onSendAudio }) => {
 
   /* ────────────────────────────  ENVIO TEXTO  ─────────────────────────── */
   const handleSend = () => {
-    if (inputMessage.trim()) {
-      onSendMessage(inputMessage.trim());
-      setInputMessage('');
+  if (inputMessage.trim()) {
+    onSendMessage(inputMessage.trim());
+    setInputMessage('');
+
+    // Trigger visual animation
+    if (sendButtonRef.current) {
+      sendButtonRef.current.classList.add('scale-90');
+      setTimeout(() => {
+        sendButtonRef.current?.classList.remove('scale-90');
+      }, 120);
     }
-  };
+
+    // Som opcional
+    // new Audio('/sons/send.mp3').play();
+  }
+};
+
 
   /* ────────────────────────────  UI DE GRAVAÇÃO  ─────────────────────────── */
   if (isRecordingUI) {
@@ -142,15 +163,15 @@ const ChatInput = ({ onSendMessage, onMoreOptionSelected, onSendAudio }) => {
   /* ────────────────────────────  UI PADRÃO  ─────────────────────────── */
   return (
     <motion.form
-      onSubmit={(e) => {
-        e.preventDefault();
-        handleSend();
-      }}
-      className="relative bg-white rounded-3xl px-4 py-3 shadow-sm border border-gray-100 w-full max-w-2xl mx-auto"
-      initial={{ y: 50, opacity: 0 }}
-      animate={{ y: 0, opacity: 1 }}
-      transition={{ type: 'spring', stiffness: 120, damping: 14 }}
-    >
+  onSubmit={(e) => {
+    e.preventDefault();
+    handleSend();
+  }}
+  className="relative bg-white rounded-xl px-3 py-1.5 border border-gray-100 w-full max-w-2xl mx-auto shadow-[0_1px_4px_rgba(0,0,0,0.04)] transition-all duration-200"
+  initial={{ y: 50, opacity: 0 }}
+  animate={{ y: 0, opacity: 1 }}
+  transition={{ type: 'spring', stiffness: 120, damping: 14 }}
+>
       <div className="flex flex-col">
         {/* Pop-over de opções extra */}
         <AnimatePresence>
@@ -184,55 +205,61 @@ const ChatInput = ({ onSendMessage, onMoreOptionSelected, onSendAudio }) => {
         </AnimatePresence>
 
         {/* Caixa de entrada */}
-        <div className="flex items-start gap-2">
-          {/* Botão + */}
-          <div className="pt-2">
-            <button
-              type="button"
-              onClick={() => setShowMoreOptions((prev) => !prev)}
-              ref={plusButtonRef}
-              className="p-1.5 rounded-full text-gray-500 hover:bg-gray-100 focus:outline-none"
-              aria-label="Mais opções"
-            >
-              {showMoreOptions ? <X size={22} /> : <Plus size={22} />}
-            </button>
-          </div>
+        <div className="flex items-center gap-2">
+  {/* Botão + */}
+  <button
+    type="button"
+    onClick={() => setShowMoreOptions((prev) => !prev)}
+    ref={plusButtonRef}
+    className="p-1.5 rounded-full text-gray-500 hover:bg-gray-100 focus:outline-none"
+    aria-label="Mais opções"
+  >
+    {showMoreOptions ? <X size={20} /> : <Plus size={20} />}
+  </button>
 
-          {/* Textarea */}
-          <textarea
-            value={inputMessage}
-            onChange={(e) => setInputMessage(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                handleSend();
-              }
-            }}
-            placeholder="Fale com a Eco"
-            className="flex-1 px-2 py-1.5 bg-transparent border-none focus:outline-none text-sm text-gray-800 placeholder-gray-400 resize-none overflow-y-auto max-h-40 leading-snug"
-          />
+  {/* Textarea */}
+  <textarea
+  ref={textareaRef}
+  value={inputMessage}
+  onChange={(e) => setInputMessage(e.target.value)}
+  onKeyDown={(e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSend();
+    }
+  }}
+  placeholder="Fale com a Eco"
+  rows={1}
+style={{ height: '3rem' }}
+className="h-12 flex-1 text-sm text-gray-800 placeholder:text-gray-400 bg-transparent border-none focus:outline-none resize-none leading-[1.5rem] py-3 overflow-hidden"
+/>
 
-          {/* Mic e Enviar */}
-          <div className="flex items-end gap-2">
-            <button
-              type="button"
-              onClick={startRecording}
-              className="w-8 h-8 rounded-full bg-gray-100 hover:bg-gray-200 flex items-center justify-center"
-              aria-label="Iniciar gravação"
-            >
-              <Mic size={18} className="text-gray-600" />
-            </button>
 
-            <button
-              type="submit"
-              disabled={!inputMessage.trim()}
-              className="w-8 h-8 rounded-full bg-gray-100 hover:bg-gray-200 flex items-center justify-center"
-              aria-label="Enviar mensagem"
-            >
-              <Send size={18} className="text-gray-600" strokeWidth={1.5} />
-            </button>
-          </div>
-        </div>
+  {/* Botões mic e send */}
+  <div className="flex gap-1.5">
+    <button
+  type="button"
+  onClick={startRecording}
+  className="w-8 h-8 rounded-full bg-transparent border border-white hover:border-white shadow-sm transition-all duration-200 flex items-center justify-center"
+  aria-label="Iniciar gravação"
+>
+  <Mic size={16} className="text-[#1F2937]" />
+</button>
+
+
+
+
+    <button
+  type="submit"
+  ref={sendButtonRef}
+  disabled={!inputMessage.trim()}
+  className="w-8 h-8 rounded-full bg-[#265F77] hover:bg-[#1f4c60] shadow-sm transition-all duration-200 flex items-center justify-center transition-transform"
+  aria-label="Enviar mensagem"
+>
+      <Send size={16} className="text-white" strokeWidth={1.5} />
+    </button>
+  </div>
+</div>
       </div>
     </motion.form>
   );

@@ -83,13 +83,11 @@ const LoginPage: React.FC = () => {
               <button
                 type="submit"
                 className="
-                  w-full bg-white/60 backdrop-blur
-                  border border-white/40
-                  hover:bg-white/70
-                  text-gray-800 font-semibold py-2.5 rounded-lg shadow-md
-                  transform transition duration-300 ease-in-out
+                  w-full bg-[#265F77] text-white
+                  hover:bg-[#2d6f8b]
+                  font-semibold py-2.5 rounded-lg shadow-md
+                  transition duration-300 ease-in-out
                   hover:scale-[1.02] active:scale-[0.98]
-                  hover:brightness-105
                 "
                 disabled={loading}
               >

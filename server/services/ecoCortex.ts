@@ -7,6 +7,19 @@ import { embedTextoCompleto } from "./embeddingService";
 import { respostaSaudacaoAutomatica } from "../utils/respostaSaudacaoAutomatica";
 import { buscarHeuristicasSemelhantes } from "./heuristicaService";
 import { salvarReferenciaTemporaria } from "./referenciasService";
+import mixpanel from '../lib/mixpanel';
+import {
+  trackMensagemEnviada,
+  trackMemoriaRegistrada,
+  trackReferenciaEmocional,
+  trackPerguntaProfunda,
+  trackEcoDemorou,
+} from '../analytics/events/mixpanelEvents';
+
+
+
+
+
 
 // UTILS
 const mapRoleForOpenAI = (role: string): "user" | "assistant" | "system" => {
@@ -204,29 +217,49 @@ export async function getEcoResponse({
         content: m.content,
       })),
     ];
+const inicioEco = Date.now();
+const { data } = await axios.post(
+  "https://openrouter.ai/api/v1/chat/completions",
+  {
+    model: "openai/gpt-4o",
+    messages: chatMessages,
+    temperature: 0.8,
+    top_p: 0.95,
+    presence_penalty: 0.3,
+    frequency_penalty: 0.2,
+    max_tokens: 1500,
+  },
+  {
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+      "HTTP-Referer": "http://localhost:5173",
+    },
+  }
+);
+const duracaoEco = Date.now() - inicioEco;
+if (duracaoEco > 3000) {
+  trackEcoDemorou({
+  userId,
+  duracaoMs: duracaoEco,
+  ultimaMsg,
+});
 
-    const { data } = await axios.post(
-      "https://openrouter.ai/api/v1/chat/completions",
-      {
-        model: "openai/gpt-4o",
-        messages: chatMessages,
-        temperature: 0.8,
-        top_p: 0.95,
-        presence_penalty: 0.3,
-        frequency_penalty: 0.2,
-        max_tokens: 1500,
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          "Content-Type": "application/json",
-          "HTTP-Referer": "http://localhost:5173",
-        },
-      }
-    );
+}
+
 
     const raw: string = data?.choices?.[0]?.message?.content ?? "";
     if (!raw) throw new Error("Resposta vazia da IA.");
+    trackMensagemEnviada({
+  userId,
+  tempoRespostaMs: typeof data?.created === 'number' && typeof data?.usage?.prompt_tokens === 'number'
+  ? data.created - data.usage.prompt_tokens
+  : undefined,
+  tokensUsados: data?.usage?.total_tokens || null,
+  modelo: data?.model || "desconhecido",
+});
+
+
 
     const cleaned = formatarTextoEco(limparResposta(raw));
 
@@ -269,6 +302,17 @@ export async function getEcoResponse({
       : bloco.nivel_abertura === "alto"
       ? 3
       : null;
+      if (nivelNumerico === 3) {
+  trackPerguntaProfunda({
+  userId,
+  emocao,
+  intensidade,
+  categoria: bloco.categoria ?? null,
+  dominioVida: bloco.dominio_vida ?? null,
+});
+
+}
+
 
   const cleanedSafe = typeof cleaned === "string" ? cleaned.trim() : "";
   const analiseResumoSafe =
@@ -333,6 +377,15 @@ export async function getEcoResponse({
           created_at: new Date().toISOString(),
         },
       ]);
+      trackMemoriaRegistrada({
+  userId,
+  intensidade,
+  emocao,
+  dominioVida: bloco.dominio_vida ?? null,
+  categoria: bloco.categoria ?? null,
+});
+
+
       if (error) {
         console.warn("⚠️ Erro ao salvar memória:", error.message);
       } else {
@@ -352,6 +405,15 @@ export async function getEcoResponse({
       await salvarReferenciaTemporaria(payload);
       console.log(`📎 Referência emocional leve registrada para ${userId}`);
     }
+    trackReferenciaEmocional({
+  userId,
+  intensidade,
+  emocao,
+  tags,
+  categoria: bloco.categoria ?? null,
+});
+
+
   } else {
     console.warn(
       "⚠️ Intensidade não definida ou inválida. Nada será salvo no banco."

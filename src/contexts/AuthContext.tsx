@@ -10,7 +10,7 @@ interface AuthContextType {
   userName?: string;
   signIn: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
-  register: (email: string, password: string, nome: string) => Promise<void>;
+  register: (email: string, password: string, nome: string, telefone: string) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -60,7 +60,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     setSession(null);
   };
 
-  const register = async (email: string, password: string, nome: string) => {
+  const register = async (email: string, password: string, nome: string, telefone: string) => {
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
@@ -75,15 +75,16 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     const newUserId = data.user?.id;
     if (newUserId) {
       await supabase.from('usuarios').insert([
-        {
-          id: newUserId,
-          nome,
-          email,
-          data_criacao: new Date().toISOString(),
-          tipo_plano: 'free',
-          ativo: true,
-        },
-      ]);
+  {
+    id: newUserId,
+    nome,
+    email,
+    telefone, // ✅ novo campo
+    data_criacao: new Date().toISOString(),
+    tipo_plano: 'free',
+    ativo: true,
+  },
+]);
     }
   };
 

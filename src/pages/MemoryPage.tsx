@@ -123,7 +123,7 @@ const MemoryCard: React.FC<{ mem: Memoria }> = ({ mem }) => {
 
   return (
     <li className="p-4 rounded-3xl border border-neutral-200 bg-white/80 backdrop-blur shadow-md transition-all">
-      {/* TÍTULO */}
+      {/* TOPO - Emoção */}
       <div className="mb-2 text-center">
         <span className="block text-lg font-bold text-neutral-800 tracking-tight">
           {mem.emocao_principal
@@ -132,25 +132,13 @@ const MemoryCard: React.FC<{ mem: Memoria }> = ({ mem }) => {
         </span>
       </div>
 
-      {/* RESUMO */}
-      <div className="text-sm text-neutral-800 mb-2 text-center">
-        {mem.resumo_eco || (
-          <span className="italic text-neutral-400">Sem resumo</span>
-        )}
-      </div>
-
       {/* TAGS */}
       {mem.tags?.length > 0 && (
         <div className="flex flex-wrap gap-2 mb-2 justify-center">
           {mem.tags.map((tag, i) => (
             <span
               key={i}
-              className="
-                text-xs px-3 py-1 rounded-full font-medium
-                border border-neutral-300
-                bg-white/60 backdrop-blur-sm
-                shadow hover:bg-white/80 transition
-              "
+              className="text-xs px-3 py-1 rounded-full font-medium border border-neutral-300 bg-white/60 backdrop-blur-sm shadow hover:bg-white/80 transition"
               style={{
                 color: '#111',
                 borderColor: 'rgba(0,0,0,0.1)',
@@ -174,50 +162,48 @@ const MemoryCard: React.FC<{ mem: Memoria }> = ({ mem }) => {
           className="text-xs font-medium text-blue-600 flex items-center gap-1 hover:opacity-80 transition"
           onClick={() => setExpanded(!expanded)}
         >
-          {expanded ? (
-            <>
-              Fechar <span>↑</span>
-            </>
-          ) : (
-            <>
-              Ver mais <span>↓</span>
-            </>
-          )}
+          {expanded ? <>Fechar <span>↑</span></> : <>Ver mais <span>↓</span></>}
         </button>
       </div>
 
-      {/* DETALHES EXPANDIDOS */}
+      {/* EXPANDIDO */}
       {expanded && (
         <motion.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
-          className="space-y-3 mt-3 border-t pt-3 border-neutral-200 text-sm text-neutral-700"
+          className="space-y-4 mt-3 border-t pt-3 border-neutral-200 text-sm text-neutral-700"
         >
+          {/* Reflexão da Eco */}
           {mem.analise_resumo && (
             <div className="bg-neutral-50 rounded-xl p-3 border border-neutral-200 shadow-sm">
-              <div className="font-semibold mb-1 text-neutral-800">Análise</div>
-              <div>{mem.analise_resumo}</div>
+              <div className="font-semibold mb-1 text-neutral-800">Reflexão da Eco</div>
+              <div className="text-sm">{mem.analise_resumo}</div>
             </div>
           )}
 
+          {/* Seu pensamento */}
           {mem.contexto && (
             <div className="bg-neutral-50 rounded-xl p-3 border border-neutral-200 shadow-sm">
-              <div className="font-semibold mb-1 text-neutral-800">Contexto</div>
-              <div>{mem.contexto}</div>
+              <div className="font-semibold mb-1 text-neutral-800">Seu pensamento</div>
+              <div className="text-sm">{mem.contexto}</div>
             </div>
           )}
 
-          {mem.dominio_vida && (
-            <div className="bg-neutral-50 rounded-xl p-3 border border-neutral-200 shadow-sm">
-              <div className="font-semibold mb-1 text-neutral-800">Domínio</div>
-              <div>{mem.dominio_vida}</div>
-            </div>
-          )}
-
-          {mem.categoria && (
-            <div className="bg-neutral-50 rounded-xl p-3 border border-neutral-200 shadow-sm">
-              <div className="font-semibold mb-1 text-neutral-800">Categoria</div>
-              <div>{mem.categoria}</div>
+          {/* Domínio e Categoria */}
+          {(mem.dominio_vida || mem.categoria) && (
+            <div className="flex flex-col sm:flex-row gap-2">
+              {mem.dominio_vida && (
+                <div className="flex-1 bg-neutral-50 rounded-xl p-3 border border-neutral-200 shadow-sm">
+                  <div className="font-semibold mb-1 text-neutral-800">Domínio</div>
+                  <div className="text-sm">{mem.dominio_vida}</div>
+                </div>
+              )}
+              {mem.categoria && (
+                <div className="flex-1 bg-neutral-50 rounded-xl p-3 border border-neutral-200 shadow-sm">
+                  <div className="font-semibold mb-1 text-neutral-800">Categoria</div>
+                  <div className="text-sm">{mem.categoria}</div>
+                </div>
+              )}
             </div>
           )}
         </motion.div>
@@ -225,6 +211,7 @@ const MemoryCard: React.FC<{ mem: Memoria }> = ({ mem }) => {
     </li>
   );
 };
+
 
 /**
  * 📱 Main Page
