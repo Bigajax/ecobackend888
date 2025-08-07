@@ -184,7 +184,7 @@ router.post('/similares', async (req, res) => {
   const user = await getUsuarioAutenticado(req);
   if (!user) return res.status(401).json({ erro: 'Usuário não autenticado.' });
 
-  const { texto, analise_resumo, limite = 5 } = req.body;
+  const { texto, limite = 5 } = req.body;
 
   console.log('📩 Requisição recebida em /similares:', req.body);
 
@@ -193,14 +193,12 @@ router.post('/similares', async (req, res) => {
   }
 
   try {
-    const embedding_semantico = await embedTextoCompleto(texto);
-    const embedding_emocional = await embedTextoCompleto(analise_resumo ?? texto);
+    const consulta_embedding = await embedTextoCompleto(texto);
 
     const { data, error } = await supabaseAdmin.rpc(
       'buscar_memorias_semelhantes',
       {
-        consulta_embedding_semantico: embedding_semantico,
-        consulta_embedding_emocional: embedding_emocional,
+        consulta_embedding,
         filtro_usuario: user.id,
         limite,
       }

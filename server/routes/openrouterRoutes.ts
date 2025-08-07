@@ -47,11 +47,12 @@ router.post("/ask-eco", async (req, res) => {
     let memsSimilares: any[] = [];
     if (queryEmbedding) {
       const { data: memData, error: memErr } =
-        await supabaseAdmin.rpc("buscar_memorias_semelhantes", {
+        await supabaseAdmin.rpc("buscar_memorias_similares", {
           consulta_embedding: queryEmbedding,
           filtro_usuario: usuario_id,
           limite: 5,
         });
+
       if (memErr) {
         console.warn("[ℹ️] Falha na busca de memórias semelhantes:", memErr);
       } else {
@@ -60,9 +61,7 @@ router.post("/ask-eco", async (req, res) => {
       }
     }
 
-    /* ---------------------------------------------------- */
-    /* 🔥 3. PRIMEIRA RODADA — sem forçar METODO_VIVA       */
-    /* ---------------------------------------------------- */
+    // 🔥 3. PRIMEIRA RODADA — sem forçar METODO_VIVA
     const resposta1 = await getEcoResponse({
       messages: mensagensParaIA,
       userId: usuario_id,
@@ -73,7 +72,7 @@ router.post("/ask-eco", async (req, res) => {
 
     console.log("✅ Resposta 1 gerada.");
 
-    // 🌱 4. Tenta extrair o bloco técnico JSON do texto
+    // 🌱 4. Extrai o bloco técnico JSON
     let blocoTecnico = null;
     try {
       const jsonMatch = resposta1.message.match(/\{[\s\S]*?\}$/);
@@ -87,7 +86,7 @@ router.post("/ask-eco", async (req, res) => {
       console.warn("⚠️ Erro ao tentar parsear bloco técnico:", err);
     }
 
-    // 🌱 5. Decide se precisa rodar a SEGUNDA RODADA com METODO_VIVA
+    // 🌱 5. Decide se precisa de segunda rodada com METODO_VIVA
     let ativaViva = false;
     if (blocoTecnico) {
       const intensidade = blocoTecnico.intensidade ?? 0;
@@ -107,13 +106,11 @@ router.post("/ask-eco", async (req, res) => {
     }
 
     if (!ativaViva) {
-      // 🎯 Não precisa VIVA, retorna a primeira resposta
+      // 🎯 Retorna a primeira resposta
       return res.status(200).json({ message: resposta1.message });
     }
 
-    /* ---------------------------------------------------- */
-    /* 🔥 6. SEGUNDA RODADA — com METODO_VIVA forçado       */
-    /* ---------------------------------------------------- */
+    // 🔥 6. SEGUNDA RODADA — com METODO_VIVA forçado
     console.log("🔄 Rodada 2 com METODO_VIVA.txt forçado!");
 
     const resposta2 = await getEcoResponse({
@@ -123,24 +120,22 @@ router.post("/ask-eco", async (req, res) => {
       accessToken: token,
       mems: memsSimilares,
       blocoTecnicoForcado: blocoTecnico,
-      forcarMetodoViva: true
+      forcarMetodoViva: true,
     });
 
     return res.status(200).json({ message: resposta2.message });
-
   } catch (err: any) {
-  console.error("❌ Erro no /ask-eco:", err);
+    console.error("❌ Erro no /ask-eco:", err);
 
-  return res.status(500).json({
-    error: "Erro interno ao processar a requisição.",
-    details: {
-      message: err?.message,
-      stack: err?.stack,
-      raw: err,
-    }
-  });
-}
-
+    return res.status(500).json({
+      error: "Erro interno ao processar a requisição.",
+      details: {
+        message: err?.message,
+        stack: err?.stack,
+        raw: err,
+      },
+    });
+  }
 });
 
 export default router;

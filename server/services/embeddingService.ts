@@ -4,10 +4,12 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
 });
 
-// Principal (nome padrão novo)
+/**
+ * Gera embedding vetorial do texto usando OpenAI
+ */
 export async function gerarEmbeddingOpenAI(texto: any, origem?: string): Promise<number[]> {
   try {
-    // ✅ Conversão robusta para string
+    // 🧼 Conversão segura para string
     let textoConvertido: string;
 
     if (typeof texto === "string") {
@@ -18,15 +20,16 @@ export async function gerarEmbeddingOpenAI(texto: any, origem?: string): Promise
       textoConvertido = "";
     }
 
-    // ✅ Fallback garantido se ainda for vazio
+    // ⚠️ Fallback para textos vazios ou inválidos
     if (!textoConvertido || textoConvertido.length < 3) {
-      console.warn(`⚠️ Texto para embedding vazio ou inválido${origem ? ` [${origem}]` : ""}. Usando fallback seguro.`);
+      console.warn(`⚠️ Texto para embedding inválido${origem ? ` [${origem}]` : ""}. Usando placeholder.`);
       textoConvertido = "PLACEHOLDER EMBEDDING";
     }
 
-    // ✅ Limita tamanho para evitar erro de comprimento
+    // 🔒 Corte de tamanho para evitar erro de input
     const textoParaEmbedding = textoConvertido.slice(0, 8000);
 
+    // 📡 Chamada à OpenAI para gerar embedding
     const response = await openai.embeddings.create({
       model: "text-embedding-3-small",
       input: textoParaEmbedding
@@ -34,9 +37,10 @@ export async function gerarEmbeddingOpenAI(texto: any, origem?: string): Promise
 
     const embedding = response.data?.[0]?.embedding;
 
-    if (!embedding) {
-      console.error(`❌ Nenhum embedding retornado pela API da OpenAI.${origem ? ` [${origem}]` : ""}`);
-      throw new Error("Embedding não gerado.");
+    // 🔍 Verificação de retorno válido
+    if (!Array.isArray(embedding) || embedding.length < 128) {
+      console.error(`❌ Embedding retornado inválido${origem ? ` [${origem}]` : ""}.`);
+      throw new Error("Embedding não gerado ou incompleto.");
     }
 
     console.log(`📡 Embedding gerado com sucesso${origem ? ` [${origem}]` : ""}.`);
@@ -47,5 +51,5 @@ export async function gerarEmbeddingOpenAI(texto: any, origem?: string): Promise
   }
 }
 
-// Alias para compatibilidade com outros arquivos que ainda usam o nome antigo
+// Compatibilidade com nome antigo
 export const embedTextoCompleto = gerarEmbeddingOpenAI;

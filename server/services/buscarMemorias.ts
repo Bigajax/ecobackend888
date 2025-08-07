@@ -1,7 +1,5 @@
-// services/buscarMemorias.ts
-
 import { embedTextoCompleto } from './embeddingService';
-import { supabaseAdmin } from '../lib/supabaseAdmin'; // ✅ Caminho e nome corretos
+import { supabaseAdmin } from '../lib/supabaseAdmin';
 
 /**
  * Busca memórias semanticamente semelhantes no Supabase
@@ -10,17 +8,16 @@ export async function buscarMemoriasSemelhantes(userId: string, entrada: string)
   if (!entrada || !userId) return [];
 
   try {
-    const queryEmbedding = await embedTextoCompleto(entrada, 'entrada_usuario');
+    const consulta_embedding = await embedTextoCompleto(entrada, 'entrada_usuario');
 
     const { data, error } = await supabaseAdmin.rpc('buscar_memorias_semelhantes', {
-      usuario_id: userId,
-      query_embedding: queryEmbedding,
-      match_threshold: 0.75, // ajuste conforme necessário
-      match_count: 6 // limite de memórias
+      consulta_embedding,
+      filtro_usuario: userId,
+      limite: 6
     });
 
     if (error) {
-      console.error('Erro ao buscar memórias semelhantes:', error.message);
+      console.error('❌ Erro ao buscar memórias semelhantes:', error.message);
       return [];
     }
 
