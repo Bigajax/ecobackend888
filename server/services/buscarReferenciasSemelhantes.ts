@@ -7,7 +7,7 @@ interface ReferenciaTemporaria {
   emocao_principal?: string;
   intensidade?: number;
   similaridade: number;
-  created_at?: string; 
+  created_at?: string;
 }
 
 export async function buscarReferenciasSemelhantes(
@@ -17,18 +17,18 @@ export async function buscarReferenciasSemelhantes(
   try {
     if (!entrada?.trim()) return [];
 
-    const vetorConsulta = await embedTextoCompleto(entrada, 'referencia');
+    const query_embedding = await embedTextoCompleto(entrada, 'referencia');
 
-    if (!vetorConsulta || !Array.isArray(vetorConsulta)) {
+    if (!query_embedding || !Array.isArray(query_embedding)) {
       console.error('❌ Vetor de embedding inválido.');
       return [];
     }
 
     const { data, error } = await supabaseAdmin.rpc('buscar_referencias_similares', {
-      usuario_id: userId,
-      query_embedding: vetorConsulta,
+      match_count: 5,
       match_threshold: 0.75,
-      match_count: 5
+      query_embedding,
+      usuario_id: userId
     });
 
     if (error) {
