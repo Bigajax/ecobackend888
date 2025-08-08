@@ -6,7 +6,6 @@ import { montarContextoEco } from "../controllers/promptController";
 import { embedTextoCompleto } from "./embeddingService";
 import { respostaSaudacaoAutomatica } from "../utils/respostaSaudacaoAutomatica";
 import { buscarHeuristicasSemelhantes } from "./heuristicaService";
-// import { salvarReferenciaTemporaria } from "./referenciasService"; // <- se usar, reative
 import { salvarReferenciaTemporaria } from "./referenciasService";
 import {
   trackMensagemEnviada,
@@ -51,6 +50,41 @@ function fireAndForget(fn: () => Promise<void>) {
   setImmediate(() => {
     fn().catch((err) => console.warn("⚠️ Pós-processo falhou:", err?.message || err));
   });
+}
+
+// ============================================================================
+// PRÉ-GATE VIVA (heurístico, sem 2º round)
+// ============================================================================
+// Objetivo: decidir, ANTES do primeiro prompt, se vale trazer o METODO_VIVA.
+// Heurística barata baseada no conteúdo/ tamanho da mensagem.
+function heuristicaPreViva(m: string): { aplicar: boolean; bloco: any | null } {
+  const texto = (m || "").toLowerCase();
+  const len = texto.length;
+
+  const gatilhosFortes = [
+    /ang[uú]st/i, /p[aâ]nico/i, /desesper/i, /crise/i, /sofr/i,
+    /n[aã]o aguento/i, /vontade de sumir/i, /explod/i, /impulsiv/i
+  ];
+
+  const temGatilho = gatilhosFortes.some(r => r.test(texto));
+  const tamanhoOk = len >= 180; // textos mais longos costumam demandar condução mais profunda
+  const aplicar = temGatilho || tamanhoOk;
+
+  if (!aplicar) return { aplicar: false, bloco: null };
+
+  // Bloco técnico "seed" para orientar METODO_VIVA no primeiro round
+  const blocoSeed = {
+    emocao_principal: null,
+    intensidade: 7, // assume limiar para destravar VIVA
+    tags: [],
+    dominio_vida: null,
+    padrao_comportamental: null,
+    nivel_abertura: "médio",
+    categoria: null,
+    analise_resumo: m,
+  };
+
+  return { aplicar: true, bloco: blocoSeed };
 }
 
 // ============================================================================
@@ -105,7 +139,7 @@ Retorne neste formato JSON puro:
         model: "openai/gpt-4o",
         messages: [{ role: "user", content: prompt }],
         temperature: 0.2,
-        max_tokens: 500,
+        max_tokens: 400,
       },
       {
         headers: {
@@ -207,25 +241,38 @@ export async function getEcoResponse({
       ? await embedTextoCompleto(ultimaMsg, "entrada_usuario")
       : [];
 
-    // 4) Heurísticas (opcional): usar o embedding já gerado
+    // 4) Heurísticas (opcional): usar o embedding já gerado (nova assinatura aceita objeto)
     let heuristicasAtivas: any[] = [];
-    if (!forcarMetodoViva && ultimaMsg.trim().length > 5) {
-      // nova assinatura da função permite passar o embedding já pronto
-      heuristicasAtivas = await buscarHeuristicasSemelhantes({
-        usuarioId: userId ?? null,
-        userEmbedding,
-        matchCount: 5,
-      });
+    if (ultimaMsg.trim().length > 5) {
+      heuristicasAtivas = await (async () => {
+        try {
+          // nova assinatura (obj) – se sua função ainda estiver na assinatura antiga, me avisa
+          return await buscarHeuristicasSemelhantes({
+            usuarioId: userId ?? null,
+            userEmbedding,
+            matchCount: 5,
+          });
+        } catch {
+          // fallback (assinatura antiga, se existir)
+          // @ts-ignore
+          return await buscarHeuristicasSemelhantes(ultimaMsg, userId ?? null);
+        }
+      })();
     }
 
-    // 5) Montagem do prompt e chamada ao modelo
+    // 5) PRÉ-GATE VIVA (sem 2º round)
+    const gate = heuristicaPreViva(ultimaMsg);
+    const vivaAtivo = forcarMetodoViva || gate.aplicar;
+    const vivaBloco = blocoTecnicoForcado || (gate.aplicar ? gate.bloco : null);
+
+    // 6) Montagem do prompt e chamada ao modelo (aplicando VIVA já no 1º round)
     const systemPrompt = await montarContextoEco({
       userId,
       userName,
       perfil: null,
       mems,
-      forcarMetodoViva,
-      blocoTecnicoForcado,
+      forcarMetodoViva: vivaAtivo,
+      blocoTecnicoForcado: vivaBloco,
       texto: ultimaMsg,
       heuristicas: heuristicasAtivas,
       userEmbedding,      // ✅ passa o vetor pro controller evitar recomputes
@@ -246,11 +293,11 @@ export async function getEcoResponse({
       {
         model: "openai/gpt-4o",
         messages: chatMessages,
-        temperature: 0.8,
-        top_p: 0.95,
-        presence_penalty: 0.3,
+        temperature: 0.75,
+        top_p: 0.9,
+        presence_penalty: 0.2,
         frequency_penalty: 0.2,
-        max_tokens: 1500,
+        max_tokens: 1100, // ⬅️ menor p/ reduzir latência
       },
       {
         headers: {
@@ -278,14 +325,14 @@ export async function getEcoResponse({
 
     const cleaned = formatarTextoEco(limparResposta(raw));
 
-    // 6) Extrair bloco técnico (sincrono, leve) – mas só se fizer sentido
-    const bloco = blocoTecnicoForcado || (await gerarBlocoTecnicoSeparado({
+    // 7) Extrair bloco técnico (sincrono, leve) – só se fizer sentido
+    const bloco = await gerarBlocoTecnicoSeparado({
       mensagemUsuario: ultimaMsg,
       respostaIa: cleaned,
       apiKey,
-    }));
+    });
 
-    // 7) Retorno imediato ao chamador
+    // 8) Retorno imediato ao chamador
     const responsePayload: {
       message: string;
       intensidade?: number;
@@ -308,7 +355,7 @@ export async function getEcoResponse({
       responsePayload.categoria = bloco.categoria ?? null;
     }
 
-    // 8) Pós-processo NÃO bloqueante (embedding + salvar memória/referência + perfil)
+    // 9) Pós-processo NÃO bloqueante (embedding + salvar memória/referência + perfil)
     fireAndForget(async () => {
       try {
         // a) Monta texto para embedding da resposta (limitado)

@@ -35,7 +35,7 @@ type BuscarHeuristicasInput = {
 export async function buscarHeuristicasSemelhantes(
   input: string | BuscarHeuristicasInput,
   usuarioId?: string | null,
-  threshold = 0.6,
+  threshold = 0.75,
   matchCount = 5
 ): Promise<Heuristica[]> {
   try {
@@ -79,30 +79,32 @@ export async function buscarHeuristicasSemelhantes(
         ? userEmbedding
         : await embedTextoCompleto(texto, "🔍 heuristica");
 
-    if (!query_embedding || !Array.isArray(query_embedding)) {
+    if (!Array.isArray(query_embedding) || query_embedding.length === 0) {
       console.error("❌ Embedding gerado inválido.");
       return [];
     }
+    // Log opcional
+    console.log(`📡 Embedding (heurística) pronto (dim=${query_embedding.length}).`);
 
     // ---------------------------------
     // RPC (nomes dos parâmetros devem bater com a função SQL)
     // ---------------------------------
-    const response = await supabaseAdmin.rpc("buscar_heuristica_semelhante", {
+    const { data, error } = await supabaseAdmin.rpc("buscar_heuristica_semelhante", {
       query_embedding,          // vector
       match_threshold: th,      // number
       match_count: k,           // number
       input_usuario_id: uid     // uuid ou null
     });
 
-    if (response.error) {
-      console.error("❌ Erro RPC heurística:", response.error.message);
+    if (error) {
+      console.error("❌ Erro RPC heurística:", error.message);
       return [];
     }
 
-    const data = (response.data as Heuristica[] | null) ?? [];
+    const resultados = (data as Heuristica[] | null) ?? [];
 
     // Filtra apenas os tipos desejados (ajuste se quiser incluir mais)
-    return data.filter((item) => ["cognitiva", "filosofico"].includes(item.tipo));
+    return resultados.filter((item) => ["cognitiva", "filosofico"].includes(item.tipo));
   } catch (err) {
     console.error(
       "❌ Erro inesperado ao gerar/usar embedding ou buscar heurísticas:",

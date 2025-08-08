@@ -66,7 +66,12 @@ function construirStateSummary(perfil: PerfilEmocional | null, nivel: number): s
   const temas = Object.keys(perfil.temas_recorrentes || {}).join(', ') || 'nenhum';
   const abertura = nivel === 1 ? 'superficial' : nivel === 2 ? 'reflexiva' : 'profunda';
   const resumo = perfil.resumo_geral_ia || 'sem resumo geral registrado';
-  return `\n🗺️ Estado Emocional Consolidado:\n- Emoções frequentes: ${emocoes}\n- Temas recorrentes: ${temas}\n- Nível de abertura estimado: ${abertura}\n- Última interação significativa: ${perfil.ultima_interacao_significativa ?? 'nenhuma'}\n- Resumo geral: ${resumo}`.trim();
+  return `\n🗺️ Estado Emocional Consolidado:
+- Emoções frequentes: ${emocoes}
+- Temas recorrentes: ${temas}
+- Nível de abertura estimado: ${abertura}
+- Última interação significativa: ${perfil.ultima_interacao_significativa ?? 'nenhuma'}
+- Resumo geral: ${resumo}`.trim();
 }
 
 function construirNarrativaMemorias(mems: Memoria[]): string {
@@ -82,7 +87,10 @@ function construirNarrativaMemorias(mems: Memoria[]): string {
   const temasTxt = [...temas].join(', ') || 'nenhum tema específico';
   const emocoesTxt = [...emocoes].join(', ') || 'nenhuma emoção destacada';
   const frasesTxt = frases.join(' ');
-  return `\n📜 Narrativa Integrada das Memórias:\nEm outros momentos, você trouxe temas como ${temasTxt}, com emoções de ${emocoesTxt}.\nVocê compartilhou pensamentos como ${frasesTxt}.\nConsidere como isso pode ressoar com o que sente agora.`.trim();
+  return `\n📜 Narrativa Integrada das Memórias:
+Em outros momentos, você trouxe temas como ${temasTxt}, com emoções de ${emocoesTxt}.
+Você compartilhou pensamentos como ${frasesTxt}.
+Considere como isso pode ressoar com o que sente agora.`.trim();
 }
 
 // ----------------------------------
@@ -138,7 +146,13 @@ export async function montarContextoEco({
       try {
         let saudacaoConteudo = await fs.readFile(path.join(modulosDir, 'REGRA_SAUDACAO.txt'), 'utf-8');
         if (userName) saudacaoConteudo = saudacaoConteudo.replace(/\[nome\]/gi, capitalizarNome(userName));
-        return `📶 Entrada detectada como saudação breve.\n\n[Módulo REGRA_SAUDACAO]\n${saudacaoConteudo.trim()}\n\n[Módulo eco_forbidden_patterns]\n${forbidden.trim()}`;
+        return `📶 Entrada detectada como saudação breve.
+
+[Módulo REGRA_SAUDACAO]
+${saudacaoConteudo.trim()}
+
+[Módulo eco_forbidden_patterns]
+${forbidden.trim()}`;
       } catch (e) {
         log.warn('Falha ao carregar módulo REGRA_SAUDACAO.txt:', (e as Error).message);
         return `⚠️ Erro ao carregar REGRA_SAUDACAO.`;
@@ -198,7 +212,7 @@ export async function montarContextoEco({
     }
   }
 
-  // Fallback de heurísticas por embedding (só se não vieram por parâmetro e se fizer sentido)
+  // Fallback de heurísticas por embedding (reaproveitando userEmbedding)
   let heuristicasEmbedding: any[] = [];
   if (Array.isArray(heuristicas) && heuristicas.length > 0) {
     heuristicasEmbedding = heuristicas;
@@ -207,7 +221,19 @@ export async function montarContextoEco({
       log.info('⚠️ Texto curto e nenhum embedding fornecido — pulando busca de heurísticas.');
       heuristicasEmbedding = [];
     } else {
-      heuristicasEmbedding = await buscarHeuristicasSemelhantes(entrada, userId ?? null);
+      // ✅ usa a nova assinatura com reuse do embedding (se seu serviço já suporta)
+      try {
+        heuristicasEmbedding = await buscarHeuristicasSemelhantes({
+          usuarioId: userId ?? null,
+          userEmbedding,
+          texto: userEmbedding ? undefined : entrada,
+          matchCount: 5,
+          threshold: 0.75,
+        } as any);
+      } catch {
+        // fallback pra assinatura antiga (compat)
+        heuristicasEmbedding = await buscarHeuristicasSemelhantes(entrada, userId ?? null);
+      }
     }
   }
 
@@ -354,6 +380,8 @@ export async function montarContextoEco({
     }
     return true;
   });
+  // (opcional) se quiser realmente incluir nivelPrompts, descomente:
+  // for (const arquivo of nivelPrompts) await inserirModuloUnico(arquivo, 'Base/Nível');
 
   const nivelDescricao = nivel === 1 ? 'superficial' : nivel === 2 ? 'reflexivo' : 'profundo';
   log.info(`Nível de abertura: ${nivelDescricao} (${nivel})`);
@@ -410,7 +438,14 @@ export async function montarContextoEco({
     log.warn('Falha ao carregar MEMORIAS_NO_CONTEXTO.txt:', (e as Error).message);
   }
 
-  const instrucoesFinais = `\n⚠️ INSTRUÇÃO AO MODELO:\n- Use as memórias e o estado emocional consolidado como parte do seu raciocínio.\n- Conecte os temas e emoções anteriores ao que o usuário traz agora.\n- Ajuste a profundidade e o tom conforme o nível de abertura (superficial, reflexiva, profunda).\n- Respeite o ritmo e a autonomia do usuário.\n- Evite soluções prontas e interpretações rígidas.\n- Estruture sua resposta conforme ECO_ESTRUTURA_DE_RESPOSTA.txt, usando as seções numeradas.\n- Se notar padrões, convide à consciência, mas não diagnostique.`.trim();
+  const instrucoesFinais = `\n⚠️ INSTRUÇÃO AO MODELO:
+- Use as memórias e o estado emocional consolidado como parte do seu raciocínio.
+- Conecte os temas e emoções anteriores ao que o usuário traz agora.
+- Ajuste a profundidade e o tom conforme o nível de abertura (superficial, reflexiva, profunda).
+- Respeite o ritmo e a autonomia do usuário.
+- Evite soluções prontas e interpretações rígidas.
+- Estruture sua resposta conforme ECO_ESTRUTURA_DE_RESPOSTA.txt, usando as seções numeradas.
+- Se notar padrões, convide à consciência, mas não diagnostique.`.trim();
   modulosAdic.push(`\n\n${instrucoesFinais}`);
 
   // Montagem final + budget de tokens
@@ -438,6 +473,11 @@ export async function montarContextoEco({
 // EXPRESS HANDLER (preview)
 // ----------------------------------
 export const getPromptEcoPreview = async (_req: Request, res: Response) => {
-  try { const promptFinal = await montarContextoEco({}); res.json({ prompt: promptFinal }); }
-  catch (err) { log.warn('❌ Erro ao montar prompt:', err as any); res.status(500).json({ error: 'Erro ao montar o prompt' }); }
+  try {
+    const promptFinal = await montarContextoEco({});
+    res.json({ prompt: promptFinal });
+  } catch (err) {
+    log.warn('❌ Erro ao montar prompt:', err as any);
+    res.status(500).json({ error: 'Erro ao montar o prompt' });
+  }
 };
