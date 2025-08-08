@@ -16,6 +16,12 @@ import {
 } from '../analytics/events/mixpanelEvents';
 
 // ============================================================================
+// MODELOS (OpenRouter)
+// ============================================================================
+const MODEL_MAIN = "openai/gpt-5";       // modelo principal de resposta
+const MODEL_TECH = "openai/gpt-5-mini";  // extração do bloco técnico (custo menor)
+
+// ============================================================================
 // UTILS BÁSICOS
 // ============================================================================
 const mapRoleForOpenAI = (role: string): "user" | "assistant" | "system" => {
@@ -55,8 +61,6 @@ function fireAndForget(fn: () => Promise<void>) {
 // ============================================================================
 // PRÉ-GATE VIVA (heurístico, sem 2º round)
 // ============================================================================
-// Objetivo: decidir, ANTES do primeiro prompt, se vale trazer o METODO_VIVA.
-// Heurística barata baseada no conteúdo/ tamanho da mensagem.
 function heuristicaPreViva(m: string): { aplicar: boolean; bloco: any | null } {
   const texto = (m || "").toLowerCase();
   const len = texto.length;
@@ -67,15 +71,14 @@ function heuristicaPreViva(m: string): { aplicar: boolean; bloco: any | null } {
   ];
 
   const temGatilho = gatilhosFortes.some(r => r.test(texto));
-  const tamanhoOk = len >= 180; // textos mais longos costumam demandar condução mais profunda
+  const tamanhoOk = len >= 180;
   const aplicar = temGatilho || tamanhoOk;
 
   if (!aplicar) return { aplicar: false, bloco: null };
 
-  // Bloco técnico "seed" para orientar METODO_VIVA no primeiro round
   const blocoSeed = {
     emocao_principal: null,
-    intensidade: 7, // assume limiar para destravar VIVA
+    intensidade: 7,
     tags: [],
     dominio_vida: null,
     padrao_comportamental: null,
@@ -100,7 +103,6 @@ async function gerarBlocoTecnicoSeparado({
   apiKey: string;
 }): Promise<any | null> {
   try {
-    // Gate simples: se usuário e resposta são curtos, não vale a pena
     const palavrasUser = mensagemUsuario.trim().split(/\s+/).length;
     const palavrasResp = respostaIa.trim().split(/\s+/).length;
     if (palavrasUser < 4 && palavrasResp < 20) {
@@ -136,7 +138,7 @@ Retorne neste formato JSON puro:
     const { data } = await axios.post(
       "https://openrouter.ai/api/v1/chat/completions",
       {
-        model: "openai/gpt-4o",
+        model: MODEL_TECH, // ⬅️ antes: "openai/gpt-4o"
         messages: [{ role: "user", content: prompt }],
         temperature: 0.2,
         max_tokens: 400,
@@ -145,6 +147,9 @@ Retorne neste formato JSON puro:
         headers: {
           Authorization: `Bearer ${apiKey}`,
           "Content-Type": "application/json",
+          // Estes headers são opcionais no OpenRouter; ajudam nos rankings/telemetria
+          "HTTP-Referer": process.env.PUBLIC_APP_URL || "http://localhost:5173",
+          "X-Title": "Eco App - Bloco Tecnico",
         },
       }
     );
@@ -220,14 +225,14 @@ export async function getEcoResponse({
     }
     if (!accessToken) throw new Error("Token (accessToken) ausente.");
 
-    // 1) FAST-PATH: saudações/despedidas → responde na hora, sem embed/DB/heurística
+    // 1) FAST-PATH: saudações/despedidas
     const respostaInicial = respostaSaudacaoAutomatica({ messages, userName });
     if (respostaInicial) {
       console.log("[ECO] Fast-path saudação acionado em", Date.now() - t0, "ms");
       return { message: respostaInicial };
     }
 
-    // 2) Setup do Supabase (usado no pós-processo também)
+    // 2) Supabase
     const supabase = createClient(
       process.env.SUPABASE_URL!,
       process.env.SUPABASE_ANON_KEY!,
@@ -236,36 +241,34 @@ export async function getEcoResponse({
 
     const ultimaMsg = messages.at(-1)?.content || "";
 
-    // 3) Gere **uma vez** o embedding da entrada do usuário (reuso geral)
+    // 3) Embedding da entrada
     const userEmbedding = ultimaMsg.trim().length > 0
       ? await embedTextoCompleto(ultimaMsg, "entrada_usuario")
       : [];
 
-    // 4) Heurísticas (opcional): usar o embedding já gerado (nova assinatura aceita objeto)
+    // 4) Heurísticas
     let heuristicasAtivas: any[] = [];
     if (ultimaMsg.trim().length > 5) {
       heuristicasAtivas = await (async () => {
         try {
-          // nova assinatura (obj) – se sua função ainda estiver na assinatura antiga, me avisa
           return await buscarHeuristicasSemelhantes({
             usuarioId: userId ?? null,
             userEmbedding,
             matchCount: 5,
           });
         } catch {
-          // fallback (assinatura antiga, se existir)
-          // @ts-ignore
+          // @ts-ignore (fallback p/ assinatura antiga)
           return await buscarHeuristicasSemelhantes(ultimaMsg, userId ?? null);
         }
       })();
     }
 
-    // 5) PRÉ-GATE VIVA (sem 2º round)
+    // 5) PRÉ-GATE VIVA
     const gate = heuristicaPreViva(ultimaMsg);
     const vivaAtivo = forcarMetodoViva || gate.aplicar;
     const vivaBloco = blocoTecnicoForcado || (gate.aplicar ? gate.bloco : null);
 
-    // 6) Montagem do prompt e chamada ao modelo (aplicando VIVA já no 1º round)
+    // 6) Montagem do prompt e chamada ao modelo (GPT-5)
     const systemPrompt = await montarContextoEco({
       userId,
       userName,
@@ -275,8 +278,8 @@ export async function getEcoResponse({
       blocoTecnicoForcado: vivaBloco,
       texto: ultimaMsg,
       heuristicas: heuristicasAtivas,
-      userEmbedding,      // ✅ passa o vetor pro controller evitar recomputes
-      skipSaudacao: true, // saudação já resolvida aqui
+      userEmbedding,
+      skipSaudacao: true,
     });
 
     const chatMessages = [
@@ -291,19 +294,20 @@ export async function getEcoResponse({
     const { data } = await axios.post(
       "https://openrouter.ai/api/v1/chat/completions",
       {
-        model: "openai/gpt-4o",
+        model: MODEL_MAIN, // ⬅️ antes: "openai/gpt-4o"
         messages: chatMessages,
         temperature: 0.75,
         top_p: 0.9,
         presence_penalty: 0.2,
         frequency_penalty: 0.2,
-        max_tokens: 1100, // ⬅️ menor p/ reduzir latência
+        max_tokens: 1100,
       },
       {
         headers: {
           Authorization: `Bearer ${apiKey}`,
           "Content-Type": "application/json",
-          "HTTP-Referer": "http://localhost:5173",
+          "HTTP-Referer": process.env.PUBLIC_APP_URL || "http://localhost:5173",
+          "X-Title": "Eco App - Chat",
         },
       }
     );
@@ -315,7 +319,6 @@ export async function getEcoResponse({
     const raw: string = data?.choices?.[0]?.message?.content ?? "";
     if (!raw) throw new Error("Resposta vazia da IA.");
 
-    // Telemetria básica
     trackMensagemEnviada({
       userId,
       tempoRespostaMs: duracaoEco,
@@ -325,14 +328,14 @@ export async function getEcoResponse({
 
     const cleaned = formatarTextoEco(limparResposta(raw));
 
-    // 7) Extrair bloco técnico (sincrono, leve) – só se fizer sentido
+    // 7) Bloco técnico (assíncrono leve)
     const bloco = await gerarBlocoTecnicoSeparado({
       mensagemUsuario: ultimaMsg,
       respostaIa: cleaned,
       apiKey,
     });
 
-    // 8) Retorno imediato ao chamador
+    // 8) Retorno
     const responsePayload: {
       message: string;
       intensidade?: number;
@@ -355,10 +358,9 @@ export async function getEcoResponse({
       responsePayload.categoria = bloco.categoria ?? null;
     }
 
-    // 9) Pós-processo NÃO bloqueante (embedding + salvar memória/referência + perfil)
+    // 9) Pós-processo (não bloqueante)
     fireAndForget(async () => {
       try {
-        // a) Monta texto para embedding da resposta (limitado)
         const cleanedSafe = typeof cleaned === "string" ? cleaned.trim() : "";
         const analiseResumoSafe =
           typeof bloco?.analise_resumo === "string" ? bloco.analise_resumo.trim() : "";
@@ -373,10 +375,8 @@ export async function getEcoResponse({
           textoParaEmbedding = textoParaEmbedding.slice(0, 8000);
         }
 
-        // b) Gera embedding da RESPOSTA (indexação)
         const embeddingFinal = await embedTextoCompleto(textoParaEmbedding, "memoria ou referencia");
 
-        // c) Busca referência anterior (para encadear) – opcional
         const supabase = createClient(
           process.env.SUPABASE_URL!,
           process.env.SUPABASE_ANON_KEY!,
@@ -395,7 +395,6 @@ export async function getEcoResponse({
           referenciaAnteriorId = (ultimaMemoria as any)?.id ?? null;
         }
 
-        // d) Monta payload comum
         const intensidadeNum = typeof bloco?.intensidade === "number" ? Math.round(bloco.intensidade) : 0;
         const nivelNumerico =
           typeof bloco?.nivel_abertura === "number"
@@ -425,7 +424,6 @@ export async function getEcoResponse({
           referencia_anterior_id: referenciaAnteriorId,
         };
 
-        // e) Decide o que salvar
         if (userId && Number.isFinite(intensidadeNum)) {
           if (intensidadeNum >= 7) {
             const { error } = await supabase.from("memories").insert([{
@@ -463,7 +461,6 @@ export async function getEcoResponse({
               categoria: payload.categoria,
             });
           } else {
-            // intensidade 0 → não salva nada
             console.log("ℹ️ Intensidade 0 – nada salvo.");
           }
 
