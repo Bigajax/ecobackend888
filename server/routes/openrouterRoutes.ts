@@ -2,17 +2,12 @@ import express from "express";
 import { supabaseAdmin } from "../lib/supabaseAdmin";
 import { getEcoResponse } from "../services/ecoCortex";
 import { embedTextoCompleto } from "../services/embeddingService";
+import { buscarMemoriasSemelhantes } from "../services/buscarMemorias"; // usando helper
 
 const router = express.Router();
 
 router.post("/ask-eco", async (req, res) => {
-  const {
-    usuario_id,
-    mensagem,
-    messages,
-    mensagens,
-    nome_usuario,
-  } = req.body;
+  const { usuario_id, mensagem, messages, mensagens, nome_usuario } = req.body;
 
   const authHeader = req.headers.authorization;
   if (!authHeader?.startsWith("Bearer ")) {
@@ -39,28 +34,31 @@ router.post("/ask-eco", async (req, res) => {
         .json({ error: "Token inválido ou usuário não encontrado." });
     }
 
-    // 🌱 1. Gera embedding da última mensagem
+    // 🌱 1) Gera embedding da última mensagem (quando fizer sentido)
     const ultimaMsg = mensagensParaIA.at(-1)?.content ?? "";
-    const queryEmbedding = await embedTextoCompleto(ultimaMsg);
-
-    // 🌱 2. Busca memórias semanticamente semelhantes
-    let memsSimilares: any[] = [];
-    if (queryEmbedding) {
-      const { data: memData, error: memErr } =
-        await supabaseAdmin.rpc("buscar_memorias_semelhantes", {
-  consulta_embedding: queryEmbedding,
-  filtro_usuario: usuario_id,
-  limite: 5,
-});
-      if (memErr) {
-        console.warn("[ℹ️] Falha na busca de memórias semelhantes:", memErr);
-      } else {
-        memsSimilares = memData || [];
-        console.log("[ℹ️] Memórias semelhantes retornadas:", memsSimilares);
+    let queryEmbedding: number[] | null = null;
+    if (typeof ultimaMsg === "string" && ultimaMsg.trim().length >= 6) {
+      try {
+        queryEmbedding = await embedTextoCompleto(ultimaMsg);
+      } catch (e) {
+        console.warn("⚠️ Falha ao gerar embedding da última mensagem:", (e as Error)?.message);
       }
     }
 
-    // 🔥 3. PRIMEIRA RODADA — sem forçar METODO_VIVA
+    // 🌱 2) Busca memórias semanticamente semelhantes (usando o embedding se existir)
+    let memsSimilares: any[] = [];
+    try {
+      memsSimilares = await buscarMemoriasSemelhantes(usuario_id, {
+        userEmbedding: queryEmbedding ?? undefined,
+        texto: queryEmbedding ? undefined : ultimaMsg, // fallback por texto se não teve embedding
+        k: 5,
+      });
+      console.log("[ℹ️] Memórias semelhantes retornadas:", memsSimilares);
+    } catch (memErr) {
+      console.warn("[ℹ️] Falha na busca de memórias semelhantes:", (memErr as Error)?.message);
+    }
+
+    // 🔥 3) PRIMEIRA RODADA — sem forçar METODO_VIVA
     const resposta1 = await getEcoResponse({
       messages: mensagensParaIA,
       userId: usuario_id,
@@ -71,46 +69,42 @@ router.post("/ask-eco", async (req, res) => {
 
     console.log("✅ Resposta 1 gerada.");
 
-    // 🌱 4. Extrai o bloco técnico JSON
-    let blocoTecnico = null;
-    try {
-      const jsonMatch = resposta1.message.match(/\{[\s\S]*?\}$/);
-      if (jsonMatch) {
-        blocoTecnico = JSON.parse(jsonMatch[0]);
-        console.log("✅ Bloco técnico extraído:", blocoTecnico);
-      } else {
-        console.log("ℹ️ Nenhum bloco técnico encontrado.");
-      }
-    } catch (err) {
-      console.warn("⚠️ Erro ao tentar parsear bloco técnico:", err);
-    }
+    // 🌱 4) Decide se precisa de segunda rodada com METODO_VIVA
+    //    Agora usamos os CAMPOS retornados pelo getEcoResponse, não JSON no corpo da mensagem.
+    const intensidade = typeof resposta1.intensidade === "number" ? resposta1.intensidade : 0;
 
-    // 🌱 5. Decide se precisa de segunda rodada com METODO_VIVA
-    let ativaViva = false;
-    if (blocoTecnico) {
-      const intensidade = blocoTecnico.intensidade ?? 0;
-      const nivelAbertura =
-        blocoTecnico.nivel_abertura === "alto"
+    // mapeia string -> número caso venha no bloco
+    const nivelAberturaStr = (resposta1 as any)?.nivel_abertura as string | undefined;
+    const nivelAbertura =
+      typeof nivelAberturaStr === "string"
+        ? nivelAberturaStr === "alto"
           ? 3
-          : blocoTecnico.nivel_abertura === "médio"
+          : nivelAberturaStr === "médio"
           ? 2
-          : 1;
+          : 1
+        : null;
 
-      if (intensidade >= 7 || (intensidade >= 5 && nivelAbertura === 3)) {
-        ativaViva = true;
-        console.log("✅ Critérios para ativar METODO_VIVA atingidos.");
-      } else {
-        console.log("ℹ️ Critérios para VIVA não atendidos.");
-      }
-    }
+    const ativaViva =
+      intensidade >= 7 || (intensidade >= 5 && nivelAbertura === 3);
 
     if (!ativaViva) {
       // 🎯 Retorna a primeira resposta
       return res.status(200).json({ message: resposta1.message });
     }
 
-    // 🔥 6. SEGUNDA RODADA — com METODO_VIVA forçado
+    // 🔥 5) SEGUNDA RODADA — com METODO_VIVA forçado
     console.log("🔄 Rodada 2 com METODO_VIVA.txt forçado!");
+
+    // Monta um bloco técnico mínimo a partir do que já temos da primeira rodada
+    const blocoTecnicoForcado = {
+      analise_resumo: resposta1.resumo ?? resposta1.message,
+      emocao_principal: resposta1.emocao ?? null,
+      intensidade: intensidade,
+      tags: resposta1.tags ?? [],
+      categoria: resposta1.categoria ?? null,
+      nivel_abertura:
+        nivelAbertura === 3 ? "alto" : nivelAbertura === 2 ? "médio" : "baixo",
+    };
 
     const resposta2 = await getEcoResponse({
       messages: mensagensParaIA,
@@ -118,20 +112,18 @@ router.post("/ask-eco", async (req, res) => {
       userName: nome_usuario,
       accessToken: token,
       mems: memsSimilares,
-      blocoTecnicoForcado: blocoTecnico,
+      blocoTecnicoForcado,
       forcarMetodoViva: true,
     });
 
     return res.status(200).json({ message: resposta2.message });
   } catch (err: any) {
     console.error("❌ Erro no /ask-eco:", err);
-
     return res.status(500).json({
       error: "Erro interno ao processar a requisição.",
       details: {
         message: err?.message,
         stack: err?.stack,
-        raw: err,
       },
     });
   }
