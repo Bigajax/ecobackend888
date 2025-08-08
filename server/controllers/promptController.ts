@@ -1,5 +1,5 @@
-import path from 'path'; 
-import fs from 'fs/promises'; 
+import path from 'path';
+import fs from 'fs/promises';
 import { Request, Response } from 'express';
 
 import { heuristicasTriggerMap, tagsPorHeuristica } from '../assets/config/heuristicasTriggers';
@@ -86,7 +86,7 @@ function construirNarrativaMemorias(mems: Memoria[]): string {
 }
 
 // ----------------------------------
-// FUNÇÃO PRINCIPAL (refatorada para não gerar embeddings redundantes)
+// FUNÇÃO PRINCIPAL (sem embeddings redundantes)
 // ----------------------------------
 export async function montarContextoEco({
   perfil,
@@ -109,10 +109,10 @@ export async function montarContextoEco({
   mems?: Memoria[];
   forcarMetodoViva?: boolean;
   blocoTecnicoForcado?: any;
-  heuristicas?: any[]; // heurísticas já calculadas fora (opcional)
-  texto?: string;      // alias explícito para a última mensagem
+  heuristicas?: any[];     // heurísticas já calculadas fora (opcional)
+  texto?: string;          // alias explícito para a última mensagem
   userEmbedding?: number[]; // embedding já calculada fora (opcional)
-  skipSaudacao?: boolean;   // já foi tratado fast-path?
+  skipSaudacao?: boolean;  // já foi tratado fast-path?
 }): Promise<string> {
   const assetsDir = path.join(process.cwd(), 'assets');
   const modulosDir = path.join(assetsDir, 'modulos');
@@ -198,10 +198,18 @@ export async function montarContextoEco({
     }
   }
 
-  // sem gerar embedding aqui; usar as heurísticas recebidas
-  const heuristicasEmbedding = heuristicas?.length
-    ? heuristicas
-    : (entrada ? await buscarHeuristicasSemelhantes(entrada, userId ?? null) : []);
+  // Fallback de heurísticas por embedding (só se não vieram por parâmetro e se fizer sentido)
+  let heuristicasEmbedding: any[] = [];
+  if (Array.isArray(heuristicas) && heuristicas.length > 0) {
+    heuristicasEmbedding = heuristicas;
+  } else if (entrada) {
+    if (entrada.length < 6 && !userEmbedding) {
+      log.info('⚠️ Texto curto e nenhum embedding fornecido — pulando busca de heurísticas.');
+      heuristicasEmbedding = [];
+    } else {
+      heuristicasEmbedding = await buscarHeuristicasSemelhantes(entrada, userId ?? null);
+    }
+  }
 
   if (isDebug()) {
     if (heuristicasEmbedding?.length) log.info(`${heuristicasEmbedding.length} heurística(s) cognitivas por embedding.`);
@@ -230,9 +238,10 @@ export async function montarContextoEco({
         MIN_SIMILARIDADE = 0.3;
       }
 
+      // ✅ Reaproveita o embedding do usuário quando vier por parâmetro
       const [memorias, referencias] = await Promise.all([
-        buscarMemoriasSemelhantes(userId, entrada),
-        buscarReferenciasSemelhantes(userId, entrada)
+        buscarMemoriasSemelhantes(userId, { userEmbedding, texto: entrada, k: 6 }),
+        buscarReferenciasSemelhantes(userId, { userEmbedding, texto: entrada, k: 5 }),
       ]);
 
       const memoriasFiltradas = (memorias || []).filter((m: Memoria) => (m.similaridade ?? 0) >= MIN_SIMILARIDADE);
@@ -248,7 +257,12 @@ export async function montarContextoEco({
 
       if (isDebug()) {
         if (memsUsadas?.length) {
-          const memsResumo = memsUsadas.map((m, i) => ({ idx: i + 1, resumo: (m.resumo_eco||'').slice(0,50).replace(/\n/g,' ') + ((m.resumo_eco||'').length>50?'...':''), intensidade: m.intensidade, similaridade: m.similaridade }));
+          const memsResumo = memsUsadas.map((m, i) => ({
+            idx: i + 1,
+            resumo: (m.resumo_eco || '').slice(0, 50).replace(/\n/g, ' ') + ((m.resumo_eco || '').length > 50 ? '...' : ''),
+            intensidade: m.intensidade,
+            similaridade: m.similaridade
+          }));
           log.info('Memórias finais:', memsResumo);
         } else log.info('ℹ️ Nenhuma memória usada no contexto.');
       }
@@ -270,13 +284,22 @@ export async function montarContextoEco({
     memsUsadas = [memoriaAtual, ...(memsUsadas || [])];
   }
 
-  // encadeamentos — declarar UMA VEZ e reutilizar
+  // ----------------------------------
+  // ENCADEAMENTOS (reaproveitando embedding e evitando chamadas desnecessárias)
+  // ----------------------------------
   let encadeamentos: Memoria[] = [];
   if (entrada && userId && nivel > 1) {
     try {
-      encadeamentos = await buscarEncadeamentosPassados(userId, entrada);
-      if (encadeamentos?.length) encadeamentos = encadeamentos.slice(0, 3);
-    } catch (e) { log.warn('Erro ao buscar encadeamentos:', (e as Error).message); }
+      if (entrada.length < 6 && !userEmbedding) {
+        log.info('⚠️ Entrada muito curta e sem embedding — pulando encadeamento.');
+      } else {
+        // versão que aceita options { userEmbedding }
+        const encs = await buscarEncadeamentosPassados(userId, { userEmbedding, texto: entrada, kBase: 1 } as any);
+        if (encs?.length) encadeamentos = encs.slice(0, 3) as any;
+      }
+    } catch (e) {
+      log.warn('Erro ao buscar encadeamentos:', (e as Error).message);
+    }
   }
 
   // ----------------------------------
@@ -361,32 +384,22 @@ export async function montarContextoEco({
     for (const rel of me.relacionado) await inserirModuloUnico(rel, 'Relacionado');
   }
 
-  // Inserção de memórias e encadeamentos (sem redeclarar variáveis)
+  // Inserção de memórias e encadeamentos
   if (memsUsadas && memsUsadas.length > 0 && nivel > 1) {
     contexto += `\n\n${construirNarrativaMemorias(memsUsadas)}`;
   }
-  if (entrada && userId && nivel > 1) {
-    try {
-      const encs = await buscarEncadeamentosPassados(userId, entrada);
-      if (encs?.length) {
-        encadeamentos = encs.slice(0, 3);
-      }
-    } catch (e) {
-      log.warn('Erro ao buscar encadeamentos:', (e as Error).message);
-    }
-    if (encadeamentos?.length) {
-      const encadeamentoTextos = encadeamentos
-        .filter(e => e?.resumo_eco?.trim())
-        .map(e => `• Encadeamento narrativo anterior: "${e.resumo_eco.trim()}"`)
-        .join('\n')
-        .trim();
-      if (encadeamentoTextos) {
-        contexto += `\n\n📝 Resgatando encadeamentos narrativos relacionados para manter coerência e continuidade:\n${encadeamentoTextos}`;
-      }
+  if (encadeamentos?.length) {
+    const encadeamentoTextos = encadeamentos
+      .filter(e => e?.resumo_eco?.trim())
+      .map(e => `• Encadeamento narrativo anterior: "${e.resumo_eco.trim()}"`)
+      .join('\n')
+      .trim();
+    if (encadeamentoTextos) {
+      contexto += `\n\n📝 Resgatando encadeamentos narrativos relacionados para manter coerência e continuidade:\n${encadeamentoTextos}`;
     }
   }
 
-  // Critérios e instruções finais (REUTILIZANDO modulosAdic)
+  // Critérios e instruções finais (usando o MESMO modulosAdic)
   const criterios = await fs.readFile(path.join(modulosDir, 'eco_json_trigger_criteria.txt'), 'utf-8');
   modulosAdic.push(`\n\n[Módulo: eco_json_trigger_criteria]\n${criterios.trim()}`);
   modulosAdic.push(`\n\n[Módulo: eco_forbidden_patterns]\n${forbidden.trim()}`);
