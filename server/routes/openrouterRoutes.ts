@@ -47,12 +47,11 @@ router.post("/ask-eco", async (req, res) => {
     let memsSimilares: any[] = [];
     if (queryEmbedding) {
       const { data: memData, error: memErr } =
-        await supabaseAdmin.rpc("buscar_memorias_similares", {
-          consulta_embedding: queryEmbedding,
-          filtro_usuario: usuario_id,
-          limite: 5,
-        });
-
+        await supabaseAdmin.rpc("buscar_memorias_semelhantes", {
+  consulta_embedding: queryEmbedding,
+  filtro_usuario: usuario_id,
+  limite: 5,
+});
       if (memErr) {
         console.warn("[ℹ️] Falha na busca de memórias semelhantes:", memErr);
       } else {
