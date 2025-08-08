@@ -15,10 +15,15 @@ export type MemoriaEncadeada = {
 
 export async function buscarEncadeamentosPassados(userId: string, entrada: string): Promise<MemoriaEncadeada[]> {
   try {
-    if (!entrada.trim()) return [];
+    if (!entrada || !entrada.trim()) {
+      console.warn('⚠️ Entrada vazia ou inválida para encadeamento.');
+      return [];
+    }
 
+    // Passo 1: gerar embedding da entrada
     const queryEmbedding = await embedTextoCompleto(entrada, '🔗 encadeamento');
 
+    // Passo 2: buscar memória mais similar do usuário
     const { data: similares, error: erroSimilaridade } = await supabase.rpc('buscar_memorias_semelhantes', {
       consulta_embedding: queryEmbedding,
       filtro_usuario: userId,
@@ -31,25 +36,25 @@ export async function buscarEncadeamentosPassados(userId: string, entrada: strin
     }
 
     if (!similares || similares.length === 0) {
-      console.warn('⚠️ Nenhuma memória similar encontrada.');
+      console.warn('⚠️ Nenhuma memória similar encontrada para o encadeamento.');
       return [];
     }
 
     const memoriaBaseId = similares[0].id;
 
-    const { data: encadeamento, error: erroEncadeamento } = await supabase.rpc<MemoriaEncadeada[], { raiz_id: string }>(
-      'buscar_encadeamentos_memorias',
-      { raiz_id: memoriaBaseId }
-    );
+    // Passo 3: buscar encadeamento recursivo a partir da memória encontrada
+    const { data: encadeamentos, error: erroEncadeamento } = await supabase.rpc('buscar_encadeamentos_memorias', {
+      raiz_id: memoriaBaseId
+    });
 
     if (erroEncadeamento) {
-      console.error('❌ Erro ao buscar encadeamento:', erroEncadeamento.message);
+      console.error('❌ Erro ao buscar encadeamentos:', erroEncadeamento.message);
       return [];
     }
 
-    return encadeamento || [];
+    return (encadeamentos as MemoriaEncadeada[]) || [];
   } catch (e) {
-    console.error('❌ Erro inesperado ao buscar encadeamento:', (e as Error).message);
+    console.error('❌ Erro inesperado ao buscar encadeamentos:', (e as Error).message);
     return [];
   }
 }
