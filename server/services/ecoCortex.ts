@@ -6,8 +6,8 @@ import { montarContextoEco } from "../controllers/promptController";
 import { embedTextoCompleto } from "./embeddingService";
 import { respostaSaudacaoAutomatica } from "../utils/respostaSaudacaoAutomatica";
 import { buscarHeuristicasSemelhantes } from "./heuristicaService";
+// import { salvarReferenciaTemporaria } from "./referenciasService"; // <- se usar, reative
 import { salvarReferenciaTemporaria } from "./referenciasService";
-import mixpanel from '../lib/mixpanel';
 import {
   trackMensagemEnviada,
   trackMemoriaRegistrada,
@@ -51,31 +51,6 @@ function fireAndForget(fn: () => Promise<void>) {
   setImmediate(() => {
     fn().catch((err) => console.warn("⚠️ Pós-processo falhou:", err?.message || err));
   });
-}
-
-// ============================================================================
-// LOG HEURÍSTICAS (mantido, mas chamado somente quando fizer sentido)
-// ============================================================================
-async function logHeuristicasEmbedding(texto: string, usuarioId?: string) {
-  try {
-    if (!texto || texto.trim().length < 6) {
-      console.log("🔍 Heurística: texto curto — pulando");
-      return;
-    }
-    const heuristicas = await buscarHeuristicasSemelhantes(texto, usuarioId || "");
-    if (!heuristicas || heuristicas.length === 0) {
-      console.log("🔍 Nenhuma heurística ativada por embedding.");
-      return;
-    }
-    console.log("📊 Heurísticas ativadas por embedding:");
-    heuristicas.forEach((h: any, i: number) => {
-      const nome = h.nome || h.arquivo || `Heurística ${i + 1}`;
-      const similaridade = h.similaridade?.toFixed(3) ?? "N/A";
-      console.log(`• ${nome} (similaridade: ${similaridade})`);
-    });
-  } catch (err: any) {
-    console.warn("⚠️ Erro ao logar heurísticas:", err?.message || err);
-  }
 }
 
 // ============================================================================
@@ -227,13 +202,23 @@ export async function getEcoResponse({
 
     const ultimaMsg = messages.at(-1)?.content || "";
 
-    // 3) Heurísticas (opcional): calcular uma vez aqui e **passar** para o prompt
+    // 3) Gere **uma vez** o embedding da entrada do usuário (reuso geral)
+    const userEmbedding = ultimaMsg.trim().length > 0
+      ? await embedTextoCompleto(ultimaMsg, "entrada_usuario")
+      : [];
+
+    // 4) Heurísticas (opcional): usar o embedding já gerado
     let heuristicasAtivas: any[] = [];
     if (!forcarMetodoViva && ultimaMsg.trim().length > 5) {
-      heuristicasAtivas = await buscarHeuristicasSemelhantes(ultimaMsg, userId || "");
+      // nova assinatura da função permite passar o embedding já pronto
+      heuristicasAtivas = await buscarHeuristicasSemelhantes({
+        usuarioId: userId ?? null,
+        userEmbedding,
+        matchCount: 5,
+      });
     }
 
-    // 4) Montagem do prompt e chamada ao modelo
+    // 5) Montagem do prompt e chamada ao modelo
     const systemPrompt = await montarContextoEco({
       userId,
       userName,
@@ -243,6 +228,7 @@ export async function getEcoResponse({
       blocoTecnicoForcado,
       texto: ultimaMsg,
       heuristicas: heuristicasAtivas,
+      userEmbedding,      // ✅ passa o vetor pro controller evitar recomputes
       skipSaudacao: true, // saudação já resolvida aqui
     });
 
@@ -292,14 +278,14 @@ export async function getEcoResponse({
 
     const cleaned = formatarTextoEco(limparResposta(raw));
 
-    // 5) Extrair bloco técnico (sincrono, leve) – mas só se fizer sentido
+    // 6) Extrair bloco técnico (sincrono, leve) – mas só se fizer sentido
     const bloco = blocoTecnicoForcado || (await gerarBlocoTecnicoSeparado({
       mensagemUsuario: ultimaMsg,
       respostaIa: cleaned,
       apiKey,
     }));
 
-    // 6) Retorno imediato ao chamador
+    // 7) Retorno imediato ao chamador
     const responsePayload: {
       message: string;
       intensidade?: number;
@@ -322,7 +308,7 @@ export async function getEcoResponse({
       responsePayload.categoria = bloco.categoria ?? null;
     }
 
-    // 7) Pós-processo NÃO bloqueante (embedding + salvar memória/referência + perfil)
+    // 8) Pós-processo NÃO bloqueante (embedding + salvar memória/referência + perfil)
     fireAndForget(async () => {
       try {
         // a) Monta texto para embedding da resposta (limitado)
@@ -395,13 +381,11 @@ export async function getEcoResponse({
         // e) Decide o que salvar
         if (userId && Number.isFinite(intensidadeNum)) {
           if (intensidadeNum >= 7) {
-            const { error } = await supabase.from("memories").insert([
-              {
-                ...payload,
-                salvar_memoria: true,
-                created_at: new Date().toISOString(),
-              },
-            ]);
+            const { error } = await supabase.from("memories").insert([{
+              ...payload,
+              salvar_memoria: true,
+              created_at: new Date().toISOString(),
+            }]);
             if (error) {
               console.warn("⚠️ Erro ao salvar memória:", error.message);
             } else {

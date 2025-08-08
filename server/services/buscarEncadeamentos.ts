@@ -13,22 +13,65 @@ export type MemoriaEncadeada = {
   resumo_eco: string;
 };
 
-export async function buscarEncadeamentosPassados(userId: string, entrada: string): Promise<MemoriaEncadeada[]> {
+// Opções para reaproveitar embedding e controlar limites
+type BuscarEncadeamentosOpts = {
+  texto?: string;            // usado se não houver userEmbedding
+  userEmbedding?: number[];  // ✅ se vier, NÃO recalcula
+  kBase?: number;            // quantas memórias-base procurar (default 1)
+};
+
+export async function buscarEncadeamentosPassados(
+  userId: string,
+  entradaOrOpts: string | BuscarEncadeamentosOpts
+): Promise<MemoriaEncadeada[]> {
   try {
-    if (!entrada || !entrada.trim()) {
-      console.warn('⚠️ Entrada vazia ou inválida para encadeamento.');
+    if (!userId) return [];
+
+    // ---------------------------
+    // Normalização de parâmetros
+    // ---------------------------
+    let texto = '';
+    let userEmbedding: number[] | undefined;
+    let kBase = 1;
+
+    if (typeof entradaOrOpts === 'string') {
+      texto = entradaOrOpts ?? '';
+    } else {
+      texto = entradaOrOpts.texto ?? '';
+      userEmbedding = entradaOrOpts.userEmbedding;
+      kBase = typeof entradaOrOpts.kBase === 'number' ? entradaOrOpts.kBase : 1;
+    }
+
+    // Evita custo se não tiver embedding e o texto for muito curto
+    if (!userEmbedding && (!texto || texto.trim().length < 6)) {
+      console.warn('⚠️ Entrada muito curta e sem embedding — pulando encadeamento.');
       return [];
     }
 
-    // Passo 1: gerar embedding da entrada
-    const queryEmbedding = await embedTextoCompleto(entrada, '🔗 encadeamento');
+    // ---------------------------
+    // Gera OU reaproveita o embedding
+    // ---------------------------
+    const consulta_embedding =
+      Array.isArray(userEmbedding) && userEmbedding.length > 0
+        ? userEmbedding
+        : await embedTextoCompleto(texto, '🔗 encadeamento');
 
-    // Passo 2: buscar memória mais similar do usuário
-    const { data: similares, error: erroSimilaridade } = await supabase.rpc('buscar_memorias_semelhantes', {
-      consulta_embedding: queryEmbedding,
-      filtro_usuario: userId,
-      limite: 1
-    });
+    if (!Array.isArray(consulta_embedding) || consulta_embedding.length === 0) {
+      console.error('❌ Embedding inválido para encadeamento.');
+      return [];
+    }
+
+    // ---------------------------
+    // 1) Busca memória base mais similar do usuário
+    // ---------------------------
+    const { data: similares, error: erroSimilaridade } = await supabase.rpc(
+      'buscar_memorias_semelhantes',
+      {
+        consulta_embedding,
+        filtro_usuario: userId,
+        limite: Math.max(1, kBase),
+      }
+    );
 
     if (erroSimilaridade) {
       console.error('❌ Erro ao buscar memória mais similar:', erroSimilaridade.message);
@@ -40,19 +83,27 @@ export async function buscarEncadeamentosPassados(userId: string, entrada: strin
       return [];
     }
 
-    const memoriaBaseId = similares[0].id;
+    // Pode encadear a partir da primeira (ou de todas, se quiser no futuro)
+    const memoriaBaseId = similares[0].id as string | undefined;
+    if (!memoriaBaseId) {
+      console.warn('⚠️ Memória similar sem id — abortando encadeamento.');
+      return [];
+    }
 
-    // Passo 3: buscar encadeamento recursivo a partir da memória encontrada
-    const { data: encadeamentos, error: erroEncadeamento } = await supabase.rpc('buscar_encadeamentos_memorias', {
-      raiz_id: memoriaBaseId
-    });
+    // ---------------------------
+    // 2) Busca encadeamento recursivo a partir da memória encontrada
+    // ---------------------------
+    const { data: encadeamentos, error: erroEncadeamento } = await supabase.rpc(
+      'buscar_encadeamentos_memorias',
+      { raiz_id: memoriaBaseId }
+    );
 
     if (erroEncadeamento) {
       console.error('❌ Erro ao buscar encadeamentos:', erroEncadeamento.message);
       return [];
     }
 
-    return (encadeamentos as MemoriaEncadeada[]) || [];
+    return (encadeamentos as MemoriaEncadeada[]) ?? [];
   } catch (e) {
     console.error('❌ Erro inesperado ao buscar encadeamentos:', (e as Error).message);
     return [];
