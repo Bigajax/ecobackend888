@@ -1,5 +1,5 @@
-import path from 'path';
-import fs from 'fs/promises';
+import path from 'path'; 
+import fs from 'fs/promises'; 
 import { Request, Response } from 'express';
 
 import { heuristicasTriggerMap, tagsPorHeuristica } from '../assets/config/heuristicasTriggers';
@@ -198,8 +198,7 @@ export async function montarContextoEco({
     }
   }
 
-  // 🔴 Removido: gerar embedding aqui. Em vez disso, usar as heurísticas já vindas de fora,
-  //              ou como fallback (se não vieram heurísticas), consultar por STRING mesmo.
+  // sem gerar embedding aqui; usar as heurísticas recebidas
   const heuristicasEmbedding = heuristicas?.length
     ? heuristicas
     : (entrada ? await buscarHeuristicasSemelhantes(entrada, userId ?? null) : []);
@@ -271,6 +270,7 @@ export async function montarContextoEco({
     memsUsadas = [memoriaAtual, ...(memsUsadas || [])];
   }
 
+  // encadeamentos — declarar UMA VEZ e reutilizar
   let encadeamentos: Memoria[] = [];
   if (entrada && userId && nivel > 1) {
     try {
@@ -311,7 +311,7 @@ export async function montarContextoEco({
     await inserirModuloUnico(arquivo, 'Base');
   }
 
-  // Prompts por Nível
+  // Prompts por Nível (mantido para compat, mesmo sem uso direto)
   const nivelPrompts = (matrizPromptBase.byNivel[nivel as 2 | 3] ?? []).filter((arquivo: string) => {
     if (!arquivo || !arquivo.trim()) return false;
 
@@ -361,26 +361,41 @@ export async function montarContextoEco({
     for (const rel of me.relacionado) await inserirModuloUnico(rel, 'Relacionado');
   }
 
-  // Inserção de memórias e encadeamentos
-  if (memsUsadas && memsUsadas.length > 0 && nivel > 1) contexto += `\n\n${construirNarrativaMemorias(memsUsadas)}`;
-  let encadeamentos: Memoria[] = [];
+  // Inserção de memórias e encadeamentos (sem redeclarar variáveis)
+  if (memsUsadas && memsUsadas.length > 0 && nivel > 1) {
+    contexto += `\n\n${construirNarrativaMemorias(memsUsadas)}`;
+  }
   if (entrada && userId && nivel > 1) {
-    try { encadeamentos = await buscarEncadeamentosPassados(userId, entrada); if (encadeamentos?.length) encadeamentos = encadeamentos.slice(0, 3); }
-    catch (e) { log.warn('Erro ao buscar encadeamentos:', (e as Error).message); }
+    try {
+      const encs = await buscarEncadeamentosPassados(userId, entrada);
+      if (encs?.length) {
+        encadeamentos = encs.slice(0, 3);
+      }
+    } catch (e) {
+      log.warn('Erro ao buscar encadeamentos:', (e as Error).message);
+    }
     if (encadeamentos?.length) {
-      const encadeamentoTextos = encadeamentos.filter(e => e?.resumo_eco?.trim()).map(e => `• Encadeamento narrativo anterior: "${e.resumo_eco.trim()}"`).join('\n').trim();
-      if (encadeamentoTextos) contexto += `\n\n📝 Resgatando encadeamentos narrativos relacionados para manter coerência e continuidade:\n${encadeamentoTextos}`;
+      const encadeamentoTextos = encadeamentos
+        .filter(e => e?.resumo_eco?.trim())
+        .map(e => `• Encadeamento narrativo anterior: "${e.resumo_eco.trim()}"`)
+        .join('\n')
+        .trim();
+      if (encadeamentoTextos) {
+        contexto += `\n\n📝 Resgatando encadeamentos narrativos relacionados para manter coerência e continuidade:\n${encadeamentoTextos}`;
+      }
     }
   }
 
-  // Critérios e instruções finais
+  // Critérios e instruções finais (REUTILIZANDO modulosAdic)
   const criterios = await fs.readFile(path.join(modulosDir, 'eco_json_trigger_criteria.txt'), 'utf-8');
-  const forbiddenMd = `\n\n[Módulo: eco_forbidden_patterns]\n${forbidden.trim()}`;
-  const modulosAdic: string[] = [`\n\n[Módulo: eco_json_trigger_criteria]\n${criterios.trim()}${forbiddenMd}`];
+  modulosAdic.push(`\n\n[Módulo: eco_json_trigger_criteria]\n${criterios.trim()}`);
+  modulosAdic.push(`\n\n[Módulo: eco_forbidden_patterns]\n${forbidden.trim()}`);
   try {
     const memoriaInstrucoes = await fs.readFile(path.join(modulosDir, 'MEMORIAS_NO_CONTEXTO.txt'), 'utf-8');
     modulosAdic.push(`\n\n[Módulo: MEMORIAS_NO_CONTEXTO]\n${memoriaInstrucoes.trim()}`);
-  } catch (e) { log.warn('Falha ao carregar MEMORIAS_NO_CONTEXTO.txt:', (e as Error).message); }
+  } catch (e) {
+    log.warn('Falha ao carregar MEMORIAS_NO_CONTEXTO.txt:', (e as Error).message);
+  }
 
   const instrucoesFinais = `\n⚠️ INSTRUÇÃO AO MODELO:\n- Use as memórias e o estado emocional consolidado como parte do seu raciocínio.\n- Conecte os temas e emoções anteriores ao que o usuário traz agora.\n- Ajuste a profundidade e o tom conforme o nível de abertura (superficial, reflexiva, profunda).\n- Respeite o ritmo e a autonomia do usuário.\n- Evite soluções prontas e interpretações rígidas.\n- Estruture sua resposta conforme ECO_ESTRUTURA_DE_RESPOSTA.txt, usando as seções numeradas.\n- Se notar padrões, convide à consciência, mas não diagnostique.`.trim();
   modulosAdic.push(`\n\n${instrucoesFinais}`);
