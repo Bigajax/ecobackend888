@@ -28,7 +28,7 @@ export async function buscarReferenciasSemelhantes(
       match_count: 5,
       match_threshold: 0.75,
       query_embedding,
-      usuario_id: userId
+      filtro_usuario: userId  // ✅ Nome correto aqui
     });
 
     if (error) {
