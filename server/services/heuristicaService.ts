@@ -35,7 +35,7 @@ type BuscarHeuristicasInput = {
 export async function buscarHeuristicasSemelhantes(
   input: string | BuscarHeuristicasInput,
   usuarioId?: string | null,
-  threshold = 0.75,
+  threshold = 0.6,
   matchCount = 5
 ): Promise<Heuristica[]> {
   try {
