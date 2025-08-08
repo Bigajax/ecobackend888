@@ -14,7 +14,7 @@ export const matrizPromptBase: MatrizPromptBase = {
   alwaysInclude: [
     'PRINCIPIOS_CHAVE.txt',
     'IDENTIDADE.txt',
-    'REGRA_SAUDACAO.txt',
+    // 'REGRA_SAUDACAO.txt', // removido — fast-path já responde saudações
     'ECO_ESTRUTURA_DE_RESPOSTA.txt',
     'POLITICA_REDIRECIONAMENTO.txt',
     'MEMORIAS_NO_CONTEXTO.txt',
