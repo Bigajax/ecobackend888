@@ -18,7 +18,7 @@ import {
 // ============================================================================
 // MODELOS (OpenRouter) — com ENV de fallback
 // ============================================================================
-// Default em gpt-5-chat (evita 403 até você conectar a upstream key da OpenAI no OpenRouter)
+// Default em gpt-5-chat (evita 403 até conectar a upstream key da OpenAI no OpenRouter)
 const MODEL_MAIN = process.env.ECO_MODEL_MAIN || "openai/gpt-5-chat";   // principal
 const MODEL_TECH = process.env.ECO_MODEL_TECH || "openai/gpt-5-mini";   // bloco técnico
 const MODEL_FALLBACK_MAIN = "openai/gpt-5-chat";                         // fallback automático
@@ -59,6 +59,17 @@ function fireAndForget(fn: () => Promise<void>) {
   });
 }
 
+// Sanitiza e limita tamanho das mensagens (evita content não-string e prompts gigantes)
+function sanitizeMessages(msgs: { role: string; content: any }[], maxChars = 6000) {
+  return msgs.map((m) => {
+    const c = typeof m.content === "string" ? m.content : JSON.stringify(m.content ?? "");
+    return {
+      role: mapRoleForOpenAI(m.role),
+      content: c.length > maxChars ? c.slice(0, maxChars) + "…" : c,
+    };
+  });
+}
+
 // validação das ENVs críticas (melhor falhar cedo e claro)
 function ensureEnvs() {
   const required = ["OPENROUTER_API_KEY", "SUPABASE_URL", "SUPABASE_ANON_KEY"];
@@ -66,32 +77,62 @@ function ensureEnvs() {
   if (missing.length) throw new Error(`ENVs ausentes: ${missing.join(", ")}`);
 }
 
-// Axios helper: loga status/corpo quando a OpenRouter responder erro
-// e faz fallback automático para gpt-5-chat quando necessário
+// Axios helper: timeout + retry exponencial p/ 429/5xx e fallback gpt-5→gpt-5-chat em 403
 async function callOpenRouterChat(payload: any, headers: Record<string, string>) {
-  try {
-    const resp = await axios.post("https://openrouter.ai/api/v1/chat/completions", payload, { headers });
-    return resp.data;
-  } catch (err: any) {
-    const status = err?.response?.status;
-    const body = err?.response?.data;
-    const msg = body?.error?.message || body?.message || err?.message || "erro desconhecido";
-    console.error("[OpenRouter ERROR]", status, body);
+  const maxRetries = 2; // tenta +2 vezes em 429/5xx
+  let attempt = 0;
+  let lastErr: any;
 
-    const precisaFallbackGPT5 =
-      status === 403 &&
-      payload?.model === "openai/gpt-5" &&
-      /requiring a key|switch to gpt-5-chat/i.test(msg);
+  while (attempt <= maxRetries) {
+    try {
+      const resp = await axios.post(
+        "https://openrouter.ai/api/v1/chat/completions",
+        payload,
+        { headers, timeout: 25_000 }
+      );
+      return resp.data;
+    } catch (err: any) {
+      const status = err?.response?.status;
+      const body = err?.response?.data;
+      const msg = body?.error?.message || body?.message || err?.message || "erro desconhecido";
+      const transient = status === 429 || (status && status >= 500);
 
-    if (precisaFallbackGPT5) {
-      console.warn("↩️ Fallback automático: trocando openai/gpt-5 → openai/gpt-5-chat…");
-      const retryPayload = { ...payload, model: MODEL_FALLBACK_MAIN };
-      const retryResp = await axios.post("https://openrouter.ai/api/v1/chat/completions", retryPayload, { headers });
-      return retryResp.data;
+      console.error("[OpenRouter ERROR]", status, body);
+
+      // Fallback gpt-5 → gpt-5-chat (403 com mensagem específica)
+      const precisaFallbackGPT5 =
+        status === 403 &&
+        payload?.model === "openai/gpt-5" &&
+        /requiring a key|switch to gpt-5-chat/i.test(msg);
+
+      if (precisaFallbackGPT5) {
+        console.warn("↩️ Fallback automático: trocando openai/gpt-5 → openai/gpt-5-chat…");
+        const retryPayload = { ...payload, model: MODEL_FALLBACK_MAIN };
+        const retryResp = await axios.post(
+          "https://openrouter.ai/api/v1/chat/completions",
+          retryPayload,
+          { headers, timeout: 25_000 }
+        );
+        return retryResp.data;
+      }
+
+      // Retry suave em 429/5xx
+      if (transient && attempt < maxRetries) {
+        const backoff = 400 * Math.pow(2, attempt); // 400ms, 800ms…
+        await new Promise((r) => setTimeout(r, backoff));
+        attempt++;
+        continue;
+      }
+
+      lastErr = err;
+      break;
     }
-
-    throw new Error(`Falha OpenRouter (${payload?.model}): ${status} - ${msg}`);
   }
+
+  const status = lastErr?.response?.status;
+  const body = lastErr?.response?.data;
+  const msg = body?.error?.message || body?.message || lastErr?.message || "erro desconhecido";
+  throw new Error(`Falha OpenRouter (${payload?.model}): ${status} - ${msg}`);
 }
 
 // ============================================================================
@@ -190,7 +231,7 @@ Retorne neste formato JSON puro:
 
     const doCall = async (prompt: string) =>
       await callOpenRouterChat(
-        { model: MODEL_TECH, messages: [{ role: "user", content: prompt }], temperature: 0.2, max_tokens: 400 },
+        { model: MODEL_TECH, messages: [{ role: "user", content: prompt }], temperature: 0.2, max_tokens: 280 },
         headers
       );
 
@@ -242,6 +283,7 @@ export async function getEcoResponse({
   mems = [],
   forcarMetodoViva = false,
   blocoTecnicoForcado = null,
+  modelOverride, // <- permite forçar o modelo por requisição (A/B tests)
 }: {
   messages: { id?: string; role: string; content: string }[];
   userId?: string;
@@ -250,6 +292,7 @@ export async function getEcoResponse({
   mems?: any[];
   forcarMetodoViva?: boolean;
   blocoTecnicoForcado?: any;
+  modelOverride?: string;
 }): Promise<{
   message: string;
   intensidade?: number;
@@ -321,13 +364,13 @@ export async function getEcoResponse({
       skipSaudacao: true,
     });
 
-    // Enxugar histórico: mantém só as últimas N mensagens (além do system)
+    // Enxugar histórico: mantém só as últimas N mensagens (além do system) + sanitize
     const MAX_MSG = 8;
-    const mensagensEnxutas = messages.slice(-MAX_MSG);
+    const mensagensEnxutas = sanitizeMessages(messages.slice(-MAX_MSG));
 
     const chatMessages = [
       { role: "system", content: systemPrompt },
-      ...mensagensEnxutas.map((m) => ({ role: mapRoleForOpenAI(m.role), content: m.content })),
+      ...mensagensEnxutas,
     ];
 
     const apiKey = process.env.OPENROUTER_API_KEY!;
@@ -335,13 +378,13 @@ export async function getEcoResponse({
 
     const data = await callOpenRouterChat(
       {
-        model: MODEL_MAIN,
+        model: modelOverride || MODEL_MAIN,
         messages: chatMessages,
-        temperature: 0.75,
+        temperature: 0.6,        // mais estável
         top_p: 0.9,
-        presence_penalty: 0.2,
-        frequency_penalty: 0.2,
-        max_tokens: 1100,
+        presence_penalty: 0.15,
+        frequency_penalty: 0.15,
+        max_tokens: 1000,        // levemente menor
       },
       {
         Authorization: `Bearer ${apiKey}`,
@@ -363,7 +406,7 @@ export async function getEcoResponse({
       userId,
       tempoRespostaMs: duracaoEco,
       tokensUsados: data?.usage?.total_tokens || null,
-      modelo: data?.model || MODEL_MAIN,
+      modelo: data?.model || (modelOverride || MODEL_MAIN),
     });
 
     const cleaned = formatarTextoEco(limparResposta(raw));
