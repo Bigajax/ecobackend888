@@ -18,10 +18,12 @@ import {
 // ============================================================================
 // MODELOS (OpenRouter) — com ENV de fallback
 // ============================================================================
-const MODEL_MAIN = process.env.ECO_MODEL_MAIN || "openai/gpt-5-chat";   // principal
-const MODEL_TECH = process.env.ECO_MODEL_TECH || "openai/gpt-5-mini";   // bloco técnico
-const MODEL_TECH_ALT = process.env.ECO_MODEL_TECH_ALT || "openai/gpt-5-chat"; // fallback técnico
-const MODEL_FALLBACK_MAIN = "openai/gpt-5-chat";                         // fallback automático
+// Mantemos o principal no gpt-5-chat e agora PRIORIDADE do técnico em gpt-5-chat.
+// Se quiser inverter por custo: ajuste as ENVs ECO_MODEL_TECH / ECO_MODEL_TECH_ALT.
+const MODEL_MAIN = process.env.ECO_MODEL_MAIN || "openai/gpt-5-chat";        // principal
+const MODEL_TECH = process.env.ECO_MODEL_TECH || "openai/gpt-5-chat";        // bloco técnico (prioridade)
+const MODEL_TECH_ALT = process.env.ECO_MODEL_TECH_ALT || "openai/gpt-5-mini"; // fallback técnico
+const MODEL_FALLBACK_MAIN = "openai/gpt-5-chat";                              // fallback automático para 403 do gpt-5
 
 // ============================================================================
 // UTILS BÁSICOS
@@ -151,7 +153,6 @@ function extrairBlocoPorRegex(mensagemUsuario: string, respostaIa: string) {
 
   let intensidade = 0;
   if (emocao_principal) {
-    // intensifica por gatilhos
     const marcadores3 = [/muito/i, /demais/i, /fort/i, /pânico/i, /crise/i];
     const marcadores2 = [/bastante/i, /bem/i, /grande/i];
     if (marcadores3.some((r) => r.test(texto))) intensidade = 3;
@@ -165,6 +166,8 @@ function extrairBlocoPorRegex(mensagemUsuario: string, respostaIa: string) {
     ? "família"
     : /relacionament/i.test(texto)
     ? "relacionamentos"
+    : /projeto|lançar|app|ia/i.test(texto)
+    ? "projetos_pessoais"
     : null;
 
   const tags: string[] = [];
@@ -252,9 +255,8 @@ Regras:
           model,
           messages: [{ role: "user", content: prompt }],
           temperature: 0.2,
-          max_tokens: 480, // ↑ um pouco para reduzir “vazio”
-          // Tenta forçar JSON quando suportado
-          response_format: { type: "json_object" },
+          max_tokens: 480,
+          response_format: { type: "json_object" }, // quando suportado, força JSON
         },
         headers
       );
@@ -286,7 +288,6 @@ Regras:
     // 4) parse
     if (!rawContent) {
       console.warn("⚠️ Bloco técnico: resposta vazia final.");
-      // fallback regex
       const regexBloco = extrairBlocoPorRegex(mensagemUsuario, respostaIa);
       return regexBloco.intensidade > 0 ? regexBloco : null;
     }
@@ -426,7 +427,7 @@ export async function getEcoResponse({
     });
 
     // Enxugar histórico: mantém só as últimas N mensagens (além do system)
-    const MAX_MSG = 8;
+    const MAX_MSG = 7; // ↓ um pouco para reduzir tokens/latência
     const mensagensEnxutas = messages.slice(-MAX_MSG);
 
     const chatMessages = [
@@ -445,7 +446,7 @@ export async function getEcoResponse({
         top_p: 0.9,
         presence_penalty: 0.2,
         frequency_penalty: 0.2,
-        max_tokens: 1100,
+        max_tokens: 900, // ↓ leve corte pra acelerar
       },
       {
         Authorization: `Bearer ${apiKey}`,
