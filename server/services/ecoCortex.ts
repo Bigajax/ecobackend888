@@ -18,9 +18,9 @@ import {
 // ============================================================================
 // MODELOS (OpenRouter) — com ENV de fallback
 // ============================================================================
-// Default em gpt-5-chat (evita 403 até conectar a upstream key da OpenAI no OpenRouter)
 const MODEL_MAIN = process.env.ECO_MODEL_MAIN || "openai/gpt-5-chat";   // principal
 const MODEL_TECH = process.env.ECO_MODEL_TECH || "openai/gpt-5-mini";   // bloco técnico
+const MODEL_TECH_ALT = process.env.ECO_MODEL_TECH_ALT || "openai/gpt-5-chat"; // fallback técnico
 const MODEL_FALLBACK_MAIN = "openai/gpt-5-chat";                         // fallback automático
 
 // ============================================================================
@@ -59,17 +59,6 @@ function fireAndForget(fn: () => Promise<void>) {
   });
 }
 
-// Sanitiza e limita tamanho das mensagens (evita content não-string e prompts gigantes)
-function sanitizeMessages(msgs: { role: string; content: any }[], maxChars = 6000) {
-  return msgs.map((m) => {
-    const c = typeof m.content === "string" ? m.content : JSON.stringify(m.content ?? "");
-    return {
-      role: mapRoleForOpenAI(m.role),
-      content: c.length > maxChars ? c.slice(0, maxChars) + "…" : c,
-    };
-  });
-}
-
 // validação das ENVs críticas (melhor falhar cedo e claro)
 function ensureEnvs() {
   const required = ["OPENROUTER_API_KEY", "SUPABASE_URL", "SUPABASE_ANON_KEY"];
@@ -77,62 +66,32 @@ function ensureEnvs() {
   if (missing.length) throw new Error(`ENVs ausentes: ${missing.join(", ")}`);
 }
 
-// Axios helper: timeout + retry exponencial p/ 429/5xx e fallback gpt-5→gpt-5-chat em 403
+// Axios helper: loga status/corpo quando a OpenRouter responder erro
+// e faz fallback automático para gpt-5-chat quando necessário
 async function callOpenRouterChat(payload: any, headers: Record<string, string>) {
-  const maxRetries = 2; // tenta +2 vezes em 429/5xx
-  let attempt = 0;
-  let lastErr: any;
+  try {
+    const resp = await axios.post("https://openrouter.ai/api/v1/chat/completions", payload, { headers });
+    return resp.data;
+  } catch (err: any) {
+    const status = err?.response?.status;
+    const body = err?.response?.data;
+    const msg = body?.error?.message || body?.message || err?.message || "erro desconhecido";
+    console.error("[OpenRouter ERROR]", status, body);
 
-  while (attempt <= maxRetries) {
-    try {
-      const resp = await axios.post(
-        "https://openrouter.ai/api/v1/chat/completions",
-        payload,
-        { headers, timeout: 25_000 }
-      );
-      return resp.data;
-    } catch (err: any) {
-      const status = err?.response?.status;
-      const body = err?.response?.data;
-      const msg = body?.error?.message || body?.message || err?.message || "erro desconhecido";
-      const transient = status === 429 || (status && status >= 500);
+    const precisaFallbackGPT5 =
+      status === 403 &&
+      payload?.model === "openai/gpt-5" &&
+      /requiring a key|switch to gpt-5-chat/i.test(msg);
 
-      console.error("[OpenRouter ERROR]", status, body);
-
-      // Fallback gpt-5 → gpt-5-chat (403 com mensagem específica)
-      const precisaFallbackGPT5 =
-        status === 403 &&
-        payload?.model === "openai/gpt-5" &&
-        /requiring a key|switch to gpt-5-chat/i.test(msg);
-
-      if (precisaFallbackGPT5) {
-        console.warn("↩️ Fallback automático: trocando openai/gpt-5 → openai/gpt-5-chat…");
-        const retryPayload = { ...payload, model: MODEL_FALLBACK_MAIN };
-        const retryResp = await axios.post(
-          "https://openrouter.ai/api/v1/chat/completions",
-          retryPayload,
-          { headers, timeout: 25_000 }
-        );
-        return retryResp.data;
-      }
-
-      // Retry suave em 429/5xx
-      if (transient && attempt < maxRetries) {
-        const backoff = 400 * Math.pow(2, attempt); // 400ms, 800ms…
-        await new Promise((r) => setTimeout(r, backoff));
-        attempt++;
-        continue;
-      }
-
-      lastErr = err;
-      break;
+    if (precisaFallbackGPT5) {
+      console.warn("↩️ Fallback automático: trocando openai/gpt-5 → openai/gpt-5-chat…");
+      const retryPayload = { ...payload, model: MODEL_FALLBACK_MAIN };
+      const retryResp = await axios.post("https://openrouter.ai/api/v1/chat/completions", retryPayload, { headers });
+      return retryResp.data;
     }
-  }
 
-  const status = lastErr?.response?.status;
-  const body = lastErr?.response?.data;
-  const msg = body?.error?.message || body?.message || lastErr?.message || "erro desconhecido";
-  throw new Error(`Falha OpenRouter (${payload?.model}): ${status} - ${msg}`);
+    throw new Error(`Falha OpenRouter (${payload?.model}): ${status} - ${msg}`);
+  }
 }
 
 // ============================================================================
@@ -143,15 +102,9 @@ function heuristicaPreViva(m: string): { aplicar: boolean; bloco: any | null } {
   const len = texto.length;
 
   const gatilhosFortes = [
-    /ang[uú]st/i,
-    /p[aâ]nico/i,
-    /desesper/i,
-    /crise/i,
-    /sofr/i,
-    /n[aã]o aguento/i,
-    /vontade de sumir/i,
-    /explod/i,
-    /impulsiv/i,
+    /ang[uú]st/i, /p[aâ]nico/i, /desesper/i, /crise/i, /sofr/i,
+    /n[aã]o aguento/i, /vontade de sumir/i, /explod/i, /impulsiv/i,
+    /medo/i, /ansiedad/i, /culpa/i, /triste/i
   ];
 
   const temGatilho = gatilhosFortes.some((r) => r.test(texto));
@@ -175,7 +128,64 @@ function heuristicaPreViva(m: string): { aplicar: boolean; bloco: any | null } {
 }
 
 // ============================================================================
-// BLOCO TÉCNICO – extração (com retry se vier vazio)
+// Fallback determinístico (regex) para o bloco técnico
+// ============================================================================
+function extrairBlocoPorRegex(mensagemUsuario: string, respostaIa: string) {
+  const texto = `${mensagemUsuario}\n${respostaIa}`.toLowerCase();
+
+  const emocoes: Record<string, RegExp[]> = {
+    medo: [/medo/i, /receio/i, /temor/i, /insegur/i],
+    ansiedade: [/ansiedad/i, /apreens/i, /nervos/i],
+    tristeza: [/triste/i, /desanima/i, /abatid/i],
+    raiva: [/raiva/i, /irrit/i, /frustr/i, /ódio/i],
+    culpa: [/culpa/i, /remors/i, /arrepend/i],
+  };
+
+  let emocao_principal: string | null = null;
+  for (const [emo, regs] of Object.entries(emocoes)) {
+    if (regs.some((r) => r.test(texto))) {
+      emocao_principal = emo;
+      break;
+    }
+  }
+
+  let intensidade = 0;
+  if (emocao_principal) {
+    // intensifica por gatilhos
+    const marcadores3 = [/muito/i, /demais/i, /fort/i, /pânico/i, /crise/i];
+    const marcadores2 = [/bastante/i, /bem/i, /grande/i];
+    if (marcadores3.some((r) => r.test(texto))) intensidade = 3;
+    else if (marcadores2.some((r) => r.test(texto))) intensidade = 2;
+    else intensidade = 1;
+  }
+
+  const dominio_vida = /trabalho|emprego|carreir/i.test(texto)
+    ? "trabalho"
+    : /fam[ií]lia|m[ãa]e|pai|irm[ãa]o/i.test(texto)
+    ? "família"
+    : /relacionament/i.test(texto)
+    ? "relacionamentos"
+    : null;
+
+  const tags: string[] = [];
+  if (emocao_principal) tags.push(emocao_principal);
+  if (/projeto|lançar|app|ia/i.test(texto)) tags.push("projeto");
+  if (dominio_vida) tags.push(dominio_vida);
+
+  return {
+    emocao_principal,
+    intensidade,
+    tags,
+    dominio_vida,
+    padrao_comportamental: null,
+    nivel_abertura: "médio",
+    categoria: null,
+    analise_resumo: respostaIa?.slice(0, 500) || null,
+  };
+}
+
+// ============================================================================
+// BLOCO TÉCNICO – extração (com response_format, fallback de modelo e fallback regex)
 // ============================================================================
 async function gerarBlocoTecnicoSeparado({
   mensagemUsuario,
@@ -189,16 +199,20 @@ async function gerarBlocoTecnicoSeparado({
   try {
     const palavrasUser = mensagemUsuario.trim().split(/\s+/).length;
     const palavrasResp = respostaIa.trim().split(/\s+/).length;
-    if (palavrasUser < 4 && palavrasResp < 20) return null;
+    if (palavrasUser < 4 && palavrasResp < 20) {
+      console.log("ℹ️ Bloco técnico: pulado por baixa relevância (texto curto)");
+      return null;
+    }
 
     const mkPrompt = (enxuto = false) =>
       enxuto
-        ? `Retorne SOMENTE este JSON, sem comentários:
+        ? `Retorne SOMENTE este JSON válido, sem comentários e sem markdown:
 {"emocao_principal":"","intensidade":0,"tags":[],"dominio_vida":"","padrao_comportamental":"","nivel_abertura":"baixo","categoria":"","analise_resumo":""}
 Baseie no texto do usuário: "${mensagemUsuario}"
-e na resposta da IA: "${respostaIa}"`
+e na resposta da IA: "${respostaIa}"
+Se não souber algum campo, use null, [], "" ou 0.`
         : `
-Extraia e retorne em JSON **somente os campos especificados** com base na resposta a seguir.
+Extraia e retorne **apenas** o JSON abaixo, sem markdown e sem comentários. Preencha com base na resposta e na mensagem.
 
 Resposta da IA:
 """
@@ -208,7 +222,7 @@ ${respostaIa}
 Mensagem original do usuário:
 "${mensagemUsuario}"
 
-Retorne neste formato JSON puro:
+JSON alvo:
 {
   "emocao_principal": "",
   "intensidade": 0,
@@ -220,7 +234,10 @@ Retorne neste formato JSON puro:
   "analise_resumo": ""
 }
 
-⚠️ NÃO adicione mais nada além deste JSON. Não explique, não comente.`;
+Regras:
+- Retorne SOMENTE o JSON válido.
+- Se não souber, use null, [], "" ou 0.
+`;
 
     const headers = {
       Authorization: `Bearer ${apiKey}`,
@@ -229,29 +246,61 @@ Retorne neste formato JSON puro:
       "X-Title": "Eco App - Bloco Tecnico",
     };
 
-    const doCall = async (prompt: string) =>
+    const doCall = async (prompt: string, model: string) =>
       await callOpenRouterChat(
-        { model: MODEL_TECH, messages: [{ role: "user", content: prompt }], temperature: 0.2, max_tokens: 280 },
+        {
+          model,
+          messages: [{ role: "user", content: prompt }],
+          temperature: 0.2,
+          max_tokens: 480, // ↑ um pouco para reduzir “vazio”
+          // Tenta forçar JSON quando suportado
+          response_format: { type: "json_object" },
+        },
         headers
       );
 
-    // tentativa 1
-    let data = await doCall(mkPrompt(false));
-    let rawContent = data?.choices?.[0]?.message?.content ?? "";
+    // 1) tentativa com MODEL_TECH + prompt completo
+    let usadoModel = MODEL_TECH;
+    let data = await doCall(mkPrompt(false), usadoModel);
+    let rawContent: string = data?.choices?.[0]?.message?.content ?? "";
 
-    // retry mínimo se vazio
+    // 2) se vazio, prompt enxuto
     if (!rawContent || rawContent.trim().length < 5) {
       console.warn("⚠️ Bloco técnico vazio — tentando novamente (prompt enxuto)...");
-      data = await doCall(mkPrompt(true));
+      data = await doCall(mkPrompt(true), usadoModel);
       rawContent = data?.choices?.[0]?.message?.content ?? "";
     }
 
-    if (!rawContent) return null;
+    // 3) se ainda vazio, tenta modelo alternativo
+    if (!rawContent || rawContent.trim().length < 5) {
+      if (MODEL_TECH_ALT && MODEL_TECH_ALT !== usadoModel) {
+        console.warn(`↩️ Tentando modelo técnico alternativo: ${MODEL_TECH_ALT}`);
+        usadoModel = MODEL_TECH_ALT;
+        data = await doCall(mkPrompt(true), usadoModel);
+        rawContent = data?.choices?.[0]?.message?.content ?? "";
+      }
+    }
+
+    console.log("[ECO] Modelo técnico usado:", usadoModel);
+
+    // 4) parse
+    if (!rawContent) {
+      console.warn("⚠️ Bloco técnico: resposta vazia final.");
+      // fallback regex
+      const regexBloco = extrairBlocoPorRegex(mensagemUsuario, respostaIa);
+      return regexBloco.intensidade > 0 ? regexBloco : null;
+    }
 
     const match = rawContent.match(/\{[\s\S]*\}/);
-    if (!match) return null;
+    if (!match) {
+      console.warn("⚠️ Bloco técnico: nenhum JSON detectado na resposta — usando fallback regex.");
+      const regexBloco = extrairBlocoPorRegex(mensagemUsuario, respostaIa);
+      return regexBloco.intensidade > 0 ? regexBloco : null;
+    }
 
     const parsed = JSON.parse(match[0]);
+
+    // sanitização
     const permitido = [
       "emocao_principal",
       "intensidade",
@@ -265,10 +314,24 @@ Retorne neste formato JSON puro:
     const cleanJson: any = {};
     for (const k of permitido) cleanJson[k] = parsed[k] ?? null;
 
+    // se veio tudo “vazio”, ainda tenta regex pra pelo menos ter intensidade 1
+    const allEmpty =
+      !cleanJson.emocao_principal &&
+      (!Array.isArray(cleanJson.tags) || cleanJson.tags.length === 0) &&
+      (!cleanJson.intensidade || cleanJson.intensidade === 0);
+
+    if (allEmpty) {
+      const regexBloco = extrairBlocoPorRegex(mensagemUsuario, respostaIa);
+      if (regexBloco.intensidade > 0) return regexBloco;
+    }
+
+    console.log("🧠 Bloco técnico extraído e sanitizado:", cleanJson);
     return cleanJson;
   } catch (err: any) {
     console.warn("⚠️ Erro ao gerar bloco técnico:", err?.message || err);
-    return null;
+    // último recurso: regex
+    const fallback = extrairBlocoPorRegex(mensagemUsuario, respostaIa);
+    return fallback.intensidade > 0 ? fallback : null;
   }
 }
 
@@ -283,7 +346,6 @@ export async function getEcoResponse({
   mems = [],
   forcarMetodoViva = false,
   blocoTecnicoForcado = null,
-  modelOverride, // <- permite forçar o modelo por requisição (A/B tests)
 }: {
   messages: { id?: string; role: string; content: string }[];
   userId?: string;
@@ -292,7 +354,6 @@ export async function getEcoResponse({
   mems?: any[];
   forcarMetodoViva?: boolean;
   blocoTecnicoForcado?: any;
-  modelOverride?: string;
 }): Promise<{
   message: string;
   intensidade?: number;
@@ -364,13 +425,13 @@ export async function getEcoResponse({
       skipSaudacao: true,
     });
 
-    // Enxugar histórico: mantém só as últimas N mensagens (além do system) + sanitize
+    // Enxugar histórico: mantém só as últimas N mensagens (além do system)
     const MAX_MSG = 8;
-    const mensagensEnxutas = sanitizeMessages(messages.slice(-MAX_MSG));
+    const mensagensEnxutas = messages.slice(-MAX_MSG);
 
     const chatMessages = [
       { role: "system", content: systemPrompt },
-      ...mensagensEnxutas,
+      ...mensagensEnxutas.map((m) => ({ role: mapRoleForOpenAI(m.role), content: m.content })),
     ];
 
     const apiKey = process.env.OPENROUTER_API_KEY!;
@@ -378,13 +439,13 @@ export async function getEcoResponse({
 
     const data = await callOpenRouterChat(
       {
-        model: modelOverride || MODEL_MAIN,
+        model: MODEL_MAIN,
         messages: chatMessages,
-        temperature: 0.6,        // mais estável
+        temperature: 0.75,
         top_p: 0.9,
-        presence_penalty: 0.15,
-        frequency_penalty: 0.15,
-        max_tokens: 1000,        // levemente menor
+        presence_penalty: 0.2,
+        frequency_penalty: 0.2,
+        max_tokens: 1100,
       },
       {
         Authorization: `Bearer ${apiKey}`,
@@ -402,16 +463,18 @@ export async function getEcoResponse({
     const raw: string = data?.choices?.[0]?.message?.content ?? "";
     if (!raw) throw new Error("Resposta vazia da IA.");
 
+    console.log("[ECO] Modelo principal usado:", data?.model || MODEL_MAIN);
+
     trackMensagemEnviada({
       userId,
       tempoRespostaMs: duracaoEco,
       tokensUsados: data?.usage?.total_tokens || null,
-      modelo: data?.model || (modelOverride || MODEL_MAIN),
+      modelo: data?.model || MODEL_MAIN,
     });
 
     const cleaned = formatarTextoEco(limparResposta(raw));
 
-    // 7) Bloco técnico (com retry interno se vazio)
+    // 7) Bloco técnico (com response_format/fallbacks/regex)
     const bloco = await gerarBlocoTecnicoSeparado({
       mensagemUsuario: ultimaMsg,
       respostaIa: cleaned,
@@ -509,11 +572,7 @@ export async function getEcoResponse({
         if (userId && Number.isFinite(intensidadeNum)) {
           if (intensidadeNum >= 7) {
             const { error } = await supabase.from("memories").insert([
-              {
-                ...payload,
-                salvar_memoria: true,
-                created_at: new Date().toISOString(),
-              },
+              { ...payload, salvar_memoria: true, created_at: new Date().toISOString() },
             ]);
             if (error) {
               console.warn("⚠️ Erro ao salvar memória:", error.message);
