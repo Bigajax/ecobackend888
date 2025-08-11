@@ -20,6 +20,7 @@ import {
 // ============================================================================
 const MODEL_MAIN = process.env.ECO_MODEL_MAIN || "openai/gpt-5";       // principal
 const MODEL_TECH = process.env.ECO_MODEL_TECH || "openai/gpt-5-mini";  // bloco técnico
+const MODEL_FALLBACK_MAIN = "openai/gpt-5-chat";                       // fallback automático
 
 // ============================================================================
 // UTILS BÁSICOS
@@ -65,6 +66,7 @@ function ensureEnvs() {
 }
 
 // Axios helper: loga status/corpo quando a OpenRouter responder erro
+// e faz fallback automático para gpt-5-chat quando necessário
 async function callOpenRouterChat(payload: any, headers: Record<string, string>) {
   try {
     const resp = await axios.post("https://openrouter.ai/api/v1/chat/completions", payload, { headers });
@@ -72,12 +74,22 @@ async function callOpenRouterChat(payload: any, headers: Record<string, string>)
   } catch (err: any) {
     const status = err?.response?.status;
     const body = err?.response?.data;
+    const msg = body?.error?.message || body?.message || err?.message || "erro desconhecido";
     console.error("[OpenRouter ERROR]", status, body);
-    throw new Error(
-      `Falha OpenRouter (${payload?.model}): ${status} - ${
-        body?.error?.message || body?.message || err?.message || "erro desconhecido"
-      }`
-    );
+
+    const precisaFallbackGPT5 =
+      status === 403 &&
+      payload?.model === "openai/gpt-5" &&
+      /requiring a key|switch to gpt-5-chat/i.test(msg);
+
+    if (precisaFallbackGPT5) {
+      console.warn("↩️ Fallback automático: trocando openai/gpt-5 → openai/gpt-5-chat…");
+      const retryPayload = { ...payload, model: MODEL_FALLBACK_MAIN };
+      const retryResp = await axios.post("https://openrouter.ai/api/v1/chat/completions", retryPayload, { headers });
+      return retryResp.data;
+    }
+
+    throw new Error(`Falha OpenRouter (${payload?.model}): ${status} - ${msg}`);
   }
 }
 
