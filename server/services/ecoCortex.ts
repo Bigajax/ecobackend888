@@ -13,13 +13,13 @@ import {
   trackReferenciaEmocional,
   trackPerguntaProfunda,
   trackEcoDemorou,
-} from '../analytics/events/mixpanelEvents';
+} from "../analytics/events/mixpanelEvents";
 
 // ============================================================================
-// MODELOS (OpenRouter)
+// MODELOS (OpenRouter) — com ENV de fallback
 // ============================================================================
-const MODEL_MAIN = "openai/gpt-5";       // modelo principal de resposta
-const MODEL_TECH = "openai/gpt-5-mini";  // extração do bloco técnico (custo menor)
+const MODEL_MAIN = process.env.ECO_MODEL_MAIN || "openai/gpt-5";       // principal
+const MODEL_TECH = process.env.ECO_MODEL_TECH || "openai/gpt-5-mini";  // bloco técnico
 
 // ============================================================================
 // UTILS BÁSICOS
@@ -51,11 +51,34 @@ const formatarTextoEco = (t: string) =>
 
 const now = () => Date.now();
 
-// fire-and-forget simples
 function fireAndForget(fn: () => Promise<void>) {
   setImmediate(() => {
     fn().catch((err) => console.warn("⚠️ Pós-processo falhou:", err?.message || err));
   });
+}
+
+// validação das ENVs críticas (melhor falhar cedo e claro)
+function ensureEnvs() {
+  const required = ["OPENROUTER_API_KEY", "SUPABASE_URL", "SUPABASE_ANON_KEY"];
+  const missing = required.filter((k) => !process.env[k]);
+  if (missing.length) throw new Error(`ENVs ausentes: ${missing.join(", ")}`);
+}
+
+// Axios helper: loga status/corpo quando a OpenRouter responder erro
+async function callOpenRouterChat(payload: any, headers: Record<string, string>) {
+  try {
+    const resp = await axios.post("https://openrouter.ai/api/v1/chat/completions", payload, { headers });
+    return resp.data;
+  } catch (err: any) {
+    const status = err?.response?.status;
+    const body = err?.response?.data;
+    console.error("[OpenRouter ERROR]", status, body);
+    throw new Error(
+      `Falha OpenRouter (${payload?.model}): ${status} - ${
+        body?.error?.message || body?.message || err?.message || "erro desconhecido"
+      }`
+    );
+  }
 }
 
 // ============================================================================
@@ -66,11 +89,18 @@ function heuristicaPreViva(m: string): { aplicar: boolean; bloco: any | null } {
   const len = texto.length;
 
   const gatilhosFortes = [
-    /ang[uú]st/i, /p[aâ]nico/i, /desesper/i, /crise/i, /sofr/i,
-    /n[aã]o aguento/i, /vontade de sumir/i, /explod/i, /impulsiv/i
+    /ang[uú]st/i,
+    /p[aâ]nico/i,
+    /desesper/i,
+    /crise/i,
+    /sofr/i,
+    /n[aã]o aguento/i,
+    /vontade de sumir/i,
+    /explod/i,
+    /impulsiv/i,
   ];
 
-  const temGatilho = gatilhosFortes.some(r => r.test(texto));
+  const temGatilho = gatilhosFortes.some((r) => r.test(texto));
   const tamanhoOk = len >= 180;
   const aplicar = temGatilho || tamanhoOk;
 
@@ -91,7 +121,7 @@ function heuristicaPreViva(m: string): { aplicar: boolean; bloco: any | null } {
 }
 
 // ============================================================================
-// BLOCO TÉCNICO – extração (mantido), mas não usado para saudações
+// BLOCO TÉCNICO – extração (mantido), com tratamento de erro robusto
 // ============================================================================
 async function gerarBlocoTecnicoSeparado({
   mensagemUsuario,
@@ -135,22 +165,18 @@ Retorne neste formato JSON puro:
 
 ⚠️ NÃO adicione mais nada além deste JSON. Não explique, não comente.`;
 
-    const { data } = await axios.post(
-      "https://openrouter.ai/api/v1/chat/completions",
+    const data = await callOpenRouterChat(
       {
-        model: MODEL_TECH, // ⬅️ antes: "openai/gpt-4o"
+        model: MODEL_TECH,
         messages: [{ role: "user", content: prompt }],
         temperature: 0.2,
         max_tokens: 400,
       },
       {
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          "Content-Type": "application/json",
-          // Estes headers são opcionais no OpenRouter; ajudam nos rankings/telemetria
-          "HTTP-Referer": process.env.PUBLIC_APP_URL || "http://localhost:5173",
-          "X-Title": "Eco App - Bloco Tecnico",
-        },
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+        "HTTP-Referer": process.env.PUBLIC_APP_URL || "http://localhost:5173",
+        "X-Title": "Eco App - Bloco Tecnico",
       }
     );
 
@@ -220,6 +246,8 @@ export async function getEcoResponse({
 }> {
   const t0 = now();
   try {
+    ensureEnvs();
+
     if (!Array.isArray(messages) || messages.length === 0) {
       throw new Error('Parâmetro "messages" vazio ou inválido.');
     }
@@ -233,18 +261,15 @@ export async function getEcoResponse({
     }
 
     // 2) Supabase
-    const supabase = createClient(
-      process.env.SUPABASE_URL!,
-      process.env.SUPABASE_ANON_KEY!,
-      { global: { headers: { Authorization: `Bearer ${accessToken}` } } }
-    );
+    const supabase = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_ANON_KEY!, {
+      global: { headers: { Authorization: `Bearer ${accessToken}` } },
+    });
 
     const ultimaMsg = messages.at(-1)?.content || "";
 
     // 3) Embedding da entrada
-    const userEmbedding = ultimaMsg.trim().length > 0
-      ? await embedTextoCompleto(ultimaMsg, "entrada_usuario")
-      : [];
+    const userEmbedding =
+      ultimaMsg.trim().length > 0 ? await embedTextoCompleto(ultimaMsg, "entrada_usuario") : [];
 
     // 4) Heurísticas
     let heuristicasAtivas: any[] = [];
@@ -287,14 +312,12 @@ export async function getEcoResponse({
       ...messages.map((m) => ({ role: mapRoleForOpenAI(m.role), content: m.content })),
     ];
 
-    const apiKey = process.env.OPENROUTER_API_KEY;
-    if (!apiKey) throw new Error("OPENROUTER_API_KEY não configurada.");
-
+    const apiKey = process.env.OPENROUTER_API_KEY!;
     const inicioEco = now();
-    const { data } = await axios.post(
-      "https://openrouter.ai/api/v1/chat/completions",
+
+    const data = await callOpenRouterChat(
       {
-        model: MODEL_MAIN, // ⬅️ antes: "openai/gpt-4o"
+        model: MODEL_MAIN,
         messages: chatMessages,
         temperature: 0.75,
         top_p: 0.9,
@@ -303,14 +326,13 @@ export async function getEcoResponse({
         max_tokens: 1100,
       },
       {
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          "Content-Type": "application/json",
-          "HTTP-Referer": process.env.PUBLIC_APP_URL || "http://localhost:5173",
-          "X-Title": "Eco App - Chat",
-        },
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+        "HTTP-Referer": process.env.PUBLIC_APP_URL || "http://localhost:5173",
+        "X-Title": "Eco App - Chat",
       }
     );
+
     const duracaoEco = now() - inicioEco;
     if (duracaoEco > 3000) {
       trackEcoDemorou({ userId, duracaoMs: duracaoEco, ultimaMsg });
@@ -323,7 +345,7 @@ export async function getEcoResponse({
       userId,
       tempoRespostaMs: duracaoEco,
       tokensUsados: data?.usage?.total_tokens || null,
-      modelo: data?.model || "desconhecido",
+      modelo: data?.model || MODEL_MAIN,
     });
 
     const cleaned = formatarTextoEco(limparResposta(raw));
@@ -377,11 +399,9 @@ export async function getEcoResponse({
 
         const embeddingFinal = await embedTextoCompleto(textoParaEmbedding, "memoria ou referencia");
 
-        const supabase = createClient(
-          process.env.SUPABASE_URL!,
-          process.env.SUPABASE_ANON_KEY!,
-          { global: { headers: { Authorization: `Bearer ${accessToken}` } } }
-        );
+        const supabase = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_ANON_KEY!, {
+          global: { headers: { Authorization: `Bearer ${accessToken}` } },
+        });
 
         let referenciaAnteriorId: string | null = null;
         if (userId) {
@@ -395,7 +415,8 @@ export async function getEcoResponse({
           referenciaAnteriorId = (ultimaMemoria as any)?.id ?? null;
         }
 
-        const intensidadeNum = typeof bloco?.intensidade === "number" ? Math.round(bloco.intensidade) : 0;
+        const intensidadeNum =
+          typeof bloco?.intensidade === "number" ? Math.round(bloco.intensidade) : 0;
         const nivelNumerico =
           typeof bloco?.nivel_abertura === "number"
             ? Math.round(bloco.nivel_abertura)
@@ -426,11 +447,13 @@ export async function getEcoResponse({
 
         if (userId && Number.isFinite(intensidadeNum)) {
           if (intensidadeNum >= 7) {
-            const { error } = await supabase.from("memories").insert([{
-              ...payload,
-              salvar_memoria: true,
-              created_at: new Date().toISOString(),
-            }]);
+            const { error } = await supabase.from("memories").insert([
+              {
+                ...payload,
+                salvar_memoria: true,
+                created_at: new Date().toISOString(),
+              },
+            ]);
             if (error) {
               console.warn("⚠️ Erro ao salvar memória:", error.message);
             } else {
