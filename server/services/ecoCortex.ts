@@ -18,9 +18,10 @@ import {
 // ============================================================================
 // MODELOS (OpenRouter) — com ENV de fallback
 // ============================================================================
-const MODEL_MAIN = process.env.ECO_MODEL_MAIN || "openai/gpt-5";       // principal
-const MODEL_TECH = process.env.ECO_MODEL_TECH || "openai/gpt-5-mini";  // bloco técnico
-const MODEL_FALLBACK_MAIN = "openai/gpt-5-chat";                       // fallback automático
+// Default em gpt-5-chat (evita 403 até você conectar a upstream key da OpenAI no OpenRouter)
+const MODEL_MAIN = process.env.ECO_MODEL_MAIN || "openai/gpt-5-chat";   // principal
+const MODEL_TECH = process.env.ECO_MODEL_TECH || "openai/gpt-5-mini";   // bloco técnico
+const MODEL_FALLBACK_MAIN = "openai/gpt-5-chat";                         // fallback automático
 
 // ============================================================================
 // UTILS BÁSICOS
@@ -133,7 +134,7 @@ function heuristicaPreViva(m: string): { aplicar: boolean; bloco: any | null } {
 }
 
 // ============================================================================
-// BLOCO TÉCNICO – extração (mantido), com tratamento de erro robusto
+// BLOCO TÉCNICO – extração (com retry se vier vazio)
 // ============================================================================
 async function gerarBlocoTecnicoSeparado({
   mensagemUsuario,
@@ -147,12 +148,15 @@ async function gerarBlocoTecnicoSeparado({
   try {
     const palavrasUser = mensagemUsuario.trim().split(/\s+/).length;
     const palavrasResp = respostaIa.trim().split(/\s+/).length;
-    if (palavrasUser < 4 && palavrasResp < 20) {
-      console.log("ℹ️ Bloco técnico: pulado por baixa relevância (texto curto)");
-      return null;
-    }
+    if (palavrasUser < 4 && palavrasResp < 20) return null;
 
-    const prompt = `
+    const mkPrompt = (enxuto = false) =>
+      enxuto
+        ? `Retorne SOMENTE este JSON, sem comentários:
+{"emocao_principal":"","intensidade":0,"tags":[],"dominio_vida":"","padrao_comportamental":"","nivel_abertura":"baixo","categoria":"","analise_resumo":""}
+Baseie no texto do usuário: "${mensagemUsuario}"
+e na resposta da IA: "${respostaIa}"`
+        : `
 Extraia e retorne em JSON **somente os campos especificados** com base na resposta a seguir.
 
 Resposta da IA:
@@ -177,35 +181,36 @@ Retorne neste formato JSON puro:
 
 ⚠️ NÃO adicione mais nada além deste JSON. Não explique, não comente.`;
 
-    const data = await callOpenRouterChat(
-      {
-        model: MODEL_TECH,
-        messages: [{ role: "user", content: prompt }],
-        temperature: 0.2,
-        max_tokens: 400,
-      },
-      {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-        "HTTP-Referer": process.env.PUBLIC_APP_URL || "http://localhost:5173",
-        "X-Title": "Eco App - Bloco Tecnico",
-      }
-    );
+    const headers = {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+      "HTTP-Referer": process.env.PUBLIC_APP_URL || "http://localhost:5173",
+      "X-Title": "Eco App - Bloco Tecnico",
+    };
 
-    const rawContent = data?.choices?.[0]?.message?.content ?? "";
-    if (!rawContent) {
-      console.warn("⚠️ Resposta vazia ao tentar extrair bloco técnico.");
-      return null;
+    const doCall = async (prompt: string) =>
+      await callOpenRouterChat(
+        { model: MODEL_TECH, messages: [{ role: "user", content: prompt }], temperature: 0.2, max_tokens: 400 },
+        headers
+      );
+
+    // tentativa 1
+    let data = await doCall(mkPrompt(false));
+    let rawContent = data?.choices?.[0]?.message?.content ?? "";
+
+    // retry mínimo se vazio
+    if (!rawContent || rawContent.trim().length < 5) {
+      console.warn("⚠️ Bloco técnico vazio — tentando novamente (prompt enxuto)...");
+      data = await doCall(mkPrompt(true));
+      rawContent = data?.choices?.[0]?.message?.content ?? "";
     }
+
+    if (!rawContent) return null;
 
     const match = rawContent.match(/\{[\s\S]*\}/);
-    if (!match) {
-      console.warn("⚠️ Nenhum JSON encontrado no bloco técnico.");
-      return null;
-    }
+    if (!match) return null;
 
     const parsed = JSON.parse(match[0]);
-
     const permitido = [
       "emocao_principal",
       "intensidade",
@@ -217,11 +222,8 @@ Retorne neste formato JSON puro:
       "analise_resumo",
     ];
     const cleanJson: any = {};
-    for (const key of permitido) {
-      cleanJson[key] = parsed[key] ?? null;
-    }
+    for (const k of permitido) cleanJson[k] = parsed[k] ?? null;
 
-    console.log("🧠 Bloco técnico extraído e sanitizado:", cleanJson);
     return cleanJson;
   } catch (err: any) {
     console.warn("⚠️ Erro ao gerar bloco técnico:", err?.message || err);
@@ -230,7 +232,7 @@ Retorne neste formato JSON puro:
 }
 
 // ============================================================================
-// FUNÇÃO PRINCIPAL – com FAST-PATH, dedupe e pós-processo assíncrono
+// FUNÇÃO PRINCIPAL – com FAST-PATH, histórico enxuto e pós-processo assíncrono
 // ============================================================================
 export async function getEcoResponse({
   messages,
@@ -305,7 +307,7 @@ export async function getEcoResponse({
     const vivaAtivo = forcarMetodoViva || gate.aplicar;
     const vivaBloco = blocoTecnicoForcado || (gate.aplicar ? gate.bloco : null);
 
-    // 6) Montagem do prompt e chamada ao modelo (GPT-5)
+    // 6) Montagem do prompt e chamada ao modelo
     const systemPrompt = await montarContextoEco({
       userId,
       userName,
@@ -319,9 +321,13 @@ export async function getEcoResponse({
       skipSaudacao: true,
     });
 
+    // Enxugar histórico: mantém só as últimas N mensagens (além do system)
+    const MAX_MSG = 8;
+    const mensagensEnxutas = messages.slice(-MAX_MSG);
+
     const chatMessages = [
       { role: "system", content: systemPrompt },
-      ...messages.map((m) => ({ role: mapRoleForOpenAI(m.role), content: m.content })),
+      ...mensagensEnxutas.map((m) => ({ role: mapRoleForOpenAI(m.role), content: m.content })),
     ];
 
     const apiKey = process.env.OPENROUTER_API_KEY!;
@@ -362,7 +368,7 @@ export async function getEcoResponse({
 
     const cleaned = formatarTextoEco(limparResposta(raw));
 
-    // 7) Bloco técnico (assíncrono leve)
+    // 7) Bloco técnico (com retry interno se vazio)
     const bloco = await gerarBlocoTecnicoSeparado({
       mensagemUsuario: ultimaMsg,
       respostaIa: cleaned,
