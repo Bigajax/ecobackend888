@@ -12,7 +12,7 @@ import { buscarHeuristicaPorSimilaridade } from '../services/heuristicaFuzzyServ
 import { buscarMemoriasSemelhantes } from '../services/buscarMemorias';
 import { buscarReferenciasSemelhantes } from '../services/buscarReferenciasSemelhantes';
 import { buscarEncadeamentosPassados } from '../services/buscarEncadeamentos';
-import { encoding_for_model } from "@dqbd/tiktoken";
+import { get_encoding } from "@dqbd/tiktoken";
 
 const LOG_LEVEL = process.env.LOG_LEVEL ?? 'info';
 const isDebug = () => LOG_LEVEL === 'debug';
@@ -184,7 +184,7 @@ function selecionarModulosBase({
 
 // Monta corpo de módulos respeitando orçamento de tokens (antes de ler tudo)
 async function montarComBudget(nomes: string[], pastas: string[], budgetTokens: number, prioridade?: string[]) {
-  const enc = await encoding_for_model('gpt-5-chat').catch(() => encoding_for_model('cl100k_base'));
+  const enc = get_encoding('cl100k_base');
 
   // ordena por prioridade se fornecida
   const orderMap = new Map<string, number>();
@@ -513,7 +513,7 @@ ${forbidden.trim()}`;
   }
 
   // Orçamento: primeiro mede o contexto, depois usa o restante para módulos
-  const enc = await encoding_for_model('gpt-5-chat').catch(() => encoding_for_model('cl100k_base'));
+  const enc = get_encoding('cl100k_base');
   const tokensContexto = enc.encode(contexto).length;
   enc.free?.();
   const budgetRestante = Math.max(1000, MAX_PROMPT_TOKENS - tokensContexto - 200); // 200 de folga
@@ -591,7 +591,7 @@ ${forbidden.trim()}`;
 
   // Log de tokens final (sem cortes binários)
   try {
-    const enc2 = await encoding_for_model('gpt-5-chat').catch(() => encoding_for_model('cl100k_base'));
+    const enc2 = get_encoding('cl100k_base');
     const totalTokens = enc2.encode(promptFinal).length;
     enc2.free?.();
     log.info(`Tokens estimados (final): ~${totalTokens} (budget=${MAX_PROMPT_TOKENS})`);
