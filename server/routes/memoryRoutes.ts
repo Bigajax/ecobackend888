@@ -1,4 +1,4 @@
-import express from 'express';
+import express from 'express'; 
 import { supabaseAdmin } from '../lib/supabaseAdmin';
 import { embedTextoCompleto } from '../services/embeddingService';
 import { heuristicaNivelAbertura } from '../utils/heuristicaNivelAbertura';
@@ -101,7 +101,8 @@ router.post('/registrar', async (req, res) => {
       .insert([{
         usuario_id: user.id,
         mensagem_id: mensagem_id ?? null,
-        resumo_eco: gerarResumoEco(texto, tags, intensidade, emocao_principal, analise_resumo),
+        // ⬇️ usa finalTags (corrige bug)
+        resumo_eco: gerarResumoEco(texto, finalTags, intensidade, emocao_principal, analise_resumo),
         tags: finalTags,
         intensidade,
         emocao_principal: emocao_principal ?? null,
@@ -178,34 +179,36 @@ router.get('/', async (req, res) => {
 });
 
 /* ────────────────────────────────────────────────
-   ✅ POST /api/memorias/similares → busca memórias similares
+   ✅ POST /api/memorias/similares → busca memórias similares (RPC correta)
 ────────────────────────────────────────────────── */
 router.post('/similares', async (req, res) => {
   const user = await getUsuarioAutenticado(req);
   if (!user) return res.status(401).json({ erro: 'Usuário não autenticado.' });
 
-  const { texto, limite = 5 } = req.body;
+  const { texto, limite = 5, threshold = 0 } = req.body;
 
-  console.log('📩 Requisição recebida em /similares:', req.body);
+  console.log('📩 Requisição recebida em /similares:', { texto, limite, threshold });
 
   if (!texto || typeof texto !== 'string') {
     return res.status(400).json({ erro: 'Texto para análise é obrigatório.' });
   }
 
   try {
-    const consulta_embedding = await embedTextoCompleto(texto);
+    const query_embedding = await embedTextoCompleto(texto);
 
+    // ⬇️ Usa EXATAMENTE os nomes de parâmetros da função SQL
     const { data, error } = await supabaseAdmin.rpc(
       'buscar_memorias_semelhantes',
       {
-        consulta_embedding,
-        filtro_usuario: user.id,
-        limite,
+        query_embedding,          // vector
+        user_id_input: user.id,   // uuid
+        match_count: Number(limite) || 5,     // int
+        match_threshold: Math.max(0, Math.min(1, Number(threshold) || 0)) // double precision
       }
     );
 
     if (error) {
-      console.error('❌ Erro ao buscar memórias similares:', error.message, error.details);
+      console.error('❌ Erro ao buscar memórias similares:', error.message, error.details || '');
       return res.status(500).json({ erro: 'Erro ao buscar memórias similares no Supabase.' });
     }
 

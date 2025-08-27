@@ -24,14 +24,20 @@ type BuscarMemsOpts = {
  * Compatível com:
  *   buscarMemoriasSemelhantes(userId, "texto")
  *   buscarMemoriasSemelhantes(userId, { userEmbedding, k: 6, threshold: 0.7 })
+ *
+ * Mapeia 1:1 para a função SQL:
+ * public.buscar_memorias_semelhantes(
+ *   query_embedding vector,
+ *   user_id_input uuid,
+ *   match_count int,
+ *   match_threshold double precision DEFAULT 0
+ * )
  */
 export async function buscarMemoriasSemelhantes(
-  userId: string,
+  userId: string | null,
   entradaOrOpts: string | BuscarMemsOpts
 ): Promise<MemoriaSimilar[]> {
   try {
-    if (!userId) return [];
-
     // Normaliza parâmetros
     let texto = '';
     let userEmbedding: number[] | undefined;
@@ -53,26 +59,33 @@ export async function buscarMemoriasSemelhantes(
     }
 
     // Gera OU reaproveita o embedding
-    const consulta_embedding =
+    const consultaEmbedding =
       Array.isArray(userEmbedding) && userEmbedding.length > 0
         ? userEmbedding
         : await embedTextoCompleto(texto, 'entrada_usuario');
 
-    if (!Array.isArray(consulta_embedding) || consulta_embedding.length === 0) {
+    if (!Array.isArray(consultaEmbedding) || consultaEmbedding.length === 0) {
       console.error('❌ Embedding inválido para busca de memórias.');
       return [];
     }
 
-    // 🔄 Nova assinatura da RPC
+    // Sanitiza threshold (0..1)
+    const matchThreshold = Math.max(0, Math.min(1, Number(threshold) || 0));
+
+    // 🔄 Chamada RPC com nomes exatamente iguais aos do SQL
     const { data, error } = await supabaseAdmin.rpc('buscar_memorias_semelhantes', {
-      query_embedding: consulta_embedding,
-      user_id_input: userId,
-      match_count: k,
-      match_threshold: threshold,
+      query_embedding: consultaEmbedding,  // vector
+      user_id_input: userId,               // uuid (pode ser null; SQL filtrará)
+      match_count: k,                      // int
+      match_threshold: matchThreshold      // double precision
     });
 
     if (error) {
-      console.error('❌ Erro ao buscar memórias semelhantes:', error.message);
+      console.warn('⚠️ RPC buscar_memorias_semelhantes falhou:', {
+        message: error.message,
+        details: (error as any).details,
+        hint: (error as any).hint
+      });
       return [];
     }
 
@@ -83,7 +96,7 @@ export async function buscarMemoriasSemelhantes(
       resumo_eco: d.resumo_eco,
       created_at: d.created_at,
       similaridade: typeof d.similaridade_total === 'number' ? d.similaridade_total : undefined,
-      // mantém campos opcionais caso venham do SELECT na função
+      // campos opcionais caso sua função venha a retornar no futuro
       tags: d.tags,
       emocao_principal: d.emocao_principal,
       intensidade: d.intensidade,
