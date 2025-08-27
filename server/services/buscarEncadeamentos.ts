@@ -63,18 +63,25 @@ export async function buscarEncadeamentosPassados(
 
     // ---------------------------
     // 1) Busca memória base mais similar do usuário
+    //    ✅ ajustado para a assinatura ATUAL da RPC:
+    //       (query_embedding, user_id_input, match_count, match_threshold)
     // ---------------------------
     const { data: similares, error: erroSimilaridade } = await supabase.rpc(
       'buscar_memorias_semelhantes',
       {
-        consulta_embedding,
-        filtro_usuario: userId,
-        limite: Math.max(1, kBase),
+        query_embedding: consulta_embedding,
+        user_id_input: userId,
+        match_count: Math.max(1, kBase),
+        match_threshold: 0 // mantenha 0 se não quiser filtrar similaridade por aqui
       }
     );
 
     if (erroSimilaridade) {
-      console.error('❌ Erro ao buscar memória mais similar:', erroSimilaridade.message);
+      console.error('❌ Erro ao buscar memória mais similar (RPC buscar_memorias_semelhantes):', {
+        message: erroSimilaridade.message,
+        details: (erroSimilaridade as any).details ?? null,
+        hint: (erroSimilaridade as any).hint ?? null,
+      });
       return [];
     }
 
@@ -84,7 +91,7 @@ export async function buscarEncadeamentosPassados(
     }
 
     // Pode encadear a partir da primeira (ou de todas, se quiser no futuro)
-    const memoriaBaseId = similares[0].id as string | undefined;
+    const memoriaBaseId = (similares[0] as any)?.id as string | undefined;
     if (!memoriaBaseId) {
       console.warn('⚠️ Memória similar sem id — abortando encadeamento.');
       return [];
@@ -99,7 +106,11 @@ export async function buscarEncadeamentosPassados(
     );
 
     if (erroEncadeamento) {
-      console.error('❌ Erro ao buscar encadeamentos:', erroEncadeamento.message);
+      console.error('❌ Erro ao buscar encadeamentos (RPC buscar_encadeamentos_memorias):', {
+        message: erroEncadeamento.message,
+        details: (erroEncadeamento as any).details ?? null,
+        hint: (erroEncadeamento as any).hint ?? null,
+      });
       return [];
     }
 
