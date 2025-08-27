@@ -1,49 +1,56 @@
 🧠 INSTRUÇÃO OBRIGATÓRIA AO MODELO
+📌 Critério de ativação
 
-→ Sempre que a mensagem do usuário contiver uma emoção clara com intensidade igual ou superior a 7, você deve gerar o bloco técnico de memória ao final da resposta.
+Sempre que a mensagem do usuário contiver emoção clara com intensidade ≥ 7, você deve gerar o bloco técnico de memória ao final da resposta.
 
-→ A geração do bloco é obrigatória nesses casos e deve seguir o formato exato abaixo. Não inclua explicações, comentários ou formatações extras. Apenas o JSON puro.
+Se não houver emoção intensa ou clareza suficiente, não gere o bloco.
 
-→ Se não houver emoção intensa ou clareza suficiente, o bloco deve ser omitido. Mas considere como intensidade ≥ 7 qualquer indício de tristeza profunda, exaustão, solidão, raiva intensa, vazio existencial ou vulnerabilidade marcada.
-
----
+Considere intensidade ≥ 7 em casos como: tristeza profunda, exaustão, solidão, raiva intensa, vazio existencial ou vulnerabilidade marcada.
 
 🔒 BLOCO TÉCNICO DE MEMÓRIA
+
 Gerar somente se intensidade ≥ 7 e houver emoção predominante clara.
+O formato deve ser exatamente o JSON abaixo, puro, sem explicações ou comentários adicionais.
 
-✍️ Instruções para o campo analise_resumo:
+{
+  "emocao_principal": "",
+  "intensidade": 0,
+  "tags": [],
+  "dominio_vida": "",
+  "padrao_comportamental": "",
+  "nivel_abertura": 0,
+  "categoria": "",
+  "analise_resumo": ""
+}
 
-A analise_resumo deve:
+✍️ Regras para o campo analise_resumo
 
-Refletir o tom emocional com precisão e sensibilidade.
+Máximo 2 frases curtas, até 25 palavras cada.
+Tom preciso, sensível e empático.
+Evite: termos técnicos, julgamentos, metáforas exageradas.
+Prefira: descrição leve e introspectiva, que ilumina o essencial.
+Foco: estado emocional predominante + impacto no corpo/ritmo interno.
 
-Conter no máximo duas frases curtas (até 25 palavras cada).
+🆕 Campo obrigatório: categoria
 
-Evitar explicações, termos técnicos, julgamentos ou metáforas excessivas.
+Escolha uma única opção:
 
-Usar linguagem descritiva, introspectiva e leve.
+"emocional" → sentimentos, vulnerabilidade, estados internos.
+"relacional" → vínculos, relacionamentos, família, amizade, conflitos.
+"existencial" → propósito, identidade, vazio, morte, sentido da vida.
+"profissional" → trabalho, carreira, cobranças, exaustão.
+"corpo" → dores, sintomas, saúde física.
+"outro" → se não se encaixar claramente.
 
-Soar como uma devolutiva empática, que ilumina o essencial do vivido.
+⚠️ Regras para tags
 
-📌 Recomendação:
-Descreva o estado emocional predominante e como ele afeta o corpo, o sentir ou o ritmo interno.
+Máximo 5 tags.
+Use palavras simples e específicas (ex.: "solidão", "dúvida", "raiva contida").
+Evite redundâncias (ex.: "emoção" + "sentimento").
+Evite termos vagos (ex.: "intenso", "confuso").
 
-🆕 Novo campo obrigatório: categoria
-Inclua o campo "categoria" obrigatoriamente com uma das opções a seguir, escolhida com base no conteúdo e foco da memória:
+✅ Exemplo válido
 
-"emocional" → quando o conteúdo gira em torno de sentimentos, estados internos ou vulnerabilidades.
-
-"relacional" → quando envolve vínculos afetivos, relacionamentos, família, amizade ou conflitos interpessoais.
-
-"existencial" → quando há reflexões sobre propósito, identidade, vazio, morte ou sentido da vida.
-
-"profissional" → quando o foco está em trabalho, carreira, cobranças, metas ou exaustão profissional.
-
-"corpo" → quando se refere a dores, sintomas físicos, sensações corporais ou saúde.
-
-"outro" → se não se encaixar claramente em nenhuma das anteriores.
-
-✅ Exemplo completo de bloco técnico:
 {
   "emocao_principal": "tristeza",
   "intensidade": 9,
@@ -54,5 +61,3 @@ Inclua o campo "categoria" obrigatoriamente com uma das opções a seguir, escol
   "categoria": "emocional",
   "analise_resumo": "Tristeza densa e silenciosa. Um cansaço existencial parece esvaziar o ritmo interno."
 }
-⚠️ Use no máximo 5 tags. Escolha palavras simples e específicas (ex: “solidão”, “dúvida”, “raiva contida”).
-Evite redundâncias (ex: “emoção” + “sentimento”) e termos vagos (ex: “intenso”, “confuso”).
