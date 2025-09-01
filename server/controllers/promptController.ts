@@ -384,21 +384,27 @@ ${forbidden.trim()}`;
   const tagsAlvo = heuristicaAtiva ? (tagsPorHeuristica[heuristicaAtiva.arquivo] ?? []) : [];
   if (nivel > 1 && (!memsUsadas?.length) && entrada && userId) {
     try {
-      let MIN_SIMILARIDADE = 0.55;
+      // thresholds mais realistas p/ embeddings (cosine)
+      let MIN_SIMILARIDADE = 0.15;
       if (/lembr|record|memória|memorias|memoria|recorda/i.test(entrada)) {
         log.info('Detecção de pergunta sobre lembrança: reduzindo threshold.');
-        MIN_SIMILARIDADE = 0.3;
+        MIN_SIMILARIDADE = 0.12;
       }
+
       const [memorias, referencias] = await Promise.all([
-        buscarMemoriasSemelhantes(userId, { userEmbedding, texto: entrada, k: 6 }),
-        buscarReferenciasSemelhantes(userId, { userEmbedding, texto: entrada, k: 5 }),
+        buscarMemoriasSemelhantes(userId, { userEmbedding, texto: entrada, k: 6, threshold: MIN_SIMILARIDADE }),
+        buscarReferenciasSemelhantes(userId, { userEmbedding, texto: entrada, k: 5, threshold: MIN_SIMILARIDADE }),
       ]);
 
       const memoriasFiltradas = (memorias || []).filter((m: Memoria) => (m.similaridade ?? 0) >= MIN_SIMILARIDADE);
       const referenciasFiltradas = (referencias || []).filter((r: Memoria) => (r.similaridade ?? 0) >= MIN_SIMILARIDADE);
 
-      memsUsadas = [...memoriasFiltradas, ...referenciasFiltradas];
+      // ordena por similaridade e limita
+      memsUsadas = [...memoriasFiltradas, ...referenciasFiltradas]
+        .sort((a, b) => (b.similaridade ?? 0) - (a.similaridade ?? 0))
+        .slice(0, 3);
 
+      // se existir uma memória muito intensa/pertinente, prioriza no topo
       const memoriaIntensa = memsUsadas.find(m => (m.intensidade ?? 0) >= 7 && (m.similaridade ?? 0) >= MIN_SIMILARIDADE);
       if (memoriaIntensa) {
         log.info('Ajuste: priorizando memória intensa recuperada.');
@@ -417,7 +423,9 @@ ${forbidden.trim()}`;
         } else log.info('ℹ️ Nenhuma memória usada no contexto.');
       }
 
-      if (tagsAlvo.length) memsUsadas = memsUsadas.filter((m) => m.tags?.some((t) => tagsAlvo.includes(t)));
+      if (tagsAlvo.length) {
+        memsUsadas = memsUsadas.filter((m) => m.tags?.some((t) => tagsAlvo.includes(t)));
+      }
     } catch (e) {
       log.warn('Erro ao buscar memórias/referências:', (e as Error).message);
       memsUsadas = [];
