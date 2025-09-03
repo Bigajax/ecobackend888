@@ -145,6 +145,12 @@ export const matrizPromptBase: MatrizPromptBase = {
       'POLITICA_REDIRECIONAMENTO.txt',
       'MODULACAO_TOM_REGISTRO.txt',
       'CONTEXTO_EMOCIONAL.txt',
+
+      // ⬇️ NOVO: módulos condicionais de Regulação (injetados por triggers)
+      'ORIENTACAO_GROUNDING.txt',
+      'RESPIRACAO_GUIADA_BOX.txt',
+      'DR_DISPENZA_BENCAO_CENTROS_LITE.txt',
+
       'CONTINUIDADE_EMOCIONAL.txt',
       'CRITERIO_SUFICIENCIA_REFLEXIVA.txt',
       'ADAPTACAO_CULTURAL_LINGUISTICA.txt',

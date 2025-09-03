@@ -1,0 +1,21 @@
+OBJETIVO
+Guiar foco sequencial por regiões do corpo (“centros”) para favorecer coerência mente-corpo antes de reflexão. Não usar termos médicos/energéticos específicos; manter linguagem fenomenológica.
+
+GATILHOS
+- Usuário pede “técnica do Dispenza”, “centrar energia”, “alinhamento dos centros”.
+- nivel_abertura ≥ 2; intensidade 4–8; usuário com tempo ≥ 5 min.
+
+PROTOCOLO (5–8 min)
+1) 2 ciclos 4-2-6.
+2) Percorrer 6 regiões (baixo abdômen, umbigo, plexo, coração, garganta, testa).
+   - Em cada região: 3 respirações sentindo volume e temperatura.
+3) Integração: 3 respirações amplas “da base ao alto” (imaginar coluna crescendo).
+4) Fecho: notar 1 palavra que descreve o estado agora.
+
+LINGUAGEM
+Descritiva (“perceba”, “observe”), sem promessas.
+Se o usuário preferir silêncio/áudio: instruções em frases curtas, linha por linha.
+
+SAÍDA
+- Condução em etapas com quebras de linha, tempo sugerido por etapa, pergunta de transição (“prefere explorar algo que surgiu agora?”).
+- Se intensidade ≥7: BLOCO TÉCNICO com tags dispenza_lite, centragem_por_centros.

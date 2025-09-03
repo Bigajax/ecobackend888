@@ -14,6 +14,12 @@ import { buscarReferenciasSemelhantes } from '../services/buscarReferenciasSemel
 import { buscarEncadeamentosPassados } from '../services/buscarEncadeamentos';
 import { get_encoding } from "@dqbd/tiktoken";
 
+// ⬇️ NOVO: triggers de regulação (grounding/box/dispenza)
+import {
+  melhorPratica,
+  extrairTempoMencionado
+} from '../assets/config/regulacaoTriggers';
+
 const LOG_LEVEL = process.env.LOG_LEVEL ?? 'info';
 const isDebug = () => LOG_LEVEL === 'debug';
 const log = {
@@ -220,6 +226,29 @@ function derivarFlags(entrada: string) {
   const pedido_pratico = /\b(o que faço|o que eu faço|como faço|como falo|pode ajudar|tem (ideia|dica)|me ajuda|ajuda com|sugest(ão|oes))\b/i.test(entrada);
   const duvida_classificacao = false; // opcional: setar quando a detecção de intensidade estiver ambígua
   return { curiosidade, pedido_pratico, duvida_classificacao };
+}
+
+// ⬇️ NOVO: helper para decidir módulos de regulação (usa os triggers)
+function decidirModulosRegulacao(msg: string, nivel: number, intensidade: number): string[] {
+  // NV1: mantemos experiência super enxuta; não injeta regulação aqui.
+  if (nivel <= 1) return [];
+
+  const tempo = extrairTempoMencionado(msg); // ex.: "tenho 2 min"
+  const melhor = melhorPratica({
+    texto: msg,
+    nivelAbertura: nivel,
+    intensidade,
+    tempoMinDisponivel: tempo ?? null,
+  });
+
+  if (!melhor) return [];
+
+  // Regra extra: se intensidade ≥7 e o melhor não for Grounding, adiciona Grounding como apoio
+  const extras = intensidade >= 7 && melhor.modulo !== 'ORIENTACAO_GROUNDING.txt'
+    ? ['ORIENTACAO_GROUNDING.txt']
+    : [];
+
+  return [melhor.modulo, ...extras];
 }
 
 // ----------------------------------
@@ -489,6 +518,9 @@ ${forbidden.trim()}`;
     nivel, intensidade: intensidadeContexto, matriz: matrizPromptBase, flags
   });
 
+  // ⬇️ NOVO: módulos de regulação decididos por triggers (entram antes dos “extras”)
+  const modReg = decidirModulosRegulacao(entrada, nivel, intensidadeContexto);
+
   // Conteúdos extras (heurísticos/filosóficos/estoicos/emocionais) entram como candidatos
   const nomesExtras: string[] = [];
 
@@ -549,8 +581,8 @@ ${forbidden.trim()}`;
     return `${contexto.trim()}\n\n${corpoNivel1}\n\n${instrucoesNivel1}\n\n${forbiddenOnce}`.trim();
   }
 
-  // Para níveis 2/3: monta base + extras dentro do budget
-  const nomesSelecionados = [...nomesBase, ...nomesExtras];
+  // Para níveis 2/3: monta base + REGULAÇÃO + extras dentro do budget
+  const nomesSelecionados = [...nomesBase, ...modReg, ...nomesExtras];
 
   // Prioridade opcional (se definida na matriz)
   const prioridade: string[] | undefined = (matrizPromptBase as any)?.limites?.prioridade;
