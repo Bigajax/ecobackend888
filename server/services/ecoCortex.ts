@@ -7,11 +7,11 @@
 // - Mantém fallback de modelo gpt-5 → gpt-5-chat (403)
 // - Mantém métricas/analytics e pós-processo assíncrono iguais ao original
 // - Mantém histórico enxuto e max_tokens reduzido
+// - ✅ Compat: re-export getEcoResponse e fallback local para NodeCache (sem @types)
 // ============================================================================
 
 // IMPORTS
 import axios from "axios";
-import NodeCache from "node-cache";
 import crypto from "crypto";
 import { createClient } from "@supabase/supabase-js";
 
@@ -202,8 +202,47 @@ function extrairBlocoPorRegex(mensagemUsuario: string, respostaIa: string) {
 
 // ============================================================================
 // CACHE DE EMBEDDINGS PERSISTENTE (otimização)
-// ============================================================================
-const embeddingCache = new NodeCache({ stdTTL: 3600, maxKeys: 1000 });
+// ===== Fallback local para NodeCache, caso o pacote não exista =====
+declare const require: any;
+let NodeCacheLib: any;
+try {
+  // tenta usar o pacote real, se estiver instalado
+  NodeCacheLib = require("node-cache");
+} catch {
+  // fallback mínimo com TTL (segundos) e get/set
+  class SimpleCache {
+    private map = new Map<string, { v: any; exp: number }>();
+    private stdTTL = 0;
+    private maxKeys = Infinity;
+    constructor(opts?: { stdTTL?: number; maxKeys?: number }) {
+      this.stdTTL = (opts?.stdTTL ?? 0) * 1000;
+      this.maxKeys = opts?.maxKeys ?? Infinity;
+    }
+    get<T = any>(k: string): T | undefined {
+      const e = this.map.get(k);
+      if (!e) return undefined;
+      if (e.exp && Date.now() > e.exp) {
+        this.map.delete(k);
+        return undefined;
+      }
+      return e.v as T;
+    }
+    set<T = any>(k: string, v: T): boolean {
+      if (this.map.size >= this.maxKeys) {
+        // política simples: remove a primeira chave
+        const first = this.map.keys().next().value;
+        if (first) this.map.delete(first);
+      }
+      const exp = this.stdTTL ? Date.now() + this.stdTTL : 0;
+      this.map.set(k, { v, exp });
+      return true;
+    }
+  }
+  NodeCacheLib = SimpleCache;
+}
+
+const embeddingCache = new NodeCacheLib({ stdTTL: 3600, maxKeys: 1000 });
+
 function hashText(text: string): string {
   return crypto.createHash("md5").update(text.trim().toLowerCase()).digest("hex");
 }
@@ -777,3 +816,8 @@ setInterval(() => {
     console.log(`🧹 Cache limpo: ${beforeSize} → ${afterSize} entradas`);
   }
 }, 30 * 60 * 1000);
+
+// ============================================================================
+// ✅ Compatibilidade com rotas antigas
+// ============================================================================
+export { getEcoResponseOtimizado as getEcoResponse };
