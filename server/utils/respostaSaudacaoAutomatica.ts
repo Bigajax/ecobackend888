@@ -1,24 +1,23 @@
 // utils/respostaSaudacaoAutomatica.ts
 // Saudação natural e orientada ao autoconhecimento
-// - Detecta saudações curtas (PT/EN + gírias) com regex ampla
-// - Usa horário do dia
-// - Distingue 1ª interação vs retorno
-// - Gera UMA pergunta clara e introspectiva
-// - Trata despedidas curtas com fechamento suave
 
 type Msg = { role?: string; content: string };
 
-const MAX_LEN_FOR_GREETING = 48; // garante que só pegue mensagens curtinhas
+const ECO_DEBUG = process.env.ECO_DEBUG === "true";
+
+// Aceita mensagens curtinhas (ex.: "olá eco", "oi", "boa noite eco")
+const MAX_LEN_FOR_GREETING = 64;
 
 // Regex estendida (texto já vai normalizado sem acentos)
+// Agora aceita um sufixo curto opcional como "eco", "@eco", "bot", "assistente"
 const GREET_RE =
-  /^(?:oi+|oie+|ola+|alo+|opa+|salve|e\s*a[ei]|eai|eae|fala(?:\s*ai)?|falae|hey+|hi+|hello+|yo+|sup|bom\s*dia+|boa\s*tarde+|boa\s*noite+|boa\s*madrugada+|good\s*(?:morning|afternoon|evening|night)|tudo\s*(?:bem|bom|certo)|td\s*bem|beleza|blz|suave|de\s*boa|tranq(?:s)?|tranquilo(?:\s*ai)?|como\s*(?:vai|vc\s*esta|voce\s*esta|ce\s*ta|c[eu]\s*ta))\s*[!?.…]*$/i;
+  /^(?:oi+|oie+|ola+|alo+|opa+|salve|e\s*a[ei]|eai|eae|fala(?:\s*ai)?|falae|hey+|hi+|hello+|yo+|sup|bom\s*dia+|boa\s*tarde+|boa\s*noite+|boa\s*madrugada+|good\s*(?:morning|afternoon|evening|night)|tudo\s*(?:bem|bom|certo)|td\s*bem|beleza|blz|suave|de\s*boa|tranq(?:s)?|tranquilo(?:\s*ai)?|como\s*(?:vai|vc\s*esta|voce\s*esta|ce\s*ta|c[eu]\s*ta))(?:[\s,]*(@?eco|eco|bot|assistente|ai|chat))?\s*[!?.…]*$/i;
 
 const FAREWELL_RE =
   /^(?:tchau+|ate\s+mais|ate\s+logo|valeu+|vlw+|obrigad[oa]+|brigad[oa]+|falou+|fui+|bom\s*descanso|boa\s*noite|durma\s*bem|ate\s*amanha|ate\s*breve|ate)\s*[!?.…]*$/i;
 
 function normalizar(msg: string): string {
-  return msg
+  return (msg || "")
     .toLowerCase()
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "") // remove acentos
@@ -39,7 +38,6 @@ function pick<T>(arr: T[]): T {
 }
 
 function isFirstUserTurn(messages: Msg[]): boolean {
-  // Se houver roles, conta só mensagens 'user'; senão, usa heurística leve.
   const hasRoles = messages.some((m) => typeof m.role !== "undefined");
   if (hasRoles) {
     const userMsgs = messages.filter((m) => m.role === "user").length;
@@ -64,11 +62,19 @@ export function respostaSaudacaoAutomatica({
   const isGreeting = isShort && GREET_RE.test(last);
   const isFarewell = isShort && FAREWELL_RE.test(last);
 
+  if (ECO_DEBUG) {
+    console.log("[SAUDACAO] last=", last, {
+      isShort,
+      isGreeting,
+      isFarewell,
+      len: last.length,
+    });
+  }
+
   // Despedidas curtas → fechamento suave
   if (isFarewell) {
     const sd = saudacaoDoDia();
     return `Que sua ${sd.toLowerCase()} seja leve. Quando quiser, retomamos por aqui.`;
-    // Mantém SEM pergunta para não reabrir o ciclo.
   }
 
   // Saudações curtas → acolhe e convida à auto-observação
@@ -81,6 +87,7 @@ export function respostaSaudacaoAutomatica({
       `${sd}${nome}. Vamos começar simples: o que você nota em você agora?`,
       `${sd}${nome}. Se desse um nome ao seu estado de hoje, qual seria?`,
       `${sd}${nome}. Respire um instante e observe: qual emoção aparece primeiro?`,
+      `${sd}${nome}. Em 1–3 palavras, como você está?`,
     ];
 
     const variantesRetorno = [

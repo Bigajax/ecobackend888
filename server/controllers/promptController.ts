@@ -274,9 +274,9 @@ async function montarComBudget(
   return minifyTextSafe(blocos.join('\n\n'));
 }
 
-// Deriva flags simples
+// Deriva flags simples (evita tratar "como vai" como curiosidade)
 function derivarFlags(entrada: string) {
-  const curiosidade = /\b(por que|porque|pq|como|explica|explic(a|ar)|entender|entende|curios)/i.test(entrada);
+  const curiosidade = /\b(por que|porque|pq|explica|explic(a|ar)|entender|entende|curios)\b/i.test(entrada);
   const pedido_pratico = /\b(o que faço|o que eu faço|como faço|como falo|pode ajudar|tem (ideia|dica)|me ajuda|ajuda com|sugest(ão|oes))\b/i.test(entrada);
   const duvida_classificacao = false;
   return { curiosidade, pedido_pratico, duvida_classificacao };
@@ -345,8 +345,15 @@ export async function montarContextoEco({
   // Embedding único da entrada (reuso se vier)
   const entradaEmbedding: number[] | null = (userEmbedding && userEmbedding.length) ? userEmbedding : null;
 
+  // --- Detecta saudação curta para blindar aberturas padronizadas ---
+  const saudacaoRe = /^(?:oi+|oie+|ola+|olá+|alo+|opa+|salve|e\s*a[ei]|eai|eae|hey+|hi+|hello+|bom\s*dia+|boa\s*tarde+|boa\s*noite+|boa\s*madrugada+)(?:[\s,]*(?:@?eco|eco|bot|assistente|ai|chat))?\s*[!?.…]*$/i;
+  const isSaudacaoBreve = entradaSemAcentos.length > 0 && entradaSemAcentos.length <= 64 && saudacaoRe.test(entradaSemAcentos);
+  if (isSaudacaoBreve) {
+    contexto += `\n🔎 Detecção: entrada reconhecida como saudação breve. Evite perguntas de abertura; acolha sem repetir a saudação.`;
+  }
+
   // ----------------------------------
-  // SAUDAÇÃO ESPECIAL (fast-path)
+  // SAUDAÇÃO ESPECIAL (fast-path) — só se skipSaudacao == false
   // ----------------------------------
   if (!skipSaudacao) {
     const saudacoesCurtaLista = ['oi', 'ola', 'olá', 'bom dia', 'boa tarde', 'boa noite'];
@@ -373,6 +380,9 @@ ${forbidden.trim()}`);
   // ----------------------------------
   let nivel = heuristicaNivelAbertura(entrada) || 1;
   if (typeof nivel === 'string') nivel = nivelAberturaParaNumero(nivel);
+  // Se for saudação curta, força NV1 (resposta breve, sem perguntas exploratórias)
+  if (isSaudacaoBreve) nivel = 1;
+
   if (nivel < 1 || nivel > 3) { log.warn('Nível de abertura inválido. Fallback 1.'); nivel = 1; }
   const desc = nivel === 1 ? 'superficial' : nivel === 2 ? 'reflexiva' : 'profunda';
   contexto += `\n📶 Abertura emocional sugerida (heurística): ${desc}`;
@@ -589,6 +599,12 @@ ${forbidden.trim()}`);
   const tokensContexto = enc.encode(contextoMin).length;
   const budgetRestante = Math.max(1000, MAX_PROMPT_TOKENS - tokensContexto - 200);
 
+  // Guard anti-saudação para evitar aberturas “como você chega…”
+  const antiSaudacaoGuard = `
+NÃO inicie a resposta com fórmulas como:
+- "como você chega", "como você está chegando", "como chega aqui hoje", "como você chega hoje".
+Se a mensagem do usuário for apenas uma saudação breve, não repita a saudação, não faça perguntas fenomenológicas de abertura; apenas acolha de forma simples quando apropriado.`.trim();
+
   // Early return para Nível 1
   if (nivel === 1) {
     const nomesNv1 = [
@@ -606,9 +622,10 @@ ${forbidden.trim()}`);
     const instrucoesNivel1 = `\n⚠️ INSTRUÇÃO:
 - Responda breve (≤ 3 linhas), sem perguntas exploratórias.
 - Acolha e respeite silêncio. Não usar memórias neste nível.
-- Use a Estrutura Padrão de Resposta como planejamento interno, mas NÃO exiba títulos/numeração.`;
+- Use a Estrutura Padrão de Resposta como planejamento interno, mas NÃO exiba títulos/numeração.
+- ${antiSaudacaoGuard}`;
 
-    const forbiddenOnce = `\n${forbidden.trim()}`;
+    const forbiddenOnce = `\n${forbidden.trim()}\n${antiSaudacaoGuard}`;
 
     const finalNv1 = minifyTextSafe(`${contextoMin}\n\n${corpoNivel1}\n\n${instrucoesNivel1}\n\n${forbiddenOnce}`);
     log.info(`Tokens estimados (final NV1): ~${enc.encode(finalNv1).length} (budget=${MAX_PROMPT_TOKENS})`);
@@ -639,7 +656,8 @@ ${forbidden.trim()}`);
 - Respeite o ritmo e a autonomia do usuário.
 - Evite soluções prontas e interpretações rígidas.
 - Use a “Estrutura Padrão de Resposta” como planejamento interno (6 partes), mas NÃO exiba títulos/numeração.
-- Se notar padrões, convide à consciência com hipóteses leves — não diagnostique.`;
+- Se notar padrões, convide à consciência com hipóteses leves — não diagnostique.
+- ${antiSaudacaoGuard}`;
 
   // eco_json_trigger_criteria e MEMORIAS_NO_CONTEXTO (cache)
   let criterios = '';
@@ -656,7 +674,7 @@ ${forbidden.trim()}`);
     log.warn('Falha ao carregar MEMORIAS_NO_CONTEXTO.txt:', (e as Error).message);
   }
 
-  const forbiddenOnce = `\n${forbidden.trim()}`;
+  const forbiddenOnce = `\n${forbidden.trim()}\n${antiSaudacaoGuard}`;
 
   const promptFinal = minifyTextSafe([
     contextoMin,

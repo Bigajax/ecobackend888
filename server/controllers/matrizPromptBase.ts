@@ -25,7 +25,7 @@ export const matrizPromptBase: MatrizPromptBase = {
     // REMOVIDO: 'MEMORIAS_NO_CONTEXTO.txt' (já anexado no final pelo montarContextoEco)
   ],
 
-  // Mapeamentos por nível (agora inclui 1 → apenas o orquestrador do NV1)
+  // Mapeamentos por nível (inclui 1 → apenas o orquestrador do NV1)
   byNivel: {
     1: ['ECO_ORQUESTRA_NIVEL1.txt'],
     2: [
@@ -141,6 +141,12 @@ export const matrizPromptBase: MatrizPromptBase = {
       'IDENTIDADE.txt',
       'ECO_ESTRUTURA_DE_RESPOSTA.txt',
       'POLITICA_REDIRECIONAMENTO.txt',
+
+      // 🔝 Orquestradores no topo para não serem cortados
+      'ECO_ORQUESTRA_NIVEL1.txt',
+      'ECO_ORQUESTRA_NIVEL2.txt',
+      'ECO_ORQUESTRA_NIVEL3.txt',
+
       'MODULACAO_TOM_REGISTRO.txt',
       'CONTEXTO_EMOCIONAL.txt',
 
@@ -168,16 +174,12 @@ export const matrizPromptBase: MatrizPromptBase = {
       'HEURISTICA_EXAUSTAO.txt',
       'SITUACOES_ESPECIFICAS.txt',
 
-      'MEMORIAS_NO_CONTEXTO.txt', // ← fica na prioridade, mas NÃO está em alwaysInclude
+      // Memórias — não entram no alwaysInclude; mantidas na prioridade
+      'MEMORIAS_NO_CONTEXTO.txt',
       'MEMORIAS_REFERENCIAS_CONTEXTO.txt',
       'REVIVER_MEMORIAS.txt',
       'ESCALA_INTENSIDADE.txt',
-      'BLOCO_TECNICO_MEMORIA.txt',
-
-      // Orquestrações por último
-      'ECO_ORQUESTRA_NIVEL2.txt',
-      'ECO_ORQUESTRA_NIVEL3.txt',
-      'ECO_ORQUESTRA_NIVEL1.txt'
+      'BLOCO_TECNICO_MEMORIA.txt'
     ]
   }
 };
