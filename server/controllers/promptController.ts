@@ -14,7 +14,7 @@ import { buscarReferenciasSemelhantes } from '../services/buscarReferenciasSemel
 import { buscarEncadeamentosPassados } from '../services/buscarEncadeamentos';
 import { get_encoding } from "@dqbd/tiktoken";
 
-// ⬇️ NOVO: triggers de regulação (grounding/box/dispenza)
+// ⬇️ Triggers de regulação (grounding/box/dispenza)
 import {
   melhorPratica,
   extrairTempoMencionado
@@ -32,7 +32,12 @@ const log = {
 // CONFIG
 // ----------------------------------
 const MAX_PROMPT_TOKENS = Number(process.env.ECO_MAX_PROMPT_TOKENS ?? 8000);
-const NIVEL1_BUDGET = Number(process.env.ECO_NIVEL1_BUDGET ?? 2500); // orçamento mais curto p/ nível 1
+const NIVEL1_BUDGET = Number(process.env.ECO_NIVEL1_BUDGET ?? 2500);
+const HARD_CAP_EXTRAS = 6; // limite de extras por turno
+const TIMEOUT_FUZZY_MS = 1500;
+const TIMEOUT_EMB_MS = 2200;
+const TIMEOUT_MEM_MS = 2200;
+const TIMEOUT_ENC_MS = 2000;
 
 // ----------------------------------
 // TYPES
@@ -106,11 +111,62 @@ function construirNarrativaMemorias(mems: Memoria[]): string {
   return `\n📜 Continuidade: temas recorrentes (${temasTxt}) e emoções citadas (${emocoesTxt}); conecte apenas se fizer sentido agora.`;
 }
 
-// Cache simples para reduzir I/O
+// --- Minificador leve para cortar tokens supérfluos ---
+function minifyTextSafe(s: string) {
+  return s.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+
+// --- Timeouts util ---
+function withTimeout<T>(p: Promise<T>, ms: number, label = 'task'): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const id = setTimeout(() => reject(new Error(`${label} timeout ${ms}ms`)), ms);
+    p.then(v => { clearTimeout(id); resolve(v); })
+     .catch(e => { clearTimeout(id); reject(e); });
+  });
+}
+
+// Cache estático de arquivos e índice de módulos (evita ENOENTs)
+const staticCache = new Map<string, string>();
+async function readStaticOnce(p: string) {
+  if (staticCache.has(p)) return staticCache.get(p)!;
+  const c = (await fs.readFile(p, 'utf-8')).trim();
+  staticCache.set(p, c);
+  return c;
+}
+
 const cacheModulos = new Map<string, string>();
+const fileIndex = new Map<string, string>(); // nome -> caminho absoluto
+let fileIndexBuilt = false;
+
+async function buildFileIndexOnce(roots: string[]) {
+  if (fileIndexBuilt) return;
+  for (const base of roots) {
+    try {
+      const entries = await fs.readdir(base);
+      for (const name of entries) {
+        if (!fileIndex.has(name)) fileIndex.set(name, path.join(base, name));
+      }
+    } catch { /* ignore pasta ausente */ }
+  }
+  fileIndexBuilt = true;
+}
+
 async function lerModulo(arquivo: string, pastas: string[]): Promise<string | null> {
   if (!arquivo || !arquivo.trim()) return null;
   if (cacheModulos.has(arquivo)) return cacheModulos.get(arquivo)!;
+
+  // usa índice (rápido), se possível
+  try {
+    await buildFileIndexOnce(pastas);
+    const p = fileIndex.get(arquivo);
+    if (p) {
+      const conteudo = (await fs.readFile(p, 'utf-8')).trim();
+      cacheModulos.set(arquivo, conteudo);
+      return conteudo;
+    }
+  } catch { /* fallback para busca manual */ }
+
+  // fallback: tentar manualmente (já com ordem otimizada de pastas)
   for (const base of pastas) {
     try {
       const caminho = path.join(base, arquivo);
@@ -123,16 +179,14 @@ async function lerModulo(arquivo: string, pastas: string[]): Promise<string | nu
   return null;
 }
 
-// Avaliador seguro de regras simples (substitui variáveis e flags e avalia expressão booleana)
+// Avaliador seguro de regras simples
 function avaliarRegraSimples(regra: string, ctx: { nivel: number; intensidade: number; curiosidade?: boolean; duvida?: boolean; pedido?: boolean; }): boolean {
   if (!regra || !regra.trim()) return true;
   let expr = String(regra);
 
-  // substituições explícitas
   expr = expr.replace(/intensidade/g, String(ctx.intensidade));
   expr = expr.replace(/nivel/g, String(ctx.nivel));
 
-  // flags (lidar com "==true/false" e isoladas)
   const subFlag = (nome: string, val: boolean) => {
     expr = expr.replace(new RegExp(`${nome}\\s*==\\s*true`, 'g'), val ? '1' : '0');
     expr = expr.replace(new RegExp(`${nome}\\s*==\\s*false`, 'g'), val ? '0' : '1');
@@ -142,18 +196,17 @@ function avaliarRegraSimples(regra: string, ctx: { nivel: number; intensidade: n
   subFlag('duvida_classificacao', !!ctx.duvida);
   subFlag('pedido_pratico', !!ctx.pedido);
 
-  // permitir apenas caracteres seguros
   const safe = expr.replace(/[^\d\s()&|!<>=]/g, '');
   try {
     // eslint-disable-next-line no-new-func
     return Boolean(Function(`"use strict"; return (${safe});`)());
-  } catch (e) {
+  } catch {
     log.warn('Regra inválida, aplicando fallback TRUE:', regra);
     return true;
   }
 }
 
-// Seleção de módulos por matriz, com gating antes de ler arquivos
+// Seleção de módulos por matriz
 function selecionarModulosBase({
   nivel, intensidade, matriz, flags
 }: {
@@ -163,10 +216,8 @@ function selecionarModulosBase({
   flags: { curiosidade?: boolean; duvida_classificacao?: boolean; pedido_pratico?: boolean; };
 }): string[] {
   const nomes: string[] = [];
-  // Always
   for (const arq of (matriz.alwaysInclude ?? [])) if (arq) nomes.push(arq);
 
-  // Por nível (apenas nomes + filtros) — NV1 é tratado no fast-path
   const candidatos = (matriz.byNivel?.[nivel as 2 | 3] ?? []).filter((arquivo: string) => {
     if (!arquivo || !arquivo.trim()) return false;
     const min = matriz.intensidadeMinima?.[arquivo];
@@ -188,11 +239,14 @@ function selecionarModulosBase({
   return nomes;
 }
 
-// Monta corpo de módulos respeitando orçamento de tokens (antes de ler tudo)
-async function montarComBudget(nomes: string[], pastas: string[], budgetTokens: number, prioridade?: string[]) {
-  const enc = get_encoding('cl100k_base');
-
-  // ordena por prioridade se fornecida
+// Monta corpo respeitando orçamento (usa encoder reutilizado)
+async function montarComBudget(
+  nomes: string[],
+  pastas: string[],
+  budgetTokens: number,
+  prioridade: string[] | undefined,
+  enc: ReturnType<typeof get_encoding>
+) {
   const orderMap = new Map<string, number>();
   (prioridade ?? []).forEach((n, i) => orderMap.set(n, i));
   const nomesOrdenados = [...new Set(nomes)].sort((a, b) => {
@@ -208,47 +262,37 @@ async function montarComBudget(nomes: string[], pastas: string[], budgetTokens: 
     const conteudo = await lerModulo(nome, pastas);
     if (!conteudo) continue;
     const t = enc.encode(conteudo).length;
-    if (total + t > budgetTokens) {
+    // se faltar menos de 10% do budget, corta para evitar estouro no final
+    if (total + t > budgetTokens || (budgetTokens - total) < Math.ceil(budgetTokens * 0.1)) {
       log.info(`Corte por budget: ${nome} ficaria acima do limite (restante ${budgetTokens - total}).`);
       continue;
     }
     total += t;
     blocos.push(conteudo);
   }
-  enc.free?.();
   log.info(`Corpo de módulos: ~${total} tokens (budget=${budgetTokens}).`);
-  return blocos.join('\n\n');
+  return minifyTextSafe(blocos.join('\n\n'));
 }
 
-// Deriva “flags” simples da entrada
+// Deriva flags simples
 function derivarFlags(entrada: string) {
   const curiosidade = /\b(por que|porque|pq|como|explica|explic(a|ar)|entender|entende|curios)/i.test(entrada);
   const pedido_pratico = /\b(o que faço|o que eu faço|como faço|como falo|pode ajudar|tem (ideia|dica)|me ajuda|ajuda com|sugest(ão|oes))\b/i.test(entrada);
-  const duvida_classificacao = false; // opcional: setar quando a detecção de intensidade estiver ambígua
+  const duvida_classificacao = false;
   return { curiosidade, pedido_pratico, duvida_classificacao };
 }
 
-// ⬇️ NOVO: helper para decidir módulos de regulação (usa os triggers)
+// Helper para decidir módulos de regulação (triggers)
 function decidirModulosRegulacao(msg: string, nivel: number, intensidade: number): string[] {
-  // NV1: mantemos experiência super enxuta; não injeta regulação aqui.
   if (nivel <= 1) return [];
-
-  const tempo = extrairTempoMencionado(msg); // ex.: "tenho 2 min"
-  const melhor = melhorPratica({
-    texto: msg,
-    nivelAbertura: nivel,
-    intensidade,
-    tempoMinDisponivel: tempo ?? null,
-  });
-
+  const tempo = extrairTempoMencionado(msg);
+  const melhor = melhorPratica({ texto: msg, nivelAbertura: nivel, intensidade, tempoMinDisponivel: tempo ?? null });
   if (!melhor) return [];
-
-  // Regra extra: se intensidade ≥7 e o melhor não for Grounding, adiciona Grounding como apoio
   const extras = intensidade >= 7 && melhor.modulo !== 'ORIENTACAO_GROUNDING.txt'
     ? ['ORIENTACAO_GROUNDING.txt']
     : [];
-
-  return [melhor.modulo, ...extras];
+  // garante unicidade
+  return [...new Set([melhor.modulo, ...extras])];
 }
 
 // ----------------------------------
@@ -286,11 +330,20 @@ export async function montarContextoEco({
   const modEstoicosDir = path.join(modFilosDir, 'estoicos');
   const modEmocDir = path.join(assetsDir, 'modulos_emocionais');
 
-  const forbidden = await fs.readFile(path.join(modulosDir, 'eco_forbidden_patterns.txt'), 'utf-8');
+  // Ordem otimizada: põe modulosDir primeiro
+  const pastasPossiveis = [modulosDir, modEmocDir, modEstoicosDir, modFilosDir, modCogDir];
+
+  const forbidden = await readStaticOnce(path.join(modulosDir, 'eco_forbidden_patterns.txt'));
+
+  // Encoder único por request
+  const enc = get_encoding('cl100k_base');
 
   let contexto = '';
   const entrada = (texto ?? ultimaMsg ?? '').trim();
   const entradaSemAcentos = normalizarTexto(entrada);
+
+  // Embedding único da entrada (reuso se vier)
+  const entradaEmbedding: number[] | null = (userEmbedding && userEmbedding.length) ? userEmbedding : null;
 
   // ----------------------------------
   // SAUDAÇÃO ESPECIAL (fast-path)
@@ -301,13 +354,13 @@ export async function montarContextoEco({
     if (isSaudacaoCurta) {
       log.info('Detecção de saudação curta. Aplicando regra de saudação.');
       try {
-        let saudacaoConteudo = await fs.readFile(path.join(modulosDir, 'REGRA_SAUDACAO.txt'), 'utf-8');
+        let saudacaoConteudo = await readStaticOnce(path.join(modulosDir, 'REGRA_SAUDACAO.txt'));
         if (userName) saudacaoConteudo = saudacaoConteudo.replace(/\[nome\]/gi, capitalizarNome(userName));
-        return `📶 Entrada detectada como saudação breve.
+        return minifyTextSafe(`📶 Entrada detectada como saudação breve.
 
 ${saudacaoConteudo.trim()}
 
-${forbidden.trim()}`;
+${forbidden.trim()}`);
       } catch (e) {
         log.warn('Falha ao carregar módulo REGRA_SAUDACAO.txt:', (e as Error).message);
         return `⚠️ Erro ao carregar REGRA_SAUDACAO.`;
@@ -351,43 +404,37 @@ ${forbidden.trim()}`;
   }
 
   // ----------------------------------
-  // HEURÍSTICAS (gatilho literal + fuzzy + embedding)
+  // HEURÍSTICAS (gatilho literal + fuzzy + embedding) — paralelo
   // ----------------------------------
   let heuristicaAtiva = heuristicasTriggerMap.find((h: Heuristica) =>
     h.gatilhos.some((g) => entradaSemAcentos.includes(normalizarTexto(g)))
   );
 
-  if (entrada && !heuristicaAtiva) {
-    const heuristicasFuzzy = await buscarHeuristicaPorSimilaridade(entrada);
-    if (heuristicasFuzzy?.length > 0) {
-      heuristicaAtiva = heuristicasFuzzy[0];
-      if (heuristicaAtiva?.arquivo) log.info(`Heurística fuzzy ativada: ${heuristicaAtiva.arquivo}`);
-    } else {
-      log.info('Nenhuma heurística fuzzy ativada.');
-    }
-  }
+  const tarefasHeur: Record<string, Promise<any>> = {
+    fuzzy: entrada
+      ? withTimeout(buscarHeuristicaPorSimilaridade(entrada), TIMEOUT_FUZZY_MS, 'heuristicaFuzzy')
+      : Promise.resolve([]),
+    emb: (entrada ? (entradaEmbedding
+        ? withTimeout(buscarHeuristicasSemelhantes({
+            usuarioId: userId ?? null,
+            userEmbedding: entradaEmbedding,
+            matchCount: 5,
+            threshold: 0.75,
+          } as any), TIMEOUT_EMB_MS, 'heuristicasEmbedding')
+        // fallback para caminho antigo por texto (vai gerar embedding no serviço)
+        : withTimeout(buscarHeuristicasSemelhantes(entrada, userId ?? null), TIMEOUT_EMB_MS, 'heuristicasEmbeddingText')
+      ) : Promise.resolve([])
+    )
+  };
+  const [rFuzzy, rHeurEmb] = await Promise.allSettled([tarefasHeur.fuzzy, tarefasHeur.emb]);
+  const heuristicasFuzzy = rFuzzy.status === 'fulfilled' ? (rFuzzy.value || []) : [];
+  let heuristicasEmbedding: any[] = rHeurEmb.status === 'fulfilled' ? (rHeurEmb.value || []) : [];
 
-  // Heurísticas por embedding
-  let heuristicasEmbedding: any[] = [];
-  if (Array.isArray(heuristicas) && heuristicas.length > 0) {
-    heuristicasEmbedding = heuristicas;
-  } else if (entrada) {
-    if (entrada.length < 6 && !userEmbedding) {
-      log.info('⚠️ Texto curto e nenhum embedding fornecido — pulando busca de heurísticas.');
-      heuristicasEmbedding = [];
-    } else {
-      try {
-        heuristicasEmbedding = await buscarHeuristicasSemelhantes({
-          usuarioId: userId ?? null,
-          userEmbedding,
-          texto: userEmbedding ? undefined : entrada,
-          matchCount: 5,
-          threshold: 0.75,
-        } as any);
-      } catch {
-        heuristicasEmbedding = await buscarHeuristicasSemelhantes(entrada, userId ?? null);
-      }
-    }
+  if (!heuristicaAtiva && heuristicasFuzzy?.length > 0) {
+    heuristicaAtiva = heuristicasFuzzy[0];
+    if (heuristicaAtiva?.arquivo) log.info(`Heurística fuzzy ativada: ${heuristicaAtiva.arquivo}`);
+  } else if (!heuristicaAtiva) {
+    log.info('Nenhuma heurística fuzzy ativada.');
   }
   if (isDebug()) {
     if (heuristicasEmbedding?.length) log.info(`${heuristicasEmbedding.length} heurística(s) cognitivas por embedding.`);
@@ -395,45 +442,41 @@ ${forbidden.trim()}`;
   }
 
   // ----------------------------------
-  // FILOSÓFICOS / ESTOICOS (apenas se nível >=2 e texto razoável)
-  // ----------------------------------
-  const podeConteudoExtra = nivel >= 2 && (entrada?.length ?? 0) >= 20;
-  const modulosFilosoficosAtivos: ModuloFilosoficoTrigger[] = podeConteudoExtra
-    ? filosoficosTriggerMap.filter((f) =>
-        f?.arquivo && f?.arquivo.trim() && f.gatilhos.some((g) => entradaSemAcentos.includes(normalizarTexto(g))))
-    : [];
-  const modulosEstoicosAtivos = podeConteudoExtra
-    ? estoicosTriggerMap.filter((e) =>
-        e?.arquivo && e?.arquivo.trim() && e.gatilhos.every((g) => entradaSemAcentos.includes(normalizarTexto(g))))
-    : [];
-
-  // ----------------------------------
-  // BUSCA DE MEMÓRIAS/REFERÊNCIAS (nivel > 1)
+  // BUSCA DE MEMÓRIAS/REFERÊNCIAS/ENCADEAMENTOS (nivel > 1) — paralelo
   // ----------------------------------
   const tagsAlvo = heuristicaAtiva ? (tagsPorHeuristica[heuristicaAtiva.arquivo] ?? []) : [];
   if (nivel > 1 && (!memsUsadas?.length) && entrada && userId) {
     try {
-      // thresholds mais realistas p/ embeddings (cosine)
       let MIN_SIMILARIDADE = 0.15;
       if (/lembr|record|memória|memorias|memoria|recorda/i.test(entrada)) {
         log.info('Detecção de pergunta sobre lembrança: reduzindo threshold.');
         MIN_SIMILARIDADE = 0.12;
       }
 
-      const [memorias, referencias] = await Promise.all([
-        buscarMemoriasSemelhantes(userId, { userEmbedding, texto: entrada, k: 6, threshold: MIN_SIMILARIDADE }),
-        buscarReferenciasSemelhantes(userId, { userEmbedding, texto: entrada, k: 5, threshold: MIN_SIMILARIDADE }),
-      ]);
+      const tarefas: Record<string, Promise<any>> = {
+        mems: entradaEmbedding
+          ? withTimeout(buscarMemoriasSemelhantes(userId, { userEmbedding: entradaEmbedding, k: 6, threshold: MIN_SIMILARIDADE }), TIMEOUT_MEM_MS, 'memorias')
+          : withTimeout(buscarMemoriasSemelhantes(userId, { texto: entrada, k: 6, threshold: MIN_SIMILARIDADE } as any), TIMEOUT_MEM_MS, 'memoriasTexto'),
+        refs: entradaEmbedding
+          ? withTimeout(buscarReferenciasSemelhantes(userId, { userEmbedding: entradaEmbedding, k: 5, threshold: MIN_SIMILARIDADE }), TIMEOUT_MEM_MS, 'referencias')
+          : withTimeout(buscarReferenciasSemelhantes(userId, { texto: entrada, k: 5, threshold: MIN_SIMILARIDADE } as any), TIMEOUT_MEM_MS, 'referenciasTexto'),
+        encs: entradaEmbedding
+          ? withTimeout(buscarEncadeamentosPassados(userId, { userEmbedding: entradaEmbedding, kBase: 1 } as any), TIMEOUT_ENC_MS, 'encadeamentos')
+          : withTimeout(buscarEncadeamentosPassados(userId, { texto: entrada, kBase: 1 } as any), TIMEOUT_ENC_MS, 'encadeamentosTexto')
+      };
+
+      const [rMems, rRefs, rEncs] = await Promise.allSettled([tarefas.mems, tarefas.refs, tarefas.encs]);
+      let memorias = rMems.status === 'fulfilled' ? (rMems.value || []) : [];
+      let referencias = rRefs.status === 'fulfilled' ? (rRefs.value || []) : [];
+      let encadeamentos = rEncs.status === 'fulfilled' ? (rEncs.value || []) : [];
 
       const memoriasFiltradas = (memorias || []).filter((m: Memoria) => (m.similaridade ?? 0) >= MIN_SIMILARIDADE);
       const referenciasFiltradas = (referencias || []).filter((r: Memoria) => (r.similaridade ?? 0) >= MIN_SIMILARIDADE);
 
-      // ordena por similaridade e limita
       memsUsadas = [...memoriasFiltradas, ...referenciasFiltradas]
         .sort((a, b) => (b.similaridade ?? 0) - (a.similaridade ?? 0))
         .slice(0, 3);
 
-      // se existir uma memória muito intensa/pertinente, prioriza no topo
       const memoriaIntensa = memsUsadas.find(m => (m.intensidade ?? 0) >= 7 && (m.similaridade ?? 0) >= MIN_SIMILARIDADE);
       if (memoriaIntensa) {
         log.info('Ajuste: priorizando memória intensa recuperada.');
@@ -455,13 +498,25 @@ ${forbidden.trim()}`;
       if (tagsAlvo.length) {
         memsUsadas = memsUsadas.filter((m) => m.tags?.some((t) => tagsAlvo.includes(t)));
       }
+
+      // Encadeamentos (texto leve)
+      if (encadeamentos?.length) {
+        const encadeamentoTextos = (encadeamentos as Memoria[])
+          .filter(e => e?.resumo_eco?.trim())
+          .map(e => `• "${e.resumo_eco.trim()}"`)
+          .join('\n')
+          .trim();
+        if (encadeamentoTextos) {
+          contexto += `\n\n📝 Encadeamentos relacionados:\n${encadeamentoTextos}`;
+        }
+      }
     } catch (e) {
       log.warn('Erro ao buscar memórias/referências:', (e as Error).message);
       memsUsadas = [];
     }
   }
 
-  // Anexar a “memória atual” ao fim (não na frente, para não zerar intensidade)
+  // Anexar memória atual (leve)
   if (entrada && perfil && nivel > 1) {
     const memoriaAtual: Memoria = {
       resumo_eco: entrada,
@@ -472,45 +527,17 @@ ${forbidden.trim()}`;
     memsUsadas = [...(memsUsadas || []), memoriaAtual];
   }
 
-  // Intensidade de contexto = máximo (estável para gating)
+  // Intensidade de contexto = máximo
   const intensidadeContexto = Math.max(0, ...(memsUsadas ?? []).map(m => m.intensidade ?? 0));
 
-  // ----------------------------------
-  // ENCADEAMENTOS (nivel > 1)
-  // ----------------------------------
-  let encadeamentos: Memoria[] = [];
-  if (entrada && userId && nivel > 1) {
-    try {
-      if (entrada.length < 6 && !userEmbedding) {
-        log.info('⚠️ Entrada muito curta e sem embedding — pulando encadeamento.');
-      } else {
-        const encs = await buscarEncadeamentosPassados(userId, { userEmbedding, texto: entrada, kBase: 1 } as any);
-        if (encs?.length) encadeamentos = encs.slice(0, 3) as any;
-      }
-    } catch (e) {
-      log.warn('Erro ao buscar encadeamentos:', (e as Error).message);
-    }
-  }
-
-  // Inserção de memórias e encadeamentos (texto leve)
+  // Inserção de memórias (texto leve)
   if (memsUsadas && memsUsadas.length > 0 && nivel > 1) {
     contexto += `\n\n${construirNarrativaMemorias(memsUsadas)}`;
-  }
-  if (encadeamentos?.length) {
-    const encadeamentoTextos = encadeamentos
-      .filter(e => e?.resumo_eco?.trim())
-      .map(e => `• "${e.resumo_eco.trim()}"`)
-      .join('\n')
-      .trim();
-    if (encadeamentoTextos) {
-      contexto += `\n\n📝 Encadeamentos relacionados:\n${encadeamentoTextos}`;
-    }
   }
 
   // ----------------------------------
   // SELEÇÃO E MONTAGEM DE MÓDULOS COM ORÇAMENTO
   // ----------------------------------
-  const pastasPossiveis = [modEmocDir, modEstoicosDir, modFilosDir, modCogDir, modulosDir];
   const { matrizPromptBase } = await import('./matrizPromptBase');
 
   const flags = derivarFlags(entrada);
@@ -518,23 +545,28 @@ ${forbidden.trim()}`;
     nivel, intensidade: intensidadeContexto, matriz: matrizPromptBase, flags
   });
 
-  // ⬇️ NOVO: módulos de regulação decididos por triggers (entram antes dos “extras”)
+  // Módulos de regulação (antes dos extras)
   const modReg = decidirModulosRegulacao(entrada, nivel, intensidadeContexto);
 
-  // Conteúdos extras (heurísticos/filosóficos/estoicos/emocionais) entram como candidatos
+  // Extras (heurísticos/filosóficos/estoicos/emocionais)
   const nomesExtras: string[] = [];
-
-  // Heurísticas (gatilho literal/fuzzy/embedding)
   if (heuristicaAtiva?.arquivo) nomesExtras.push(heuristicaAtiva.arquivo);
   for (const h of heuristicasEmbedding ?? []) if (h?.arquivo) nomesExtras.push(h.arquivo);
 
-  // Filosóficos / Estoicos (apenas se podeConteudoExtra)
+  const podeConteudoExtra = nivel >= 2 && (entrada?.length ?? 0) >= 20;
   if (podeConteudoExtra) {
-    for (const mf of modulosFilosoficosAtivos ?? []) if (mf?.arquivo) nomesExtras.push(mf.arquivo);
-    for (const es of modulosEstoicosAtivos ?? []) if (es?.arquivo) nomesExtras.push(es.arquivo);
+    for (const mf of filosoficosTriggerMap ?? []) {
+      if (mf?.arquivo && mf?.arquivo.trim() && mf.gatilhos.some((g) => entradaSemAcentos.includes(normalizarTexto(g)))) {
+        nomesExtras.push(mf.arquivo);
+      }
+    }
+    for (const es of estoicosTriggerMap ?? []) {
+      if (es?.arquivo && es?.arquivo.trim() && es.gatilhos.every((g) => entradaSemAcentos.includes(normalizarTexto(g)))) {
+        nomesExtras.push(es.arquivo);
+      }
+    }
   }
 
-  // Emocionais (por tags/intensidade)
   const modulosEmocionaisAtivos = emocionaisTriggerMap.filter((m: ModuloEmocionalTrigger) => {
     if (!m?.arquivo) return false;
     let intensidadeOk = true;
@@ -552,23 +584,23 @@ ${forbidden.trim()}`;
     for (const rel of me.relacionado) nomesExtras.push(rel);
   }
 
-  // Orçamento: primeiro mede o contexto, depois usa o restante para módulos
-  const enc = get_encoding('cl100k_base');
-  const tokensContexto = enc.encode(contexto).length;
-  enc.free?.();
-  const budgetRestante = Math.max(1000, MAX_PROMPT_TOKENS - tokensContexto - 200); // 200 de folga
+  // Tokens usados por contexto; budget restante
+  const contextoMin = minifyTextSafe(contexto);
+  const tokensContexto = enc.encode(contextoMin).length;
+  const budgetRestante = Math.max(1000, MAX_PROMPT_TOKENS - tokensContexto - 200);
 
-  // Early return para Nível 1 (super enxuto + orquestrador NV1)
+  // Early return para Nível 1
   if (nivel === 1) {
     const nomesNv1 = [
       ...(matrizPromptBase.alwaysInclude ?? []),
-      'ECO_ORQUESTRA_NIVEL1.txt' // <- NV1 só aqui
+      'ECO_ORQUESTRA_NIVEL1.txt'
     ];
-
     const corpoNivel1 = await montarComBudget(
       nomesNv1,
       [modulosDir],
-      Math.min(budgetRestante, NIVEL1_BUDGET)
+      Math.min(budgetRestante, NIVEL1_BUDGET),
+      undefined,
+      enc
     );
 
     const instrucoesNivel1 = `\n⚠️ INSTRUÇÃO:
@@ -578,23 +610,29 @@ ${forbidden.trim()}`;
 
     const forbiddenOnce = `\n${forbidden.trim()}`;
 
-    return `${contexto.trim()}\n\n${corpoNivel1}\n\n${instrucoesNivel1}\n\n${forbiddenOnce}`.trim();
+    const finalNv1 = minifyTextSafe(`${contextoMin}\n\n${corpoNivel1}\n\n${instrucoesNivel1}\n\n${forbiddenOnce}`);
+    log.info(`Tokens estimados (final NV1): ~${enc.encode(finalNv1).length} (budget=${MAX_PROMPT_TOKENS})`);
+    return finalNv1;
   }
 
-  // Para níveis 2/3: monta base + REGULAÇÃO + extras dentro do budget
-  const nomesSelecionados = [...nomesBase, ...modReg, ...nomesExtras];
+  // Para níveis 2/3: base + regulação + extras (cap de extras)
+  const nomesSelecionados = [...new Set([
+    ...nomesBase,
+    ...modReg,
+    ...nomesExtras.slice(0, HARD_CAP_EXTRAS)
+  ])];
 
-  // Prioridade opcional (se definida na matriz)
   const prioridade: string[] | undefined = (matrizPromptBase as any)?.limites?.prioridade;
 
   const corpoModulos = await montarComBudget(
     nomesSelecionados,
     pastasPossiveis,
     budgetRestante,
-    prioridade
+    prioridade,
+    enc
   );
 
-  // Instruções finais coerentes (sem exigir “seções numeradas”)
+  // Instruções finais
   const instrucoesFinais = `\n⚠️ INSTRUÇÃO AO MODELO:
 - Use memórias/contexto como suporte, não como script.
 - Ajuste a profundidade e o tom conforme o nível de abertura (superficial, reflexiva, profunda).
@@ -603,37 +641,35 @@ ${forbidden.trim()}`;
 - Use a “Estrutura Padrão de Resposta” como planejamento interno (6 partes), mas NÃO exiba títulos/numeração.
 - Se notar padrões, convide à consciência com hipóteses leves — não diagnostique.`;
 
-  // eco_json_trigger_criteria e MEMORIAS_NO_CONTEXTO entram uma única vez no final
+  // eco_json_trigger_criteria e MEMORIAS_NO_CONTEXTO (cache)
   let criterios = '';
   try {
-    criterios = (await fs.readFile(path.join(modulosDir, 'eco_json_trigger_criteria.txt'), 'utf-8')).trim();
+    criterios = await readStaticOnce(path.join(modulosDir, 'eco_json_trigger_criteria.txt'));
   } catch (e) {
     log.warn('Falha ao carregar eco_json_trigger_criteria.txt:', (e as Error).message);
   }
 
   let memoriaInstrucoes = '';
   try {
-    memoriaInstrucoes = (await fs.readFile(path.join(modulosDir, 'MEMORIAS_NO_CONTEXTO.txt'), 'utf-8')).trim();
+    memoriaInstrucoes = await readStaticOnce(path.join(modulosDir, 'MEMORIAS_NO_CONTEXTO.txt'));
   } catch (e) {
     log.warn('Falha ao carregar MEMORIAS_NO_CONTEXTO.txt:', (e as Error).message);
   }
 
   const forbiddenOnce = `\n${forbidden.trim()}`;
 
-  const promptFinal = [
-    contexto.trim(),
+  const promptFinal = minifyTextSafe([
+    contextoMin,
     corpoModulos.trim(),
     criterios ? `\n${criterios}` : '',
     memoriaInstrucoes ? `\n${memoriaInstrucoes}` : '',
     instrucoesFinais,
     forbiddenOnce
-  ].filter(Boolean).join('\n\n').trim();
+  ].filter(Boolean).join('\n\n'));
 
-  // Log de tokens final (sem cortes binários)
+  // Log de tokens final
   try {
-    const enc2 = get_encoding('cl100k_base');
-    const totalTokens = enc2.encode(promptFinal).length;
-    enc2.free?.();
+    const totalTokens = enc.encode(promptFinal).length;
     log.info(`Tokens estimados (final): ~${totalTokens} (budget=${MAX_PROMPT_TOKENS})`);
   } catch (error) {
     log.warn('Falha ao estimar tokens finais:', (error as Error).message);

@@ -21,15 +21,13 @@ export const matrizPromptBase: MatrizPromptBase = {
     'PRINCIPIOS_CHAVE.txt',
     'IDENTIDADE.txt',
     'ECO_ESTRUTURA_DE_RESPOSTA.txt',
-    'POLITICA_REDIRECIONAMENTO.txt',
-    'MEMORIAS_NO_CONTEXTO.txt'
+    'POLITICA_REDIRECIONAMENTO.txt'
+    // REMOVIDO: 'MEMORIAS_NO_CONTEXTO.txt' (já anexado no final pelo montarContextoEco)
   ],
 
   // Mapeamentos por nível (agora inclui 1 → apenas o orquestrador do NV1)
   byNivel: {
-    1: [
-      'ECO_ORQUESTRA_NIVEL1.txt'
-    ],
+    1: ['ECO_ORQUESTRA_NIVEL1.txt'],
     2: [
       'ECO_ORQUESTRA_NIVEL2.txt',
       'CONTEXTO_EMOCIONAL.txt',
@@ -146,7 +144,7 @@ export const matrizPromptBase: MatrizPromptBase = {
       'MODULACAO_TOM_REGISTRO.txt',
       'CONTEXTO_EMOCIONAL.txt',
 
-      // ⬇️ NOVO: módulos condicionais de Regulação (injetados por triggers)
+      // Módulos de Regulação (entram via triggers/modReg)
       'ORIENTACAO_GROUNDING.txt',
       'RESPIRACAO_GUIADA_BOX.txt',
       'DR_DISPENZA_BENCAO_CENTROS_LITE.txt',
@@ -170,13 +168,13 @@ export const matrizPromptBase: MatrizPromptBase = {
       'HEURISTICA_EXAUSTAO.txt',
       'SITUACOES_ESPECIFICAS.txt',
 
-      'MEMORIAS_NO_CONTEXTO.txt',
+      'MEMORIAS_NO_CONTEXTO.txt', // ← fica na prioridade, mas NÃO está em alwaysInclude
       'MEMORIAS_REFERENCIAS_CONTEXTO.txt',
       'REVIVER_MEMORIAS.txt',
       'ESCALA_INTENSIDADE.txt',
       'BLOCO_TECNICO_MEMORIA.txt',
 
-      // Orquestrações ficam por último na prioridade global
+      // Orquestrações por último
       'ECO_ORQUESTRA_NIVEL2.txt',
       'ECO_ORQUESTRA_NIVEL3.txt',
       'ECO_ORQUESTRA_NIVEL1.txt'
