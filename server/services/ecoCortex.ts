@@ -624,7 +624,8 @@ export async function getEcoResponseOtimizado({
               categoria: "interação social",
               analise_resumo: auto.text,
               tags: ["saudação"],
-              embedding: [], // sem custo aqui
+              // ⚠️ NÃO envie vetor vazio — omita o campo ou use null
+              // embedding: undefined,
             });
           } catch {
             /* silencioso */
