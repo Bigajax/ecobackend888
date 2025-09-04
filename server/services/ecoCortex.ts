@@ -24,7 +24,10 @@ import {
   type SaudacaoAutoResp,
 } from "../utils/respostaSaudacaoAutomatica";
 import { buscarHeuristicasSemelhantes } from "./heuristicaService";
-import { salvarReferenciaTemporaria } from "./referenciasService";
+import {
+  salvarReferenciaTemporaria,
+  type ReferenciaPayload,
+} from "./referenciasService";
 import {
   trackMensagemEnviada,
   trackMemoriaRegistrada,
@@ -611,7 +614,7 @@ export async function getEcoResponseOtimizado({
       if (userId) {
         fireAndForget(async () => {
           try {
-            await salvarReferenciaTemporaria({
+            const refFastPath = {
               usuario_id: userId,
               mensagem_id: messages.at(-1)?.id ?? null,
               resumo_eco: auto.text, // resposta curta
@@ -624,9 +627,9 @@ export async function getEcoResponseOtimizado({
               categoria: "interação social",
               analise_resumo: auto.text,
               tags: ["saudação"],
-              // ⚠️ NÃO envie vetor vazio — omita o campo ou use null
-              // embedding: undefined,
-            });
+              // embedding: omitido de propósito
+            } satisfies ReferenciaPayload;
+            await salvarReferenciaTemporaria(refFastPath);
           } catch {
             /* silencioso */
           }
@@ -803,7 +806,7 @@ export async function getEcoResponseOtimizado({
             ? 3
             : null;
 
-        const payload = {
+        const payloadBase = {
           usuario_id: userId!,
           mensagem_id: messages.at(-1)?.id ?? null,
           resumo_eco: bloco?.analise_resumo ?? cleaned,
@@ -826,7 +829,7 @@ export async function getEcoResponseOtimizado({
               .from("memories")
               .insert([
                 {
-                  ...payload,
+                  ...payloadBase,
                   salvar_memoria: true,
                   created_at: new Date().toISOString(),
                 },
@@ -851,21 +854,25 @@ export async function getEcoResponseOtimizado({
             trackMemoriaRegistrada({
               userId,
               intensidade: intensidadeNum,
-              emocao: payload.emocao_principal,
-              dominioVida: payload.dominio_vida,
-              categoria: payload.categoria,
+              emocao: payloadBase.emocao_principal,
+              dominioVida: payloadBase.dominio_vida,
+              categoria: payloadBase.categoria,
             });
           } else if (intensidadeNum > 0) {
-            await salvarReferenciaTemporaria(payload);
+            // Para referência leve, o tipo aceita embedding opcional
+            const payloadRef = {
+              ...payloadBase,
+            } satisfies ReferenciaPayload;
+            await salvarReferenciaTemporaria(payloadRef);
             console.log(
               `📎 Referência emocional leve registrada para ${userId}`
             );
             trackReferenciaEmocional({
               userId,
               intensidade: intensidadeNum,
-              emocao: payload.emocao_principal,
-              tags: payload.tags,
-              categoria: payload.categoria,
+              emocao: payloadBase.emocao_principal,
+              tags: payloadBase.tags,
+              categoria: payloadBase.categoria,
             });
           } else {
             console.log("ℹ️ Intensidade 0 – nada salvo.");
@@ -874,10 +881,10 @@ export async function getEcoResponseOtimizado({
           if (nivelNumerico === 3) {
             trackPerguntaProfunda({
               userId,
-              emocao: payload.emocao_principal,
+              emocao: payloadBase.emocao_principal,
               intensidade: intensidadeNum,
-              categoria: payload.categoria,
-              dominioVida: payload.dominio_vida,
+              categoria: payloadBase.categoria,
+              dominioVida: payloadBase.dominio_vida,
             });
           }
         } else {

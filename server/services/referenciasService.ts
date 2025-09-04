@@ -1,6 +1,7 @@
 import { supabaseAdmin } from '../lib/supabaseAdmin';
 
-export interface BlocoTecnico {
+// Base comum para memória e referência
+interface BlocoTecnicoBase {
   usuario_id: string;
   mensagem_id?: string | null;
   referencia_anterior_id?: string | null; // ✅ adicionado
@@ -14,11 +15,20 @@ export interface BlocoTecnico {
   analise_resumo?: string | null;
   categoria?: string | null;
   tags?: string[] | null;
+}
+
+// Para MEMÓRIA (>=7): embedding obrigatório
+export interface MemoriaPayload extends BlocoTecnicoBase {
   embedding: number[];
 }
 
-export async function salvarReferenciaTemporaria(bloco: BlocoTecnico) {
-  const payload = {
+// Para REFERÊNCIA (<7, saudações, etc.): embedding opcional
+export interface ReferenciaPayload extends BlocoTecnicoBase {
+  embedding?: number[] | null;
+}
+
+export async function salvarReferenciaTemporaria(bloco: ReferenciaPayload) {
+  const payload: any = {
     ...bloco,
     salvar_memoria: false,
     created_at: new Date().toISOString(), // ✅ substituído aqui
@@ -29,8 +39,13 @@ export async function salvarReferenciaTemporaria(bloco: BlocoTecnico) {
     nivel_abertura: bloco.nivel_abertura ?? null,
     analise_resumo: bloco.analise_resumo ?? null,
     categoria: bloco.categoria ?? null,
-    tags: bloco.tags ?? null
+    tags: bloco.tags ?? null,
   };
+
+  // ⚠️ Não envie embedding se estiver vazio/ausente
+  if (!payload.embedding || payload.embedding.length === 0) {
+    delete payload.embedding;
+  }
 
   const { data, error } = await supabaseAdmin
     .from('referencias_temporarias')
