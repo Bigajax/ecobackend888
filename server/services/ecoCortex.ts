@@ -1,4 +1,4 @@
-// ============================================================================ 
+// ============================================================================
 // getEcoResponseOtimizado — versão corrigida e equivalente ao original
 // - Corrige fast-path de saudação (usa { text, meta } + clientHour)
 // - Remove IO paralelo não usado
@@ -19,7 +19,10 @@ import { createClient } from "@supabase/supabase-js";
 import { updateEmotionalProfile } from "./updateEmotionalProfile";
 import { montarContextoEco } from "../controllers/promptController";
 import { embedTextoCompleto } from "./embeddingService";
-import { respostaSaudacaoAutomatica, type SaudacaoAutoResp } from "../utils/respostaSaudacaoAutomatica";
+import {
+  respostaSaudacaoAutomatica,
+  type SaudacaoAutoResp,
+} from "../utils/respostaSaudacaoAutomatica";
 import { buscarHeuristicasSemelhantes } from "./heuristicaService";
 import { salvarReferenciaTemporaria } from "./referenciasService";
 import {
@@ -33,10 +36,13 @@ import {
 // ============================================================================
 // MODELOS (OpenRouter) — com ENV de fallback
 // ============================================================================
-const MODEL_MAIN = process.env.ECO_MODEL_MAIN || "openai/gpt-5-chat";        // principal
-const MODEL_TECH = process.env.ECO_MODEL_TECH || "openai/gpt-5-chat";        // bloco técnico (prioridade)
-const MODEL_TECH_ALT = process.env.ECO_MODEL_TECH_ALT || "openai/gpt-5-mini"; // fallback técnico
-const MODEL_FALLBACK_MAIN = "openai/gpt-5-chat";                              // fallback automático para 403 do gpt-5
+const MODEL_MAIN =
+  process.env.ECO_MODEL_MAIN || "openai/gpt-5-chat"; // principal
+const MODEL_TECH =
+  process.env.ECO_MODEL_TECH || "openai/gpt-5-chat"; // bloco técnico (prioridade)
+const MODEL_TECH_ALT =
+  process.env.ECO_MODEL_TECH_ALT || "openai/gpt-5-mini"; // fallback técnico
+const MODEL_FALLBACK_MAIN = "openai/gpt-5-chat"; // fallback automático para 403 do gpt-5
 
 // ============================================================================
 // UTILS BÁSICOS
@@ -70,7 +76,9 @@ const now = () => Date.now();
 
 function fireAndForget(fn: () => Promise<void>) {
   setImmediate(() => {
-    fn().catch((err) => console.warn("⚠️ Pós-processo falhou:", err?.message || err));
+    fn().catch((err) =>
+      console.warn("⚠️ Pós-processo falhou:", err?.message || err)
+    );
   });
 }
 
@@ -83,14 +91,22 @@ function ensureEnvs() {
 
 // Axios helper: loga status/corpo quando a OpenRouter responder erro
 // e faz fallback automático para gpt-5-chat quando necessário
-async function callOpenRouterChat(payload: any, headers: Record<string, string>) {
+async function callOpenRouterChat(
+  payload: any,
+  headers: Record<string, string>
+) {
   try {
-    const resp = await axios.post("https://openrouter.ai/api/v1/chat/completions", payload, { headers });
+    const resp = await axios.post(
+      "https://openrouter.ai/api/v1/chat/completions",
+      payload,
+      { headers }
+    );
     return resp.data;
   } catch (err: any) {
     const status = err?.response?.status;
     const body = err?.response?.data;
-    const msg = body?.error?.message || body?.message || err?.message || "erro desconhecido";
+    const msg =
+      body?.error?.message || body?.message || err?.message || "erro desconhecido";
     console.error("[OpenRouter ERROR]", status, body);
 
     const precisaFallbackGPT5 =
@@ -99,13 +115,21 @@ async function callOpenRouterChat(payload: any, headers: Record<string, string>)
       /requiring a key|switch to gpt-5-chat/i.test(msg);
 
     if (precisaFallbackGPT5) {
-      console.warn("↩️ Fallback automático: trocando openai/gpt-5 → openai/gpt-5-chat…");
+      console.warn(
+        "↩️ Fallback automático: trocando openai/gpt-5 → openai/gpt-5-chat…"
+      );
       const retryPayload = { ...payload, model: MODEL_FALLBACK_MAIN };
-      const retryResp = await axios.post("https://openrouter.ai/api/v1/chat/completions", retryPayload, { headers });
+      const retryResp = await axios.post(
+        "https://openrouter.ai/api/v1/chat/completions",
+        retryPayload,
+        { headers }
+      );
       return retryResp.data;
     }
 
-    throw new Error(`Falha OpenRouter (${payload?.model}): ${status} - ${msg}`);
+    throw new Error(
+      `Falha OpenRouter (${payload?.model}): ${status} - ${msg}`
+    );
   }
 }
 
@@ -117,9 +141,19 @@ function heuristicaPreViva(m: string): { aplicar: boolean; bloco: any | null } {
   const len = texto.length;
 
   const gatilhosFortes = [
-    /ang[uú]st/i, /p[aâ]nico/i, /desesper/i, /crise/i, /sofr/i,
-    /n[aã]o aguento/i, /vontade de sumir/i, /explod/i, /impulsiv/i,
-    /medo/i, /ansiedad/i, /culpa/i, /triste/i
+    /ang[uú]st/i,
+    /p[aâ]nico/i,
+    /desesper/i,
+    /crise/i,
+    /sofr/i,
+    /n[aã]o aguento/i,
+    /vontade de sumir/i,
+    /explod/i,
+    /impulsiv/i,
+    /medo/i,
+    /ansiedad/i,
+    /culpa/i,
+    /triste/i,
   ];
 
   const temGatilho = gatilhosFortes.some((r) => r.test(texto));
@@ -230,10 +264,8 @@ try {
     set<T = any>(k: string, v: T): boolean {
       if (this.map.size >= this.maxKeys) {
         // política simples: remove a primeira chave
-        theFirst: {
-          const first = this.map.keys().next().value;
-          if (first) this.map.delete(first);
-        }
+        const first = this.map.keys().next().value;
+        if (first) this.map.delete(first);
       }
       const exp = this.stdTTL ? Date.now() + this.stdTTL : 0;
       this.map.set(k, { v, exp });
@@ -248,7 +280,10 @@ const embeddingCache = new NodeCacheLib({ stdTTL: 3600, maxKeys: 1000 });
 function hashText(text: string): string {
   return crypto.createHash("md5").update(text.trim().toLowerCase()).digest("hex");
 }
-async function getEmbeddingCached(text: string, tipo: string): Promise<number[]> {
+async function getEmbeddingCached(
+  text: string,
+  tipo: string
+): Promise<number[]> {
   if (!text?.trim()) return [];
   const hash = hashText(text);
   const cached = embeddingCache.get(hash);
@@ -323,7 +358,9 @@ async function gerarBlocoTecnicoSeparado({
     const palavrasUser = mensagemUsuario.trim().split(/\s+/).length;
     const palavrasResp = respostaIa.trim().split(/\s+/).length;
     if (palavrasUser < 4 && palavrasResp < 20) {
-      console.log("ℹ️ Bloco técnico: pulado por baixa relevância (texto curto)");
+      console.log(
+        "ℹ️ Bloco técnico: pulado por baixa relevância (texto curto)"
+      );
       return null;
     }
 
@@ -388,7 +425,9 @@ Regras:
 
     // 2) se vazio, prompt enxuto
     if (!rawContent || rawContent.trim().length < 5) {
-      console.warn("⚠️ Bloco técnico vazio — tentando novamente (prompt enxuto)...");
+      console.warn(
+        "⚠️ Bloco técnico vazio — tentando novamente (prompt enxuto)..."
+      );
       data = await doCall(mkPrompt(true), usadoModel);
       rawContent = data?.choices?.[0]?.message?.content ?? "";
     }
@@ -396,7 +435,9 @@ Regras:
     // 3) se ainda vazio, tenta modelo alternativo
     if (!rawContent || rawContent.trim().length < 5) {
       if (MODEL_TECH_ALT && MODEL_TECH_ALT !== usadoModel) {
-        console.warn(`↩️ Tentando modelo técnico alternativo: ${MODEL_TECH_ALT}`);
+        console.warn(
+          `↩️ Tentando modelo técnico alternativo: ${MODEL_TECH_ALT}`
+        );
         usadoModel = MODEL_TECH_ALT;
         data = await doCall(mkPrompt(true), usadoModel);
         rawContent = data?.choices?.[0]?.message?.content ?? "";
@@ -414,7 +455,9 @@ Regras:
 
     const match = rawContent.match(/\{[\s\S]*\}/);
     if (!match) {
-      console.warn("⚠️ Bloco técnico: nenhum JSON detectado na resposta — usando fallback regex.");
+      console.warn(
+        "⚠️ Bloco técnico: nenhum JSON detectado na resposta — usando fallback regex."
+      );
       const regexBloco = extrairBlocoPorRegex(mensagemUsuario, respostaIa);
       return regexBloco.intensidade > 0 ? regexBloco : null;
     }
@@ -454,13 +497,21 @@ Regras:
   }
 }
 
-async function gerarBlocoTecnicoComCache(mensagemUsuario: string, respostaIa: string, apiKey: string) {
+async function gerarBlocoTecnicoComCache(
+  mensagemUsuario: string,
+  respostaIa: string,
+  apiKey: string
+) {
   const messageHash = hashText(mensagemUsuario + respostaIa.slice(0, 200));
   if (BLOCO_CACHE.has(messageHash)) {
     console.log("🎯 Cache hit para bloco técnico");
     return BLOCO_CACHE.get(messageHash);
   }
-  const bloco = await gerarBlocoTecnicoSeparado({ mensagemUsuario, respostaIa, apiKey });
+  const bloco = await gerarBlocoTecnicoSeparado({
+    mensagemUsuario,
+    respostaIa,
+    apiKey,
+  });
   BLOCO_CACHE.set(messageHash, bloco);
   return bloco;
 }
@@ -469,13 +520,20 @@ async function gerarBlocoTecnicoComCache(mensagemUsuario: string, respostaIa: st
 // STREAMING (mantido, mas NÃO usado aqui — só habilite se for streamar ao cliente)
 // ============================================================================
 async function streamResponse(payload: any, headers: any) {
-  const streamPayload = { ...payload, stream: true, stream_options: { include_usage: true } };
+  const streamPayload = {
+    ...payload,
+    stream: true,
+    stream_options: { include_usage: true },
+  };
   try {
-    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-      method: "POST",
-      headers,
-      body: JSON.stringify(streamPayload),
-    });
+    const response = await fetch(
+      "https://openrouter.ai/api/v1/chat/completions",
+      {
+        method: "POST",
+        headers,
+        body: JSON.stringify(streamPayload),
+      }
+    );
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     let fullContent = "";
     const reader = response.body?.getReader();
@@ -484,7 +542,9 @@ async function streamResponse(payload: any, headers: any) {
       const { done, value } = await reader.read();
       if (done) break;
       const chunk = decoder.decode(value);
-      const lines = chunk.split("\n").filter((line) => line.startsWith("data: "));
+      const lines = chunk
+        .split("\n")
+        .filter((line) => line.startsWith("data: "));
       for (const line of lines) {
         if (line === "data: [DONE]") break;
         try {
@@ -540,7 +600,11 @@ export async function getEcoResponseOtimizado({
     if (!accessToken) throw new Error("Token (accessToken) ausente.");
 
     // 1) FAST-PATH: usa { text, meta } + clientHour e salva referência leve sem embedding
-    const auto: SaudacaoAutoResp | null = respostaSaudacaoAutomatica({ messages, userName, clientHour });
+    const auto: SaudacaoAutoResp | null = respostaSaudacaoAutomatica({
+      messages,
+      userName,
+      clientHour,
+    } as any);
     if (auto) {
       console.log("⚡ Fast-path:", now() - t0, "ms");
       const ultimaMsg = messages.at(-1)?.content ?? "";
@@ -550,33 +614,42 @@ export async function getEcoResponseOtimizado({
             await salvarReferenciaTemporaria({
               usuario_id: userId,
               mensagem_id: messages.at(-1)?.id ?? null,
-              resumo_eco: auto.text,
+              resumo_eco: auto.text, // resposta curta
               emocao_principal: "indefinida",
-              intensidade: 3,
-              contexto: ultimaMsg,
+              intensidade: 3, // leve
+              contexto: ultimaMsg, // entrada do usuário
               dominio_vida: "social",
               padrao_comportamental: "abertura para interação",
               nivel_abertura: 1,
               categoria: "interação social",
               analise_resumo: auto.text,
               tags: ["saudação"],
-              embedding: [],
+              embedding: [], // sem custo aqui
             });
-          } catch { /* silencioso */ }
+          } catch {
+            /* silencioso */
+          }
         });
       }
       return { message: auto.text };
     }
 
     // 2) Supabase (para pós-processo)
-    const supabase = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_ANON_KEY!, {
-      global: { headers: { Authorization: `Bearer ${accessToken}` } },
-    });
+    const supabase = createClient(
+      process.env.SUPABASE_URL!,
+      process.env.SUPABASE_ANON_KEY!,
+      {
+        global: { headers: { Authorization: `Bearer ${accessToken}` } },
+      }
+    );
 
     const ultimaMsg = messages.at(-1)?.content || "";
 
     // 3) Operações paralelas enxutas (embedding + heurísticas)
-    const { heuristicas = [], userEmbedding } = await operacoesParalelas(ultimaMsg, userId);
+    const { heuristicas = [], userEmbedding } = await operacoesParalelas(
+      ultimaMsg,
+      userId
+    );
 
     // 4) Gate VIVA (heurístico)
     const gate = heuristicaPreViva(ultimaMsg);
@@ -601,7 +674,10 @@ export async function getEcoResponseOtimizado({
     const mensagensEnxutas = messages.slice(-5);
     const chatMessages = [
       { role: "system", content: systemPrompt },
-      ...mensagensEnxutas.map((m) => ({ role: mapRoleForOpenAI(m.role), content: m.content })),
+      ...mensagensEnxutas.map((m) => ({
+        role: mapRoleForOpenAI(m.role),
+        content: m.content,
+      })),
     ];
 
     const apiKey = process.env.OPENROUTER_API_KEY!;
@@ -661,7 +737,8 @@ export async function getEcoResponseOtimizado({
     if (bloco && typeof bloco.intensidade === "number") {
       responsePayload.intensidade = bloco.intensidade;
       responsePayload.resumo =
-        typeof bloco?.analise_resumo === "string" && bloco.analise_resumo.trim().length > 0
+        typeof bloco?.analise_resumo === "string" &&
+        bloco.analise_resumo.trim().length > 0
           ? bloco.analise_resumo.trim()
           : cleaned;
       responsePayload.emocao = bloco.emocao_principal || "indefinida";
@@ -674,8 +751,12 @@ export async function getEcoResponseOtimizado({
     // 10) Pós-processo NÃO bloqueante — idêntico ao original, mas reusando cache de embedding
     fireAndForget(async () => {
       try {
-        const cleanedSafe = typeof cleaned === "string" ? cleaned.trim() : "";
-        const analiseResumoSafe = typeof bloco?.analise_resumo === "string" ? bloco.analise_resumo.trim() : "";
+        const cleanedSafe =
+          typeof cleaned === "string" ? cleaned.trim() : "";
+        const analiseResumoSafe =
+          typeof bloco?.analise_resumo === "string"
+            ? bloco.analise_resumo.trim()
+            : "";
 
         let textoParaEmbedding = [cleanedSafe, analiseResumoSafe]
           .filter((s) => typeof s === "string" && s.trim().length > 0)
@@ -688,7 +769,10 @@ export async function getEcoResponseOtimizado({
         }
 
         // Reaproveita cache
-        const embeddingFinal = await getEmbeddingCached(textoParaEmbedding, "memoria ou referencia");
+        const embeddingFinal = await getEmbeddingCached(
+          textoParaEmbedding,
+          "memoria ou referencia"
+        );
 
         let referenciaAnteriorId: string | null = null;
         if (userId) {
@@ -703,7 +787,10 @@ export async function getEcoResponseOtimizado({
           referenciaAnteriorId = (ultimaMemoria as any)?.id ?? null;
         }
 
-        const intensidadeNum = typeof bloco?.intensidade === "number" ? Math.round(bloco.intensidade) : 0;
+        const intensidadeNum =
+          typeof bloco?.intensidade === "number"
+            ? Math.round(bloco.intensidade)
+            : 0;
         const nivelNumerico =
           typeof bloco?.nivel_abertura === "number"
             ? Math.round(bloco.nivel_abertura)
@@ -734,19 +821,30 @@ export async function getEcoResponseOtimizado({
 
         if (userId && Number.isFinite(intensidadeNum)) {
           if (intensidadeNum >= 7) {
-            const { error } = await supabase.from("memories").insert([
-              { ...payload, salvar_memoria: true, created_at: new Date().toISOString() },
-            ]);
+            const { error } = await supabase
+              .from("memories")
+              .insert([
+                {
+                  ...payload,
+                  salvar_memoria: true,
+                  created_at: new Date().toISOString(),
+                },
+              ]);
             if (error) {
               console.warn("⚠️ Erro ao salvar memória:", error.message);
             } else {
-              console.log(`✅ Memória salva com sucesso para o usuário ${userId}.`);
+              console.log(
+                `✅ Memória salva com sucesso para o usuário ${userId}.`
+              );
               try {
                 console.log(`🔄 Atualizando perfil emocional de ${userId}...`);
                 await updateEmotionalProfile(userId!);
                 console.log(`🧠 Perfil emocional atualizado com sucesso.`);
               } catch (err: any) {
-                console.error("❌ Erro ao atualizar perfil emocional:", err?.message || err);
+                console.error(
+                  "❌ Erro ao atualizar perfil emocional:",
+                  err?.message || err
+                );
               }
             }
             trackMemoriaRegistrada({
@@ -758,7 +856,9 @@ export async function getEcoResponseOtimizado({
             });
           } else if (intensidadeNum > 0) {
             await salvarReferenciaTemporaria(payload);
-            console.log(`📎 Referência emocional leve registrada para ${userId}`);
+            console.log(
+              `📎 Referência emocional leve registrada para ${userId}`
+            );
             trackReferenciaEmocional({
               userId,
               intensidade: intensidadeNum,
@@ -812,7 +912,7 @@ const metricas: PerformanceMetrics[] = [];
 function logMetricas(metrica: PerformanceMetrics) {
   metricas.push(metrica);
   if (metricas.length % 10 === 0) {
-    const avg = metricas.slice(-10).reduce(
+    const soma = metricas.slice(-10).reduce(
       (acc, m) => ({
         tempoTotal: acc.tempoTotal + m.tempoTotal,
         tempoEco: acc.tempoEco + m.tempoEco,
@@ -821,11 +921,17 @@ function logMetricas(metrica: PerformanceMetrics) {
       }),
       { tempoTotal: 0, tempoEco: 0, cacheHits: 0, tokensUsados: 0 }
     );
+
+    const tempoMedio = Math.round(soma.tempoTotal / 10);
+    const ecoMedio = Math.round(soma.tempoEco / 10);
+    const cacheHitRate = Math.round((soma.cacheHits / 10) * 100) + "%";
+    const tokensMedio = Math.round(soma.tokensUsados / 10);
+
     console.log("📊 Métricas (últimas 10):", {
-      tempoMedio: Math.round(avg.tempoTotal / 10),
-      ecoMedio: Math.round(avg.ecoMedio ?? avg.tempoEco / 10),
-      cacheHitRate: Math.round((avg.cacheHits / 10) * 100) + "%",
-      tokensMedio: Math.round(avg.tokensUsados / 10),
+      tempoMedio,
+      ecoMedio,
+      cacheHitRate,
+      tokensMedio,
     });
   }
 }
