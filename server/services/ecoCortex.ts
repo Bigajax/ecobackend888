@@ -1,6 +1,6 @@
 // ============================================================================
 // getEcoResponseOtimizado — versão corrigida e equivalente ao original
-// - Corrige fast-path de saudação
+// - Corrige fast-path de saudação (usa { text, meta })
 // - Remove IO paralelo não usado
 // - Reaproveita embedding com cache
 // - Usa extração ROBUSTA do bloco técnico (com response_format, fallback de modelo e regex)
@@ -19,7 +19,7 @@ import { createClient } from "@supabase/supabase-js";
 import { updateEmotionalProfile } from "./updateEmotionalProfile";
 import { montarContextoEco } from "../controllers/promptController";
 import { embedTextoCompleto } from "./embeddingService";
-import { respostaSaudacaoAutomatica } from "../utils/respostaSaudacaoAutomatica";
+import { respostaSaudacaoAutomatica, type SaudacaoAutoResp } from "../utils/respostaSaudacaoAutomatica";
 import { buscarHeuristicasSemelhantes } from "./heuristicaService";
 import { salvarReferenciaTemporaria } from "./referenciasService";
 import {
@@ -535,11 +535,33 @@ export async function getEcoResponseOtimizado({
     }
     if (!accessToken) throw new Error("Token (accessToken) ausente.");
 
-    // 1) FAST-PATH: CORRIGIDO (passa os parâmetros certos)
-    const respostaInicial = respostaSaudacaoAutomatica({ messages, userName });
-    if (respostaInicial) {
+    // 1) FAST-PATH: usa { text, meta } e salva referência leve sem embedding
+    const auto: SaudacaoAutoResp | null = respostaSaudacaoAutomatica({ messages, userName });
+    if (auto) {
       console.log("⚡ Fast-path:", now() - t0, "ms");
-      return { message: respostaInicial };
+      const ultimaMsg = messages.at(-1)?.content ?? "";
+      if (userId) {
+        fireAndForget(async () => {
+          try {
+            await salvarReferenciaTemporaria({
+              usuario_id: userId,
+              mensagem_id: messages.at(-1)?.id ?? null,
+              resumo_eco: auto.text,                 // resposta curta
+              emocao_principal: "indefinida",
+              intensidade: 3,                        // leve
+              contexto: ultimaMsg,                   // entrada do usuário
+              dominio_vida: "social",
+              padrao_comportamental: "abertura para interação",
+              nivel_abertura: 1,
+              categoria: "interação social",
+              analise_resumo: auto.text,
+              tags: ["saudação"],
+              embedding: [],                         // sem custo aqui
+            });
+          } catch { /* silencioso */ }
+        });
+      }
+      return { message: auto.text };
     }
 
     // 2) Supabase (para pós-processo)

@@ -296,6 +296,12 @@ function decidirModulosRegulacao(msg: string, nivel: number, intensidade: number
 }
 
 // ----------------------------------
+// SAUDAÇÃO (regex robusto, alinhado ao fast-path global)
+// ----------------------------------
+const MAX_LEN_FOR_GREETING = 40;
+const GREET_RE = /^(?:(?:oi+|oie+|ola+|ol[aá]|alo+|opa+|salve)(?:[, ]*(?:tudo\s*bem|td\s*bem))?|tudo\s*(?:bem|bom|certo)|oi+[, ]*tudo\s*bem|ol[aá]\s*eco|oi\s*eco|oie\s*eco|ola\s*eco|alo\s*eco|bom\s*dia+|boa\s*tarde+|boa\s*noite+|boa\s*madrugada+|e\s*a[ei]|e\s*a[ií]\??|eai|eae|fala(?:\s*ai)?|falae|hey+|hi+|hello+|yo+|sup|beleza|blz|suave|de\s*boa|tranq(?:s)?|tranquilo(?:\s*ai)?|como\s*(?:vai|vc\s*esta|voce\s*esta|ce\s*ta|c[eu]\s*ta))(?:[\s,]*(@?eco|eco|bot|assistente|ai|chat))?\s*[!?.…]*$/i;
+
+// ----------------------------------
 // FUNÇÃO PRINCIPAL
 // ----------------------------------
 export async function montarContextoEco({
@@ -309,7 +315,7 @@ export async function montarContextoEco({
   heuristicas = [],
   texto,
   userEmbedding,
-  skipSaudacao = true,
+  skipSaudacao = true, // se o controller já tratou fast-path, mantém true
 }: {
   perfil?: PerfilEmocional | null;
   ultimaMsg?: string;
@@ -342,36 +348,35 @@ export async function montarContextoEco({
   const entrada = (texto ?? ultimaMsg ?? '').trim();
   const entradaSemAcentos = normalizarTexto(entrada);
 
-  // Embedding único da entrada (reuso se vier)
+  // Embedding único da entrada (reuso se vier). NÃO geramos aqui para não custar em NV1.
   const entradaEmbedding: number[] | null = (userEmbedding && userEmbedding.length) ? userEmbedding : null;
 
-  // --- Detecta saudação curta para blindar aberturas padronizadas ---
-  const saudacaoRe = /^(?:oi+|oie+|ola+|olá+|alo+|opa+|salve|e\s*a[ei]|eai|eae|hey+|hi+|hello+|bom\s*dia+|boa\s*tarde+|boa\s*noite+|boa\s*madrugada+)(?:[\s,]*(?:@?eco|eco|bot|assistente|ai|chat))?\s*[!?.…]*$/i;
-  const isSaudacaoBreve = entradaSemAcentos.length > 0 && entradaSemAcentos.length <= 64 && saudacaoRe.test(entradaSemAcentos);
+  // --- Detecta saudação breve (alinhado ao fast-path) ---
+  const isSaudacaoBreve =
+    entradaSemAcentos.length > 0 &&
+    entradaSemAcentos.length <= MAX_LEN_FOR_GREETING &&
+    GREET_RE.test(entradaSemAcentos);
+
   if (isSaudacaoBreve) {
     contexto += `\n🔎 Detecção: entrada reconhecida como saudação breve. Evite perguntas de abertura; acolha sem repetir a saudação.`;
   }
 
   // ----------------------------------
-  // SAUDAÇÃO ESPECIAL (fast-path) — só se skipSaudacao == false
+  // SAUDAÇÃO ESPECIAL (fast-path local) — só se skipSaudacao == false
   // ----------------------------------
-  if (!skipSaudacao) {
-    const saudacoesCurtaLista = ['oi', 'ola', 'olá', 'bom dia', 'boa tarde', 'boa noite'];
-    const isSaudacaoCurta = saudacoesCurtaLista.some((s) => entradaSemAcentos.startsWith(s));
-    if (isSaudacaoCurta) {
-      log.info('Detecção de saudação curta. Aplicando regra de saudação.');
-      try {
-        let saudacaoConteudo = await readStaticOnce(path.join(modulosDir, 'REGRA_SAUDACAO.txt'));
-        if (userName) saudacaoConteudo = saudacaoConteudo.replace(/\[nome\]/gi, capitalizarNome(userName));
-        return minifyTextSafe(`📶 Entrada detectada como saudação breve.
+  if (!skipSaudacao && isSaudacaoBreve) {
+    log.info('Detecção de saudação curta (modo local). Aplicando REGRA_SAUDACAO.');
+    try {
+      let saudacaoConteudo = await readStaticOnce(path.join(modulosDir, 'REGRA_SAUDACAO.txt'));
+      if (userName) saudacaoConteudo = saudacaoConteudo.replace(/\[nome\]/gi, capitalizarNome(userName));
+      return minifyTextSafe(`📶 Entrada detectada como saudação breve.
 
 ${saudacaoConteudo.trim()}
 
 ${forbidden.trim()}`);
-      } catch (e) {
-        log.warn('Falha ao carregar módulo REGRA_SAUDACAO.txt:', (e as Error).message);
-        return `⚠️ Erro ao carregar REGRA_SAUDACAO.`;
-      }
+    } catch (e) {
+      log.warn('Falha ao carregar módulo REGRA_SAUDACAO.txt:', (e as Error).message);
+      return `⚠️ Erro ao carregar REGRA_SAUDACAO.`;
     }
   }
 
@@ -380,7 +385,7 @@ ${forbidden.trim()}`);
   // ----------------------------------
   let nivel = heuristicaNivelAbertura(entrada) || 1;
   if (typeof nivel === 'string') nivel = nivelAberturaParaNumero(nivel);
-  // Se for saudação curta, força NV1 (resposta breve, sem perguntas exploratórias)
+  // Força NV1 quando saudação breve (para baratear o contexto)
   if (isSaudacaoBreve) nivel = 1;
 
   if (nivel < 1 || nivel > 3) { log.warn('Nível de abertura inválido. Fallback 1.'); nivel = 1; }
@@ -405,7 +410,7 @@ ${forbidden.trim()}`);
       tags: blocoTecnicoForcado.tags ?? [],
     }];
   } else if (nivel === 1) {
-    log.info('Ignorando embeddings/memórias por abertura superficial.');
+    log.info('Ignorando embeddings/memórias por abertura superficial (NV1).');
     memsUsadas = [];
   }
 
@@ -414,41 +419,51 @@ ${forbidden.trim()}`);
   }
 
   // ----------------------------------
-  // HEURÍSTICAS (gatilho literal + fuzzy + embedding) — paralelo
+  // HEURÍSTICAS (gatilho literal + fuzzy + embedding)
+  // → PULAR COMPLETAMENTE em NV1 para reduzir latência/custo
   // ----------------------------------
-  let heuristicaAtiva = heuristicasTriggerMap.find((h: Heuristica) =>
-    h.gatilhos.some((g) => entradaSemAcentos.includes(normalizarTexto(g)))
-  );
+  let heuristicaAtiva: Heuristica | undefined = undefined;
 
-  const tarefasHeur: Record<string, Promise<any>> = {
-    fuzzy: entrada
-      ? withTimeout(buscarHeuristicaPorSimilaridade(entrada), TIMEOUT_FUZZY_MS, 'heuristicaFuzzy')
-      : Promise.resolve([]),
-    emb: (entrada ? (entradaEmbedding
-        ? withTimeout(buscarHeuristicasSemelhantes({
-            usuarioId: userId ?? null,
-            userEmbedding: entradaEmbedding,
-            matchCount: 5,
-            threshold: 0.75,
-          } as any), TIMEOUT_EMB_MS, 'heuristicasEmbedding')
-        // fallback para caminho antigo por texto (vai gerar embedding no serviço)
-        : withTimeout(buscarHeuristicasSemelhantes(entrada, userId ?? null), TIMEOUT_EMB_MS, 'heuristicasEmbeddingText')
-      ) : Promise.resolve([])
-    )
-  };
-  const [rFuzzy, rHeurEmb] = await Promise.allSettled([tarefasHeur.fuzzy, tarefasHeur.emb]);
-  const heuristicasFuzzy = rFuzzy.status === 'fulfilled' ? (rFuzzy.value || []) : [];
-  let heuristicasEmbedding: any[] = rHeurEmb.status === 'fulfilled' ? (rHeurEmb.value || []) : [];
+  if (nivel > 1) {
+    // literal
+    heuristicaAtiva = heuristicasTriggerMap.find((h: Heuristica) =>
+      h.gatilhos.some((g) => entradaSemAcentos.includes(normalizarTexto(g)))
+    );
 
-  if (!heuristicaAtiva && heuristicasFuzzy?.length > 0) {
-    heuristicaAtiva = heuristicasFuzzy[0];
-    if (heuristicaAtiva?.arquivo) log.info(`Heurística fuzzy ativada: ${heuristicaAtiva.arquivo}`);
-  } else if (!heuristicaAtiva) {
-    log.info('Nenhuma heurística fuzzy ativada.');
-  }
-  if (isDebug()) {
-    if (heuristicasEmbedding?.length) log.info(`${heuristicasEmbedding.length} heurística(s) cognitivas por embedding.`);
-    else log.info('Nenhuma heurística embedding encontrada.');
+    const tarefasHeur: Record<string, Promise<any>> = {
+      fuzzy: entrada
+        ? withTimeout(buscarHeuristicaPorSimilaridade(entrada), TIMEOUT_FUZZY_MS, 'heuristicaFuzzy')
+        : Promise.resolve([]),
+      emb: (entrada ? (entradaEmbedding
+          ? withTimeout(buscarHeuristicasSemelhantes({
+              usuarioId: userId ?? null,
+              userEmbedding: entradaEmbedding,
+              matchCount: 5,
+              threshold: 0.75,
+            } as any), TIMEOUT_EMB_MS, 'heuristicasEmbedding')
+          // fallback texto (gera embedding no serviço)
+          : withTimeout(buscarHeuristicasSemelhantes(entrada, userId ?? null), TIMEOUT_EMB_MS, 'heuristicasEmbeddingText')
+        ) : Promise.resolve([])
+      )
+    };
+
+    const [rFuzzy, rHeurEmb] = await Promise.allSettled([tarefasHeur.fuzzy, tarefasHeur.emb]);
+    const heuristicasFuzzy = rFuzzy.status === 'fulfilled' ? (rFuzzy.value || []) : [];
+    var heuristicasEmbedding: any[] = rHeurEmb.status === 'fulfilled' ? (rHeurEmb.value || []) : [];
+
+    if (!heuristicaAtiva && heuristicasFuzzy?.length > 0) {
+      heuristicaAtiva = heuristicasFuzzy[0];
+      if (heuristicaAtiva?.arquivo) log.info(`Heurística fuzzy ativada: ${heuristicaAtiva.arquivo}`);
+    } else if (!heuristicaAtiva) {
+      log.info('Nenhuma heurística fuzzy ativada.');
+    }
+    if (isDebug()) {
+      if (heuristicasEmbedding?.length) log.info(`${heuristicasEmbedding.length} heurística(s) cognitivas por embedding.`);
+      else log.info('Nenhuma heurística embedding encontrada.');
+    }
+  } else {
+    // NV1 → sem custo de heurística
+    var heuristicasEmbedding: any[] = [];
   }
 
   // ----------------------------------
@@ -605,7 +620,7 @@ NÃO inicie a resposta com fórmulas como:
 - "como você chega", "como você está chegando", "como chega aqui hoje", "como você chega hoje".
 Se a mensagem do usuário for apenas uma saudação breve, não repita a saudação, não faça perguntas fenomenológicas de abertura; apenas acolha de forma simples quando apropriado.`.trim();
 
-  // Early return para Nível 1
+  // Early return para Nível 1 (preset leve; sem memórias; sem heurísticas)
   if (nivel === 1) {
     const nomesNv1 = [
       ...(matrizPromptBase.alwaysInclude ?? []),

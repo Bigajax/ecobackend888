@@ -1,20 +1,33 @@
 // utils/respostaSaudacaoAutomatica.ts
-// Saudação natural e orientada ao autoconhecimento
+// Saudação natural e orientada ao autoconhecimento — com FAST-PATH e meta
 
-type Msg = { role?: string; content: string };
+export type Msg = { role?: string; content: string };
+
+export type SaudacaoAutoMeta = {
+  isGreeting: boolean;
+  isFarewell: boolean;
+  firstTurn: boolean;
+};
+
+export type SaudacaoAutoResp = {
+  text: string;
+  meta: SaudacaoAutoMeta;
+};
 
 const ECO_DEBUG = process.env.ECO_DEBUG === "true";
 
-// Aceita mensagens curtinhas (ex.: "olá eco", "oi", "boa noite eco")
-const MAX_LEN_FOR_GREETING = 64;
+// Aceita mensagens bem curtas (ex.: "olá eco", "oi", "oi eco", "oi, tudo bem?")
+const MAX_LEN_FOR_GREETING = 40;
 
 // Regex estendida (texto já vai normalizado sem acentos)
-// Agora aceita um sufixo curto opcional como "eco", "@eco", "bot", "assistente"
+// Aceita sufixo curto opcional: "eco", "@eco", "bot", "assistente", "ai", "chat"
+// Inclui variações "oi tudo bem", "olá eco", "oi eco", "tudo bem"
 const GREET_RE =
-  /^(?:oi+|oie+|ola+|alo+|opa+|salve|e\s*a[ei]|eai|eae|fala(?:\s*ai)?|falae|hey+|hi+|hello+|yo+|sup|bom\s*dia+|boa\s*tarde+|boa\s*noite+|boa\s*madrugada+|good\s*(?:morning|afternoon|evening|night)|tudo\s*(?:bem|bom|certo)|td\s*bem|beleza|blz|suave|de\s*boa|tranq(?:s)?|tranquilo(?:\s*ai)?|como\s*(?:vai|vc\s*esta|voce\s*esta|ce\s*ta|c[eu]\s*ta))(?:[\s,]*(@?eco|eco|bot|assistente|ai|chat))?\s*[!?.…]*$/i;
+  /^(?:(?:oi+|oie+|ola+|ol[aá]|alo+|opa+|salve)(?:[, ]*(?:tudo\s*bem|td\s*bem))?|tudo\s*(?:bem|bom|certo)|oi+[, ]*tudo\s*bem|ol[aá]\s*eco|oi\s*eco|oie\s*eco|ola\s*eco|alo\s*eco|bom\s*dia+|boa\s*tarde+|boa\s*noite+|boa\s*madrugada+|e\s*a[ei]|e\s*a[ií]\??|eai|eae|fala(?:\s*ai)?|falae|hey+|hi+|hello+|yo+|sup|beleza|blz|suave|de\s*boa|tranq(?:s)?|tranquilo(?:\s*ai)?|como\s*(?:vai|vc\s*esta|voce\s*esta|ce\s*ta|c[eu]\s*ta))(?:[\s,]*(@?eco|eco|bot|assistente|ai|chat))?\s*[!?.…]*$/i;
 
+// "boa noite" removido daqui para não conflitar como despedida
 const FAREWELL_RE =
-  /^(?:tchau+|ate\s+mais|ate\s+logo|valeu+|vlw+|obrigad[oa]+|brigad[oa]+|falou+|fui+|bom\s*descanso|boa\s*noite|durma\s*bem|ate\s*amanha|ate\s*breve|ate)\s*[!?.…]*$/i;
+  /^(?:tchau+|ate\s+mais|ate\s+logo|valeu+|vlw+|obrigad[oa]+|brigad[oa]+|falou+|fui+|bom\s*descanso|durma\s*bem|ate\s*amanha|ate\s*breve|ate)\s*[!?.…]*$/i;
 
 function normalizar(msg: string): string {
   return (msg || "")
@@ -52,7 +65,7 @@ export function respostaSaudacaoAutomatica({
 }: {
   messages: Msg[];
   userName?: string;
-}): string | null {
+}): SaudacaoAutoResp | null {
   if (!messages?.length) return null;
 
   const lastRaw = messages.at(-1)!.content || "";
@@ -63,7 +76,8 @@ export function respostaSaudacaoAutomatica({
   const isFarewell = isShort && FAREWELL_RE.test(last);
 
   if (ECO_DEBUG) {
-    console.log("[SAUDACAO] last=", last, {
+    console.log("[SAUDACAO]", {
+      last,
       isShort,
       isGreeting,
       isFarewell,
@@ -74,7 +88,10 @@ export function respostaSaudacaoAutomatica({
   // Despedidas curtas → fechamento suave
   if (isFarewell) {
     const sd = saudacaoDoDia();
-    return `Que sua ${sd.toLowerCase()} seja leve. Quando quiser, retomamos por aqui.`;
+    return {
+      text: `Que sua ${sd.toLowerCase()} seja leve. Quando quiser, retomamos por aqui.`,
+      meta: { isGreeting: false, isFarewell: true, firstTurn: false },
+    };
   }
 
   // Saudações curtas → acolhe e convida à auto-observação
@@ -97,7 +114,10 @@ export function respostaSaudacaoAutomatica({
       `Ei${nome}. Prefere começar pelo que pesa ou pelo que está mais claro?`,
     ];
 
-    return firstTurn ? pick(variantesPrimeira) : pick(variantesRetorno);
+    return {
+      text: firstTurn ? pick(variantesPrimeira) : pick(variantesRetorno),
+      meta: { isGreeting: true, isFarewell: false, firstTurn },
+    };
   }
 
   return null;
