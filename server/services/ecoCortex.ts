@@ -1,6 +1,6 @@
-// ============================================================================
+// ============================================================================ 
 // getEcoResponseOtimizado — versão corrigida e equivalente ao original
-// - Corrige fast-path de saudação (usa { text, meta })
+// - Corrige fast-path de saudação (usa { text, meta } + clientHour)
 // - Remove IO paralelo não usado
 // - Reaproveita embedding com cache
 // - Usa extração ROBUSTA do bloco técnico (com response_format, fallback de modelo e regex)
@@ -230,8 +230,10 @@ try {
     set<T = any>(k: string, v: T): boolean {
       if (this.map.size >= this.maxKeys) {
         // política simples: remove a primeira chave
-        const first = this.map.keys().next().value;
-        if (first) this.map.delete(first);
+        theFirst: {
+          const first = this.map.keys().next().value;
+          if (first) this.map.delete(first);
+        }
       }
       const exp = this.stdTTL ? Date.now() + this.stdTTL : 0;
       this.map.set(k, { v, exp });
@@ -510,6 +512,7 @@ export async function getEcoResponseOtimizado({
   mems = [],
   forcarMetodoViva = false,
   blocoTecnicoForcado = null,
+  clientHour, // ← NOVO: hora local do cliente [0-23]
 }: {
   messages: { id?: string; role: string; content: string }[];
   userId?: string;
@@ -518,6 +521,7 @@ export async function getEcoResponseOtimizado({
   mems?: any[];
   forcarMetodoViva?: boolean;
   blocoTecnicoForcado?: any;
+  clientHour?: number; // ← NOVO
 }): Promise<{
   message: string;
   intensidade?: number;
@@ -535,8 +539,8 @@ export async function getEcoResponseOtimizado({
     }
     if (!accessToken) throw new Error("Token (accessToken) ausente.");
 
-    // 1) FAST-PATH: usa { text, meta } e salva referência leve sem embedding
-    const auto: SaudacaoAutoResp | null = respostaSaudacaoAutomatica({ messages, userName });
+    // 1) FAST-PATH: usa { text, meta } + clientHour e salva referência leve sem embedding
+    const auto: SaudacaoAutoResp | null = respostaSaudacaoAutomatica({ messages, userName, clientHour });
     if (auto) {
       console.log("⚡ Fast-path:", now() - t0, "ms");
       const ultimaMsg = messages.at(-1)?.content ?? "";
@@ -546,17 +550,17 @@ export async function getEcoResponseOtimizado({
             await salvarReferenciaTemporaria({
               usuario_id: userId,
               mensagem_id: messages.at(-1)?.id ?? null,
-              resumo_eco: auto.text,                 // resposta curta
+              resumo_eco: auto.text,
               emocao_principal: "indefinida",
-              intensidade: 3,                        // leve
-              contexto: ultimaMsg,                   // entrada do usuário
+              intensidade: 3,
+              contexto: ultimaMsg,
               dominio_vida: "social",
               padrao_comportamental: "abertura para interação",
               nivel_abertura: 1,
               categoria: "interação social",
               analise_resumo: auto.text,
               tags: ["saudação"],
-              embedding: [],                         // sem custo aqui
+              embedding: [],
             });
           } catch { /* silencioso */ }
         });
@@ -819,7 +823,7 @@ function logMetricas(metrica: PerformanceMetrics) {
     );
     console.log("📊 Métricas (últimas 10):", {
       tempoMedio: Math.round(avg.tempoTotal / 10),
-      ecoMedio: Math.round(avg.tempoEco / 10),
+      ecoMedio: Math.round(avg.ecoMedio ?? avg.tempoEco / 10),
       cacheHitRate: Math.round((avg.cacheHits / 10) * 100) + "%",
       tokensMedio: Math.round(avg.tokensUsados / 10),
     });

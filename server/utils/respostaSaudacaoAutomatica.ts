@@ -17,7 +17,7 @@ export type SaudacaoAutoResp = {
 const ECO_DEBUG = process.env.ECO_DEBUG === "true";
 
 // Aceita mensagens bem curtas (ex.: "olá eco", "oi", "oi eco", "oi, tudo bem?")
-const MAX_LEN_FOR_GREETING = 40;
+const MAX_LEN_FOR_GREETING = 64;
 
 // Regex estendida (texto já vai normalizado sem acentos)
 // Aceita sufixo curto opcional: "eco", "@eco", "bot", "assistente", "ai", "chat"
@@ -25,7 +25,7 @@ const MAX_LEN_FOR_GREETING = 40;
 const GREET_RE =
   /^(?:(?:oi+|oie+|ola+|ol[aá]|alo+|opa+|salve)(?:[, ]*(?:tudo\s*bem|td\s*bem))?|tudo\s*(?:bem|bom|certo)|oi+[, ]*tudo\s*bem|ol[aá]\s*eco|oi\s*eco|oie\s*eco|ola\s*eco|alo\s*eco|bom\s*dia+|boa\s*tarde+|boa\s*noite+|boa\s*madrugada+|e\s*a[ei]|e\s*a[ií]\??|eai|eae|fala(?:\s*ai)?|falae|hey+|hi+|hello+|yo+|sup|beleza|blz|suave|de\s*boa|tranq(?:s)?|tranquilo(?:\s*ai)?|como\s*(?:vai|vc\s*esta|voce\s*esta|ce\s*ta|c[eu]\s*ta))(?:[\s,]*(@?eco|eco|bot|assistente|ai|chat))?\s*[!?.…]*$/i;
 
-// "boa noite" removido daqui para não conflitar como despedida
+// "boa noite" removido da despedida para não conflitar com saudação noturna
 const FAREWELL_RE =
   /^(?:tchau+|ate\s+mais|ate\s+logo|valeu+|vlw+|obrigad[oa]+|brigad[oa]+|falou+|fui+|bom\s*descanso|durma\s*bem|ate\s*amanha|ate\s*breve|ate)\s*[!?.…]*$/i;
 
@@ -38,8 +38,10 @@ function normalizar(msg: string): string {
     .trim();
 }
 
-function saudacaoDoDia(date = new Date()) {
-  const h = date.getHours();
+function saudacaoDoDia(opts?: { clientHour?: number }) {
+  const h = typeof opts?.clientHour === "number" && opts.clientHour >= 0 && opts.clientHour <= 23
+    ? opts.clientHour
+    : new Date().getHours(); // fallback: horário do servidor
   if (h < 6) return "Boa noite";
   if (h < 12) return "Bom dia";
   if (h < 18) return "Boa tarde";
@@ -62,9 +64,11 @@ function isFirstUserTurn(messages: Msg[]): boolean {
 export function respostaSaudacaoAutomatica({
   messages,
   userName,
+  clientHour,
 }: {
   messages: Msg[];
   userName?: string;
+  clientHour?: number; // ← novo
 }): SaudacaoAutoResp | null {
   if (!messages?.length) return null;
 
@@ -82,12 +86,13 @@ export function respostaSaudacaoAutomatica({
       isGreeting,
       isFarewell,
       len: last.length,
+      clientHour,
     });
   }
 
   // Despedidas curtas → fechamento suave
   if (isFarewell) {
-    const sd = saudacaoDoDia();
+    const sd = saudacaoDoDia({ clientHour });
     return {
       text: `Que sua ${sd.toLowerCase()} seja leve. Quando quiser, retomamos por aqui.`,
       meta: { isGreeting: false, isFarewell: true, firstTurn: false },
@@ -96,7 +101,7 @@ export function respostaSaudacaoAutomatica({
 
   // Saudações curtas → acolhe e convida à auto-observação
   if (isGreeting) {
-    const sd = saudacaoDoDia();
+    const sd = saudacaoDoDia({ clientHour });
     const nome = userName ? `, ${userName.split(" ")[0]}` : "";
     const firstTurn = isFirstUserTurn(messages);
 
@@ -105,6 +110,8 @@ export function respostaSaudacaoAutomatica({
       `${sd}${nome}. Se desse um nome ao seu estado de hoje, qual seria?`,
       `${sd}${nome}. Respire um instante e observe: qual emoção aparece primeiro?`,
       `${sd}${nome}. Em 1–3 palavras, como você está?`,
+      // toque de continuidade sutil
+      `${sd}${nome}. Se preferir, só me dá um “ok” e seguimos devagar.`,
     ];
 
     const variantesRetorno = [
