@@ -13,6 +13,7 @@ import voiceTTSRoutes from "./routes/voiceTTSRoutes";
 import voiceFullRoutes from "./routes/voiceFullRoutes";
 import openrouterRoutes from "./routes/openrouterRoutes";
 import relatorioRoutes from "./routes/relatorioEmocionalRoutes";
+import feedbackRoutes from "./routes/feedback"; // ⬅️ novo import
 
 import { registrarTodasHeuristicas } from "./services/registrarTodasHeuristicas";
 import { registrarModulosFilosoficos } from "./services/registrarModulosFilosoficos";
@@ -70,6 +71,9 @@ app.use("/api/voice", voiceTTSRoutes);
 app.use("/api/voice", voiceFullRoutes);
 app.use("/api", openrouterRoutes);
 app.use("/api/relatorio-emocional", relatorioRoutes);
+
+// ⬇️ nova rota de feedback (thumbs up/down)
+app.use("/api/feedback", feedbackRoutes);
 
 /* ----------------------------- Inicialização ------------------------------ */
 app.listen(PORT, async () => {
