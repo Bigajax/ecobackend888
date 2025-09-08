@@ -1,9 +1,9 @@
-import { Router } from "express";
+import express from "express";
 import { generateAudio } from "../services/elevenlabsService";
 
-const router = Router();
+const router = express.Router();
 
-/** POST /api/voice/tts  Body: { text: string, voice_id?: string } */
+/** Gera TTS e retorna MP3 binário */
 router.post("/tts", async (req, res) => {
   try {
     const { text, voice_id } = req.body || {};
@@ -13,13 +13,22 @@ router.post("/tts", async (req, res) => {
 
     const audio = await generateAudio(text, voice_id);
 
-    res.setHeader("Content-Type", "audio/mpeg");
-    res.setHeader("Cache-Control", "no-store");
-    return res.status(200).send(Buffer.from(audio));
-  } catch (err: any) {
-    console.error("[/tts] erro:", err?.message || err);
-    return res.status(500).json({ error: err?.message || "Erro ao gerar áudio" });
+    res.set({
+      "Content-Type": "audio/mpeg",
+      "Cache-Control": "no-store",
+      "Content-Length": audio.length.toString(),
+    });
+
+    return res.status(200).send(audio);
+  } catch (e: any) {
+    console.error("[TTS ERROR]", e?.message || e);
+    return res.status(500).json({ error: e?.message || "Erro ao gerar áudio" });
   }
+});
+
+/** Resposta clara para métodos incorretos (evita 405 confuso) */
+router.all("/tts", (_req, res) => {
+  res.status(405).json({ error: "Método não permitido. Use POST em /api/voice/tts." });
 });
 
 export default router;
