@@ -5,32 +5,31 @@ import fetch, { Headers } from "node-fetch";
 dotenv.config();
 
 const ELEVEN_API_KEY = process.env.ELEVEN_API_KEY;
-const DEFAULT_VOICE_ID = (process.env.ELEVEN_VOICE_ID || "Hgfor6xcJTM3hCSKmChL").trim(); // PT-BR favorita
+const DEFAULT_VOICE_ID = (process.env.ELEVEN_VOICE_ID || "Hgfor6xcJTM3hCSKmChL").trim(); // sua voz padrão (PT-BR)
 
 if (!ELEVEN_API_KEY) {
   throw new Error("❌ ELEVEN_API_KEY não está definida.");
 }
 
-/**
- * Pequeno util para aguardar (backoff)
- */
+/** aguardinha para backoff */
 function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
 /**
- * Gera áudio TTS usando ElevenLabs.
- * @param text    Texto a ser sintetizado
- * @param voiceId (opcional) override de voz por chamada; se omitido usa DEFAULT_VOICE_ID
+ * Gera áudio TTS usando ElevenLabs (preset CALMO).
+ * - prosódia suave (stability ↑), pouca teatralidade (style ↓)
+ * - mantém fidelidade de timbre (similarity_boost ↑)
+ * - speaker_boost ligado para dar presença em celular
  */
 export async function generateAudio(text: string, voiceId?: string): Promise<Buffer> {
-  // --- validação & saneamento do texto
+  // --- saneamento básico
   if (typeof text !== "string") throw new Error("Texto inválido para conversão em áudio.");
   const sanitized = text.replace(/\s+/g, " ").trim();
   if (!sanitized) throw new Error("Texto vazio após saneamento.");
   const limited = sanitized.slice(0, 2400); // limite seguro
 
-  // Para PT-BR a prosódia costuma ficar melhor no multilingual_v2
+  // Para PT-BR, o v2 costuma soar mais natural. (Se enviar trechos MUITO longos e quiser baratear, troque para eleven_turbo_v2_5)
   const model = "eleven_multilingual_v2";
 
   const vid = (voiceId || DEFAULT_VOICE_ID || "").trim();
@@ -42,16 +41,21 @@ export async function generateAudio(text: string, voiceId?: string): Promise<Buf
     Accept: "audio/mpeg",
   });
 
+  // 🎚️ PRESET CALMO
+  // - stability 0.65: mais estável (menos picos/emotividade)
+  // - similarity 0.90: mantém o timbre fiel
+  // - style 0.12: expressividade mínima, evita “atuado”
+  // - speaker_boost: presença/clareza (bom p/ mobile)
   const body = {
     text: limited,
     model_id: model,
     voice_settings: {
-      stability: 0.4,
-      similarity_boost: 0.9,
-      style: 0.3,              // um pouco de expressividade
-      use_speaker_boost: true, // 🔊 reforça presença sem distorcer
+      stability: 0.65,
+      similarity_boost: 0.90,
+      style: 0.12,
+      use_speaker_boost: true,
     },
-    // Sobe o bitrate para dar mais "corpo" à voz
+    // 128 kbps para ficar encorpado sem pesar demais
     output_format: "mp3_44100_128",
   };
 
@@ -63,12 +67,9 @@ export async function generateAudio(text: string, voiceId?: string): Promise<Buf
 
     let attempt = 0;
     const maxAttempts = 3;
-
-    // backoff em ms (exponencial simples)
-    const backoff = [0, 600, 1500];
+    const backoff = [0, 600, 1500]; // ms
 
     while (attempt < maxAttempts) {
-      // timeout defensivo
       const controller = new AbortController();
       const t = setTimeout(() => controller.abort(), 30_000);
 
@@ -91,7 +92,7 @@ export async function generateAudio(text: string, voiceId?: string): Promise<Buf
           };
           console.error("[ElevenLabs ERROR]", details);
 
-          // Erros que valem retry
+          // Retentativas para limitação/transientes
           if (resp.status === 429 || (resp.status >= 500 && resp.status <= 599)) {
             if (attempt < maxAttempts - 1) {
               await sleep(backoff[attempt + 1] || 1200);
@@ -103,14 +104,9 @@ export async function generateAudio(text: string, voiceId?: string): Promise<Buf
           if (resp.status === 401 || resp.status === 403) {
             throw new Error("Chave inválida ou sem permissão de TTS na ElevenLabs.");
           }
-          if (resp.status === 404) {
-            throw new Error("VOICE_ID inválido/não encontrado.");
-          }
-          if (resp.status === 422) {
-            throw new Error("Requisição inválida (texto vazio/curto ou parâmetros inconsistentes).");
-          }
+          if (resp.status === 404) throw new Error("VOICE_ID inválido/não encontrado.");
+          if (resp.status === 422) throw new Error("Requisição inválida (texto vazio/curto ou parâmetros inconsistentes).");
 
-          // Para 405 especificamente, deixamos o caller decidir o fallback
           const e: any = new Error(`ElevenLabs ${resp.status}: ${resp.statusText}`);
           e.status = resp.status;
           e.responseBody = details.bodyPreview;
@@ -121,7 +117,6 @@ export async function generateAudio(text: string, voiceId?: string): Promise<Buf
         if (!buf.length) throw new Error("Resposta de áudio vazia.");
         return buf;
       } catch (err: any) {
-        // Abort, rede, etc. Se ainda temos tentativas, tenta novamente
         const transient =
           err?.name === "AbortError" ||
           err?.code === "ECONNRESET" ||
@@ -134,7 +129,6 @@ export async function generateAudio(text: string, voiceId?: string): Promise<Buf
           attempt++;
           continue;
         }
-
         throw err;
       }
     }
@@ -142,7 +136,7 @@ export async function generateAudio(text: string, voiceId?: string): Promise<Buf
     throw new Error("Falha ao obter áudio após múltiplas tentativas.");
   };
 
-  // Primeiro tentamos o endpoint recomendado (/stream). Se der 405, cai no legacy (sem /stream).
+  // Primeiro tenta /stream; se 405, usa o endpoint legacy
   try {
     return await call("/stream");
   } catch (e: any) {
