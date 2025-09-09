@@ -19,66 +19,46 @@ import { registrarModulosFilosoficos } from "./services/registrarModulosFilosofi
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-const DEV = process.env.NODE_ENV !== "production";
-
-// ——— Origens permitidas
-const FRONTEND_URL = (process.env.FRONTEND_URL || "").trim(); // ex: https://ecoapp.vercel.app
-const vercelPreview = /^https?:\/\/[^/]*\.vercel\.app$/;
-const localhost = /^http:\/\/localhost:\d+$/;
-const loopback = /^http:\/\/127\.0\.0\.1:\d+$/;
-
-function isAllowedOrigin(origin?: string | null) {
-  if (!origin) return true; // server-to-server
-  if (DEV && (localhost.test(origin) || loopback.test(origin))) return true;
-  if (FRONTEND_URL && origin === FRONTEND_URL) return true;
-  if (vercelPreview.test(origin)) return true;
-  return false;
-}
-
-// ——— Fallback CORS manual (resolve preflight em qualquer rota/erro)
+/* ------------------------------------------------------------------ */
+/*  CORS GLOBAL (permite tudo – sem cookies)                           */
+/*  Segurança: ok porque usamos somente Bearer no header Authorization */
+/* ------------------------------------------------------------------ */
 app.use((req, res, next) => {
-  const origin = req.headers.origin as string | undefined;
-  const allowed = isAllowedOrigin(origin);
-
-  if (allowed) {
-    // reflete a origem quando houver, senão libera geral (sem cookies)
-    res.setHeader("Vary", "Origin");
-    res.setHeader("Access-Control-Allow-Origin", origin || "*");
-    res.setHeader(
-      "Access-Control-Allow-Headers",
-      "Authorization, Content-Type, X-Requested-With"
-    );
-    res.setHeader(
-      "Access-Control-Allow-Methods",
-      "GET, POST, PUT, PATCH, DELETE, OPTIONS"
-    );
-    res.setHeader("Access-Control-Max-Age", "86400");
-  }
+  // Sempre setar os headers antes de qualquer resposta
+  res.setHeader("Vary", "Origin, Access-Control-Request-Method, Access-Control-Request-Headers");
+  res.setHeader("Access-Control-Allow-Origin", "*"); // aberto – sem cookies
+  res.setHeader(
+    "Access-Control-Allow-Headers",
+    "Authorization, Content-Type, X-Requested-With"
+  );
+  res.setHeader(
+    "Access-Control-Allow-Methods",
+    "GET, POST, PUT, PATCH, DELETE, OPTIONS"
+  );
+  res.setHeader("Access-Control-Max-Age", "86400");
 
   if (req.method === "OPTIONS") {
-    // termina o preflight aqui com 204
+    // Preflight: termina aqui com 204 e zero bytes
     return res.status(204).end();
   }
-
   return next();
 });
 
-/* ---------------------------- Body parsing -------------------------------- */
+/* --------------------------- Body parsing --------------------------- */
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-/* ------------------------------ Logger ------------------------------------ */
+/* ------------------------------- Log -------------------------------- */
 app.use((req, _res, next) => {
-  // útil p/ debugar origem no Render
   const origin = req.headers.origin || "-";
-  console.log(`Backend: [${req.method}] ${req.originalUrl} (Origin: ${origin})`);
+  console.log(`Backend: [${req.method}] ${req.originalUrl}  (Origin: ${origin})`);
   next();
 });
 
-/* ---------------------------- Healthcheck --------------------------------- */
+/* ---------------------------- Healthcheck --------------------------- */
 app.get("/", (_req, res) => res.status(200).send("OK"));
 
-/* -------------------------------- Rotas ----------------------------------- */
+/* ------------------------------- Rotas ------------------------------ */
 app.use("/api", promptRoutes);
 app.use("/api/memorias", memoryRoutes);
 app.use("/api/perfil-emocional", profileRoutes);
@@ -88,11 +68,9 @@ app.use("/api", openrouterRoutes);
 app.use("/api/relatorio-emocional", relatorioRoutes);
 app.use("/api/feedback", feedbackRoutes);
 
-/* ----------------------------- Inicialização ------------------------------ */
+/* ----------------------------- Inicializa --------------------------- */
 app.listen(PORT, async () => {
   console.log(`Servidor Express rodando na porta ${PORT}`);
-  console.log("FRONTEND_URL:", FRONTEND_URL || "(não definido)");
-  console.log("Modo DEV:", DEV);
 
   if (process.env.REGISTRAR_HEURISTICAS === "true") {
     await registrarTodasHeuristicas();
