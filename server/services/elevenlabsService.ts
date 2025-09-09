@@ -5,7 +5,7 @@ import fetch, { Headers } from "node-fetch";
 dotenv.config();
 
 const ELEVEN_API_KEY = process.env.ELEVEN_API_KEY;
-const DEFAULT_VOICE_ID = (process.env.ELEVEN_VOICE_ID || "Hgfor6xcJTM3hCSKmChL").trim(); // sua voz padrão (PT-BR)
+const DEFAULT_VOICE_ID = (process.env.ELEVEN_VOICE_ID || "e5WNhrdI30aXpS2RSGm1").trim(); // sua voz padrão (PT-BR)
 
 if (!ELEVEN_API_KEY) {
   throw new Error("❌ ELEVEN_API_KEY não está definida.");
