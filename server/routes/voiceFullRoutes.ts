@@ -5,12 +5,14 @@ import { getEcoResponse } from "../services/ecoCortex";
 import { transcribeWithWhisper } from "../scripts/transcribe";
 
 const router = express.Router();
-const upload = multer(); // se quiser, limite de tamanho: multer({ limits:{ fileSize: 10*1024*1024 }})
+const upload = multer();
+
+const VOICE_FIXED = (process.env.ELEVEN_VOICE_ID || "e5WNhrdI30aXpS2RSGm1").trim();
 
 router.post("/transcribe-and-respond", upload.single("audio"), async (req, res) => {
   try {
     const audioFile = req.file;
-    const { nome_usuario, usuario_id, mensagens, access_token, voice_id } = req.body;
+    const { nome_usuario, usuario_id, mensagens, access_token } = req.body;
 
     if (!audioFile || !access_token) {
       return res.status(400).json({ error: "Áudio e token são obrigatórios." });
@@ -38,9 +40,11 @@ router.post("/transcribe-and-respond", upload.single("audio"), async (req, res) 
     const ecoText = (eco?.message || "").trim();
     if (!ecoText) return res.status(422).json({ error: "A resposta da IA veio vazia." });
 
-    const audioBuf = await generateAudio(ecoText, voice_id);
+    // 👇 força SEMPRE a voz fixa
+    const audioBuf = await generateAudio(ecoText, VOICE_FIXED);
 
     res.setHeader("Cache-Control", "no-store");
+    res.setHeader("x-voice-id", VOICE_FIXED); // 👈 ver no Network
     return res.json({
       userText,
       ecoText,
