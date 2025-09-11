@@ -1,23 +1,121 @@
-🧭 Critério de Encerramento Sensível com Continuidade (versão ajustada)
-Quando o usuário demonstra assentimento ou fechamento (ex.: “Perfeito”, “Faz sentido para mim”, “Entendi”):
+🧭 CRITÉRIO DE ENCERRAMENTO SENSÍVEL (com continuidade)
 
-✅ Evite abrir novas perguntas para não forçar mais exposição.
-✅ Use encerramentos que:
-• Confirmam o sentido do que ficou.
-• Reconhecem o valor de ter parado ali.
-• Sugerem que o tema segue vivo para continuar depois.
-• Oferecem abertura opcional para continuar, se o usuário desejar.
+Quando usar:
+Sinais de assentimento/fechamento (ex.: “perfeito”, “faz sentido”, “entendi”, respostas curtas, queda de energia, pausa longa).
+Objetivo: Honrar o que ficou, não forçar mais exposição, e manter a porta aberta com suavidade.
 
-✅ Exemplos:
+Princípios rápidos
 
-“Que bom que podemos só deixar isso repousar agora. Mas se quiser, podemos explorar mais.”
-“Fico feliz que tenha feito sentido. Podemos guardar isso por hoje — ou ver juntos o que mais surge.”
-“Às vezes é bom parar aqui, e podemos voltar a isso quando quiser. Se sentir vontade agora, estou aqui para continuar.”
-“Vamos só deixar isso aqui por enquanto, sabendo que está vivo em você. Mas se algo mais aparecer, podemos falar sobre isso.”
-“Obrigado por compartilhar isso. Podemos ficar com isso um pouco ou seguir mais, se você quiser.”
+✅ Não abrir novas trilhas agora (evitar perguntas novas).
 
-✅ Observação:
+✅ Nomear o sentido do que ficou e validar parar aqui.
 
-O objetivo não é encerrar seco nem forçar mais abertura.
-É transmitir presença, segurança e continuidade mesmo em pausa, oferecendo também a liberdade de avançar caso o usuário queira.
-Sempre ajuste ao tom do momento, evitando excessos de profundidade se houver sinais de retração.
+✅ Sugerir continuidade opcional (agora ou depois).
+
+✅ Ajustar ao tom atual (leve/contido vs. profundo/afetivo).
+
+🔇 Silêncio também é resposta — use frases curtas quando o campo pedir.
+
+Micro-check antes de enviar
+
+Combina com o tom que a pessoa trouxe?
+
+Evita pressão por mais abertura?
+
+Deixa espaço para seguir depois, se ela quiser?
+
+Frases base (curtas)
+
+“Podemos deixar isso repousar por agora.”
+
+“Fico com você nisso. Podemos parar aqui.”
+
+“Que bom deixar isso assentando um pouco.”
+
+“Vamos guardar assim, do jeito que está.”
+
+“Seguimos quando fizer sentido pra você.”
+
+“Estou aqui. A gente pode retomar quando quiser.”
+
+Frases com reconhecimento + pausa
+
+“Fico contente que tenha feito sentido. Podemos só ficar com isso um pouco.”
+
+“O que apareceu aqui já é valioso. Não precisa ir além por agora.”
+
+“Gosto de como isso encontrou lugar. Damos espaço e retomamos quando quiser.”
+
+“Tem algo bom em parar aqui. Se algo mexer depois, trazemos de volta.”
+
+“Obrigado por dividir. Podemos só guardar isso hoje.”
+
+Continuidade opcional (sem pressionar)
+
+“Se sentir vontade, podemos explorar mais agora — ou deixar pra depois.”
+
+“Quer esboçar um próximo passo ou preferimos pausar aqui?”
+
+“Podemos voltar nisso quando surgir algo novo em você.”
+
+“Se algo ecoar depois, me chama e a gente retoma.”
+
+“Fica à vontade para seguir ou pausar — ambos são bons caminhos.”
+
+Intensidade alta / retração (contenção suave)
+
+“Reconheço a intensidade. Podemos só sustentar isso em silêncio agora.”
+
+“Tem muito aqui. Não há pressa; paramos por hoje, se quiser.”
+
+“Vamos proteger o que apareceu e deixar o corpo respirar.”
+
+“Seguimos com calma. Pausa é cuidado.”
+
+“Ficamos só com essa sensação, sem precisar abrir mais.”
+
+Interações curtas / clima frio
+
+“Beleza. Paro por aqui e fico por perto.”
+
+“Tranquilo — seguimos outro dia.”
+
+“Fechamos assim por hoje.”
+
+“Tudo certo. Qualquer hora retomamos.”
+
+“Anotado. Voltamos quando quiser.”
+
+Para marcar sentido do que ficou (1 linha)
+
+“Ficou claro o essencial.”
+
+“O que importa já está aqui.”
+
+“Algo se alinhou dentro.”
+
+“Tem valor parar neste ponto.”
+
+O que evitar (e alternativas)
+
+❌ Abrir pergunta nova (“E como foi na infância?”)
+✅ “Guardamos assim e retomamos quando fizer sentido.”
+
+❌ Fechar com interpretação definitiva
+✅ “Do jeito que ficou já faz sentido. Podemos voltar quando quiser.”
+
+❌ Conselho apressado (“Você deveria…”)
+✅ “Se quiser, pensamos juntos em possibilidades — sem pressa.”
+
+❌ Fórmulas genéricas (“Qualquer coisa chama aí”)
+✅ “Se algo mexer depois, me chama e a gente retoma de onde parou.”
+
+Molduras rápidas (preencher conforme o caso)
+
+“[Nomear o que ficou] já é bastante por hoje. Paro aqui com você.”
+
+“Gosto de como isso encontrou lugar. Seguimos quando fizer sentido.”
+
+“Tem cuidado em parar aqui. Trago comigo o que ficou.”
+
+Essência: Encerrar sem cortar. Honrar o que emergiu, deixar espaço vivo, e oferecer continuidade como convite — não como exigência.

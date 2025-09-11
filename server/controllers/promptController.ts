@@ -14,10 +14,10 @@ import { buscarReferenciasSemelhantes } from '../services/buscarReferenciasSemel
 import { buscarEncadeamentosPassados } from '../services/buscarEncadeamentos';
 import { get_encoding } from '@dqbd/tiktoken';
 
-// ⬇️ Regras seguras (novo avaliador)
+// Regras seguras (avaliador booleano para condicoesEspeciais)
 import { evalRule } from '../utils/ruleEval';
 
-// ⬇️ Triggers de regulação (grounding/box/dispenza)
+// Triggers de regulação (grounding/box/dispenza)
 import {
   melhorPratica,
   extrairTempoMencionado,
@@ -37,15 +37,15 @@ const log = {
 // CONFIG
 // ----------------------------------
 const MAX_PROMPT_TOKENS = Number(process.env.ECO_MAX_PROMPT_TOKENS ?? 8000);
-const NIVEL1_BUDGET = Number(process.env.ECO_NIVEL1_BUDGET ?? 2500);
-const HARD_CAP_EXTRAS = 6; // limite de extras por turno
+const NIVEL1_BUDGET  = Number(process.env.ECO_NIVEL1_BUDGET ?? 2500);
+const HARD_CAP_EXTRAS = 6;     // limite de extras por turno
 const TIMEOUT_FUZZY_MS = 1500;
-const TIMEOUT_EMB_MS = 2200;
-const TIMEOUT_MEM_MS = 2200;
-const TIMEOUT_ENC_MS = 2000;
+const TIMEOUT_EMB_MS   = 2200;
+const TIMEOUT_MEM_MS   = 2200;
+const TIMEOUT_ENC_MS   = 2000;
 
 // ----------------------------------
-// TYPES (locais; mantemos soltos para acoplar pouco)
+// TYPES (locais; baixo acoplamento)
 // ----------------------------------
 interface PerfilEmocional {
   emocoes_frequentes?: Record<string, number>;
@@ -62,7 +62,7 @@ interface Memoria {
   similaridade?: number;
   score?: number;
   emocao_principal?: string;
-  nivel_abertura?: number;
+  nivel_abertura?: number | string;
 }
 
 interface Heuristica {
@@ -79,15 +79,14 @@ interface ModuloFilosoficoTrigger {
 // ----------------------------------
 const normalizarTexto = (t: string) =>
   t.toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '');
+
 const capitalizarNome = (n?: string) =>
   n ? n.trim().replace(/\b\w/g, (c) => c.toUpperCase()) : '';
+
 const nivelAberturaParaNumero = (v: string | number | undefined): number => {
   if (typeof v === 'number') return v;
   if (typeof v === 'string') {
-    const clean = v
-      .normalize('NFD')
-      .replace(/\p{Diacritic}/gu, '')
-      .toLowerCase();
+    const clean = v.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase();
     if (clean === 'baixo') return 1;
     if (clean === 'medio') return 2;
     if (clean === 'alto') return 3;
@@ -98,9 +97,9 @@ const nivelAberturaParaNumero = (v: string | number | undefined): number => {
 function construirStateSummary(perfil: PerfilEmocional | null, nivel: number): string {
   if (!perfil) return '';
   const emocoes = Object.keys(perfil.emocoes_frequentes || {}).join(', ') || 'nenhuma';
-  const temas = Object.keys(perfil.temas_recorrentes || {}).join(', ') || 'nenhum';
+  const temas   = Object.keys(perfil.temas_recorrentes || {}).join(', ') || 'nenhum';
   const abertura = nivel === 1 ? 'superficial' : nivel === 2 ? 'reflexiva' : 'profunda';
-  const resumo = perfil.resumo_geral_ia || 'sem resumo geral registrado';
+  const resumo  = perfil.resumo_geral_ia || 'sem resumo geral registrado';
   return `\n🗺️ Estado Emocional Consolidado:
 - Emoções frequentes: ${emocoes}
 - Temas recorrentes: ${temas}
@@ -109,7 +108,7 @@ function construirStateSummary(perfil: PerfilEmocional | null, nivel: number): s
 - Resumo geral: ${resumo}`.trim();
 }
 
-// versão enxuta (não cola frases longas)
+// versão enxuta (só pista de continuidade)
 function construirNarrativaMemorias(mems: Memoria[]): string {
   if (!mems || mems.length === 0) return '';
   const ord = [...mems]
@@ -129,29 +128,24 @@ function construirNarrativaMemorias(mems: Memoria[]): string {
 
   const temasTxt = [...temas].slice(0, 3).join(', ') || '—';
   const emocoesTxt = [...emocoes].slice(0, 2).join(', ') || '—';
-  return `\n📜 Continuidade: temas recorrentes (${temasTxt}) e emoções citadas (${emocoesTxt}); conecte apenas se fizer sentido agora.`;
+  return `\n📜 Continuidade: temas (${temasTxt}) e emoções (${emocoesTxt}); use só se fizer sentido agora.`;
 }
 
-// --- Minificador leve para cortar tokens supérfluos ---
+// Minificador leve
 function minifyTextSafe(s: string) {
   return s.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
 }
 
-// --- Timeouts util ---
+// Promessa com timeout
 function withTimeout<T>(p: Promise<T>, ms: number, label = 'task'): Promise<T> {
   return new Promise((resolve, reject) => {
     const id = setTimeout(() => reject(new Error(`${label} timeout ${ms}ms`)), ms);
-    p.then((v) => {
-      clearTimeout(id);
-      resolve(v);
-    }).catch((e) => {
-      clearTimeout(id);
-      reject(e);
-    });
+    p.then((v) => { clearTimeout(id); resolve(v); })
+     .catch((e) => { clearTimeout(id); reject(e); });
   });
 }
 
-// Cache estático de arquivos e índice de módulos (evita ENOENTs)
+// Cache estático de arquivos e índice (evita ENOENT)
 const staticCache = new Map<string, string>();
 async function readStaticOnce(p: string) {
   if (staticCache.has(p)) return staticCache.get(p)!;
@@ -173,7 +167,7 @@ async function buildFileIndexOnce(roots: string[]) {
         if (!fileIndex.has(name)) fileIndex.set(name, path.join(base, name));
       }
     } catch {
-      /* ignore pasta ausente */
+      /* pasta ausente: ignora */
     }
   }
   fileIndexBuilt = true;
@@ -183,7 +177,7 @@ async function lerModulo(arquivo: string, pastas: string[]): Promise<string | nu
   if (!arquivo || !arquivo.trim()) return null;
   if (cacheModulos.has(arquivo)) return cacheModulos.get(arquivo)!;
 
-  // usa índice (rápido), se possível
+  // via índice (rápido)
   try {
     await buildFileIndexOnce(pastas);
     const p = fileIndex.get(arquivo);
@@ -192,44 +186,46 @@ async function lerModulo(arquivo: string, pastas: string[]): Promise<string | nu
       cacheModulos.set(arquivo, conteudo);
       return conteudo;
     }
-  } catch {
-    /* fallback para busca manual */
-  }
+  } catch { /* fallback */ }
 
-  // fallback: tentar manualmente (já com ordem otimizada de pastas)
+  // busca manual
   for (const base of pastas) {
     try {
       const caminho = path.join(base, arquivo);
       const conteudo = (await fs.readFile(caminho, 'utf-8')).trim();
       cacheModulos.set(arquivo, conteudo);
       return conteudo;
-    } catch {
-      /* tenta próxima pasta */
-    }
+    } catch { /* tenta próxima pasta */ }
   }
   log.warn(`Falha ao carregar módulo ${arquivo}: não encontrado`);
   return null;
 }
 
 // ----------------------------------
-// 🔹 SUPORTE À MATRIZ V2 COM HERANÇA
+// SUPORTE À MATRIZ V2 COM HERANÇA
 // ----------------------------------
 type Nivel = 1 | 2 | 3;
+
 function isV2Matrix(m: any): boolean {
   return !!m?.byNivelV2 && !!m?.baseModules;
 }
+
 function resolveModulesForLevelV2(nivel: Nivel, m: any): string[] {
   const levelCfg = m.byNivelV2[nivel];
   if (!levelCfg) return [];
   const inherited = levelCfg.inherits.flatMap((cat: string) => m.baseModules?.[cat] ?? []);
   return [...inherited, ...levelCfg.specific];
 }
-function modulesForNivel(nivel: Nivel, m: any): { raw: string[]; inherited: string[]; specific: string[] } {
+
+function modulesForNivel(
+  nivel: Nivel,
+  m: any,
+): { raw: string[]; inherited: string[]; specific: string[] } {
   if (isV2Matrix(m)) {
-    const levelCfg = m.byNivelV2[nivel];
+    const levelCfg  = m.byNivelV2[nivel];
     const inherited = levelCfg?.inherits?.flatMap((cat: string) => m.baseModules?.[cat] ?? []) ?? [];
-    const specific = levelCfg?.specific ?? [];
-    const raw = [...inherited, ...specific];
+    const specific  = levelCfg?.specific ?? [];
+    const raw       = [...inherited, ...specific];
     return { raw, inherited, specific };
   }
   // fallback V1
@@ -237,9 +233,7 @@ function modulesForNivel(nivel: Nivel, m: any): { raw: string[]; inherited: stri
   return { raw, inherited: m.alwaysInclude ?? [], specific: m.byNivel?.[nivel] ?? [] };
 }
 
-// ------------------------------
-// Seleção de módulos base (com V2 + gating + logs)
-// ------------------------------
+// Seleção de módulos base (V2 + gating + logs)
 function selecionarModulosBase({
   nivel,
   intensidade,
@@ -248,7 +242,7 @@ function selecionarModulosBase({
 }: {
   nivel: Nivel;
   intensidade: number;
-  matriz: any; // aceita V1 ou V2
+  matriz: any; // V1 ou V2
   flags: { curiosidade?: boolean; duvida_classificacao?: boolean; pedido_pratico?: boolean };
 }): {
   selecionados: string[];
@@ -261,8 +255,6 @@ function selecionarModulosBase({
   };
 } {
   const { raw, inherited, specific } = modulesForNivel(nivel, matriz);
-
-  // Dedup inicial
   const dedup = [...new Set(raw)];
 
   const cortados: string[] = [];
@@ -305,7 +297,7 @@ function selecionarModulosBase({
   };
 }
 
-// Monta corpo respeitando orçamento (usa encoder reutilizado) + LOG do que entrou/cortou
+// Monta corpo respeitando orçamento (com prioridade) + logs
 async function montarComBudget(
   nomes: string[],
   pastas: string[],
@@ -315,6 +307,7 @@ async function montarComBudget(
 ) {
   const orderMap = new Map<string, number>();
   (prioridade ?? []).forEach((n, i) => orderMap.set(n, i));
+
   const nomesOrdenados = [...new Set(nomes)].sort((a, b) => {
     const ia = orderMap.has(a) ? orderMap.get(a)! : Number.MAX_SAFE_INTEGER;
     const ib = orderMap.has(b) ? orderMap.get(b)! : Number.MAX_SAFE_INTEGER;
@@ -330,13 +323,16 @@ async function montarComBudget(
   for (const nome of nomesOrdenados) {
     const conteudo = await lerModulo(nome, pastas);
     if (!conteudo) { cortados.push(`${nome} [missing]`); continue; }
+
     const t = enc.encode(conteudo).length;
-    // se faltar menos de 10% do budget, corta para evitar estouro no final
+
+    // evita estouro no final — reserva 10% do budget
     if (total + t > budgetTokens || budgetTokens - total < Math.ceil(budgetTokens * 0.1)) {
       log.info(`Corte por budget: ${nome} ficaria acima do limite (restante ${budgetTokens - total}).`);
       cortados.push(`${nome} [budget]`);
       continue;
     }
+
     total += t;
     blocos.push(conteudo);
     incluidos.push(nome);
@@ -349,7 +345,7 @@ async function montarComBudget(
   return minifyTextSafe(blocos.join('\n\n'));
 }
 
-// Deriva flags simples (evita tratar "como vai" como curiosidade)
+// Flags simples
 function derivarFlags(entrada: string) {
   const curiosidade = /\b(por que|porque|pq|explica|explic(a|ar)|entender|entende|curios)\b/i.test(entrada);
   const pedido_pratico =
@@ -360,7 +356,7 @@ function derivarFlags(entrada: string) {
   return { curiosidade, pedido_pratico, duvida_classificacao };
 }
 
-// Helper para decidir módulos de regulação (triggers)
+// Módulos de regulação por triggers
 function decidirModulosRegulacao(msg: string, nivel: number, intensidade: number): string[] {
   if (nivel <= 1) return [];
   const tempo = extrairTempoMencionado(msg);
@@ -375,12 +371,11 @@ function decidirModulosRegulacao(msg: string, nivel: number, intensidade: number
     intensidade >= 7 && melhor.modulo !== 'ORIENTACAO_GROUNDING.txt'
       ? ['ORIENTACAO_GROUNDING.txt']
       : [];
-  // garante unicidade
   return [...new Set([melhor.modulo, ...extras])];
 }
 
 // ----------------------------------
-// SAUDAÇÃO (regex robusto, alinhado ao fast-path global)
+// SAUDAÇÃO (regex robusto)
 // ----------------------------------
 const MAX_LEN_FOR_GREETING = 40;
 const GREET_RE =
@@ -400,7 +395,7 @@ export async function montarContextoEco({
   heuristicas = [],
   texto,
   userEmbedding,
-  skipSaudacao = true, // se o controller já tratou fast-path, mantém true
+  skipSaudacao = true,
 }: {
   perfil?: PerfilEmocional | null;
   ultimaMsg?: string;
@@ -414,14 +409,14 @@ export async function montarContextoEco({
   userEmbedding?: number[];
   skipSaudacao?: boolean;
 }): Promise<string> {
-  const assetsDir = path.join(process.cwd(), 'assets');
-  const modulosDir = path.join(assetsDir, 'modulos');
-  const modCogDir = path.join(assetsDir, 'modulos_cognitivos');
-  const modFilosDir = path.join(assetsDir, 'modulos_filosoficos');
-  const modEstoicosDir = path.join(modFilosDir, 'estoicos');
-  const modEmocDir = path.join(assetsDir, 'modulos_emocionais');
+  const assetsDir     = path.join(process.cwd(), 'assets');
+  const modulosDir    = path.join(assetsDir, 'modulos');
+  const modCogDir     = path.join(assetsDir, 'modulos_cognitivos');
+  const modFilosDir   = path.join(assetsDir, 'modulos_filosoficos');
+  const modEstoicosDir= path.join(modFilosDir, 'estoicos');
+  const modEmocDir    = path.join(assetsDir, 'modulos_emocionais');
 
-  // Ordem otimizada: põe modulosDir primeiro
+  // ordem otimizada (modulos primeiro)
   const pastasPossiveis = [modulosDir, modEmocDir, modEstoicosDir, modFilosDir, modCogDir];
 
   const forbidden = await readStaticOnce(path.join(modulosDir, 'eco_forbidden_patterns.txt'));
@@ -433,32 +428,33 @@ export async function montarContextoEco({
   const entrada = (texto ?? ultimaMsg ?? '').trim();
   const entradaSemAcentos = normalizarTexto(entrada);
 
-  // Embedding único da entrada (reuso se vier). NÃO geramos aqui para não custar em NV1.
-  const entradaEmbedding: number[] | null = userEmbedding && userEmbedding.length ? userEmbedding : null;
+  // Reuso de embedding (não gerar aqui p/ NV1)
+  const entradaEmbedding: number[] | null =
+    userEmbedding && userEmbedding.length ? userEmbedding : null;
 
-  // --- Detecta saudação breve (alinhado ao fast-path) ---
+  // Saudação breve
   const isSaudacaoBreve =
     entradaSemAcentos.length > 0 &&
     entradaSemAcentos.length <= MAX_LEN_FOR_GREETING &&
     GREET_RE.test(entradaSemAcentos);
 
   if (isSaudacaoBreve) {
-    contexto += `\n🔎 Detecção: entrada reconhecida como saudação breve. Evite perguntas de abertura; acolha sem repetir a saudação.`;
+    contexto += `\n🔎 Detecção: saudação breve. Evite perguntas de abertura; acolha sem repetir a saudação.`;
   }
 
-  // ----------------------------------
-  // SAUDAÇÃO ESPECIAL (fast-path local) — só se skipSaudacao == false
-  // ----------------------------------
+  // Saudação especial (se controlador não tratou fast-path)
   if (!skipSaudacao && isSaudacaoBreve) {
     log.info('Detecção de saudação curta (modo local). Aplicando REGRA_SAUDACAO.');
     try {
       let saudacaoConteudo = await readStaticOnce(path.join(modulosDir, 'REGRA_SAUDACAO.txt'));
       if (userName) saudacaoConteudo = saudacaoConteudo.replace(/\[nome\]/gi, capitalizarNome(userName));
-      return minifyTextSafe(`📶 Entrada detectada como saudação breve.
+      return minifyTextSafe(
+        `📶 Entrada detectada como saudação breve.
 
 ${saudacaoConteudo.trim()}
 
-${forbidden.trim()}`);
+${forbidden.trim()}`
+      );
     } catch (e) {
       log.warn('Falha ao carregar módulo REGRA_SAUDACAO.txt:', (e as Error).message);
       return `⚠️ Erro ao carregar REGRA_SAUDACAO.`;
@@ -470,8 +466,7 @@ ${forbidden.trim()}`);
   // ----------------------------------
   let nivel = heuristicaNivelAbertura(entrada) || 1;
   if (typeof nivel === 'string') nivel = nivelAberturaParaNumero(nivel);
-  // Força NV1 quando saudação breve (para baratear o contexto)
-  if (isSaudacaoBreve) nivel = 1;
+  if (isSaudacaoBreve) nivel = 1; // barateia NV1
 
   if (nivel < 1 || nivel > 3) {
     log.warn('Nível de abertura inválido. Fallback 1.');
@@ -487,11 +482,11 @@ ${forbidden.trim()}`);
   if (perfil) contexto += `\n\n${construirStateSummary(perfil, nivel)}`;
 
   // ----------------------------------
-  // MEMÓRIAS (evitar custo quando nível é 1)
+  // MEMÓRIAS (evitar custo quando NV1)
   // ----------------------------------
   let memsUsadas = mems;
   if (forcarMetodoViva && blocoTecnicoForcado) {
-    log.info('Ativando modo forçado METODO_VIVA com bloco técnico fornecido.');
+    log.info('Ativando METODO_VIVA forçado com bloco técnico fornecido.');
     memsUsadas = [
       {
         resumo_eco: blocoTecnicoForcado.analise_resumo ?? entrada ?? '',
@@ -501,7 +496,7 @@ ${forbidden.trim()}`);
       },
     ];
   } else if (nivel === 1) {
-    log.info('Ignorando embeddings/memórias por abertura superficial (NV1).');
+    log.info('NV1: ignorando embeddings/memórias.');
     memsUsadas = [];
   }
 
@@ -513,10 +508,10 @@ ${forbidden.trim()}`);
   }
 
   // ----------------------------------
-  // HEURÍSTICAS (gatilho literal + fuzzy + embedding)
-  // → PULAR COMPLETAMENTE em NV1 para reduzir latência/custo
+  // HEURÍSTICAS (literal + fuzzy + embedding) — pular em NV1
   // ----------------------------------
   let heuristicaAtiva: Heuristica | undefined = undefined;
+  let heuristicasEmbedding: any[] = [];
 
   if (nivel > 1) {
     // literal
@@ -550,7 +545,7 @@ ${forbidden.trim()}`);
 
     const [rFuzzy, rHeurEmb] = await Promise.allSettled([tarefasHeur.fuzzy, tarefasHeur.emb]);
     const heuristicasFuzzy = rFuzzy.status === 'fulfilled' ? rFuzzy.value || [] : [];
-    var heuristicasEmbedding: any[] = rHeurEmb.status === 'fulfilled' ? rHeurEmb.value || [] : [];
+    heuristicasEmbedding   = rHeurEmb.status === 'fulfilled' ? rHeurEmb.value || [] : [];
 
     if (!heuristicaAtiva && heuristicasFuzzy?.length > 0) {
       heuristicaAtiva = heuristicasFuzzy[0];
@@ -563,20 +558,17 @@ ${forbidden.trim()}`);
         log.info(`${heuristicasEmbedding.length} heurística(s) cognitivas por embedding.`);
       else log.info('Nenhuma heurística embedding encontrada.');
     }
-  } else {
-    // NV1 → sem custo de heurística
-    var heuristicasEmbedding: any[] = [];
   }
 
   // ----------------------------------
-  // BUSCA DE MEMÓRIAS/REFERÊNCIAS/ENCADEAMENTOS (nivel > 1) — paralelo
+  // BUSCAS (memórias/referências/encadeamentos) NV2/3 em paralelo
   // ----------------------------------
   const tagsAlvo = heuristicaAtiva ? tagsPorHeuristica[heuristicaAtiva.arquivo] ?? [] : [];
   if (nivel > 1 && !memsUsadas?.length && entrada && userId) {
     try {
       let MIN_SIMILARIDADE = 0.15;
       if (/lembr|record|memória|memorias|memoria|recorda/i.test(entrada)) {
-        log.info('Detecção de pergunta sobre lembrança: reduzindo threshold.');
+        log.info('Usuário mencionou lembrar/recordar — reduzindo threshold.');
         MIN_SIMILARIDADE = 0.12;
       }
 
@@ -625,22 +617,23 @@ ${forbidden.trim()}`);
       };
 
       const [rMems, rRefs, rEncs] = await Promise.allSettled([tarefas.mems, tarefas.refs, tarefas.encs]);
-      let memorias = rMems.status === 'fulfilled' ? rMems.value || [] : [];
-      let referencias = rRefs.status === 'fulfilled' ? rRefs.value || [] : [];
+      let memorias      = rMems.status === 'fulfilled' ? rMems.value || [] : [];
+      let referencias   = rRefs.status === 'fulfilled' ? rRefs.value || [] : [];
       let encadeamentos = rEncs.status === 'fulfilled' ? rEncs.value || [] : [];
 
-      const memoriasFiltradas = (memorias || []).filter((m: Memoria) => (m.similaridade ?? 0) >= MIN_SIMILARIDADE);
+      const memoriasFiltradas    = (memorias    || []).filter((m: Memoria) => (m.similaridade ?? 0) >= MIN_SIMILARIDADE);
       const referenciasFiltradas = (referencias || []).filter((r: Memoria) => (r.similaridade ?? 0) >= MIN_SIMILARIDADE);
 
       memsUsadas = [...memoriasFiltradas, ...referenciasFiltradas]
         .sort((a, b) => (b.similaridade ?? 0) - (a.similaridade ?? 0))
         .slice(0, 3);
 
+      // prioriza 1 memória intensa, se houver
       const memoriaIntensa = memsUsadas.find(
         (m) => (m.intensidade ?? 0) >= 7 && (m.similaridade ?? 0) >= MIN_SIMILARIDADE,
       );
       if (memoriaIntensa) {
-        log.info('Ajuste: priorizando memória intensa recuperada.');
+        log.info('Priorizando memória intensa recuperada.');
         memsUsadas = [memoriaIntensa, ...memsUsadas.filter((m) => m !== memoriaIntensa)];
       }
 
@@ -679,7 +672,7 @@ ${forbidden.trim()}`);
     }
   }
 
-  // Anexar memória atual (leve)
+  // Anexa memória atual leve (ajuda continuidade NV2/3)
   if (entrada && perfil && nivel > 1) {
     const memoriaAtual: Memoria = {
       resumo_eco: entrada,
@@ -690,11 +683,11 @@ ${forbidden.trim()}`);
     memsUsadas = [...(memsUsadas || []), memoriaAtual];
   }
 
-  // Intensidade de contexto = máximo
+  // Intensidade do contexto = máximo
   const intensidadeContexto = Math.max(0, ...(memsUsadas ?? []).map((m) => m.intensidade ?? 0));
   log.info('[ACT] intensidadeContexto(max mems):', intensidadeContexto);
 
-  // Inserção de memórias (texto leve)
+  // Pista de continuidade (leve)
   if (memsUsadas && memsUsadas.length > 0 && nivel > 1) {
     contexto += `\n\n${construirNarrativaMemorias(memsUsadas)}`;
   }
@@ -702,7 +695,6 @@ ${forbidden.trim()}`);
   // ----------------------------------
   // SELEÇÃO E MONTAGEM DE MÓDULOS COM ORÇAMENTO
   // ----------------------------------
-  // Import dinâmico para aceitar arquivos que exportem V1 e/ou V2
   const mod = await import('./matrizPromptBase');
   const matriz = (mod as any).matrizPromptBaseV2 ?? (mod as any).matrizPromptBase;
 
@@ -721,7 +713,7 @@ ${forbidden.trim()}`);
   });
   log.info('[ACT] base(posGating):', nomesBase);
 
-  // Módulos de regulação (antes dos extras)
+  // Regulação (antes dos extras)
   const modReg = decidirModulosRegulacao(entrada, nivel, intensidadeContexto);
   log.info('[ACT] regulacao:', modReg);
 
@@ -758,7 +750,7 @@ ${forbidden.trim()}`);
     const minInt = m.intensidadeMinima;
     if (typeof minInt === 'number')
       intensidadeOk = memsUsadas?.some((mem) => (mem.intensidade ?? 0) >= minInt) ?? false;
-    const tagsPresentes = memsUsadas?.flatMap((mem) => mem.tags ?? []) ?? [];
+    const tagsPresentes     = memsUsadas?.flatMap((mem) => mem.tags ?? []) ?? [];
     const emocoesPrincipais = memsUsadas?.map((mem) => mem.emocao_principal).filter(Boolean) ?? [];
     return (
       intensidadeOk &&
@@ -775,16 +767,14 @@ ${forbidden.trim()}`);
   log.info(`[ACT] extrasCandidatos(cap=${HARD_CAP_EXTRAS}):`, extrasCapados);
 
   // ---------- CONTEXTO E OVERHEAD (antes do budget) ----------
-  const contextoMin = minifyTextSafe(contexto);
+  const contextoMin    = minifyTextSafe(contexto);
   const tokensContexto = enc.encode(contextoMin).length;
 
-  // Guard anti-saudação para evitar aberturas “como você chega…”
   const antiSaudacaoGuard = `
 NÃO inicie a resposta com fórmulas como:
 - "como você chega", "como você está chegando", "como chega aqui hoje", "como você chega hoje".
 Se a mensagem do usuário for apenas uma saudação breve, não repita a saudação, não faça perguntas fenomenológicas de abertura; apenas acolha de forma simples quando apropriado.`.trim();
 
-  // Instruções finais (NV2/NV3)
   const instrucoesFinais = `
 ⚠️ INSTRUÇÃO AO MODELO:
 - Use memórias/contexto como suporte, não como script.
@@ -795,7 +785,7 @@ Se a mensagem do usuário for apenas uma saudação breve, não repita a saudaç
 - Se notar padrões, convide à consciência com hipóteses leves — não diagnostique.
 - ${antiSaudacaoGuard}`.trim();
 
-  // eco_json_trigger_criteria e MEMORIAS_NO_CONTEXTO (cache)
+  // eco_json_trigger_criteria + MEMORIAS_NO_CONTEXTO
   let criterios = '';
   try {
     criterios = await readStaticOnce(path.join(modulosDir, 'eco_json_trigger_criteria.txt'));
@@ -812,21 +802,31 @@ Se a mensagem do usuário for apenas uma saudação breve, não repita a saudaç
 
   const forbiddenOnce = `\n${forbidden.trim()}\n${antiSaudacaoGuard}`.trim();
 
-  // Overhead fixo que será somado após os módulos
+  // Overhead fixo que será somado após módulos
   const overheadBlocos = [
     criterios ? `\n${criterios}` : '',
     memoriaInstrucoes ? `\n${memoriaInstrucoes}` : '',
     instrucoesFinais,
     forbiddenOnce,
   ].filter(Boolean);
-  const overheadMin = minifyTextSafe(overheadBlocos.join('\n\n'));
+
+  const overheadMin    = minifyTextSafe(overheadBlocos.join('\n\n'));
   const overheadTokens = enc.encode(overheadMin).length;
 
   const MARGIN = 256;
   const budgetRestante = Math.max(1000, MAX_PROMPT_TOKENS - tokensContexto - overheadTokens - MARGIN);
-  log.info('[ACT] tokensContexto:', tokensContexto, '| overhead:', overheadTokens, '| margin:', MARGIN, '| budgetRestante:', budgetRestante);
+  log.info(
+    '[ACT] tokensContexto:',
+    tokensContexto,
+    '| overhead:',
+    overheadTokens,
+    '| margin:',
+    MARGIN,
+    '| budgetRestante:',
+    budgetRestante,
+  );
 
-  // ---------- NV1 (usa instrução própria) ----------
+  // ---------- NV1 ----------
   if (nivel === 1) {
     const nomesNv1 = isV2Matrix(matriz)
       ? resolveModulesForLevelV2(1, matriz)
@@ -862,7 +862,7 @@ Se a mensagem do usuário for apenas uma saudação breve, não repita a saudaç
   ])];
   log.info('[ACT] selecionados(pre-budget):', nomesSelecionadosPreBudget);
 
-  // PRIORIDADE dinâmica: se for V2, favorece camadas core→emotional→advanced antes do fallback limites.prioridade
+  // PRIORIDADE dinâmica V2
   let prioridade: string[] | undefined = (matriz as any)?.limites?.prioridade;
   if (isV2Matrix(matriz)) {
     const pv2 = [
@@ -882,7 +882,7 @@ Se a mensagem do usuário for apenas uma saudação breve, não repita a saudaç
     enc,
   );
 
-  // Montagem final (reaproveita overheadMin)
+  // Montagem final
   const promptFinal = minifyTextSafe(
     [
       contextoMin,

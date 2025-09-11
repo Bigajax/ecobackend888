@@ -20,18 +20,18 @@ export interface MatrizPromptBase {
   limites?: Limites;
 }
 
-// Tipos auxiliares (opcional, ajudam na consistência interna)
+// Tipos auxiliares
 type Nivel = 1 | 2 | 3;
 type Camada = 'core' | 'emotional' | 'advanced';
 
 // Interface estendida com sistema de herança
 export interface MatrizPromptBaseV2 extends MatrizPromptBase {
-  baseModules: Record<Camada, string[]>; // core/emotional/advanced
+  baseModules: Record<Camada, string[]>;
   byNivelV2: Record<
     Nivel,
     {
-      specific: string[];   // Módulos específicos daquele nível
-      inherits: Camada[];   // Quais camadas herda (p.ex. ['core', 'emotional'])
+      specific: string[];
+      inherits: Camada[];
     }
   >;
 }
@@ -45,6 +45,8 @@ export const matrizPromptBaseV2: MatrizPromptBaseV2 = {
       'IDENTIDADE.txt',
       'ECO_ESTRUTURA_DE_RESPOSTA.txt',
       'POLITICA_REDIRECIONAMENTO.txt',
+      // ⬇️ entra em todos os níveis, inclusive NV1
+      'CRITERIO_ENCERRAMENTO_SENSIVEL.txt',
     ],
     emotional: [
       'CONTEXTO_EMOCIONAL.txt',
@@ -52,7 +54,7 @@ export const matrizPromptBaseV2: MatrizPromptBaseV2 = {
       'CONTINUIDADE_EMOCIONAL.txt',
       'CRITERIO_SUFICIENCIA_REFLEXIVA.txt',
       'ADAPTACAO_CULTURAL_LINGUISTICA.txt',
-      'VARIEDADE_FORMA_TOM.txt',
+      'VARIEDADE_FORMA_TOM.txt', // playbook unificado
     ],
     advanced: [
       'MEMORIAS_REFERENCIAS_CONTEXTO.txt',
@@ -68,10 +70,7 @@ export const matrizPromptBaseV2: MatrizPromptBaseV2 = {
   },
 
   byNivelV2: {
-    1: {
-      specific: ['ECO_ORQUESTRA_NIVEL1.txt'],
-      inherits: ['core'],
-    },
+    1: { specific: ['ECO_ORQUESTRA_NIVEL1.txt'], inherits: ['core'] },
     2: {
       specific: [
         'ECO_ORQUESTRA_NIVEL2.txt',
@@ -91,16 +90,21 @@ export const matrizPromptBaseV2: MatrizPromptBaseV2 = {
   },
 
   // ===== COMPATIBILIDADE RETROATIVA =====
-  // Mantém interface original para não quebrar código existente
   alwaysInclude: [
     'PRINCIPIOS_CHAVE.txt',
     'IDENTIDADE.txt',
     'ECO_ESTRUTURA_DE_RESPOSTA.txt',
     'POLITICA_REDIRECIONAMENTO.txt',
+    // ✅ também no legado para NV1 puro
+    'CRITERIO_ENCERRAMENTO_SENSIVEL.txt',
   ],
 
   byNivel: {
-    1: ['ECO_ORQUESTRA_NIVEL1.txt'],
+    1: [
+      'ECO_ORQUESTRA_NIVEL1.txt',
+      // ✅ garante presença no legado NV1
+      'CRITERIO_ENCERRAMENTO_SENSIVEL.txt',
+    ],
     2: [
       'ECO_ORQUESTRA_NIVEL2.txt',
       'CONTEXTO_EMOCIONAL.txt',
@@ -115,6 +119,8 @@ export const matrizPromptBaseV2: MatrizPromptBaseV2 = {
       'IDENTIFICACAO_PADROES.txt',
       'META_REFLEXAO.txt',
       'NARRATIVA_SOFISTICADA.txt',
+      // ✅ legado NV2
+      'CRITERIO_ENCERRAMENTO_SENSIVEL.txt',
     ],
     3: [
       'ECO_ORQUESTRA_NIVEL3.txt',
@@ -140,6 +146,8 @@ export const matrizPromptBaseV2: MatrizPromptBaseV2 = {
       'IDENTIFICACAO_PADROES.txt',
       'META_REFLEXAO.txt',
       'NARRATIVA_SOFISTICADA.txt',
+      // ✅ legado NV3
+      'CRITERIO_ENCERRAMENTO_SENSIVEL.txt',
     ],
   },
 
@@ -174,8 +182,8 @@ export const matrizPromptBaseV2: MatrizPromptBaseV2 = {
       regra: 'intensidade>=5 && nivel>=2',
     },
     'MOVIMENTOS_INFORMATIVOS.txt': {
-      descricao: 'Explicações/insights curtos só com curiosidade/pedido',
-      regra: 'nivel>=2 && (curiosidade==true || pedido_pratico==true)',
+      descricao: 'Explicações/insights curtos só com curiosidade/pedido ou dúvida de classificação',
+      regra: 'nivel>=2 && (curiosidade==true || pedido_pratico==true || duvida_classificacao==true)',
     },
     'PERGUNTAS_ABERTAS.txt': {
       descricao: 'Perguntas fenomenológicas quando há abertura clara',
@@ -205,6 +213,15 @@ export const matrizPromptBaseV2: MatrizPromptBaseV2 = {
       descricao: 'Gerar memória técnica apenas em emoção intensa',
       regra: 'intensidade>=7 && nivel>=2',
     },
+    'VARIEDADE_FORMA_TOM.txt': {
+      descricao: 'Playbook de forma e tom (só quando há abertura real)',
+      regra: 'nivel>=2',
+    },
+    // ⬇️ disponível desde NV1 (conteúdo do módulo já orienta quando usar)
+    'CRITERIO_ENCERRAMENTO_SENSIVEL.txt': {
+      descricao: 'Encerrar com presença e continuidade quando o campo pede pausa/assentimento',
+      regra: 'nivel>=1',
+    },
   },
 
   // ===== PRIORIZAÇÃO DE BUDGET =====
@@ -215,6 +232,7 @@ export const matrizPromptBaseV2: MatrizPromptBaseV2 = {
       'IDENTIDADE.txt',
       'ECO_ESTRUTURA_DE_RESPOSTA.txt',
       'POLITICA_REDIRECIONAMENTO.txt',
+      'CRITERIO_ENCERRAMENTO_SENSIVEL.txt', // ✅ priorizado no núcleo
 
       // 🔝 ORQUESTRADORES (protegidos)
       'ECO_ORQUESTRA_NIVEL1.txt',
@@ -264,26 +282,20 @@ export const matrizPromptBaseV2: MatrizPromptBaseV2 = {
 
 // ===== HELPER FUNCTIONS =====
 
-// Helper para resolver herança (novo sistema) com dedupe
 export function resolveModulesForLevel(
-  nivel: number, // pode ser Nivel, mas deixamos number p/ compatibilidade com o chamar do backend
+  nivel: number,
   matriz: MatrizPromptBaseV2,
 ): string[] {
   const levelConfig = matriz.byNivelV2[nivel as Nivel];
   if (!levelConfig) {
-    // Fallback para sistema antigo
     return [...(matriz.alwaysInclude || []), ...(matriz.byNivel[nivel] || [])];
   }
-
   const inherited = levelConfig.inherits.flatMap(
     (category) => matriz.baseModules[category as Camada] || [],
   );
-
-  // Dedupe mantém ordem: herdados antes, depois específicos
   return [...new Set([...inherited, ...levelConfig.specific])];
 }
 
-// Helper para usar sistema antigo (compatibilidade)
 export function resolveModulesLegacy(nivel: number, matriz: MatrizPromptBase): string[] {
   return [...(matriz.alwaysInclude || []), ...(matriz.byNivel[nivel] || [])];
 }
@@ -309,7 +321,6 @@ export function validateMatrix(matriz: MatrizPromptBaseV2): ValidationResult {
     duplicatesRemoved: 0,
   };
 
-  // Validar consistência entre sistemas antigo/novo
   for (const nivel of [1, 2, 3] as const) {
     const legacyModules = resolveModulesLegacy(nivel, matriz);
     const newModules = resolveModulesForLevel(nivel, matriz);
@@ -317,7 +328,6 @@ export function validateMatrix(matriz: MatrizPromptBaseV2): ValidationResult {
     stats.modulesByLevel[nivel] = newModules.length;
     stats.totalModules += newModules.length;
 
-    // Verificar se há diferenças significativas
     const legacySet = new Set(legacyModules);
     const newSet = new Set(newModules);
 
@@ -331,12 +341,10 @@ export function validateMatrix(matriz: MatrizPromptBaseV2): ValidationResult {
       warnings.push(`Nível ${nivel}: módulos apenas no sistema novo: ${onlyInNew.join(', ')}`);
     }
 
-    // Contar duplicatas removidas (no legado)
     const duplicates = legacyModules.length - new Set(legacyModules).size;
     stats.duplicatesRemoved += Math.max(0, duplicates);
   }
 
-  // Validar módulos referenciados nas regras
   const allModules = new Set<string>([
     ...matriz.alwaysInclude,
     ...Object.values(matriz.byNivel).flat(),
@@ -355,16 +363,5 @@ export function validateMatrix(matriz: MatrizPromptBaseV2): ValidationResult {
     }
   }
 
-  return {
-    isValid: errors.length === 0,
-    errors,
-    warnings,
-    stats,
-  };
+  return { isValid: errors.length === 0, errors, warnings, stats };
 }
-
-// ===== EXEMPLOS =====
-// const validation = validateMatrix(matrizPromptBaseV2);
-// console.log('Validação:', validation);
-// const modulesNivel2 = resolveModulesForLevel(2, matrizPromptBaseV2);
-// console.log('Módulos nível 2 (novo sistema):', modulesNivel2);
