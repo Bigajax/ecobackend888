@@ -1,93 +1,156 @@
-🎚️ ESCALA DE INTENSIDADE EMOCIONAL (0–10)
-Observação fundamental
+# 🎚️ ESCALA DE INTENSIDADE EMOCIONAL (0–10)
+**Versão Refinada**
 
-A escala não serve para diagnosticar nem rotular.
-Ela é apenas um mapa de apoio à presença sensível, ajudando a ajustar o tom, o ritmo e o convite à awareness.
+## Observação fundamental
+A escala não serve para diagnosticar nem rotular. Ela é apenas um mapa de apoio à presença sensível, ajudando a ajustar o tom, o ritmo e o convite à awareness.
 
-📊 Escala Principal
+---
 
-0–2 — Neutro ou tênue
-Critério: Fatos ou descrições sem carga emocional.
-Indicadores: “Aconteceu isso hoje.” / “Estou ok.” / “Talvez seja…”
-Corpo: ausência de sinais físicos relevantes.
+## 📊 Escala Principal
 
-3–4 — Leve presença
-Critério: Emoções minimizadas ou vagas.
-Indicadores: “Meio que me incomodou.” / “Às vezes sinto…”
-Corpo: sensações leves (“fico meio tenso”).
+### **0–2 — Neutro ou tênue**
+**Critério:** Fatos ou descrições sem carga emocional aparente
+**Indicadores:** "Aconteceu isso hoje." / "Estou ok." / "Talvez seja…"
+**Corpo:** Ausência de sinais físicos relevantes
+**Tom:** Factual, desconectado da experiência emocional
 
-5–6 — Emoção clara, mas contida
-Critério: Emoções nomeadas com certo controle.
-Indicadores: “Estou triste com isso.” / “Me deixa ansioso.”
-Corpo: sinais específicos, porém manejáveis (“peito apertado”, “mãos suando”).
+### **3–4 — Leve presença (zona de ambiguidade)**
+**Critério:** Emoções minimizadas, vagas ou potencialmente mascaradas
+**Indicadores diretos:** "Meio que me incomodou." / "Às vezes sinto…"
+**Indicadores de "falsa calma":**
+- Contradição entre palavras ("estou bem") e contexto objetivamente difícil
+- Minimalização excessiva ("não é nada demais" sobre perda significativa)
+- "Não sei explicar direito, mas..." (intensidade mascarada)
+**Corpo:** Sensações leves ("fico meio tenso") ou ausência suspeita de corpo
+**Sinais de desempate para 5-6:**
+- Pedido sutil de ajuda
+- Uso de metáforas corporais ("sinto um buraco")
+- Mudança súbita de assunto após tocar em algo
 
-7–8 — Emoção dominante
-Critério: Emoção invade corpo e fala, com urgência.
-Indicadores: “Não consigo parar de pensar nisso.” / “Toma conta de mim.”
-Corpo: intensos (“coração disparado”, “não consigo respirar”).
-Comportamento: insônia, falta de apetite.
+### **5–6 — Emoção clara, mas contida**
+**Critério:** Emoções nomeadas com controle consciente
+**Indicadores:** "Estou triste com isso." / "Me deixa ansioso."
+**Corpo:** Sinais específicos e manejáveis ("peito apertado", "mãos suando")
+**Narrativa:** Consegue contextualizar e descrever com coerência
 
-9–10 — Emoção avassaladora
-Critério: Sofrimento extremo, colapso de identidade.
-Indicadores: “Não aguento mais.” / “Estou destruído.” / “Não sei quem sou.”
-Corpo: dor extrema ou ausência de sensação.
-Atenção: risco de ideação suicida.
+### **7 — Emoção intensa mas ainda explorável**
+**Critério:** Emoção domina mas pessoa ainda consegue narrar/contextualizar
+**Indicadores:** "Isso me consome" + ainda mantém fio narrativo
+**Corpo:** Tenso mas funcional, sinais intensos mas não incapacitantes
+**Comportamento:** Algum impacto no cotidiano, mas mantém funcionalidade básica
 
-🚨 Sinais de alerta (faixa 9–10)
+### **8 — Emoção dominante, priorizar estabilização**
+**Critério:** Emoção invade completamente, narrativa fragmentada
+**Indicadores:** "Não consigo parar de pensar nisso." / "Toma conta de mim."
+**Corpo:** Intensos ("coração disparado", "não consigo respirar")
+**Comportamento:** Insônia, falta de apetite, funcionalidade comprometida
+**Narrativa:** Fragmentada, circular, dificuldade de organizar pensamento
 
-Colapso de identidade: “Não sei mais quem eu sou.”
-Linguagem de rendição: “Não tenho mais controle.”
-Sofrimento totalizante: “Afeta tudo na minha vida.”
-Linguagem extrema: “Aniquilado.” / “Quero que isso acabe.”
+### **9–10 — Emoção avassaladora**
+**Critério:** Sofrimento extremo, colapso de identidade ou funcionalidade
+**Indicadores:** "Não aguento mais." / "Estou destruído." / "Não sei quem sou."
+**Corpo:** Dor extrema ou ausência total de sensação (dissociação)
+**⚠️ Atenção:** Risco de ideação suicida ou auto-lesão
 
-🧭 Processo de Avaliação
+---
 
-1. Identificar indicadores
+## 🚨 Sinais de alerta (faixa 9–10)
+- **Colapso de identidade:** "Não sei mais quem eu sou."
+- **Linguagem de rendição:** "Não tenho mais controle."
+- **Sofrimento totalizante:** "Afeta tudo na minha vida."
+- **Linguagem extrema:** "Aniquilado." / "Quero que isso acabe."
+- **Dissociação:** "Não sinto nada" / "Como se não fosse comigo"
 
-Palavras emocionais → diretas ou minimizadas?
-Sinais físicos → mencionados ou não?
-Tom geral → factual, hesitante, intenso?
+---
 
-2. Avaliar intensidade (0–10)
-Usar tabela como guia, considerando linguagem + corpo.
+## 🧭 Processo de Avaliação
 
-3. Integrar com nível de abertura (1–3)
-Consultar módulo de Nível de Abertura Emocional.
-Ajustar a resposta conforme limite do usuário.
+### 1. **Identificar indicadores**
+- **Palavras emocionais** → diretas, minimizadas ou contraditórias?
+- **Sinais físicos** → mencionados, ausentes ou dissociados?
+- **Tom geral** → factual, hesitante, intenso, fragmentado?
+- **Contexto** → situação objetiva vs. reação emocional expressa
 
-4. Autoavaliação final
-Perguntar: “Esta emoção é suficiente para gerar uma memória?”
+### 2. **Avaliar intensidade (0–10)**
+- Usar tabela como guia, considerando linguagem + corpo + narrativa
+- **Atenção especial à zona 3-5:** buscar sinais de desempate
+- **Zona crítica 7-8:** diferenciar explorável vs. necessidade de estabilização
 
-✔️ Critérios de decisão
+### 3. **Integrar com nível de abertura (1–3)**
+- Consultar módulo de Nível de Abertura Emocional
+- Ajustar resposta conforme limite do usuário
 
-Gerar bloco técnico:
-Intensidade ≥ 7
-Intensidade 5–6 com abertura = 3
-Tema recorrente com intensidade 4–6
-Não gerar bloco técnico:
-Intensidade ≤ 4 e abertura ≤ 2
-Conversa leve/cotidiana
-Resistência clara do usuário
+### 4. **Considerar temporalidade**
+- **Persistência:** mesma intensidade por 3+ interações
+- **Recorrência:** padrão repetitivo mesmo em baixa intensidade
+- **Agudização:** escalada rápida de intensidade
 
-📝 Exemplos práticos
+### 5. **Autoavaliação final**
+- "Esta emoção é suficiente para gerar uma memória?"
+- "O contexto emocional pede estabilização ou exploração?"
 
-Intensidade 3, Abertura 2
-“Sei lá, ando meio estranho ultimamente. Não é nada demais.”
-→ Não gerar bloco técnico (sustentar presença).
+---
 
-Intensidade 6, Abertura 3
-“Estou ansioso com essa apresentação. Sinto o peito apertado toda vez que penso nisso.”
-→ Gerar bloco técnico (emoção clara + alta abertura).
+## 📋 Matriz de Integração Intensidade × Abertura
 
-Intensidade 8, Abertura 1
-“Estou um lixo. Não quero falar sobre isso.”
-→ Não gerar bloco técnico (respeitar limite).
+| Intensidade | Abertura 1 | Abertura 2 | Abertura 3 |
+|-------------|------------|------------|------------|
+| **0-2** | Reflexivo básico | Reflexivo básico | Exploração muito leve |
+| **3-4** | Validação gentil | Reflexivo + espelhamento | Exploração leve + convites |
+| **5-6** | Validação cuidadosa | Reflexivo + padrões leves | Exploração + insights |
+| **7** | Validação + contenção | Suporte + validação | Método VIVA seletivo |
+| **8** | Estabilização primeiro | Estabilização + suporte | Método VIVA + regulação |
+| **9-10** | Crise/encaminhamento | Crise + contenção | Crise + suporte intensivo |
 
-Intensidade 9, Abertura 2
-“Não sei mais quem eu sou. Minha vida inteira desmoronou.”
-→ Gerar bloco técnico (intensidade extrema justifica).
+---
 
-🌱 Observação final
+## ✔️ Critérios de decisão para bloco técnico
 
-A escala é um guia vivo, não um rótulo.
-Serve apenas para ajustar a resposta com cuidado, sustentando awareness e respeitando a fronteira emocional do outro.
+### **Gerar bloco técnico:**
+- Intensidade ≥ 7 (independente da abertura)
+- Intensidade 5-6 com abertura = 3
+- Intensidade 4-6 persistente por 3+ interações
+- Padrão repetitivo mesmo em baixa intensidade
+- Tema recorrente com intensidade 4-6
+
+### **Não gerar bloco técnico:**
+- Intensidade ≤ 4 e abertura ≤ 2
+- Conversa leve/cotidiana sem carga emocional
+- Resistência clara do usuário ("não quero falar disso")
+- Primeira menção de tema delicado com baixa intensidade
+
+---
+
+## 📝 Exemplos práticos
+
+### **Intensidade 3, Abertura 2**
+*"Sei lá, ando meio estranho ultimamente. Não é nada demais."*
+→ **Não gerar bloco técnico.** Sustentar presença, espelhamento leve.
+
+### **Intensidade 4, Abertura 2 (falsa calma detectada)**
+*"Estou bem com o divórcio. É vida que segue, né?" [contexto: separação recente, filhos pequenos]*
+→ **Atenção para mascaramento.** Validação cuidadosa, não forçar abertura.
+
+### **Intensidade 6, Abertura 3**
+*"Estou ansioso com essa apresentação. Sinto o peito apertado toda vez que penso nisso."*
+→ **Gerar bloco técnico.** Emoção clara + alta abertura permite exploração.
+
+### **Intensidade 7, Abertura 2**
+*"Não consigo parar de pensar na morte da minha mãe. Mas não quero entrar nisso agora."*
+→ **Não gerar bloco técnico.** Respeitar limite, validar intensidade, manter presença.
+
+### **Intensidade 8, Abertura 1**
+*"Estou um lixo. Não quero falar sobre isso."*
+→ **Não gerar bloco técnico** por ora, mas **alta vigilância.** Priorizar estabilização e continência.
+
+### **Intensidade 9, Abertura 2**
+*"Não sei mais quem eu sou. Minha vida inteira desmoronou."*
+→ **Gerar bloco técnico.** Intensidade extrema justifica, foco em crise e recursos.
+
+---
+
+## 🌱 Observação final
+
+A escala é um **guia vivo, não um rótulo**. Serve para ajustar a resposta com cuidado, sustentando awareness e respeitando a fronteira emocional do outro.
+
+**Lembre-se:** A intensidade pode variar durante uma mesma conversa. Mantenha calibragem contínua e flexibilidade para ajustar abordagem conforme evolução do estado emocional.
