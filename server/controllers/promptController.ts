@@ -292,7 +292,7 @@ function selecionarModulosBase({
     return ok;
   });
 
-  log.info(`[ACT][MATRIX] versão: ${isV2Matrix(matriz) ? 'V2' : 'V1'}`);
+  log.info('[ACT][MATRIX] versão:', isV2Matrix(matriz) ? 'V2' : 'V1');
   log.info('[ACT][MATRIX] herdados:', inherited);
   log.info('[ACT][MATRIX] específicos:', specific);
   log.info('[ACT][MATRIX] base(raw dedup):', dedup);
@@ -774,11 +774,9 @@ ${forbidden.trim()}`);
   const extrasCapados = [...new Set(nomesExtras)].slice(0, HARD_CAP_EXTRAS);
   log.info(`[ACT] extrasCandidatos(cap=${HARD_CAP_EXTRAS}):`, extrasCapados);
 
-  // Tokens usados por contexto; budget restante
+  // ---------- CONTEXTO E OVERHEAD (antes do budget) ----------
   const contextoMin = minifyTextSafe(contexto);
   const tokensContexto = enc.encode(contextoMin).length;
-  const budgetRestante = Math.max(1000, MAX_PROMPT_TOKENS - tokensContexto - 200);
-  log.info('[ACT] tokensContexto:', tokensContexto, '| budgetRestante:', budgetRestante);
 
   // Guard anti-saudação para evitar aberturas “como você chega…”
   const antiSaudacaoGuard = `
@@ -786,7 +784,49 @@ NÃO inicie a resposta com fórmulas como:
 - "como você chega", "como você está chegando", "como chega aqui hoje", "como você chega hoje".
 Se a mensagem do usuário for apenas uma saudação breve, não repita a saudação, não faça perguntas fenomenológicas de abertura; apenas acolha de forma simples quando apropriado.`.trim();
 
-  // Early return para Nível 1 (preset leve; sem memórias; sem heurísticas)
+  // Instruções finais (NV2/NV3)
+  const instrucoesFinais = `
+⚠️ INSTRUÇÃO AO MODELO:
+- Use memórias/contexto como suporte, não como script.
+- Ajuste a profundidade e o tom conforme o nível de abertura (superficial, reflexiva, profunda).
+- Respeite o ritmo e a autonomia do usuário.
+- Evite soluções prontas e interpretações rígidas.
+- Use a “Estrutura Padrão de Resposta” como planejamento interno (6 partes), mas NÃO exiba títulos/numeração.
+- Se notar padrões, convide à consciência com hipóteses leves — não diagnostique.
+- ${antiSaudacaoGuard}`.trim();
+
+  // eco_json_trigger_criteria e MEMORIAS_NO_CONTEXTO (cache)
+  let criterios = '';
+  try {
+    criterios = await readStaticOnce(path.join(modulosDir, 'eco_json_trigger_criteria.txt'));
+  } catch (e) {
+    log.warn('Falha ao carregar eco_json_trigger_criteria.txt:', (e as Error).message);
+  }
+
+  let memoriaInstrucoes = '';
+  try {
+    memoriaInstrucoes = await readStaticOnce(path.join(modulosDir, 'MEMORIAS_NO_CONTEXTO.txt'));
+  } catch (e) {
+    log.warn('Falha ao carregar MEMORIAS_NO_CONTEXTO.txt:', (e as Error).message);
+  }
+
+  const forbiddenOnce = `\n${forbidden.trim()}\n${antiSaudacaoGuard}`.trim();
+
+  // Overhead fixo que será somado após os módulos
+  const overheadBlocos = [
+    criterios ? `\n${criterios}` : '',
+    memoriaInstrucoes ? `\n${memoriaInstrucoes}` : '',
+    instrucoesFinais,
+    forbiddenOnce,
+  ].filter(Boolean);
+  const overheadMin = minifyTextSafe(overheadBlocos.join('\n\n'));
+  const overheadTokens = enc.encode(overheadMin).length;
+
+  const MARGIN = 256;
+  const budgetRestante = Math.max(1000, MAX_PROMPT_TOKENS - tokensContexto - overheadTokens - MARGIN);
+  log.info('[ACT] tokensContexto:', tokensContexto, '| overhead:', overheadTokens, '| margin:', MARGIN, '| budgetRestante:', budgetRestante);
+
+  // ---------- NV1 (usa instrução própria) ----------
   if (nivel === 1) {
     const nomesNv1 = isV2Matrix(matriz)
       ? resolveModulesForLevelV2(1, matriz)
@@ -807,8 +847,6 @@ Se a mensagem do usuário for apenas uma saudação breve, não repita a saudaç
 - Use a Estrutura Padrão de Resposta como planejamento interno, mas NÃO exiba títulos/numeração.
 - ${antiSaudacaoGuard}`;
 
-    const forbiddenOnce = `\n${forbidden.trim()}\n${antiSaudacaoGuard}`;
-
     const finalNv1 = minifyTextSafe(
       `${contextoMin}\n\n${corpoNivel1}\n\n${instrucoesNivel1}\n\n${forbiddenOnce}`,
     );
@@ -816,8 +854,13 @@ Se a mensagem do usuário for apenas uma saudação breve, não repita a saudaç
     return finalNv1;
   }
 
-  // Para níveis 2/3: base + regulação + extras (cap de extras)
-  const nomesSelecionadosPreBudget = [...new Set([...nomesBase, ...decidirModulosRegulacao(entrada, nivel, intensidadeContexto), ...extrasCapados])];
+  // ---------- NV2/NV3: base + regulação + extras ----------
+  const nomesSelecionadosPreBudget = [...new Set([
+    ...nomesBase,
+    ...modReg,
+    ...extrasCapados,
+  ])];
+  log.info('[ACT] selecionados(pre-budget):', nomesSelecionadosPreBudget);
 
   // PRIORIDADE dinâmica: se for V2, favorece camadas core→emotional→advanced antes do fallback limites.prioridade
   let prioridade: string[] | undefined = (matriz as any)?.limites?.prioridade;
@@ -831,8 +874,6 @@ Se a mensagem do usuário for apenas uma saudação breve, não repita a saudaç
     prioridade = [...new Set([ ...pv2, ...(prioridade ?? []) ])];
   }
 
-  log.info('[ACT] selecionados(pre-budget):', nomesSelecionadosPreBudget);
-
   const corpoModulos = await montarComBudget(
     nomesSelecionadosPreBudget,
     pastasPossiveis,
@@ -841,41 +882,12 @@ Se a mensagem do usuário for apenas uma saudação breve, não repita a saudaç
     enc,
   );
 
-  // Instruções finais
-  const instrucoesFinais = `\n⚠️ INSTRUÇÃO AO MODELO:
-- Use memórias/contexto como suporte, não como script.
-- Ajuste a profundidade e o tom conforme o nível de abertura (superficial, reflexiva, profunda).
-- Respeite o ritmo e a autonomia do usuário.
-- Evite soluções prontas e interpretações rígidas.
-- Use a “Estrutura Padrão de Resposta” como planejamento interno (6 partes), mas NÃO exiba títulos/numeração.
-- Se notar padrões, convide à consciência com hipóteses leves — não diagnostique.
-- ${antiSaudacaoGuard}`;
-
-  // eco_json_trigger_criteria e MEMORIAS_NO_CONTEXTO (cache)
-  let criterios = '';
-  try {
-    criterios = await readStaticOnce(path.join(modulosDir, 'eco_json_trigger_criteria.txt'));
-  } catch (e) {
-    log.warn('Falha ao carregar eco_json_trigger_criteria.txt:', (e as Error).message);
-  }
-
-  let memoriaInstrucoes = '';
-  try {
-    memoriaInstrucoes = await readStaticOnce(path.join(modulosDir, 'MEMORIAS_NO_CONTEXTO.txt'));
-  } catch (e) {
-    log.warn('Falha ao carregar MEMORIAS_NO_CONTEXTO.txt:', (e as Error).message);
-  }
-
-  const forbiddenOnce = `\n${forbidden.trim()}\n${antiSaudacaoGuard}`;
-
+  // Montagem final (reaproveita overheadMin)
   const promptFinal = minifyTextSafe(
     [
       contextoMin,
       corpoModulos.trim(),
-      criterios ? `\n${criterios}` : '',
-      memoriaInstrucoes ? `\n${memoriaInstrucoes}` : '',
-      instrucoesFinais,
-      forbiddenOnce,
+      overheadMin,
     ]
       .filter(Boolean)
       .join('\n\n'),
