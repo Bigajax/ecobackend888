@@ -12,12 +12,15 @@ import { buscarHeuristicaPorSimilaridade } from '../services/heuristicaFuzzyServ
 import { buscarMemoriasSemelhantes } from '../services/buscarMemorias';
 import { buscarReferenciasSemelhantes } from '../services/buscarReferenciasSemelhantes';
 import { buscarEncadeamentosPassados } from '../services/buscarEncadeamentos';
-import { get_encoding } from "@dqbd/tiktoken";
+import { get_encoding } from '@dqbd/tiktoken';
+
+// ⬇️ Regras seguras (novo avaliador)
+import { evalRule } from '../utils/ruleEval';
 
 // ⬇️ Triggers de regulação (grounding/box/dispenza)
 import {
   melhorPratica,
-  extrairTempoMencionado
+  extrairTempoMencionado,
 } from '../assets/config/regulacaoTriggers';
 
 const LOG_LEVEL = process.env.LOG_LEVEL ?? 'info';
@@ -25,7 +28,9 @@ const isDebug = () => LOG_LEVEL === 'debug';
 const log = {
   info: (...a: any[]) => console.log('[ECO]', ...a),
   warn: (...a: any[]) => console.warn('[ECO][WARN]', ...a),
-  debug: (...a: any[]) => { if (isDebug()) console.debug('[ECO][DEBUG]', ...a); }
+  debug: (...a: any[]) => {
+    if (isDebug()) console.debug('[ECO][DEBUG]', ...a);
+  },
 };
 
 // ----------------------------------
@@ -40,7 +45,7 @@ const TIMEOUT_MEM_MS = 2200;
 const TIMEOUT_ENC_MS = 2000;
 
 // ----------------------------------
-// TYPES
+// TYPES (locais; mantemos soltos para acoplar pouco)
 // ----------------------------------
 interface PerfilEmocional {
   emocoes_frequentes?: Record<string, number>;
@@ -60,19 +65,32 @@ interface Memoria {
   nivel_abertura?: number;
 }
 
-interface Heuristica { arquivo: string; gatilhos: string[]; }
-interface ModuloFilosoficoTrigger { arquivo: string; gatilhos: string[]; }
+interface Heuristica {
+  arquivo: string;
+  gatilhos: string[];
+}
+interface ModuloFilosoficoTrigger {
+  arquivo: string;
+  gatilhos: string[];
+}
 
 // ----------------------------------
 // UTILS
 // ----------------------------------
-const normalizarTexto = (t: string) => t.toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '');
-const capitalizarNome = (n?: string) => (n ? n.trim().replace(/\b\w/g, c => c.toUpperCase()) : '');
+const normalizarTexto = (t: string) =>
+  t.toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '');
+const capitalizarNome = (n?: string) =>
+  n ? n.trim().replace(/\b\w/g, (c) => c.toUpperCase()) : '';
 const nivelAberturaParaNumero = (v: string | number | undefined): number => {
   if (typeof v === 'number') return v;
   if (typeof v === 'string') {
-    const clean = v.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase();
-    if (clean === 'baixo') return 1; if (clean === 'medio') return 2; if (clean === 'alto') return 3;
+    const clean = v
+      .normalize('NFD')
+      .replace(/\p{Diacritic}/gu, '')
+      .toLowerCase();
+    if (clean === 'baixo') return 1;
+    if (clean === 'medio') return 2;
+    if (clean === 'alto') return 3;
   }
   return 1;
 };
@@ -94,20 +112,23 @@ function construirStateSummary(perfil: PerfilEmocional | null, nivel: number): s
 // versão enxuta (não cola frases longas)
 function construirNarrativaMemorias(mems: Memoria[]): string {
   if (!mems || mems.length === 0) return '';
-  const ord = [...mems].sort((a,b) =>
-    (b.intensidade ?? 0) - (a.intensidade ?? 0) ||
-    (b.similaridade ?? 0) - (a.similaridade ?? 0)
-  ).slice(0, 2);
+  const ord = [...mems]
+    .sort(
+      (a, b) =>
+        (b.intensidade ?? 0) - (a.intensidade ?? 0) ||
+        (b.similaridade ?? 0) - (a.similaridade ?? 0),
+    )
+    .slice(0, 2);
 
   const temas = new Set<string>();
   const emocoes = new Set<string>();
   for (const m of ord) {
-    (m.tags ?? []).slice(0,3).forEach(t => temas.add(t));
+    (m.tags ?? []).slice(0, 3).forEach((t) => temas.add(t));
     if (m.emocao_principal) emocoes.add(m.emocao_principal);
   }
 
-  const temasTxt = [...temas].slice(0,3).join(', ') || '—';
-  const emocoesTxt = [...emocoes].slice(0,2).join(', ') || '—';
+  const temasTxt = [...temas].slice(0, 3).join(', ') || '—';
+  const emocoesTxt = [...emocoes].slice(0, 2).join(', ') || '—';
   return `\n📜 Continuidade: temas recorrentes (${temasTxt}) e emoções citadas (${emocoesTxt}); conecte apenas se fizer sentido agora.`;
 }
 
@@ -120,8 +141,13 @@ function minifyTextSafe(s: string) {
 function withTimeout<T>(p: Promise<T>, ms: number, label = 'task'): Promise<T> {
   return new Promise((resolve, reject) => {
     const id = setTimeout(() => reject(new Error(`${label} timeout ${ms}ms`)), ms);
-    p.then(v => { clearTimeout(id); resolve(v); })
-     .catch(e => { clearTimeout(id); reject(e); });
+    p.then((v) => {
+      clearTimeout(id);
+      resolve(v);
+    }).catch((e) => {
+      clearTimeout(id);
+      reject(e);
+    });
   });
 }
 
@@ -146,7 +172,9 @@ async function buildFileIndexOnce(roots: string[]) {
       for (const name of entries) {
         if (!fileIndex.has(name)) fileIndex.set(name, path.join(base, name));
       }
-    } catch { /* ignore pasta ausente */ }
+    } catch {
+      /* ignore pasta ausente */
+    }
   }
   fileIndexBuilt = true;
 }
@@ -164,7 +192,9 @@ async function lerModulo(arquivo: string, pastas: string[]): Promise<string | nu
       cacheModulos.set(arquivo, conteudo);
       return conteudo;
     }
-  } catch { /* fallback para busca manual */ }
+  } catch {
+    /* fallback para busca manual */
+  }
 
   // fallback: tentar manualmente (já com ordem otimizada de pastas)
   for (const base of pastas) {
@@ -173,79 +203,115 @@ async function lerModulo(arquivo: string, pastas: string[]): Promise<string | nu
       const conteudo = (await fs.readFile(caminho, 'utf-8')).trim();
       cacheModulos.set(arquivo, conteudo);
       return conteudo;
-    } catch { /* tenta próxima pasta */ }
+    } catch {
+      /* tenta próxima pasta */
+    }
   }
   log.warn(`Falha ao carregar módulo ${arquivo}: não encontrado`);
   return null;
 }
 
-// Avaliador seguro de regras simples
-function avaliarRegraSimples(regra: string, ctx: { nivel: number; intensidade: number; curiosidade?: boolean; duvida?: boolean; pedido?: boolean; }): boolean {
-  if (!regra || !regra.trim()) return true;
-  let expr = String(regra);
-
-  expr = expr.replace(/intensidade/g, String(ctx.intensidade));
-  expr = expr.replace(/nivel/g, String(ctx.nivel));
-
-  const subFlag = (nome: string, val: boolean) => {
-    expr = expr.replace(new RegExp(`${nome}\\s*==\\s*true`, 'g'), val ? '1' : '0');
-    expr = expr.replace(new RegExp(`${nome}\\s*==\\s*false`, 'g'), val ? '0' : '1');
-    expr = expr.replace(new RegExp(`\\b${nome}\\b`, 'g'), val ? '1' : '0');
-  };
-  subFlag('curiosidade', !!ctx.curiosidade);
-  subFlag('duvida_classificacao', !!ctx.duvida);
-  subFlag('pedido_pratico', !!ctx.pedido);
-
-  const safe = expr.replace(/[^\d\s()&|!<>=]/g, '');
-  try {
-    // eslint-disable-next-line no-new-func
-    return Boolean(Function(`"use strict"; return (${safe});`)());
-  } catch {
-    log.warn('Regra inválida, aplicando fallback TRUE:', regra);
-    return true;
+// ----------------------------------
+// 🔹 SUPORTE À MATRIZ V2 COM HERANÇA
+// ----------------------------------
+type Nivel = 1 | 2 | 3;
+function isV2Matrix(m: any): boolean {
+  return !!m?.byNivelV2 && !!m?.baseModules;
+}
+function resolveModulesForLevelV2(nivel: Nivel, m: any): string[] {
+  const levelCfg = m.byNivelV2[nivel];
+  if (!levelCfg) return [];
+  const inherited = levelCfg.inherits.flatMap((cat: string) => m.baseModules?.[cat] ?? []);
+  return [...inherited, ...levelCfg.specific];
+}
+function modulesForNivel(nivel: Nivel, m: any): { raw: string[]; inherited: string[]; specific: string[] } {
+  if (isV2Matrix(m)) {
+    const levelCfg = m.byNivelV2[nivel];
+    const inherited = levelCfg?.inherits?.flatMap((cat: string) => m.baseModules?.[cat] ?? []) ?? [];
+    const specific = levelCfg?.specific ?? [];
+    const raw = [...inherited, ...specific];
+    return { raw, inherited, specific };
   }
+  // fallback V1
+  const raw = [ ...(m.alwaysInclude ?? []), ...(m.byNivel?.[nivel] ?? []) ];
+  return { raw, inherited: m.alwaysInclude ?? [], specific: m.byNivel?.[nivel] ?? [] };
 }
 
-// Seleção de módulos por matriz
+// ------------------------------
+// Seleção de módulos base (com V2 + gating + logs)
+// ------------------------------
 function selecionarModulosBase({
-  nivel, intensidade, matriz, flags
+  nivel,
+  intensidade,
+  matriz,
+  flags,
 }: {
-  nivel: number;
+  nivel: Nivel;
   intensidade: number;
-  matriz: any;
-  flags: { curiosidade?: boolean; duvida_classificacao?: boolean; pedido_pratico?: boolean; };
-}): string[] {
-  const nomes: string[] = [];
-  for (const arq of (matriz.alwaysInclude ?? [])) if (arq) nomes.push(arq);
+  matriz: any; // aceita V1 ou V2
+  flags: { curiosidade?: boolean; duvida_classificacao?: boolean; pedido_pratico?: boolean };
+}): {
+  selecionados: string[];
+  debug: {
+    raw: string[];
+    inherited: string[];
+    specific: string[];
+    posGating: string[];
+    cortadosPorRegraOuIntensidade: string[];
+  };
+} {
+  const { raw, inherited, specific } = modulesForNivel(nivel, matriz);
 
-  const candidatos = (matriz.byNivel?.[nivel as 2 | 3] ?? []).filter((arquivo: string) => {
+  // Dedup inicial
+  const dedup = [...new Set(raw)];
+
+  const cortados: string[] = [];
+  const posGating = dedup.filter((arquivo) => {
     if (!arquivo || !arquivo.trim()) return false;
-    const min = matriz.intensidadeMinima?.[arquivo];
-    if (typeof min === 'number' && intensidade < min) return false;
 
+    // intensidade mínima
+    const min = matriz.intensidadeMinima?.[arquivo];
+    if (typeof min === 'number' && intensidade < min) {
+      cortados.push(`${arquivo} [min=${min}, intensidade=${intensidade}]`);
+      return false;
+    }
+
+    // regra semântica
     const cond = matriz.condicoesEspeciais?.[arquivo];
     if (!cond) return true;
 
-    return avaliarRegraSimples(cond.regra, {
+    const ok = evalRule(cond.regra, {
       nivel,
       intensidade,
       curiosidade: !!flags.curiosidade,
-      duvida: !!flags.duvida_classificacao,
-      pedido: !!flags.pedido_pratico
+      duvida_classificacao: !!flags.duvida_classificacao,
+      pedido_pratico: !!flags.pedido_pratico,
     });
+
+    if (!ok) cortados.push(`${arquivo} [regra=${cond.regra}]`);
+    return ok;
   });
 
-  nomes.push(...candidatos);
-  return nomes;
+  log.info(`[ACT][MATRIX] versão: ${isV2Matrix(matriz) ? 'V2' : 'V1'}`);
+  log.info('[ACT][MATRIX] herdados:', inherited);
+  log.info('[ACT][MATRIX] específicos:', specific);
+  log.info('[ACT][MATRIX] base(raw dedup):', dedup);
+  log.info('[ACT][MATRIX] base(posGating):', posGating);
+  if (cortados.length) log.info('[ACT][MATRIX] cortados (regra/intensidade):', cortados);
+
+  return {
+    selecionados: posGating,
+    debug: { raw: dedup, inherited, specific, posGating, cortadosPorRegraOuIntensidade: cortados },
+  };
 }
 
-// Monta corpo respeitando orçamento (usa encoder reutilizado)
+// Monta corpo respeitando orçamento (usa encoder reutilizado) + LOG do que entrou/cortou
 async function montarComBudget(
   nomes: string[],
   pastas: string[],
   budgetTokens: number,
   prioridade: string[] | undefined,
-  enc: ReturnType<typeof get_encoding>
+  enc: ReturnType<typeof get_encoding>,
 ) {
   const orderMap = new Map<string, number>();
   (prioridade ?? []).forEach((n, i) => orderMap.set(n, i));
@@ -258,26 +324,38 @@ async function montarComBudget(
 
   let total = 0;
   const blocos: string[] = [];
+  const incluidos: string[] = [];
+  const cortados: string[] = [];
+
   for (const nome of nomesOrdenados) {
     const conteudo = await lerModulo(nome, pastas);
-    if (!conteudo) continue;
+    if (!conteudo) { cortados.push(`${nome} [missing]`); continue; }
     const t = enc.encode(conteudo).length;
     // se faltar menos de 10% do budget, corta para evitar estouro no final
-    if (total + t > budgetTokens || (budgetTokens - total) < Math.ceil(budgetTokens * 0.1)) {
+    if (total + t > budgetTokens || budgetTokens - total < Math.ceil(budgetTokens * 0.1)) {
       log.info(`Corte por budget: ${nome} ficaria acima do limite (restante ${budgetTokens - total}).`);
+      cortados.push(`${nome} [budget]`);
       continue;
     }
     total += t;
     blocos.push(conteudo);
+    incluidos.push(nome);
   }
+
+  log.info('[ACT][BUDGET] incluídos:', incluidos);
+  if (cortados.length) log.info('[ACT][BUDGET] cortados:', cortados);
   log.info(`Corpo de módulos: ~${total} tokens (budget=${budgetTokens}).`);
+
   return minifyTextSafe(blocos.join('\n\n'));
 }
 
 // Deriva flags simples (evita tratar "como vai" como curiosidade)
 function derivarFlags(entrada: string) {
   const curiosidade = /\b(por que|porque|pq|explica|explic(a|ar)|entender|entende|curios)\b/i.test(entrada);
-  const pedido_pratico = /\b(o que faço|o que eu faço|como faço|como falo|pode ajudar|tem (ideia|dica)|me ajuda|ajuda com|sugest(ão|oes))\b/i.test(entrada);
+  const pedido_pratico =
+    /\b(o que faço|o que eu faço|como faço|como falo|pode ajudar|tem (ideia|dica)|me ajuda|ajuda com|sugest(ão|oes))\b/i.test(
+      entrada,
+    );
   const duvida_classificacao = false;
   return { curiosidade, pedido_pratico, duvida_classificacao };
 }
@@ -286,11 +364,17 @@ function derivarFlags(entrada: string) {
 function decidirModulosRegulacao(msg: string, nivel: number, intensidade: number): string[] {
   if (nivel <= 1) return [];
   const tempo = extrairTempoMencionado(msg);
-  const melhor = melhorPratica({ texto: msg, nivelAbertura: nivel, intensidade, tempoMinDisponivel: tempo ?? null });
+  const melhor = melhorPratica({
+    texto: msg,
+    nivelAbertura: nivel,
+    intensidade,
+    tempoMinDisponivel: tempo ?? null,
+  });
   if (!melhor) return [];
-  const extras = intensidade >= 7 && melhor.modulo !== 'ORIENTACAO_GROUNDING.txt'
-    ? ['ORIENTACAO_GROUNDING.txt']
-    : [];
+  const extras =
+    intensidade >= 7 && melhor.modulo !== 'ORIENTACAO_GROUNDING.txt'
+      ? ['ORIENTACAO_GROUNDING.txt']
+      : [];
   // garante unicidade
   return [...new Set([melhor.modulo, ...extras])];
 }
@@ -299,7 +383,8 @@ function decidirModulosRegulacao(msg: string, nivel: number, intensidade: number
 // SAUDAÇÃO (regex robusto, alinhado ao fast-path global)
 // ----------------------------------
 const MAX_LEN_FOR_GREETING = 40;
-const GREET_RE = /^(?:(?:oi+|oie+|ola+|ol[aá]|alo+|opa+|salve)(?:[, ]*(?:tudo\s*bem|td\s*bem))?|tudo\s*(?:bem|bom|certo)|oi+[, ]*tudo\s*bem|ol[aá]\s*eco|oi\s*eco|oie\s*eco|ola\s*eco|alo\s*eco|bom\s*dia+|boa\s*tarde+|boa\s*noite+|boa\s*madrugada+|e\s*a[ei]|e\s*a[ií]\??|eai|eae|fala(?:\s*ai)?|falae|hey+|hi+|hello+|yo+|sup|beleza|blz|suave|de\s*boa|tranq(?:s)?|tranquilo(?:\s*ai)?|como\s*(?:vai|vc\s*esta|voce\s*esta|ce\s*ta|c[eu]\s*ta))(?:[\s,]*(@?eco|eco|bot|assistente|ai|chat))?\s*[!?.…]*$/i;
+const GREET_RE =
+  /^(?:(?:oi+|oie+|ola+|ol[aá]|alo+|opa+|salve)(?:[, ]*(?:tudo\s*bem|td\s*bem))?|tudo\s*(?:bem|bom|certo)|oi+[, ]*tudo\s*bem|ol[aá]\s*eco|oi\s*eco|oie\s*eco|ola\s*eco|alo\s*eco|bom\s*dia+|boa\s*tarde+|boa\s*noite+|boa\s*madrugada+|e\s*a[ei]|e\s*a[ií]\??|eai|eae|fala(?:\s*ai)?|falae|hey+|hi+|hello+|yo+|sup|beleza|blz|suave|de\s*boa|tranq(?:s)?|tranquilo(?:\s*ai)?|como\s*(?:vai|vc\s*esta|voce\s*esta|ce\s*ta|c[eu]\s*ta))(?:[\s,]*(@?eco|eco|bot|assistente|ai|chat))?\s*[!?.…]*$/i;
 
 // ----------------------------------
 // FUNÇÃO PRINCIPAL
@@ -349,7 +434,7 @@ export async function montarContextoEco({
   const entradaSemAcentos = normalizarTexto(entrada);
 
   // Embedding único da entrada (reuso se vier). NÃO geramos aqui para não custar em NV1.
-  const entradaEmbedding: number[] | null = (userEmbedding && userEmbedding.length) ? userEmbedding : null;
+  const entradaEmbedding: number[] | null = userEmbedding && userEmbedding.length ? userEmbedding : null;
 
   // --- Detecta saudação breve (alinhado ao fast-path) ---
   const isSaudacaoBreve =
@@ -388,9 +473,13 @@ ${forbidden.trim()}`);
   // Força NV1 quando saudação breve (para baratear o contexto)
   if (isSaudacaoBreve) nivel = 1;
 
-  if (nivel < 1 || nivel > 3) { log.warn('Nível de abertura inválido. Fallback 1.'); nivel = 1; }
+  if (nivel < 1 || nivel > 3) {
+    log.warn('Nível de abertura inválido. Fallback 1.');
+    nivel = 1;
+  }
   const desc = nivel === 1 ? 'superficial' : nivel === 2 ? 'reflexiva' : 'profunda';
   contexto += `\n📶 Abertura emocional sugerida (heurística): ${desc}`;
+  log.info('[ACT] nivel:', nivel);
 
   // ----------------------------------
   // PERFIL EMOCIONAL
@@ -403,19 +492,24 @@ ${forbidden.trim()}`);
   let memsUsadas = mems;
   if (forcarMetodoViva && blocoTecnicoForcado) {
     log.info('Ativando modo forçado METODO_VIVA com bloco técnico fornecido.');
-    memsUsadas = [{
-      resumo_eco: blocoTecnicoForcado.analise_resumo ?? entrada ?? "",
-      intensidade: Number(blocoTecnicoForcado.intensidade ?? 0),
-      emocao_principal: blocoTecnicoForcado.emocao_principal ?? "",
-      tags: blocoTecnicoForcado.tags ?? [],
-    }];
+    memsUsadas = [
+      {
+        resumo_eco: blocoTecnicoForcado.analise_resumo ?? entrada ?? '',
+        intensidade: Number(blocoTecnicoForcado.intensidade ?? 0),
+        emocao_principal: blocoTecnicoForcado.emocao_principal ?? '',
+        tags: blocoTecnicoForcado.tags ?? [],
+      },
+    ];
   } else if (nivel === 1) {
     log.info('Ignorando embeddings/memórias por abertura superficial (NV1).');
     memsUsadas = [];
   }
 
   if (memsUsadas && memsUsadas.length > 0) {
-    memsUsadas = memsUsadas.map(mem => ({ ...mem, nivel_abertura: nivelAberturaParaNumero(mem.nivel_abertura) }));
+    memsUsadas = memsUsadas.map((mem) => ({
+      ...mem,
+      nivel_abertura: nivelAberturaParaNumero(mem.nivel_abertura),
+    }));
   }
 
   // ----------------------------------
@@ -427,29 +521,36 @@ ${forbidden.trim()}`);
   if (nivel > 1) {
     // literal
     heuristicaAtiva = heuristicasTriggerMap.find((h: Heuristica) =>
-      h.gatilhos.some((g) => entradaSemAcentos.includes(normalizarTexto(g)))
+      h.gatilhos.some((g) => entradaSemAcentos.includes(normalizarTexto(g))),
     );
 
     const tarefasHeur: Record<string, Promise<any>> = {
       fuzzy: entrada
         ? withTimeout(buscarHeuristicaPorSimilaridade(entrada), TIMEOUT_FUZZY_MS, 'heuristicaFuzzy')
         : Promise.resolve([]),
-      emb: (entrada ? (entradaEmbedding
-          ? withTimeout(buscarHeuristicasSemelhantes({
-              usuarioId: userId ?? null,
-              userEmbedding: entradaEmbedding,
-              matchCount: 5,
-              threshold: 0.75,
-            } as any), TIMEOUT_EMB_MS, 'heuristicasEmbedding')
-          // fallback texto (gera embedding no serviço)
-          : withTimeout(buscarHeuristicasSemelhantes(entrada, userId ?? null), TIMEOUT_EMB_MS, 'heuristicasEmbeddingText')
-        ) : Promise.resolve([])
-      )
+      emb: entrada
+        ? entradaEmbedding
+          ? withTimeout(
+              buscarHeuristicasSemelhantes({
+                usuarioId: userId ?? null,
+                userEmbedding: entradaEmbedding,
+                matchCount: 5,
+                threshold: 0.75,
+              } as any),
+              TIMEOUT_EMB_MS,
+              'heuristicasEmbedding',
+            )
+          : withTimeout(
+              buscarHeuristicasSemelhantes(entrada, userId ?? null),
+              TIMEOUT_EMB_MS,
+              'heuristicasEmbeddingText',
+            )
+        : Promise.resolve([]),
     };
 
     const [rFuzzy, rHeurEmb] = await Promise.allSettled([tarefasHeur.fuzzy, tarefasHeur.emb]);
-    const heuristicasFuzzy = rFuzzy.status === 'fulfilled' ? (rFuzzy.value || []) : [];
-    var heuristicasEmbedding: any[] = rHeurEmb.status === 'fulfilled' ? (rHeurEmb.value || []) : [];
+    const heuristicasFuzzy = rFuzzy.status === 'fulfilled' ? rFuzzy.value || [] : [];
+    var heuristicasEmbedding: any[] = rHeurEmb.status === 'fulfilled' ? rHeurEmb.value || [] : [];
 
     if (!heuristicaAtiva && heuristicasFuzzy?.length > 0) {
       heuristicaAtiva = heuristicasFuzzy[0];
@@ -458,7 +559,8 @@ ${forbidden.trim()}`);
       log.info('Nenhuma heurística fuzzy ativada.');
     }
     if (isDebug()) {
-      if (heuristicasEmbedding?.length) log.info(`${heuristicasEmbedding.length} heurística(s) cognitivas por embedding.`);
+      if (heuristicasEmbedding?.length)
+        log.info(`${heuristicasEmbedding.length} heurística(s) cognitivas por embedding.`);
       else log.info('Nenhuma heurística embedding encontrada.');
     }
   } else {
@@ -469,8 +571,8 @@ ${forbidden.trim()}`);
   // ----------------------------------
   // BUSCA DE MEMÓRIAS/REFERÊNCIAS/ENCADEAMENTOS (nivel > 1) — paralelo
   // ----------------------------------
-  const tagsAlvo = heuristicaAtiva ? (tagsPorHeuristica[heuristicaAtiva.arquivo] ?? []) : [];
-  if (nivel > 1 && (!memsUsadas?.length) && entrada && userId) {
+  const tagsAlvo = heuristicaAtiva ? tagsPorHeuristica[heuristicaAtiva.arquivo] ?? [] : [];
+  if (nivel > 1 && !memsUsadas?.length && entrada && userId) {
     try {
       let MIN_SIMILARIDADE = 0.15;
       if (/lembr|record|memória|memorias|memoria|recorda/i.test(entrada)) {
@@ -480,20 +582,52 @@ ${forbidden.trim()}`);
 
       const tarefas: Record<string, Promise<any>> = {
         mems: entradaEmbedding
-          ? withTimeout(buscarMemoriasSemelhantes(userId, { userEmbedding: entradaEmbedding, k: 6, threshold: MIN_SIMILARIDADE }), TIMEOUT_MEM_MS, 'memorias')
-          : withTimeout(buscarMemoriasSemelhantes(userId, { texto: entrada, k: 6, threshold: MIN_SIMILARIDADE } as any), TIMEOUT_MEM_MS, 'memoriasTexto'),
+          ? withTimeout(
+              buscarMemoriasSemelhantes(userId, {
+                userEmbedding: entradaEmbedding,
+                k: 6,
+                threshold: MIN_SIMILARIDADE,
+              }),
+              TIMEOUT_MEM_MS,
+              'memorias',
+            )
+          : withTimeout(
+              buscarMemoriasSemelhantes(userId, { texto: entrada, k: 6, threshold: MIN_SIMILARIDADE } as any),
+              TIMEOUT_MEM_MS,
+              'memoriasTexto',
+            ),
         refs: entradaEmbedding
-          ? withTimeout(buscarReferenciasSemelhantes(userId, { userEmbedding: entradaEmbedding, k: 5, threshold: MIN_SIMILARIDADE }), TIMEOUT_MEM_MS, 'referencias')
-          : withTimeout(buscarReferenciasSemelhantes(userId, { texto: entrada, k: 5, threshold: MIN_SIMILARIDADE } as any), TIMEOUT_MEM_MS, 'referenciasTexto'),
+          ? withTimeout(
+              buscarReferenciasSemelhantes(userId, {
+                userEmbedding: entradaEmbedding,
+                k: 5,
+                threshold: MIN_SIMILARIDADE,
+              }),
+              TIMEOUT_MEM_MS,
+              'referencias',
+            )
+          : withTimeout(
+              buscarReferenciasSemelhantes(userId, { texto: entrada, k: 5, threshold: MIN_SIMILARIDADE } as any),
+              TIMEOUT_MEM_MS,
+              'referenciasTexto',
+            ),
         encs: entradaEmbedding
-          ? withTimeout(buscarEncadeamentosPassados(userId, { userEmbedding: entradaEmbedding, kBase: 1 } as any), TIMEOUT_ENC_MS, 'encadeamentos')
-          : withTimeout(buscarEncadeamentosPassados(userId, { texto: entrada, kBase: 1 } as any), TIMEOUT_ENC_MS, 'encadeamentosTexto')
+          ? withTimeout(
+              buscarEncadeamentosPassados(userId, { userEmbedding: entradaEmbedding, kBase: 1 } as any),
+              TIMEOUT_ENC_MS,
+              'encadeamentos',
+            )
+          : withTimeout(
+              buscarEncadeamentosPassados(userId, { texto: entrada, kBase: 1 } as any),
+              TIMEOUT_ENC_MS,
+              'encadeamentosTexto',
+            ),
       };
 
       const [rMems, rRefs, rEncs] = await Promise.allSettled([tarefas.mems, tarefas.refs, tarefas.encs]);
-      let memorias = rMems.status === 'fulfilled' ? (rMems.value || []) : [];
-      let referencias = rRefs.status === 'fulfilled' ? (rRefs.value || []) : [];
-      let encadeamentos = rEncs.status === 'fulfilled' ? (rEncs.value || []) : [];
+      let memorias = rMems.status === 'fulfilled' ? rMems.value || [] : [];
+      let referencias = rRefs.status === 'fulfilled' ? rRefs.value || [] : [];
+      let encadeamentos = rEncs.status === 'fulfilled' ? rEncs.value || [] : [];
 
       const memoriasFiltradas = (memorias || []).filter((m: Memoria) => (m.similaridade ?? 0) >= MIN_SIMILARIDADE);
       const referenciasFiltradas = (referencias || []).filter((r: Memoria) => (r.similaridade ?? 0) >= MIN_SIMILARIDADE);
@@ -502,19 +636,23 @@ ${forbidden.trim()}`);
         .sort((a, b) => (b.similaridade ?? 0) - (a.similaridade ?? 0))
         .slice(0, 3);
 
-      const memoriaIntensa = memsUsadas.find(m => (m.intensidade ?? 0) >= 7 && (m.similaridade ?? 0) >= MIN_SIMILARIDADE);
+      const memoriaIntensa = memsUsadas.find(
+        (m) => (m.intensidade ?? 0) >= 7 && (m.similaridade ?? 0) >= MIN_SIMILARIDADE,
+      );
       if (memoriaIntensa) {
         log.info('Ajuste: priorizando memória intensa recuperada.');
-        memsUsadas = [memoriaIntensa, ...memsUsadas.filter(m => m !== memoriaIntensa)];
+        memsUsadas = [memoriaIntensa, ...memsUsadas.filter((m) => m !== memoriaIntensa)];
       }
 
       if (isDebug()) {
         if (memsUsadas?.length) {
           const memsResumo = memsUsadas.map((m, i) => ({
             idx: i + 1,
-            resumo: (m.resumo_eco || '').slice(0, 50).replace(/\n/g, ' ') + ((m.resumo_eco || '').length > 50 ? '...' : ''),
+            resumo:
+              (m.resumo_eco || '').slice(0, 50).replace(/\n/g, ' ') +
+              ((m.resumo_eco || '').length > 50 ? '...' : ''),
             intensidade: m.intensidade,
-            similaridade: m.similaridade
+            similaridade: m.similaridade,
           }));
           log.info('Memórias finais:', memsResumo);
         } else log.info('ℹ️ Nenhuma memória usada no contexto.');
@@ -527,8 +665,8 @@ ${forbidden.trim()}`);
       // Encadeamentos (texto leve)
       if (encadeamentos?.length) {
         const encadeamentoTextos = (encadeamentos as Memoria[])
-          .filter(e => e?.resumo_eco?.trim())
-          .map(e => `• "${e.resumo_eco.trim()}"`)
+          .filter((e) => e?.resumo_eco?.trim())
+          .map((e) => `• "${e.resumo_eco.trim()}"`)
           .join('\n')
           .trim();
         if (encadeamentoTextos) {
@@ -547,13 +685,14 @@ ${forbidden.trim()}`);
       resumo_eco: entrada,
       tags: perfil.temas_recorrentes ? Object.keys(perfil.temas_recorrentes) : [],
       intensidade: 0,
-      emocao_principal: Object.keys(perfil.emocoes_frequentes || {})[0] || ''
+      emocao_principal: Object.keys(perfil.emocoes_frequentes || {})[0] || '',
     };
     memsUsadas = [...(memsUsadas || []), memoriaAtual];
   }
 
   // Intensidade de contexto = máximo
-  const intensidadeContexto = Math.max(0, ...(memsUsadas ?? []).map(m => m.intensidade ?? 0));
+  const intensidadeContexto = Math.max(0, ...(memsUsadas ?? []).map((m) => m.intensidade ?? 0));
+  log.info('[ACT] intensidadeContexto(max mems):', intensidadeContexto);
 
   // Inserção de memórias (texto leve)
   if (memsUsadas && memsUsadas.length > 0 && nivel > 1) {
@@ -563,15 +702,28 @@ ${forbidden.trim()}`);
   // ----------------------------------
   // SELEÇÃO E MONTAGEM DE MÓDULOS COM ORÇAMENTO
   // ----------------------------------
-  const { matrizPromptBase } = await import('./matrizPromptBase');
+  // Import dinâmico para aceitar arquivos que exportem V1 e/ou V2
+  const mod = await import('./matrizPromptBase');
+  const matriz = (mod as any).matrizPromptBaseV2 ?? (mod as any).matrizPromptBase;
 
   const flags = derivarFlags(entrada);
-  const nomesBase = selecionarModulosBase({
-    nivel, intensidade: intensidadeContexto, matriz: matrizPromptBase, flags
+  const baseSel = selecionarModulosBase({
+    nivel: nivel as Nivel,
+    intensidade: intensidadeContexto,
+    matriz,
+    flags,
   });
+  const nomesBase = baseSel.selecionados;
+  log.info('[ACT] always/core base info:', {
+    versao: isV2Matrix(matriz) ? 'V2' : 'V1',
+    herdados: baseSel.debug.inherited,
+    especificos: baseSel.debug.specific,
+  });
+  log.info('[ACT] base(posGating):', nomesBase);
 
   // Módulos de regulação (antes dos extras)
   const modReg = decidirModulosRegulacao(entrada, nivel, intensidadeContexto);
+  log.info('[ACT] regulacao:', modReg);
 
   // Extras (heurísticos/filosóficos/estoicos/emocionais)
   const nomesExtras: string[] = [];
@@ -581,12 +733,20 @@ ${forbidden.trim()}`);
   const podeConteudoExtra = nivel >= 2 && (entrada?.length ?? 0) >= 20;
   if (podeConteudoExtra) {
     for (const mf of filosoficosTriggerMap ?? []) {
-      if (mf?.arquivo && mf?.arquivo.trim() && mf.gatilhos.some((g) => entradaSemAcentos.includes(normalizarTexto(g)))) {
+      if (
+        mf?.arquivo &&
+        mf?.arquivo.trim() &&
+        mf.gatilhos.some((g) => entradaSemAcentos.includes(normalizarTexto(g)))
+      ) {
         nomesExtras.push(mf.arquivo);
       }
     }
     for (const es of estoicosTriggerMap ?? []) {
-      if (es?.arquivo && es?.arquivo.trim() && es.gatilhos.every((g) => entradaSemAcentos.includes(normalizarTexto(g)))) {
+      if (
+        es?.arquivo &&
+        es?.arquivo.trim() &&
+        es.gatilhos.every((g) => entradaSemAcentos.includes(normalizarTexto(g)))
+      ) {
         nomesExtras.push(es.arquivo);
       }
     }
@@ -596,12 +756,14 @@ ${forbidden.trim()}`);
     if (!m?.arquivo) return false;
     let intensidadeOk = true;
     const minInt = m.intensidadeMinima;
-    if (typeof minInt === 'number') intensidadeOk = memsUsadas?.some((mem) => (mem.intensidade ?? 0) >= minInt) ?? false;
-    const tagsPresentes = memsUsadas?.flatMap(mem => mem.tags ?? []) ?? [];
-    const emocoesPrincipais = memsUsadas?.map(mem => mem.emocao_principal).filter(Boolean) ?? [];
-    return intensidadeOk && (
-      m.tags?.some(tag => tagsPresentes.includes(tag)) ||
-      m.tags?.some(tag => emocoesPrincipais.includes(tag))
+    if (typeof minInt === 'number')
+      intensidadeOk = memsUsadas?.some((mem) => (mem.intensidade ?? 0) >= minInt) ?? false;
+    const tagsPresentes = memsUsadas?.flatMap((mem) => mem.tags ?? []) ?? [];
+    const emocoesPrincipais = memsUsadas?.map((mem) => mem.emocao_principal).filter(Boolean) ?? [];
+    return (
+      intensidadeOk &&
+      (m.tags?.some((tag) => tagsPresentes.includes(tag)) ||
+        m.tags?.some((tag) => emocoesPrincipais.includes(tag)))
     );
   });
   for (const me of modulosEmocionaisAtivos ?? []) if (me?.arquivo) nomesExtras.push(me.arquivo);
@@ -609,10 +771,14 @@ ${forbidden.trim()}`);
     for (const rel of me.relacionado) nomesExtras.push(rel);
   }
 
+  const extrasCapados = [...new Set(nomesExtras)].slice(0, HARD_CAP_EXTRAS);
+  log.info(`[ACT] extrasCandidatos(cap=${HARD_CAP_EXTRAS}):`, extrasCapados);
+
   // Tokens usados por contexto; budget restante
   const contextoMin = minifyTextSafe(contexto);
   const tokensContexto = enc.encode(contextoMin).length;
   const budgetRestante = Math.max(1000, MAX_PROMPT_TOKENS - tokensContexto - 200);
+  log.info('[ACT] tokensContexto:', tokensContexto, '| budgetRestante:', budgetRestante);
 
   // Guard anti-saudação para evitar aberturas “como você chega…”
   const antiSaudacaoGuard = `
@@ -622,16 +788,17 @@ Se a mensagem do usuário for apenas uma saudação breve, não repita a saudaç
 
   // Early return para Nível 1 (preset leve; sem memórias; sem heurísticas)
   if (nivel === 1) {
-    const nomesNv1 = [
-      ...(matrizPromptBase.alwaysInclude ?? []),
-      'ECO_ORQUESTRA_NIVEL1.txt'
-    ];
+    const nomesNv1 = isV2Matrix(matriz)
+      ? resolveModulesForLevelV2(1, matriz)
+      : [ ...(matriz.alwaysInclude ?? []), 'ECO_ORQUESTRA_NIVEL1.txt' ];
+    log.info('[ACT][NV1] selecionados:', nomesNv1, '| budgetNv1:', Math.min(budgetRestante, NIVEL1_BUDGET));
+
     const corpoNivel1 = await montarComBudget(
       nomesNv1,
       [modulosDir],
       Math.min(budgetRestante, NIVEL1_BUDGET),
       undefined,
-      enc
+      enc,
     );
 
     const instrucoesNivel1 = `\n⚠️ INSTRUÇÃO:
@@ -642,26 +809,36 @@ Se a mensagem do usuário for apenas uma saudação breve, não repita a saudaç
 
     const forbiddenOnce = `\n${forbidden.trim()}\n${antiSaudacaoGuard}`;
 
-    const finalNv1 = minifyTextSafe(`${contextoMin}\n\n${corpoNivel1}\n\n${instrucoesNivel1}\n\n${forbiddenOnce}`);
+    const finalNv1 = minifyTextSafe(
+      `${contextoMin}\n\n${corpoNivel1}\n\n${instrucoesNivel1}\n\n${forbiddenOnce}`,
+    );
     log.info(`Tokens estimados (final NV1): ~${enc.encode(finalNv1).length} (budget=${MAX_PROMPT_TOKENS})`);
     return finalNv1;
   }
 
   // Para níveis 2/3: base + regulação + extras (cap de extras)
-  const nomesSelecionados = [...new Set([
-    ...nomesBase,
-    ...modReg,
-    ...nomesExtras.slice(0, HARD_CAP_EXTRAS)
-  ])];
+  const nomesSelecionadosPreBudget = [...new Set([...nomesBase, ...decidirModulosRegulacao(entrada, nivel, intensidadeContexto), ...extrasCapados])];
 
-  const prioridade: string[] | undefined = (matrizPromptBase as any)?.limites?.prioridade;
+  // PRIORIDADE dinâmica: se for V2, favorece camadas core→emotional→advanced antes do fallback limites.prioridade
+  let prioridade: string[] | undefined = (matriz as any)?.limites?.prioridade;
+  if (isV2Matrix(matriz)) {
+    const pv2 = [
+      ...(matriz.baseModules?.core ?? []),
+      'ECO_ORQUESTRA_NIVEL1.txt','ECO_ORQUESTRA_NIVEL2.txt','ECO_ORQUESTRA_NIVEL3.txt',
+      ...(matriz.baseModules?.emotional ?? []),
+      ...(matriz.baseModules?.advanced ?? []),
+    ];
+    prioridade = [...new Set([ ...pv2, ...(prioridade ?? []) ])];
+  }
+
+  log.info('[ACT] selecionados(pre-budget):', nomesSelecionadosPreBudget);
 
   const corpoModulos = await montarComBudget(
-    nomesSelecionados,
+    nomesSelecionadosPreBudget,
     pastasPossiveis,
     budgetRestante,
     prioridade,
-    enc
+    enc,
   );
 
   // Instruções finais
@@ -691,14 +868,18 @@ Se a mensagem do usuário for apenas uma saudação breve, não repita a saudaç
 
   const forbiddenOnce = `\n${forbidden.trim()}\n${antiSaudacaoGuard}`;
 
-  const promptFinal = minifyTextSafe([
-    contextoMin,
-    corpoModulos.trim(),
-    criterios ? `\n${criterios}` : '',
-    memoriaInstrucoes ? `\n${memoriaInstrucoes}` : '',
-    instrucoesFinais,
-    forbiddenOnce
-  ].filter(Boolean).join('\n\n'));
+  const promptFinal = minifyTextSafe(
+    [
+      contextoMin,
+      corpoModulos.trim(),
+      criterios ? `\n${criterios}` : '',
+      memoriaInstrucoes ? `\n${memoriaInstrucoes}` : '',
+      instrucoesFinais,
+      forbiddenOnce,
+    ]
+      .filter(Boolean)
+      .join('\n\n'),
+  );
 
   // Log de tokens final
   try {
@@ -719,7 +900,7 @@ export const getPromptEcoPreview = async (_req: Request, res: Response) => {
     const promptFinal = await montarContextoEco({});
     res.json({ prompt: promptFinal });
   } catch (err) {
-    log.warn('❌ Erro ao montar prompt:', err as any);
+    log.warn('❌ Erro ao montar o prompt:', err as any);
     res.status(500).json({ error: 'Erro ao montar o prompt' });
   }
 };
