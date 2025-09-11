@@ -3,7 +3,7 @@ import path from "path";
 import dotenv from "dotenv";
 dotenv.config({ path: process.env.DOTENV_PATH || path.resolve(__dirname, "../.env") });
 
-import express from "express";
+import express, { Request, Response, NextFunction } from "express";
 import cors from "cors";
 
 import promptRoutes from "./routes/promptRoutes";
@@ -22,35 +22,50 @@ const app = express();
 const PORT = Number(process.env.PORT || 3001);
 
 /* ----------------------------- CORS ----------------------------- */
-/** Sem cookies/sessão => credenciais desativadas.
- *  Não fixe allowedHeaders/methods: o pacote cors reflete o que o browser pedir.
+/**
+ * Allowlist: domínio principal do Vercel + localhost, com regex para previews (*.vercel.app).
+ * Você pode adicionar mais origens via env: CORS_ALLOW_ORIGINS="https://minha.app,https://outra.com"
  */
-app.use(
-  cors({
-    origin: (_origin, cb) => cb(null, true), // aceita qualquer origem
-    credentials: false,
-    optionsSuccessStatus: 204,
-    maxAge: 86400,
-  })
-);
+const defaultAllow = [
+  "https://ecofrontend888.vercel.app",
+  "http://localhost:3000",
+  "http://127.0.0.1:3000",
+];
+const extraAllow =
+  (process.env.CORS_ALLOW_ORIGINS || "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean) || [];
 
-// responde preflight de qualquer rota rapidamente
-app.options("*", cors());
+const allowList = new Set<string>([...defaultAllow, ...extraAllow]);
+const vercelRegex = /^https?:\/\/([a-z0-9-]+)\.vercel\.app$/i;
 
-/* Cinto + suspensório: se algum handler retornar 4xx/5xx sem passar pelo cors(),
-   garanta os headers básicos mesmo assim. */
+const corsOptions: cors.CorsOptions = {
+  origin(origin, cb) {
+    // SSR/curl/etc. (sem Origin) → libera
+    if (!origin) return cb(null, true);
+    if (allowList.has(origin) || vercelRegex.test(origin)) {
+      return cb(null, true); // o pacote cors reflete a origem automaticamente
+    }
+    return cb(new Error(`Not allowed by CORS: ${origin}`));
+  },
+  credentials: true, // seguro, pois não usamos "*" e refletimos a origem
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With", "Accept", "Origin"],
+  optionsSuccessStatus: 204,
+  maxAge: 86400, // cache do preflight por 24h
+};
+
+// Cabeçalhos de Vary para caches (CDN/proxy) tratarem CORS corretamente
 app.use((req, res, next) => {
-  if (!res.getHeader("Access-Control-Allow-Origin")) {
-    res.setHeader("Access-Control-Allow-Origin", req.headers.origin || "*");
-    res.setHeader("Vary", "Origin, Access-Control-Request-Method, Access-Control-Request-Headers");
-    // ecoa os headers solicitados no preflight (ou um mínimo seguro)
-    const reqHdr = (req.headers["access-control-request-headers"] as string) || "authorization,content-type,accept";
-    res.setHeader("Access-Control-Allow-Headers", reqHdr);
-    res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
-  }
-  if (req.method === "OPTIONS") return res.sendStatus(204);
+  res.setHeader("Vary", "Origin, Access-Control-Request-Method, Access-Control-Request-Headers");
   next();
 });
+
+// Aplica CORS antes de qualquer rota
+app.use(cors(corsOptions));
+// Responde preflight para qualquer caminho
+app.options("*", cors(corsOptions));
 
 /* ------------------------- Body parsing ------------------------- */
 app.use(express.json());
@@ -70,7 +85,7 @@ app.use((req, _res, next) => {
 });
 
 /* -------------------------- Healthcheck ------------------------ */
-app.get("/", (_req, res) => res.status(200).send("OK"));
+app.get("/", (_req: Request, res: Response) => res.status(200).send("OK"));
 
 /* ----------------------------- Rotas --------------------------- */
 app.use("/api", promptRoutes);
@@ -82,18 +97,34 @@ app.use("/api", openrouterRoutes); // /api/ask-eco
 app.use("/api/relatorio-emocional", relatorioRoutes);
 app.use("/api/feedback", feedbackRoutes);
 
-// retrocompat
+// Retrocompat (suporta chamadas antigas como /memorias/similares)
 app.use("/memorias", memoryRoutes);
 app.use("/perfil-emocional", profileRoutes);
 app.use("/relatorio-emocional", relatorioRoutes);
 
 /* ----------------------- 404 & Error handler ------------------- */
-app.use((req, res) => {
+// 404
+app.use((req: Request, res: Response) => {
+  // mantém CORS também em 404
+  const origin = req.headers.origin as string | undefined;
+  if (origin && (allowList.has(origin) || vercelRegex.test(origin))) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+    res.setHeader("Access-Control-Allow-Credentials", "true");
+  }
   res.status(404).json({ error: "Rota não encontrada", path: req.originalUrl });
 });
 
-app.use((err: any, _req: any, res: any, _next: any) => {
+// Error handler
+app.use((err: any, req: Request, res: Response, _next: NextFunction) => {
   console.error("Erro não tratado:", err);
+  // garante headers CORS também em erros
+  const origin = req.headers.origin as string | undefined;
+  if (origin && (allowList.has(origin) || vercelRegex.test(origin))) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+    res.setHeader("Access-Control-Allow-Credentials", "true");
+  }
+  // Se for preflight que caiu aqui, devolve 204
+  if (req.method === "OPTIONS") return res.sendStatus(204);
   res.status(500).json({ error: "Erro interno" });
 });
 
@@ -101,10 +132,12 @@ app.use((err: any, _req: any, res: any, _next: any) => {
 app.listen(PORT, async () => {
   console.log(`Servidor Express rodando na porta ${PORT}`);
   if (process.env.REGISTRAR_HEURISTICAS === "true") {
-    await registrarTodasHeuristicas();  console.log("🎯 Heurísticas registradas.");
+    await registrarTodasHeuristicas();
+    console.log("🎯 Heurísticas registradas.");
   }
   if (process.env.REGISTRAR_FILOSOFICOS === "true") {
-    await registrarModulosFilosoficos(); console.log("🧘 Módulos filosóficos registrados.");
+    await registrarModulosFilosoficos();
+    console.log("🧘 Módulos filosóficos registrados.");
   }
 });
 
