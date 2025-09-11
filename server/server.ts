@@ -22,31 +22,35 @@ const app = express();
 const PORT = Number(process.env.PORT || 3001);
 
 /* ----------------------------- CORS ----------------------------- */
-// Ajuste aqui seus domínios de produção/dev
-const ALLOWED_ORIGINS = [
-  "https://ecofrontend888-6zx44bft2-rafaels-projects-f3ef53c3.vercel.app",
-  "http://localhost:5173",
-];
-
-// Se o front NÃO usa cookies/sessão (apenas Bearer), deixe false
-const ALLOW_CREDENTIALS = false;
-
+/** Sem cookies/sessão => credenciais desativadas.
+ *  Não fixe allowedHeaders/methods: o pacote cors reflete o que o browser pedir.
+ */
 app.use(
   cors({
-    origin(origin, cb) {
-      // permite tools tipo curl/Postman (sem Origin)
-      if (!origin) return cb(null, true);
-      cb(null, ALLOWED_ORIGINS.includes(origin));
-    },
-    credentials: ALLOW_CREDENTIALS,
-    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Authorization", "Content-Type", "X-Requested-With"],
+    origin: (_origin, cb) => cb(null, true), // aceita qualquer origem
+    credentials: false,
+    optionsSuccessStatus: 204,
     maxAge: 86400,
   })
 );
 
-// Responde preflight explicitamente para qualquer rota
+// responde preflight de qualquer rota rapidamente
 app.options("*", cors());
+
+/* Cinto + suspensório: se algum handler retornar 4xx/5xx sem passar pelo cors(),
+   garanta os headers básicos mesmo assim. */
+app.use((req, res, next) => {
+  if (!res.getHeader("Access-Control-Allow-Origin")) {
+    res.setHeader("Access-Control-Allow-Origin", req.headers.origin || "*");
+    res.setHeader("Vary", "Origin, Access-Control-Request-Method, Access-Control-Request-Headers");
+    // ecoa os headers solicitados no preflight (ou um mínimo seguro)
+    const reqHdr = (req.headers["access-control-request-headers"] as string) || "authorization,content-type,accept";
+    res.setHeader("Access-Control-Allow-Headers", reqHdr);
+    res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
+  }
+  if (req.method === "OPTIONS") return res.sendStatus(204);
+  next();
+});
 
 /* ------------------------- Body parsing ------------------------- */
 app.use(express.json());
@@ -74,7 +78,7 @@ app.use("/api/memorias", memoryRoutes);
 app.use("/api/perfil-emocional", profileRoutes);
 app.use("/api/voice", voiceTTSRoutes);
 app.use("/api/voice", voiceFullRoutes);
-app.use("/api", openrouterRoutes);                  // /api/ask-eco está aqui
+app.use("/api", openrouterRoutes); // /api/ask-eco
 app.use("/api/relatorio-emocional", relatorioRoutes);
 app.use("/api/feedback", feedbackRoutes);
 
@@ -84,7 +88,6 @@ app.use("/perfil-emocional", profileRoutes);
 app.use("/relatorio-emocional", relatorioRoutes);
 
 /* ----------------------- 404 & Error handler ------------------- */
-// IMPORTANTE: ainda retorna com CORS (o middleware já rodou)
 app.use((req, res) => {
   res.status(404).json({ error: "Rota não encontrada", path: req.originalUrl });
 });
