@@ -1,5 +1,4 @@
-/* assets/config/filosoficosTriggerMap.ts
-   ────────────────────────────────────── */
+/* assets/config/filosoficosTriggers.ts */
 
 export interface ModuloFilosoficoTrigger {
   arquivo: string;
@@ -7,79 +6,90 @@ export interface ModuloFilosoficoTrigger {
 }
 
 export const filosoficosTriggerMap: ModuloFilosoficoTrigger[] = [
+  // Corpo como via de presenca
   {
-    arquivo: 'eco_corpo_emocao.txt',
+    arquivo: "eco_corpo_emocao.txt",
     gatilhos: [
-      'corpo',
-      'peito',
-      'garganta',
-      'dor física',
-      'trava',
-      'sensação física',
-      'tensão corporal',
-      'reage no corpo',
-      'aperto',
-      'manifestação física'
+      "aperto no peito",
+      "peito apertado",
+      "dor no peito",
+      "no na garganta",
+      "aperto na garganta",
+      "tensao no corpo",
+      "tremor no corpo",
+      "sinto no corpo",
+      "nao sinto meu corpo",
+      "dormencia no corpo",
+      "respiracao curta",
+      "falta de ar"
     ]
   },
+
+  // Observador presente / meta-consciencia
   {
-    arquivo: 'eco_observador_presente.txt',
+    arquivo: "eco_observador_presente.txt",
     gatilhos: [
-      'observando',
-      'me vejo',
-      'testemunha',
-      'consciência',
-      'assistindo',
-      'parte que observa',
-      'ver de fora',
-      'consciência do agora',
-      'eu noto',
-      'consigo ver meus pensamentos'
+      "observar sem julgar",
+      "me observar melhor",
+      "percebo meus pensamentos",
+      "vejo meus pensamentos",
+      "ver de fora",
+      "eu noto agora",
+      "consciencia do agora",
+      "presenciar o que sinto",
+      "olhar para dentro",
+      "testemunhar a emocao"
     ]
   },
+
+  // Desidentificacao da mente
   {
-    arquivo: 'eco_identificacao_mente.txt',
+    arquivo: "eco_identificacao_mente.txt",
     gatilhos: [
-      'mente',
-      'pensamentos',
-      'não paro de pensar',
-      'domina minha cabeça',
-      'refém da mente',
-      'minha cabeça',
-      'controle mental',
-      'confusão mental',
-      'só penso nisso',
-      'briga interna'
+      "minha mente nao para",
+      "penso demais",
+      "loop mental",
+      "ruminacao",
+      "preso na cabeca",
+      "sou meus pensamentos",
+      "vozes na cabeca",
+      "historia sobre mim",
+      "rotulos sobre mim",
+      "confusao mental",
+      "mente acelerada",
+      "briga interna"
     ]
   },
+
+  // Presenca silenciosa / quietude
   {
-    arquivo: 'eco_presenca_silenciosa.txt',
+    arquivo: "eco_presenca_silenciosa.txt",
     gatilhos: [
-      'silêncio',
-      'paz',
-      'quietude',
-      'cansaço',
-      'parar',
-      'não quero pensar',
-      'alma cansada',
-      'parar tudo',
-      'descanso profundo',
-      'não sentir'
+      "preciso de silencio",
+      "quero ficar em silencio",
+      "mente barulhenta",
+      "quero so silencio",
+      "pausa para respirar",
+      "ficar quieto um momento",
+      "quietude",
+      "silencio interior",
+      "descanso profundo"
     ]
   },
+
+  // Sofrimento x realidade (aceitacao)
   {
-    arquivo: 'eco_fim_do_sofrimento.txt',
+    arquivo: "eco_fim_do_sofrimento.txt",
     gatilhos: [
-      'sofrimento',
-      'dor constante',
-      'cansado de sofrer',
-      'não aguento mais',
-      'sofrer o tempo todo',
-      'dor emocional',
-      'não passa nunca',
-      'não sei como sair disso',
-      'dor persistente',
-      'exausto de sentir isso'
+      "lutar contra a realidade",
+      "resistencia ao que e",
+      "pioro com meus pensamentos",
+      "dor e sofrimento",
+      "cansado de sofrer",
+      "nao aguento mais",
+      "sofrimento sem fim",
+      "quero que pare de doer",
+      "nao sei como sair disso"
     ]
   }
 ];

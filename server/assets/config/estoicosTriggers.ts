@@ -4,69 +4,86 @@ export interface ModuloEstoicoTrigger {
 }
 
 export const estoicosTriggerMap: ModuloEstoicoTrigger[] = [
+  // Dicotomia do controle / aceitação racional
   {
     arquivo: "eco_presenca_racional.txt",
     gatilhos: [
-      // Emoções relacionadas à perda de controle
-      "estou me sentindo irritado",
-      "fico frustrado com coisas que não controlo",
-      "fico ansioso com o que não posso mudar",
-      "me sinto perdido tentando controlar tudo",
-      "luto contra o que não depende de mim",
-      "me esforço demais para ter controle de tudo",
-
-      // Presente, aceitação, tempo
-      "tenho dificuldade em aceitar o presente",
-      "não aceito o que está acontecendo agora",
-      "me sinto pressionado pelo tempo",
-      "vivo com pressa e ansiedade",
-      "não consigo estar presente no momento",
-      "tenho dificuldade de estar no agora",
-
-      // Controle e responsabilidade
-      "quero controlar tudo ao meu redor",
-      "só posso controlar minhas ações",
-      "me cobro por coisas que estão fora do meu alcance",
-      "me culpo por coisas fora do meu controle",
-      "me sinto impotente diante da vida",
-      "tento controlar o incontrolável",
-
-      // Julgamento externo e comparação
-      "sofro com o que os outros pensam de mim",
-      "me comparo o tempo todo com os outros",
-      "fico pensando no que os outros vão achar",
-
-      // Passado e futuro
-      "fico remoendo o passado",
-      "me sinto ansioso com o futuro",
-      "tenho medo do que pode acontecer amanhã",
-      "revivo erros antigos",
-      "me prendo ao que já passou"
+      "fora do meu controle",
+      "controlar tudo",
+      "tento controlar o incontrolavel",
+      "aceitar o presente",
+      "nao consigo estar presente",
+      "pressa e ansiedade",
+      "remoendo o passado",
+      "ansioso com o futuro",
+      "o que os outros pensam",
+      "comparando com os outros",
+      "me culpo por coisas fora"
     ]
   },
+
+  // Observador presente / meta-consciência
   {
     arquivo: "eco_observador_presente.txt",
     gatilhos: [
-      // Consciência dos pensamentos e emoções
-      "percebo meus pensamentos sem julgar",
-      "estou tentando observar minhas emoções",
-      "quero me tornar mais consciente do que sinto",
-      "tento entender o que estou pensando",
-      "só quero conseguir me observar melhor",
-
-      // Meta-consciência e presença interior
-      "estou tentando me observar em silêncio",
+      "observar sem julgar",
+      "observar minhas emocoes",
+      "consciencia do que sinto",
       "me pego reagindo automaticamente",
-      "observo como certos pensamentos se repetem",
-      "tenho consciência dos meus padrões",
-      "quero apenas estar comigo, presente",
+      "pensamentos se repetem",
+      "ficar presente comigo",
+      "respirar e perceber",
+      "quero me observar melhor"
+    ]
+  },
 
-      // Práticas de atenção plena ou auto-observação
-      "tento ficar presente comigo mesmo",
-      "estou aprendendo a silenciar minha mente",
-      "quero me conectar com o que estou sentindo agora",
-      "estou tentando respirar e perceber o que acontece em mim",
-      "quero entender minhas reações antes de agir"
+  // Desidentificação da mente
+  {
+    arquivo: "eco_identificacao_mente.txt",
+    gatilhos: [
+      "preso na cabeca",
+      "minha mente nao para",
+      "sou meus pensamentos",
+      "historia que conto sobre mim",
+      "rotulos sobre mim",
+      "narrativa sobre mim"
+    ]
+  },
+
+  // Corpo como via de presença (sensações)
+  {
+    arquivo: "eco_corpo_emocao.txt",
+    gatilhos: [
+      "peito apertado",
+      "no na garganta",
+      "sinto no corpo",
+      "tremor no corpo",
+      "nao sinto nada no corpo",
+      "dormencia no corpo"
+    ]
+  },
+
+  // Silêncio / quietude
+  {
+    arquivo: "eco_presenca_silenciosa.txt",
+    gatilhos: [
+      "mente barulhenta",
+      "preciso de silencio",
+      "quero ficar em silencio",
+      "pausa para respirar",
+      "ficar quieto um momento"
+    ]
+  },
+
+  // Sofrimento x realidade (estoico)
+  {
+    arquivo: "eco_fim_do_sofrimento.txt",
+    gatilhos: [
+      "lutar contra a realidade",
+      "resistencia ao que e",
+      "pioro com meus pensamentos",
+      "dor e sofrimento",
+      "sofrimento nasce da resistencia"
     ]
   }
 ];

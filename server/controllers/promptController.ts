@@ -159,16 +159,13 @@ const fileIndex = new Map<string, string>(); // nome -> caminho absoluto
 let fileIndexBuilt = false;
 
 async function buildFileIndexOnce(roots: string[]) {
-  if (fileIndexBuilt) return;
   for (const base of roots) {
     try {
       const entries = await fs.readdir(base);
       for (const name of entries) {
         if (!fileIndex.has(name)) fileIndex.set(name, path.join(base, name));
       }
-    } catch {
-      /* pasta ausente: ignora */
-    }
+    } catch { /* pasta ausente: ignora */ }
   }
   fileIndexBuilt = true;
 }
@@ -204,13 +201,13 @@ async function lerModulo(arquivo: string, pastas: string[]): Promise<string | nu
 // ----------------------------------
 // SUPORTE À MATRIZ V2 COM HERANÇA
 // ----------------------------------
-type Nivel = 1 | 2 | 3;
+type NivelNum = 1 | 2 | 3;
 
 function isV2Matrix(m: any): boolean {
   return !!m?.byNivelV2 && !!m?.baseModules;
 }
 
-function resolveModulesForLevelV2(nivel: Nivel, m: any): string[] {
+function resolveModulesForLevelV2(nivel: NivelNum, m: any): string[] {
   const levelCfg = m.byNivelV2[nivel];
   if (!levelCfg) return [];
   const inherited = levelCfg.inherits.flatMap((cat: string) => m.baseModules?.[cat] ?? []);
@@ -218,7 +215,7 @@ function resolveModulesForLevelV2(nivel: Nivel, m: any): string[] {
 }
 
 function modulesForNivel(
-  nivel: Nivel,
+  nivel: NivelNum,
   m: any,
 ): { raw: string[]; inherited: string[]; specific: string[] } {
   if (isV2Matrix(m)) {
@@ -240,7 +237,7 @@ function selecionarModulosBase({
   matriz,
   flags,
 }: {
-  nivel: Nivel;
+  nivel: NivelNum;
   intensidade: number;
   matriz: any; // V1 ou V2
   flags: { curiosidade?: boolean; duvida_classificacao?: boolean; pedido_pratico?: boolean };
@@ -380,6 +377,117 @@ function decidirModulosRegulacao(msg: string, nivel: number, intensidade: number
 const MAX_LEN_FOR_GREETING = 40;
 const GREET_RE =
   /^(?:(?:oi+|oie+|ola+|ol[aá]|alo+|opa+|salve)(?:[, ]*(?:tudo\s*bem|td\s*bem))?|tudo\s*(?:bem|bom|certo)|oi+[, ]*tudo\s*bem|ol[aá]\s*eco|oi\s*eco|oie\s*eco|ola\s*eco|alo\s*eco|bom\s*dia+|boa\s*tarde+|boa\s*noite+|boa\s*madrugada+|e\s*a[ei]|e\s*a[ií]\??|eai|eae|fala(?:\s*ai)?|falae|hey+|hi+|hello+|yo+|sup|beleza|blz|suave|de\s*boa|tranq(?:s)?|tranquilo(?:\s*ai)?|como\s*(?:vai|vc\s*esta|voce\s*esta|ce\s*ta|c[eu]\s*ta))(?:[\s,]*(@?eco|eco|bot|assistente|ai|chat))?\s*[!?.…]*$/i;
+
+// ----------------------------------
+// NOVO: Cooldown + rankeador de extras
+// ----------------------------------
+type Cat = 'emocional'|'cognitivo'|'filosofico';
+type ExtraCand = { arquivo: string; cat: Cat; score: number; reasons: string[] };
+
+const lastTriggeredByUser = new Map<string, Record<string, number>>();
+
+function inCooldown(userId: string|undefined, arquivo: string, secs=900) {
+  if (!userId) return false;
+  const rec = lastTriggeredByUser.get(userId) ?? {};
+  const last = rec[arquivo] ?? 0;
+  return (Date.now()/1000 - last) < secs;
+}
+function markTriggered(userId: string|undefined, arquivos: string[]) {
+  if (!userId) return;
+  const rec = lastTriggeredByUser.get(userId) ?? {};
+  const now = Math.floor(Date.now()/1000);
+  for (const a of arquivos) rec[a] = now;
+  lastTriggeredByUser.set(userId, rec);
+}
+
+function pushCand(list: ExtraCand[], cand: ExtraCand) {
+  const i = list.findIndex(c => c.arquivo === cand.arquivo);
+  if (i >= 0) { if (cand.score > list[i].score) list[i] = cand; return; }
+  list.push(cand);
+}
+
+function coletarCandidatosExtras({
+  entrada, nivel, intensidade, flags, memsUsadas, heuristicaAtiva, heuristicasEmbedding
+}: any): ExtraCand[] {
+  const cands: ExtraCand[] = [];
+  const txt = normalizarTexto(entrada || '');
+
+  // 1) Cognitivos — gatilho literal e similarity; só até intensidade 6
+  for (const h of heuristicasTriggerMap ?? []) {
+    const hit = h.gatilhos?.some((g: string) => txt.includes(normalizarTexto(g)));
+    if (!hit) continue;
+    if (intensidade > 6) continue;
+    const base = 2 + (flags.curiosidade?1:0) + (flags.pedido_pratico?1:0);
+    pushCand(cands, { arquivo: h.arquivo, cat:'cognitivo', score: base, reasons:['gatilho literal','<=6'] });
+  }
+  for (const he of heuristicasEmbedding ?? []) {
+    const s = Math.min(1, Math.max(0, he.similarity ?? 0.6));
+    if (intensidade > 6) continue;
+    if (he?.arquivo) pushCand(cands, { arquivo: he.arquivo, cat:'cognitivo', score: 1 + 2*s, reasons:['embedding'] });
+  }
+  if (heuristicaAtiva?.arquivo && intensidade <= 6) {
+    pushCand(cands, { arquivo: heuristicaAtiva.arquivo, cat:'cognitivo', score: 2.5, reasons:['heurística ativa'] });
+  }
+
+  // 2) Filosóficos/Estoicos — faixa 3–6 e abertura ≥2
+  const okFilo = (nivel>=2 && intensidade>=3 && intensidade<=6);
+  if (okFilo) {
+    for (const f of filosoficosTriggerMap ?? []) {
+      const hit = f.gatilhos?.some((g: string) => txt.includes(normalizarTexto(g)));
+      if (hit && f.arquivo) pushCand(cands, { arquivo: f.arquivo, cat:'filosofico', score: 2, reasons:['filosófico 3–6'] });
+    }
+    for (const e of estoicosTriggerMap ?? []) {
+      const hit = e.gatilhos?.every((g: string) => txt.includes(normalizarTexto(g)));
+      if (hit && e.arquivo) pushCand(cands, { arquivo: e.arquivo, cat:'filosofico', score: 2.5, reasons:['estoico 3–6'] });
+    }
+  }
+
+  // 3) Emocionais — por tags/emoção + intensidadeMin
+  const tagsPresentes = memsUsadas?.flatMap((m: any) => m.tags ?? []) ?? [];
+  const emocoes       = memsUsadas?.map((m: any) => m.emocao_principal).filter(Boolean) ?? [];
+  for (const m of emocionaisTriggerMap ?? []) {
+    if (!m?.arquivo) continue;
+    const minOK = (typeof m.intensidadeMinima==='number') ? (intensidade >= m.intensidadeMinima) : true;
+    const tagOK = m.tags?.some((t: string) => tagsPresentes.includes(t) || emocoes.includes(t));
+    if (!minOK || !tagOK) continue;
+    pushCand(cands, { arquivo: m.arquivo, cat:'emocional', score: 3 + (intensidade>=7?1:0), reasons:['tag emocional'] });
+    for (const rel of (m.relacionado ?? [])) {
+      pushCand(cands, { arquivo: rel, cat:'emocional', score: 1.5, reasons:['relacionado'] });
+    }
+  }
+
+  return cands;
+}
+
+function selecionarExtrasRankeados({
+  userId, candidatos, intensidade
+}: { userId?: string, candidatos: ExtraCand[], intensidade: number }): string[] {
+
+  // aplica cooldown
+  const coolCands = candidatos
+    .filter(c => !inCooldown(userId, c.arquivo, 900))
+    .sort((a,b) => b.score - a.score);
+
+  // slots base: 1 por categoria; emocional só se intensidade alta
+  const want: Record<Cat, number> = { emocional: (intensidade>=7?1:0), cognitivo: 1, filosofico: 1 };
+  const sel: string[] = [];
+  const used: Record<Cat, number> = { emocional:0, cognitivo:0, filosofico:0 };
+
+  for (const c of coolCands) {
+    if (used[c.cat] < want[c.cat]) {
+      sel.push(c.arquivo);
+      used[c.cat] += 1;
+    }
+  }
+
+  // fallback: se nada emocional e intensidade≥7, tenta pegar um
+  if (intensidade>=7 && !sel.some(a => candidatos.find(c=>c.arquivo===a)?.cat==='emocional')) {
+    const emo = coolCands.find(c=>c.cat==='emocional');
+    if (emo) sel.push(emo.arquivo);
+  }
+
+  return sel.slice(0, HARD_CAP_EXTRAS);
+}
 
 // ----------------------------------
 // FUNÇÃO PRINCIPAL
@@ -700,7 +808,7 @@ ${forbidden.trim()}`
 
   const flags = derivarFlags(entrada);
   const baseSel = selecionarModulosBase({
-    nivel: nivel as Nivel,
+    nivel: nivel as NivelNum,
     intensidade: intensidadeContexto,
     matriz,
     flags,
@@ -717,54 +825,23 @@ ${forbidden.trim()}`
   const modReg = decidirModulosRegulacao(entrada, nivel, intensidadeContexto);
   log.info('[ACT] regulacao:', modReg);
 
-  // Extras (heurísticos/filosóficos/estoicos/emocionais)
-  const nomesExtras: string[] = [];
-  if (heuristicaAtiva?.arquivo) nomesExtras.push(heuristicaAtiva.arquivo);
-  for (const h of heuristicasEmbedding ?? []) if (h?.arquivo) nomesExtras.push(h.arquivo);
-
-  const podeConteudoExtra = nivel >= 2 && (entrada?.length ?? 0) >= 20;
-  if (podeConteudoExtra) {
-    for (const mf of filosoficosTriggerMap ?? []) {
-      if (
-        mf?.arquivo &&
-        mf?.arquivo.trim() &&
-        mf.gatilhos.some((g) => entradaSemAcentos.includes(normalizarTexto(g)))
-      ) {
-        nomesExtras.push(mf.arquivo);
-      }
-    }
-    for (const es of estoicosTriggerMap ?? []) {
-      if (
-        es?.arquivo &&
-        es?.arquivo.trim() &&
-        es.gatilhos.every((g) => entradaSemAcentos.includes(normalizarTexto(g)))
-      ) {
-        nomesExtras.push(es.arquivo);
-      }
-    }
-  }
-
-  const modulosEmocionaisAtivos = emocionaisTriggerMap.filter((m: ModuloEmocionalTrigger) => {
-    if (!m?.arquivo) return false;
-    let intensidadeOk = true;
-    const minInt = m.intensidadeMinima;
-    if (typeof minInt === 'number')
-      intensidadeOk = memsUsadas?.some((mem) => (mem.intensidade ?? 0) >= minInt) ?? false;
-    const tagsPresentes     = memsUsadas?.flatMap((mem) => mem.tags ?? []) ?? [];
-    const emocoesPrincipais = memsUsadas?.map((mem) => mem.emocao_principal).filter(Boolean) ?? [];
-    return (
-      intensidadeOk &&
-      (m.tags?.some((tag) => tagsPresentes.includes(tag)) ||
-        m.tags?.some((tag) => emocoesPrincipais.includes(tag)))
-    );
+  // ---------- NOVO: seleção de EXTRAS via rankeador ----------
+  const candidatos = coletarCandidatosExtras({
+    entrada,
+    nivel,
+    intensidade: intensidadeContexto,
+    flags,
+    memsUsadas,
+    heuristicaAtiva,
+    heuristicasEmbedding,
   });
-  for (const me of modulosEmocionaisAtivos ?? []) if (me?.arquivo) nomesExtras.push(me.arquivo);
-  for (const me of modulosEmocionaisAtivos ?? []) if (me?.relacionado?.length) {
-    for (const rel of me.relacionado) nomesExtras.push(rel);
+  const extrasCapados = selecionarExtrasRankeados({ userId, candidatos, intensidade: intensidadeContexto });
+  markTriggered(userId, extrasCapados);
+  if (isDebug()) {
+    log.info(`[ACT] extrasCandidatos(total=${candidatos.length})`,
+      candidatos.slice(0,10)); // corta log
   }
-
-  const extrasCapados = [...new Set(nomesExtras)].slice(0, HARD_CAP_EXTRAS);
-  log.info(`[ACT] extrasCandidatos(cap=${HARD_CAP_EXTRAS}):`, extrasCapados);
+  log.info(`[ACT] extrasSelecionados:`, extrasCapados);
 
   // ---------- CONTEXTO E OVERHEAD (antes do budget) ----------
   const contextoMin    = minifyTextSafe(contexto);
