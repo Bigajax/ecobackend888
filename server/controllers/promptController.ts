@@ -1,4 +1,4 @@
-import path from 'path';
+import path from 'path'; 
 import fs from 'fs/promises';
 import { Request, Response } from 'express';
 
@@ -421,7 +421,7 @@ function coletarCandidatosExtras({
     pushCand(cands, { arquivo: h.arquivo, cat:'cognitivo', score: base, reasons:['gatilho literal','<=6'] });
   }
   for (const he of heuristicasEmbedding ?? []) {
-    const s = Math.min(1, Math.max(0, he.similarity ?? 0.6));
+    const s = Math.min(1, Math.max(0, he.similarity ?? he.similaridade ?? 0.6));
     if (intensidade > 6) continue;
     if (he?.arquivo) pushCand(cands, { arquivo: he.arquivo, cat:'cognitivo', score: 1 + 2*s, reasons:['embedding'] });
   }
@@ -433,26 +433,42 @@ function coletarCandidatosExtras({
   const okFilo = (nivel>=2 && intensidade>=3 && intensidade<=6);
   if (okFilo) {
     for (const f of filosoficosTriggerMap ?? []) {
-      const hit = f.gatilhos?.some((g: string) => txt.includes(normalizarTexto(g)));
+      const hit = f.gatilhos?.some((g) => txt.includes(normalizarTexto(g)));
       if (hit && f.arquivo) pushCand(cands, { arquivo: f.arquivo, cat:'filosofico', score: 2, reasons:['filosófico 3–6'] });
     }
     for (const e of estoicosTriggerMap ?? []) {
-      const hit = e.gatilhos?.every((g: string) => txt.includes(normalizarTexto(g)));
+      // PATCH 1: usar .some() (ativação realista)
+      const hit = e.gatilhos?.some((g) => txt.includes(normalizarTexto(g)));
       if (hit && e.arquivo) pushCand(cands, { arquivo: e.arquivo, cat:'filosofico', score: 2.5, reasons:['estoico 3–6'] });
     }
   }
 
-  // 3) Emocionais — por tags/emoção + intensidadeMin
+  // 3) Emocionais — por tags/emoção + intensidadeMin + (fallback gatilho textual)
   const tagsPresentes = memsUsadas?.flatMap((m: any) => m.tags ?? []) ?? [];
   const emocoes       = memsUsadas?.map((m: any) => m.emocao_principal).filter(Boolean) ?? [];
   for (const m of emocionaisTriggerMap ?? []) {
     if (!m?.arquivo) continue;
     const minOK = (typeof m.intensidadeMinima==='number') ? (intensidade >= m.intensidadeMinima) : true;
-    const tagOK = m.tags?.some((t: string) => tagsPresentes.includes(t) || emocoes.includes(t));
-    if (!minOK || !tagOK) continue;
-    pushCand(cands, { arquivo: m.arquivo, cat:'emocional', score: 3 + (intensidade>=7?1:0), reasons:['tag emocional'] });
+    const tagMatch = (m.tags ?? []).some((t: string) => tagsPresentes.includes(t));
+    const emoMatch = (m.tags ?? []).some((t: string) => emocoes.includes(t));
+    const gatMatch = (m.gatilhos ?? []).some((g: string) => txt.includes(normalizarTexto(g)));
+    if (!minOK || !(tagMatch || emoMatch || gatMatch)) continue;
+
+    const base = 3 + (intensidade>=7?1:0);
+    pushCand(cands, { arquivo: m.arquivo, cat:'emocional', score: base, reasons:['emocional tags/emoção/gatilho'] });
     for (const rel of (m.relacionado ?? [])) {
       pushCand(cands, { arquivo: rel, cat:'emocional', score: 1.5, reasons:['relacionado'] });
+    }
+  }
+
+  // 4) Afinidade por tags da heurística ativa (bônus leve)
+  if (heuristicaAtiva?.arquivo) {
+    const tagsHeur = tagsPorHeuristica[heuristicaAtiva.arquivo] ?? [];
+    if (tagsHeur.length && tagsPresentes.length) {
+      const inter = tagsHeur.some(t => tagsPresentes.includes(t));
+      if (inter) {
+        for (const c of cands) c.score += 0.2; // bônus suave
+      }
     }
   }
 
@@ -839,7 +855,7 @@ ${forbidden.trim()}`
   markTriggered(userId, extrasCapados);
   if (isDebug()) {
     log.info(`[ACT] extrasCandidatos(total=${candidatos.length})`,
-      candidatos.slice(0,10)); // corta log
+      candidatos.slice(0,10));
   }
   log.info(`[ACT] extrasSelecionados:`, extrasCapados);
 
@@ -852,6 +868,44 @@ NÃO inicie a resposta com fórmulas como:
 - "como você chega", "como você está chegando", "como chega aqui hoje", "como você chega hoje".
 Se a mensagem do usuário for apenas uma saudação breve, não repita a saudação, não faça perguntas fenomenológicas de abertura; apenas acolha de forma simples quando apropriado.`.trim();
 
+  // ===== PATCH 3: RESPONSE_PLAN (1 pergunta viva + 1 micro-prática) =====
+  const permitirPerguntaViva =
+    nivel >= 2 &&
+    !isSaudacaoBreve &&
+    (flags.curiosidade === true || intensidadeContexto >= 5);
+
+  const permitirMicroPratica = (modReg?.length ?? 0) > 0;
+
+  const microId =
+    modReg.includes('RESPIRACAO_GUIADA_BOX.txt') ? 'BOX' :
+    modReg.includes('ORIENTACAO_GROUNDING.txt') ? 'GROUNDING' :
+    modReg.includes('DR_DISPENZA_BENCAO_CENTROS_LITE.txt') ? 'DISPENZA' :
+    null;
+
+  const perguntaVivaSugestao =
+    flags.curiosidade
+      ? 'O que fica mais vivo em você quando olha para isso agora — sem precisar explicar?'
+      : (intensidadeContexto >= 6
+          ? 'Se couber, o que seu corpo te conta sobre isso neste instante (uma palavra ou imagem)?'
+          : 'Se fizer sentido, qual seria um próximo passo gentil a partir daqui?');
+
+  const responsePlan = {
+    allow_live_question: permitirPerguntaViva,
+    live_question: permitirPerguntaViva
+      ? { text: perguntaVivaSugestao, max_count: 1 }
+      : null,
+    allow_micro_practice: permitirMicroPratica,
+    micro_practice: permitirMicroPratica && microId
+      ? { id: microId, max_seconds: microId === 'BOX' ? 60 : 120 }
+      : null,
+    guardrails: {
+      no_new_topics_on_closure: true,
+      max_new_prompts: 1
+    }
+  };
+  const followPlanGuard = `
+- Siga o RESPONSE_PLAN: no máximo 1 pergunta viva (se allow_live_question=true) e no máximo 1 micro-prática (se allow_micro_practice=true). Slots são opcionais.`.trim();
+
   const instrucoesFinais = `
 ⚠️ INSTRUÇÃO AO MODELO:
 - Use memórias/contexto como suporte, não como script.
@@ -860,7 +914,8 @@ Se a mensagem do usuário for apenas uma saudação breve, não repita a saudaç
 - Evite soluções prontas e interpretações rígidas.
 - Use a “Estrutura Padrão de Resposta” como planejamento interno (6 partes), mas NÃO exiba títulos/numeração.
 - Se notar padrões, convide à consciência com hipóteses leves — não diagnostique.
-- ${antiSaudacaoGuard}`.trim();
+- ${antiSaudacaoGuard}
+- ${followPlanGuard}`.trim();
 
   // eco_json_trigger_criteria + MEMORIAS_NO_CONTEXTO
   let criterios = '';
@@ -880,9 +935,11 @@ Se a mensagem do usuário for apenas uma saudação breve, não repita a saudaç
   const forbiddenOnce = `\n${forbidden.trim()}\n${antiSaudacaoGuard}`.trim();
 
   // Overhead fixo que será somado após módulos
+  const planJsonMin = JSON.stringify(responsePlan);
   const overheadBlocos = [
     criterios ? `\n${criterios}` : '',
     memoriaInstrucoes ? `\n${memoriaInstrucoes}` : '',
+    `\nRESPONSE_PLAN:${planJsonMin}`,
     instrucoesFinais,
     forbiddenOnce,
   ].filter(Boolean);
