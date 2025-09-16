@@ -241,7 +241,7 @@ export const matrizPromptBaseV2: MatrizPromptBaseV2 = {
       'IDENTIDADE.txt',
       'ECO_ESTRUTURA_DE_RESPOSTA.txt',
       'POLITICA_REDIRECIONAMENTO.txt',
-      'CRITERIO_ENCERRAMENTO_SENSIVEL.txt', // ✅ priorizado no núcleo
+      'CRITERIO_ENCERRAMENTO_SENSIVEL.txt',
 
       // 🔝 ORQUESTRADORES (protegidos)
       'ECO_ORQUESTRA_NIVEL1.txt',
@@ -256,6 +256,37 @@ export const matrizPromptBaseV2: MatrizPromptBaseV2 = {
       'ORIENTACAO_GROUNDING.txt',
       'RESPIRACAO_GUIADA_BOX.txt',
       'DR_DISPENZA_BENCAO_CENTROS_LITE.txt',
+
+      // 🧠🫀✨ EXTRAS ACIONADOS POR TRIGGERS (ordem sugerida)
+      // 1) Emocionais
+      'eco_emo_vergonha_combate.txt',
+      'eco_vulnerabilidade_mitos.txt',
+      'eco_vulnerabilidade_defesas.txt',
+
+      // 2) Estoicos
+      'eco_presenca_racional.txt',
+      'eco_observador_presente.txt',
+
+      // 3) Filosóficos
+      'eco_corpo_emocao.txt',
+      'eco_identificacao_mente.txt',
+      'eco_presenca_silenciosa.txt',
+      'eco_fim_do_sofrimento.txt',
+
+      // 4) Heurísticas cognitivas
+      'eco_heuristica_ancoragem.txt',
+      'eco_heuristica_causas_superam_estatisticas.txt',
+      'eco_heuristica_disponibilidade.txt',
+      'eco_heuristica_disponibilidade_emocao_risco.txt',
+      'eco_heuristica_excesso_confianca.txt',
+      'eco_heuristica_certeza_emocional.txt',
+      'eco_heuristica_ilusao_validade.txt',
+      'eco_heuristica_lei_pequenos_numeros.txt',
+      'eco_heuristica_regressao_media.txt',
+      'eco_heuristica_taxabase_causal.txt',
+      'eco_heuristica_intuicao_especialista.txt',
+      'heuristica_ilusao_compreensao.txt',
+      'heuristica_previsao_regressiva.txt',
 
       // 🔄 CONTINUIDADE E ADAPTAÇÃO
       'CONTINUIDADE_EMOCIONAL.txt',
