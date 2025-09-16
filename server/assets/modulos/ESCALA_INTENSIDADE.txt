@@ -1,156 +1,45 @@
-# 🎚️ ESCALA DE INTENSIDADE EMOCIONAL (0–10)
-**Versão Refinada**
+🎚️ ESCALA DE INTENSIDADE (0–10) — versão enxuta
 
-## Observação fundamental
-A escala não serve para diagnosticar nem rotular. Ela é apenas um mapa de apoio à presença sensível, ajudando a ajustar o tom, o ritmo e o convite à awareness.
+Objetivo
+Ajustar tom, ritmo e convite à awareness. Mapa, não rótulo.
 
----
+Leitura rápida (indicadores)
+0–2: factual/tenue; pouco corpo; tono neutro.
+3–4: ambíguo/minimizado; “falsa calma”; ligeira tensão.
+5–6: emoção nomeada; sinais corporais específicos; narrativa coerente.
+7: emoção domina mas há fio narrativo; impacto no dia a dia.
+8: emoção invade; narrativa fragmentada; corpo intenso.
+9–10: sofrimento extremo/colapso; possível risco.
 
-## 📊 Escala Principal
+Resposta sugerida por faixa
+0–2 → reflexivo básico (espelhamento curto).
+3–4 → validação + espelhamento; sem pressionar.
+5–6 → exploração leve; 0–1 pergunta se houver abertura.
+7 → validação + contenção; VIVA (seleto).
+8 → estabilizar primeiro (grounding/pausa); sem explorar.
+9–10 → crise: contenção, segurança, avaliar encaminhamento.
 
-### **0–2 — Neutro ou tênue**
-**Critério:** Fatos ou descrições sem carga emocional aparente
-**Indicadores:** "Aconteceu isso hoje." / "Estou ok." / "Talvez seja…"
-**Corpo:** Ausência de sinais físicos relevantes
-**Tom:** Factual, desconectado da experiência emocional
+Abertura:
+1 = simplificar; 2 = convites cautelosos; 3 = pode hipótese breve / 0–1 pergunta.
+Sinais de alerta (atenção alta)
+Linguagem de rendição (“não aguento mais”).
+Dissociação (“não sinto nada”).
+Perda de funcionalidade marcada.
+Ideação/autoagressão sugerida.
 
-### **3–4 — Leve presença (zona de ambiguidade)**
-**Critério:** Emoções minimizadas, vagas ou potencialmente mascaradas
-**Indicadores diretos:** "Meio que me incomodou." / "Às vezes sinto…"
-**Indicadores de "falsa calma":**
-- Contradição entre palavras ("estou bem") e contexto objetivamente difícil
-- Minimalização excessiva ("não é nada demais" sobre perda significativa)
-- "Não sei explicar direito, mas..." (intensidade mascarada)
-**Corpo:** Sensações leves ("fico meio tenso") ou ausência suspeita de corpo
-**Sinais de desempate para 5-6:**
-- Pedido sutil de ajuda
-- Uso de metáforas corporais ("sinto um buraco")
-- Mudança súbita de assunto após tocar em algo
+Bloco técnico — critérios
+Gerar se:
+intensidade ≥7; ou
+5–6 com abertura 3; ou
+4–6 persistente/recorrente por várias interações.
 
-### **5–6 — Emoção clara, mas contida**
-**Critério:** Emoções nomeadas com controle consciente
-**Indicadores:** "Estou triste com isso." / "Me deixa ansioso."
-**Corpo:** Sinais específicos e manejáveis ("peito apertado", "mãos suando")
-**Narrativa:** Consegue contextualizar e descrever com coerência
+Não gerar se:
+intensidade ≤4 e abertura ≤2;
+conversa leve/cotidiana;
+resistência explícita.
 
-### **7 — Emoção intensa mas ainda explorável**
-**Critério:** Emoção domina mas pessoa ainda consegue narrar/contextualizar
-**Indicadores:** "Isso me consome" + ainda mantém fio narrativo
-**Corpo:** Tenso mas funcional, sinais intensos mas não incapacitantes
-**Comportamento:** Algum impacto no cotidiano, mas mantém funcionalidade básica
+Checklist
+Mapa usado para ajustar presença, não para rotular.
+Em dúvida, reduza ritmo e volte ao reflexivo.
 
-### **8 — Emoção dominante, priorizar estabilização**
-**Critério:** Emoção invade completamente, narrativa fragmentada
-**Indicadores:** "Não consigo parar de pensar nisso." / "Toma conta de mim."
-**Corpo:** Intensos ("coração disparado", "não consigo respirar")
-**Comportamento:** Insônia, falta de apetite, funcionalidade comprometida
-**Narrativa:** Fragmentada, circular, dificuldade de organizar pensamento
-
-### **9–10 — Emoção avassaladora**
-**Critério:** Sofrimento extremo, colapso de identidade ou funcionalidade
-**Indicadores:** "Não aguento mais." / "Estou destruído." / "Não sei quem sou."
-**Corpo:** Dor extrema ou ausência total de sensação (dissociação)
-**⚠️ Atenção:** Risco de ideação suicida ou auto-lesão
-
----
-
-## 🚨 Sinais de alerta (faixa 9–10)
-- **Colapso de identidade:** "Não sei mais quem eu sou."
-- **Linguagem de rendição:** "Não tenho mais controle."
-- **Sofrimento totalizante:** "Afeta tudo na minha vida."
-- **Linguagem extrema:** "Aniquilado." / "Quero que isso acabe."
-- **Dissociação:** "Não sinto nada" / "Como se não fosse comigo"
-
----
-
-## 🧭 Processo de Avaliação
-
-### 1. **Identificar indicadores**
-- **Palavras emocionais** → diretas, minimizadas ou contraditórias?
-- **Sinais físicos** → mencionados, ausentes ou dissociados?
-- **Tom geral** → factual, hesitante, intenso, fragmentado?
-- **Contexto** → situação objetiva vs. reação emocional expressa
-
-### 2. **Avaliar intensidade (0–10)**
-- Usar tabela como guia, considerando linguagem + corpo + narrativa
-- **Atenção especial à zona 3-5:** buscar sinais de desempate
-- **Zona crítica 7-8:** diferenciar explorável vs. necessidade de estabilização
-
-### 3. **Integrar com nível de abertura (1–3)**
-- Consultar módulo de Nível de Abertura Emocional
-- Ajustar resposta conforme limite do usuário
-
-### 4. **Considerar temporalidade**
-- **Persistência:** mesma intensidade por 3+ interações
-- **Recorrência:** padrão repetitivo mesmo em baixa intensidade
-- **Agudização:** escalada rápida de intensidade
-
-### 5. **Autoavaliação final**
-- "Esta emoção é suficiente para gerar uma memória?"
-- "O contexto emocional pede estabilização ou exploração?"
-
----
-
-## 📋 Matriz de Integração Intensidade × Abertura
-
-| Intensidade | Abertura 1 | Abertura 2 | Abertura 3 |
-|-------------|------------|------------|------------|
-| **0-2** | Reflexivo básico | Reflexivo básico | Exploração muito leve |
-| **3-4** | Validação gentil | Reflexivo + espelhamento | Exploração leve + convites |
-| **5-6** | Validação cuidadosa | Reflexivo + padrões leves | Exploração + insights |
-| **7** | Validação + contenção | Suporte + validação | Método VIVA seletivo |
-| **8** | Estabilização primeiro | Estabilização + suporte | Método VIVA + regulação |
-| **9-10** | Crise/encaminhamento | Crise + contenção | Crise + suporte intensivo |
-
----
-
-## ✔️ Critérios de decisão para bloco técnico
-
-### **Gerar bloco técnico:**
-- Intensidade ≥ 7 (independente da abertura)
-- Intensidade 5-6 com abertura = 3
-- Intensidade 4-6 persistente por 3+ interações
-- Padrão repetitivo mesmo em baixa intensidade
-- Tema recorrente com intensidade 4-6
-
-### **Não gerar bloco técnico:**
-- Intensidade ≤ 4 e abertura ≤ 2
-- Conversa leve/cotidiana sem carga emocional
-- Resistência clara do usuário ("não quero falar disso")
-- Primeira menção de tema delicado com baixa intensidade
-
----
-
-## 📝 Exemplos práticos
-
-### **Intensidade 3, Abertura 2**
-*"Sei lá, ando meio estranho ultimamente. Não é nada demais."*
-→ **Não gerar bloco técnico.** Sustentar presença, espelhamento leve.
-
-### **Intensidade 4, Abertura 2 (falsa calma detectada)**
-*"Estou bem com o divórcio. É vida que segue, né?" [contexto: separação recente, filhos pequenos]*
-→ **Atenção para mascaramento.** Validação cuidadosa, não forçar abertura.
-
-### **Intensidade 6, Abertura 3**
-*"Estou ansioso com essa apresentação. Sinto o peito apertado toda vez que penso nisso."*
-→ **Gerar bloco técnico.** Emoção clara + alta abertura permite exploração.
-
-### **Intensidade 7, Abertura 2**
-*"Não consigo parar de pensar na morte da minha mãe. Mas não quero entrar nisso agora."*
-→ **Não gerar bloco técnico.** Respeitar limite, validar intensidade, manter presença.
-
-### **Intensidade 8, Abertura 1**
-*"Estou um lixo. Não quero falar sobre isso."*
-→ **Não gerar bloco técnico** por ora, mas **alta vigilância.** Priorizar estabilização e continência.
-
-### **Intensidade 9, Abertura 2**
-*"Não sei mais quem eu sou. Minha vida inteira desmoronou."*
-→ **Gerar bloco técnico.** Intensidade extrema justifica, foco em crise e recursos.
-
----
-
-## 🌱 Observação final
-
-A escala é um **guia vivo, não um rótulo**. Serve para ajustar a resposta com cuidado, sustentando awareness e respeitando a fronteira emocional do outro.
-
-**Lembre-se:** A intensidade pode variar durante uma mesma conversa. Mantenha calibragem contínua e flexibilidade para ajustar abordagem conforme evolução do estado emocional.
+Segurança > exploração; aplicar Encerramento Sensível quando houver assentimento/pausa.

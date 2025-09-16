@@ -75,7 +75,7 @@ export const matrizPromptBaseV2: MatrizPromptBaseV2 = {
       specific: [
         'ECO_ORQUESTRA_NIVEL2.txt',
         'MOVIMENTOS_INFORMATIVOS.txt',
-        'METODO_VIVA.txt',
+        'METODO_VIVA_MIN.txt',           // ✅ NV2 usa versão enxuta
         'CONVITE_PARA_EXPLORACAO.txt',
         'IDENTIFICACAO_PADROES.txt',
         'META_REFLEXAO.txt',
@@ -84,7 +84,11 @@ export const matrizPromptBaseV2: MatrizPromptBaseV2 = {
       inherits: ['core', 'emotional'],
     },
     3: {
-      specific: ['ECO_ORQUESTRA_NIVEL3.txt', 'PERGUNTAS_ABERTAS.txt'],
+      specific: [
+        'ECO_ORQUESTRA_NIVEL3.txt',
+        'PERGUNTAS_ABERTAS.txt',
+        'METODO_VIVA.txt',               // ✅ NV3 mantém versão completa
+      ],
       inherits: ['core', 'emotional', 'advanced'],
     },
   },
@@ -109,7 +113,7 @@ export const matrizPromptBaseV2: MatrizPromptBaseV2 = {
       'ECO_ORQUESTRA_NIVEL2.txt',
       'CONTEXTO_EMOCIONAL.txt',
       'MOVIMENTOS_INFORMATIVOS.txt',
-      'METODO_VIVA.txt',
+      'METODO_VIVA_MIN.txt',            // ✅ trocado para MIN no legado NV2
       'MODULACAO_TOM_REGISTRO.txt',
       'CONTINUIDADE_EMOCIONAL.txt',
       'CRITERIO_SUFICIENCIA_REFLEXIVA.txt',
@@ -126,7 +130,7 @@ export const matrizPromptBaseV2: MatrizPromptBaseV2 = {
       'ECO_ORQUESTRA_NIVEL3.txt',
       'CONTEXTO_EMOCIONAL.txt',
       'MOVIMENTOS_INFORMATIVOS.txt',
-      'METODO_VIVA.txt',
+      'METODO_VIVA.txt',                // ✅ FULL no legado NV3
       'MODULACAO_TOM_REGISTRO.txt',
       'CONTINUIDADE_EMOCIONAL.txt',
       'CRITERIO_SUFICIENCIA_REFLEXIVA.txt',
@@ -155,15 +159,20 @@ export const matrizPromptBaseV2: MatrizPromptBaseV2 = {
   intensidadeMinima: {
     'BLOCO_TECNICO_MEMORIA.txt': 7,
     'ESCALA_INTENSIDADE.txt': 7,
-    'METODO_VIVA.txt': 7,
+    'METODO_VIVA.txt': 8,         // ✅ FULL sobe para 8
+    'METODO_VIVA_MIN.txt': 7,     // ✅ MIN entra com 7
     'HEURISTICA_EXAUSTAO.txt': 7,
   },
 
   // ===== REGRAS SEMÂNTICAS =====
   condicoesEspeciais: {
-    'METODO_VIVA.txt': {
-      descricao: 'Ativar apenas em emoção forte e abertura real',
+    'METODO_VIVA_MIN.txt': {
+      descricao: 'Versão enxuta para NV2; emoção forte com abertura real',
       regra: 'intensidade>=7 && nivel>=2',
+    },
+    'METODO_VIVA.txt': {
+      descricao: 'Versão completa; priorizar em intensidade muito alta ou NV3',
+      regra: 'intensidade>=8 && nivel>=2',
     },
     'META_REFLEXAO.txt': {
       descricao: 'Só quando há material emocional para investigar processo',
@@ -264,11 +273,10 @@ export const matrizPromptBaseV2: MatrizPromptBaseV2 = {
       'EVOLUCAO_NIVEL_ABERTURA.txt',
 
       // 📚 INFORMATIVO E INTERATIVO
+      'METODO_VIVA_MIN.txt',      // ✅ entra antes do FULL para NV2 respirar
       'MOVIMENTOS_INFORMATIVOS.txt',
       'PERGUNTAS_ABERTAS.txt',
-      'METODO_VIVA.txt',
-      'HEURISTICA_EXAUSTAO.txt',
-      'SITUACOES_ESPECIFICAS.txt',
+      'METODO_VIVA.txt',          // ✅ FULL fica abaixo; só sobe com gating
 
       // 💾 MEMÓRIAS (podem ser cortadas em budget apertado)
       'MEMORIAS_NO_CONTEXTO.txt',
