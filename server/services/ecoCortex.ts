@@ -12,6 +12,10 @@
 import axios from "axios";
 import crypto from "crypto";
 import { createClient } from "@supabase/supabase-js";
+import type { SupabaseClient } from "@supabase/supabase-js";
+
+// Aceita qualquer schema de Supabase (evita TS2345)
+type AnySupabase = SupabaseClient<any, any, any>;
 
 // Dependências da sua base (iguais ao arquivo original)
 import { updateEmotionalProfile } from "./updateEmotionalProfile";
@@ -524,7 +528,7 @@ async function gerarBlocoTecnicoComCache(
 type Efeito = "abriu" | "fechou" | "neutro";
 
 async function carregarDerivadosDoUsuario(
-  supabase: ReturnType<typeof createClient>,
+  supabase: AnySupabase,
   userId: string
 ) {
   // TOP TEMAS 30d
@@ -690,7 +694,7 @@ export async function getEcoResponseOtimizado({
       process.env.SUPABASE_URL!,
       process.env.SUPABASE_ANON_KEY!,
       { global: { headers: { Authorization: `Bearer ${accessToken}` } } }
-    );
+    ) as AnySupabase;
 
     const ultimaMsg = messages.at(-1)?.content || "";
 
