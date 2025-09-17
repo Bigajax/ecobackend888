@@ -90,6 +90,71 @@ function fireAndForget(fn: () => Promise<void>) {
   });
 }
 
+// --- LOGS AUXILIARES (HIBRIDO + BLOCO) ---
+function logHibrido(
+  derivados: any,
+  aberturaHibrida: string | null,
+  vivaAtivo: boolean
+) {
+  try {
+    const topTemas = derivados?.topTemas
+      ?.map((t: any) =>
+        typeof t === "string" ? t : `${t?.tema ?? "?"}:${t?.freq_30d ?? t?.freq ?? ""}`
+      )
+      ?.slice(0, 5);
+
+    const marcosCount = Array.isArray(derivados?.marcos) ? derivados.marcos.length : 0;
+
+    const efeitosSample = derivados?.efeitos
+      ? (derivados.efeitos.slice?.(0, 5) ?? []).map(
+          (e: any) => e?.x?.efeito ?? e?.efeito ?? "neutro"
+        )
+      : [];
+
+    console.log("[HIBRIDO] derivados:", {
+      tem: Boolean(derivados),
+      topTemas,
+      marcos: marcosCount,
+      efeitosSample,
+    });
+    console.log("[HIBRIDO] aberturaHibrida:", aberturaHibrida ?? null, "| vivaAtivo:", vivaAtivo);
+  } catch (e: any) {
+    console.warn("⚠️ Log híbrido falhou:", e?.message || e);
+  }
+}
+
+function logBlocoTecnico(bloco: any) {
+  try {
+    if (!bloco) {
+      console.log("[ECO][BLOCO] nenhum bloco técnico gerado.");
+      return;
+    }
+    const resumo =
+      typeof bloco?.analise_resumo === "string"
+        ? (bloco.analise_resumo as string).slice(0, 120)
+        : null;
+
+    console.log("[ECO][BLOCO]", {
+      emocao: bloco?.emocao_principal ?? null,
+      intensidade: bloco?.intensidade ?? null,
+      categoria: bloco?.categoria ?? null,
+      tipo_referencia: bloco?.tipo_referencia ?? null,
+      modo_hibrido_acionado: bloco?.modo_hibrido_acionado ?? null,
+      tema_recorrente: bloco?.tema_recorrente ?? null,
+      evolucao_temporal: bloco?.evolucao_temporal
+        ? String(bloco.evolucao_temporal).slice(0, 80)
+        : null,
+      impacto_resposta_estimado: bloco?.impacto_resposta_estimado ?? null,
+      sugestao_proximo_passo: bloco?.sugestao_proximo_passo
+        ? String(bloco.sugestao_proximo_passo).slice(0, 80)
+        : null,
+      resumo_preview: resumo,
+    });
+  } catch (e: any) {
+    console.warn("⚠️ Log do bloco técnico falhou:", e?.message || e);
+  }
+}
+
 // validação das ENVs críticas (melhor falhar cedo e claro)
 function ensureEnvs() {
   const required = ["OPENROUTER_API_KEY", "SUPABASE_URL", "SUPABASE_ANON_KEY"];
@@ -722,6 +787,8 @@ export async function getEcoResponseOtimizado({
         aberturaHibrida = null;
       }
     }
+    // LOG do modo híbrido
+    logHibrido(derivados, aberturaHibrida, vivaAtivo);
 
     // 5) Montagem do prompt (com cache) — passando derivados + aberturaHibrida
     const systemPrompt = await montarContextoOtimizado({
@@ -792,6 +859,8 @@ export async function getEcoResponseOtimizado({
 
     // 8) Bloco técnico (robusto + cache)
     const bloco = await gerarBlocoTecnicoComCache(ultimaMsg, cleaned, apiKey);
+    // LOG do bloco técnico
+    logBlocoTecnico(bloco);
 
     // 9) Retorno imediato
     const responsePayload: {
