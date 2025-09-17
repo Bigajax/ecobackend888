@@ -1,65 +1,103 @@
-import { createClient } from "@supabase/supabase-js";
+// services/derivadosService.ts
 
-export type Derivados = {
-  top_temas_30d: { tema: string; freq_30d: number; int_media_30d: number|null; tendencia: string|null }[];
-  marcos: { tema: string; resumo: string; marco_at: string }[];
-  heuristica_interacao: { efeitos_ultimas_10: {abriu:number; fechou:number; neutro:number}, media_score:number, dica_estilo:string };
-};
+export type Efeito = 'abriu' | 'fechou' | 'neutro';
 
-export async function getDerivados(userId: string, accessToken: string): Promise<Derivados> {
-  const supabase = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_ANON_KEY!, {
-    global: { headers: { Authorization: `Bearer ${accessToken}` } },
-  });
+export interface EfeitoItem {
+  x?: { efeito?: Efeito } | null;
+}
 
-  const { data: stats = [] } = await supabase
-    .from("user_theme_stats")
-    .select("tema,freq_30d,int_media_30d,tendencia")
-    .eq("user_id", userId)
-    .order("freq_30d", { ascending: false })
-    .limit(5);
+export interface Marco {
+  tema: string;
+  resumo_evolucao?: string | null;
+  marco_at?: string | null;
+}
 
-  const { data: marcos = [] } = await supabase
-    .from("user_temporal_milestones")
-    .select("tema,resumo_evolucao,marco_at")
-    .eq("user_id", userId)
-    .order("marco_at", { ascending: false })
-    .limit(3);
+export interface TemaStat {
+  tema: string;
+  freq_30d?: number;
+  int_media_30d?: number;
+}
 
-  const { data: eff = [] } = await supabase
-    .from("interaction_effects")
-    .select("efeito,score")
-    .eq("user_id", userId)
-    .order("created_at", { ascending: false })
-    .limit(10);
+export interface Derivados {
+  top_temas_30d: TemaStat[];
+  marcos: { tema: string; resumo: string | null; marco_at: string | null }[];
+  heuristica_interacao: {
+    efeitos_ultimas_10: { abriu: number; fechou: number; neutro: number };
+    media_score: number;
+    dica_estilo: string;
+  };
+}
 
-  const media = eff.length ? eff.reduce((a: number, e: any) => a + (e.score ?? 0), 0)/eff.length : 0;
-  const dica =
-    media >= 0.15 ? "compromissos concretos funcionam melhor" :
-    media <= -0.15 ? "comece acolhendo antes de propor algo" :
-    "mantenha leve e curioso";
+/** Util: garante array */
+function ensureArray<T>(v: T[] | null | undefined): T[] {
+  return Array.isArray(v) ? v : [];
+}
+
+/** Util: número seguro */
+function toNumber(n: unknown, fallback = 0): number {
+  return typeof n === 'number' && Number.isFinite(n) ? n : fallback;
+}
+
+/** Gera dica rápida a partir de média de intensidade */
+function dicaDeEstilo(media: number): string {
+  if (media > 0.15) return 'compromissos concretos funcionam melhor';
+  if (media < -0.15) return 'comece acolhendo antes de propor algo';
+  return 'mantenha leve e curioso';
+}
+
+/**
+ * Monta derivados a partir de dados crus já coletados
+ * (stats, marcos, efeitos, média). Não faz IO aqui.
+ */
+export async function getDerivados(
+  statsRaw: unknown,
+  marcosRaw: unknown,
+  efeitosRaw: unknown,
+  mediaRaw: unknown
+): Promise<Derivados> {
+  // normalizações seguras
+  const stats = ensureArray(statsRaw as TemaStat[]);
+  const marcos = ensureArray(marcosRaw as Marco[]);
+  const eff = ensureArray(efeitosRaw as EfeitoItem[]);
+  const media = toNumber(mediaRaw, 0);
+
+  const dica = dicaDeEstilo(media);
+
+  // contagens protegidas (eff pode vir vazio)
+  const abriu = eff.filter((i) => i?.x?.efeito === 'abriu').length;
+  const fechou = eff.filter((i) => i?.x?.efeito === 'fechou').length;
+  const neutro = eff.filter((i) => i?.x?.efeito === 'neutro').length;
 
   return {
-    top_temas_30d: stats as any,
-    marcos: marcos.map((m:any)=>({ tema:m.tema, resumo:m.resumo_evolucao, marco_at:m.marco_at })),
+    top_temas_30d: stats,
+    marcos: marcos.map((m) => ({
+      tema: m.tema,
+      resumo: m.resumo_evolucao ?? null,
+      marco_at: m.marco_at ?? null,
+    })),
     heuristica_interacao: {
-      efeitos_ultimas_10: {
-        abriu:  eff.filter((x:any)=>x.efeito==='abriu').length,
-        fechou: eff.filter((x:any)=>x.efeito==='fechou').length,
-        neutro: eff.filter((x:any)=>x.efeito==='neutro').length,
-      },
+      efeitos_ultimas_10: { abriu, fechou, neutro },
       media_score: Number(media.toFixed(2)),
       dica_estilo: dica,
     },
   };
 }
 
-/** escolhe 1 insight leve para a abertura opcional (híbrido) */
-export function insightAbertura(der: Derivados): string|null {
+/** Insight curto para abrir a conversa (opcional) */
+export function insightAbertura(der: Derivados | null): string | null {
   if (!der) return null;
-  if (der.marcos?.length) return der.marcos[0].resumo;
-  if (der.top_temas_30d?.length) {
+
+  // 1) Se houver marco, prioriza
+  if (der.marcos && der.marcos.length > 0) {
+    const m = der.marcos[0];
+    return m.resumo ?? `tema em destaque: "${m.tema}"`;
+  }
+
+  // 2) Caso contrário, usa tema recorrente dos últimos 30d
+  if (der.top_temas_30d && der.top_temas_30d.length > 0) {
     const t = der.top_temas_30d[0];
     return `tema recorrente: "${t.tema}" (últimos 30d)`;
   }
+
   return null;
 }
