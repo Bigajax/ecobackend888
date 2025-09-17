@@ -1,8 +1,8 @@
 // ============================================================================
-// getEcoResponseOtimizado — versão com MODO HÍBRIDO + DERIVADOS
+// getEcoResponseOtimizado — versão com MODO HÍBRIDO + DERIVADOS + SUGESTÃO ATIVA
 // - Mantém suas otimizações originais
 // - Injeta derivados (top temas, marcos, heurística de interação) no prompt
-// - Abertura opcional: sugere 1 insight leve (se o usuário aceitar)
+// - Sugestão ativa: lembra situação passada e mostra evolução 7/30/90/120d
 // - Bloco técnico ampliado: tema_recorrente, evolucao_temporal, impacto_resposta_estimado,
 //   sugestao_proximo_passo, modo_hibrido_acionado, tipo_referencia
 // - Fallbacks, caches e pós-processo inalterados
@@ -639,6 +639,163 @@ async function carregarDerivadosDoUsuario(
 }
 
 // ============================================================================
+// >>> NEW: Sugestão ativa (evolução 7/30/90/120d + lembrança)
+// ============================================================================
+
+function avgByEmotion(rows: any[], alvo?: string | null) {
+  if (!rows?.length) return { emotion: alvo ?? null, avg: null };
+  const map = new Map<string, { sum: number; n: number }>();
+  for (const r of rows) {
+    const emo = (r.emocao_principal || "").trim().toLowerCase();
+    if (!emo) continue;
+    const v = Number(r.intensidade ?? 0);
+    if (!map.has(emo)) map.set(emo, { sum: 0, n: 0 });
+    const acc = map.get(emo)!;
+    acc.sum += v;
+    acc.n += 1;
+  }
+  if (alvo) {
+    const k = alvo.trim().toLowerCase();
+    const acc = map.get(k);
+    return acc ? { emotion: alvo, avg: acc.sum / Math.max(1, acc.n) } : { emotion: alvo, avg: null };
+  }
+  let best: string | null = null;
+  let bestN = -1;
+  for (const [emo, acc] of map.entries()) if (acc.n > bestN) { best = emo; bestN = acc.n; }
+  if (!best) return { emotion: alvo ?? null, avg: null };
+  const acc = map.get(best)!;
+  return { emotion: best, avg: acc.sum / Math.max(1, acc.n) };
+}
+
+function dateIsoDaysAgo(d: number) {
+  const dt = new Date(Date.now() - d * 86400000);
+  return dt.toISOString();
+}
+
+type TrendPack = {
+  targetEmotion: string | null;
+  a7: number | null;
+  a30: number | null;
+  a90: number | null;
+  a120: number | null;
+};
+
+async function computeEmotionTrends(
+  supabase: AnySupabase,
+  userId: string,
+  targetEmotion?: string | null
+): Promise<TrendPack> {
+  const ranges = [
+    { key: "a7", from: dateIsoDaysAgo(7) },
+    { key: "a30", from: dateIsoDaysAgo(30) },
+    { key: "a90", from: dateIsoDaysAgo(90) },
+    { key: "a120", from: dateIsoDaysAgo(120) },
+  ] as const;
+
+  const out: any = { targetEmotion: targetEmotion ?? null, a7: null, a30: null, a90: null, a120: null };
+  let chosen = targetEmotion ?? null;
+
+  for (const r of ranges) {
+    const { data, error } = await supabase
+      .from("memories")
+      .select("emocao_principal,intensidade,created_at")
+      .eq("usuario_id", userId)
+      .gte("created_at", r.from)
+      .order("created_at", { ascending: false });
+
+    if (error) { console.warn("[trends] erro supabase", r.key, error.message); continue; }
+
+    const bucket = avgByEmotion(data || [], chosen);
+    if (!chosen && bucket.emotion) chosen = bucket.emotion;
+    (out as any)[r.key] = (bucket.avg != null && Number.isFinite(bucket.avg)) ? Number(bucket.avg.toFixed(2)) : null;
+  }
+
+  out.targetEmotion = chosen ?? targetEmotion ?? null;
+  return out as TrendPack;
+}
+
+function delta(from: number | null, to: number | null): number | null {
+  if (from == null || to == null) return null;
+  const d = to - from;
+  return Number(d.toFixed(2));
+}
+
+async function fetchRecentIntenseMemory(
+  supabase: AnySupabase,
+  userId: string,
+  emotion: string | null
+) {
+  if (!emotion) return null;
+  const { data, error } = await supabase
+    .from("memories")
+    .select("id,resumo_eco,created_at,intensidade,emocao_principal")
+    .eq("usuario_id", userId)
+    .eq("emocao_principal", emotion)
+    .gte("created_at", dateIsoDaysAgo(120))
+    .order("intensidade", { ascending: false })
+    .limit(1);
+
+  if (error) { console.warn("[mem-intensa] erro", error.message); return null; }
+  const row = (data || [])[0];
+  if (!row) return null;
+  const resumo = (row.resumo_eco || "").trim().replace(/\s+/g, " ");
+  return {
+    id: row.id,
+    when: row.created_at,
+    resumo: resumo.length > 240 ? resumo.slice(0, 240) + "…" : resumo,
+    intensidade: row.intensidade ?? null,
+  };
+}
+
+const PROACTIVE_SEEN: Record<string, number> = {};
+function canTriggerProactive(userId?: string, secs = 3 * 60 * 60) { // 3h
+  if (!userId) return false;
+  const last = PROACTIVE_SEEN[userId] ?? 0;
+  return Date.now() - last > secs * 1000;
+}
+function markProactive(userId?: string) {
+  if (userId) PROACTIVE_SEEN[userId] = Date.now();
+}
+
+function labelDelta(d: number | null) {
+  if (d == null) return null;
+  if (d === 0) return "estável";
+  return d < 0 ? `↓ ${Math.abs(d)}` : `↑ ${d}`;
+}
+
+function buildProactiveMessage(
+  userName: string | undefined,
+  emotion: string | null,
+  trends: TrendPack,
+  mem: { id: string; when: string; resumo: string; intensidade: number | null } | null
+) {
+  const nome = userName ? userName.split(" ")[0] : "Você";
+  const e = emotion ? emotion.toLowerCase() : "essa emoção";
+  const d7_30   = labelDelta(delta(trends.a30, trends.a7));
+  const d30_90  = labelDelta(delta(trends.a90, trends.a30));
+  const d90_120 = labelDelta(delta(trends.a120, trends.a90));
+
+  const partes: string[] = [];
+
+  if (mem) {
+    const data = new Date(mem.when).toLocaleDateString();
+    partes.push(`Lembro de quando ${nome.toLowerCase()} passou por **${e}** (${data}). Na época, trabalhamos assim: “${mem.resumo}”.`);
+  }
+
+  const linhas: string[] = [];
+  if (d7_30)   linhas.push(`7d vs 30d: **${d7_30}**`);
+  if (d30_90)  linhas.push(`30d vs 90d: **${d30_90}**`);
+  if (d90_120) linhas.push(`90d vs 120d: **${d90_120}**`);
+
+  if (linhas.length) {
+    partes.push(`Sua evolução nessa emoção:\n• ${linhas.join("\n• ")}`);
+  }
+
+  if (!partes.length) return null;
+  return partes.join("\n\n") + `\n\nSe fizer sentido, posso te guiar para manter essa curva — quer tentar um micro passo agora?`;
+}
+
+// ============================================================================
 // STREAMING (mantido, mas NÃO usado aqui — só habilite se for streamar ao cliente)
 // ============================================================================
 async function streamResponse(payload: any, headers: any) {
@@ -684,7 +841,7 @@ async function streamResponse(payload: any, headers: any) {
 }
 
 // ============================================================================
-// FUNÇÃO PRINCIPAL OTIMIZADA (equivalente ao original) + HÍBRIDO
+// FUNÇÃO PRINCIPAL OTIMIZADA (equivalente ao original) + HÍBRIDO + PROATIVO
 // ============================================================================
 export async function getEcoResponseOtimizado({
   messages,
@@ -711,6 +868,13 @@ export async function getEcoResponseOtimizado({
   emocao?: string;
   tags?: string[];
   categoria?: string | null;
+  proactive?: {
+    text: string;
+    emotion: string | null;
+    deltas: { d7vs30: number | null; d30vs90: number | null; d90vs120: number | null };
+    memoryId?: string;
+    memoryWhen?: string;
+  } | null;
 }> {
   const t0 = now();
   try {
@@ -862,6 +1026,42 @@ export async function getEcoResponseOtimizado({
     // LOG do bloco técnico
     logBlocoTecnico(bloco);
 
+    // 8.1) >>> NEW: Sugestão Ativa (lembrança + evolução 7/30/90/120d)
+    let proactive: null | {
+      text: string;
+      emotion: string | null;
+      deltas: { d7vs30: number | null; d30vs90: number | null; d90vs120: number | null };
+      memoryId?: string;
+      memoryWhen?: string;
+    } = null;
+
+    try {
+      const emotionAlvo = bloco?.emocao_principal ?? null;
+      const isSaudacaoCurta = (ultimaMsg || "").trim().length <= 40;
+      if (!isSaudacaoCurta && canTriggerProactive(userId)) {
+        const trends = await computeEmotionTrends(supabase, userId!, emotionAlvo);
+        const mem = await fetchRecentIntenseMemory(supabase, userId!, trends.targetEmotion);
+        const texto = buildProactiveMessage(userName, trends.targetEmotion, trends, mem);
+
+        if (texto) {
+          proactive = {
+            text: texto,
+            emotion: trends.targetEmotion,
+            deltas: {
+              d7vs30:  delta(trends.a30, trends.a7),
+              d30vs90: delta(trends.a90, trends.a30),
+              d90vs120:delta(trends.a120, trends.a90),
+            },
+            memoryId: mem?.id,
+            memoryWhen: mem?.when,
+          };
+          markProactive(userId);
+        }
+      }
+    } catch (e:any) {
+      console.warn("⚠️ Proactive suggestion failed:", e?.message || e);
+    }
+
     // 9) Retorno imediato
     const responsePayload: {
       message: string;
@@ -870,6 +1070,13 @@ export async function getEcoResponseOtimizado({
       emocao?: string;
       tags?: string[];
       categoria?: string | null;
+      proactive?: {
+        text: string;
+        emotion: string | null;
+        deltas: { d7vs30: number | null; d30vs90: number | null; d90vs120: number | null };
+        memoryId?: string;
+        memoryWhen?: string;
+      } | null;
     } = { message: cleaned };
 
     if (bloco && typeof bloco.intensidade === "number") {
@@ -884,6 +1091,9 @@ export async function getEcoResponseOtimizado({
     } else if (bloco) {
       responsePayload.categoria = bloco.categoria ?? null;
     }
+
+    // >>> NEW: anexa sugestão ativa ao payload
+    responsePayload.proactive = proactive;
 
     // 10) Pós-processo NÃO bloqueante — reuso de cache
     fireAndForget(async () => {
@@ -1014,6 +1224,11 @@ export async function getEcoResponseOtimizado({
           }
         } else {
           console.warn("⚠️ Usuário indefinido ou intensidade inválida – nada salvo.");
+        }
+
+        // >>> NEW: log leve da sugestão ativa (opcional)
+        if (proactive && userId) {
+          console.log("[ECO][PROACTIVE] sugerida para", userId, proactive.emotion);
         }
       } catch (err: any) {
         console.warn("⚠️ Pós-processo erro:", err?.message || err);
