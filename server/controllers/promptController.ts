@@ -1,4 +1,4 @@
-import path from 'path'; 
+import path from 'path';
 import fs from 'fs/promises';
 import { Request, Response } from 'express';
 
@@ -437,7 +437,7 @@ function coletarCandidatosExtras({
       if (hit && f.arquivo) pushCand(cands, { arquivo: f.arquivo, cat:'filosofico', score: 2, reasons:['filosófico 3–6'] });
     }
     for (const e of estoicosTriggerMap ?? []) {
-      // PATCH 1: usar .some() (ativação realista)
+      // usar .some() (ativação realista)
       const hit = e.gatilhos?.some((g) => txt.includes(normalizarTexto(g)));
       if (hit && e.arquivo) pushCand(cands, { arquivo: e.arquivo, cat:'filosofico', score: 2.5, reasons:['estoico 3–6'] });
     }
@@ -505,6 +505,53 @@ function selecionarExtrasRankeados({
   return sel.slice(0, HARD_CAP_EXTRAS);
 }
 
+// ---- helper: bloco derivados (modo híbrido) ----
+function renderDerivados(der: any, aberturaHibrida?: string | null) {
+  if (!der) return '';
+  const temas: string[] = Array.isArray(der?.top_temas_30d) ? der.top_temas_30d : [];
+  const marcos: any[]   = Array.isArray(der?.marcos) ? der.marcos : [];
+  const dica: string | null = der?.dica_estilo ?? null;
+  const eff   = der?.heuristica_interacao ?? null;
+
+  const topTemas =
+    temas.slice(0, 3).map((t: any) => {
+      const nome = t?.tema ?? t?.tag ?? t?.tema_nome ?? 'tema';
+      const tend = t?.tendencia ?? null;
+      const f30  = t?.freq_30d ?? t?.freq30 ?? null;
+      const f90  = t?.freq_90d ?? t?.freq90 ?? null;
+      const tendTxt = tend ? ` (${String(tend)})` : '';
+      const fTxt = f30 != null ? ` — 30d:${f30}${f90!=null?` / 90d:${f90}`:''}` : '';
+      return `• ${nome}${tendTxt}${fTxt}`;
+    }).join('\n');
+
+  const marcosTxt =
+    marcos.slice(0, 3).map((m: any) => {
+      const tm = m?.tema ?? m?.tag ?? '—';
+      const r  = m?.resumo ?? m?.resumo_evolucao ?? '';
+      const at = m?.marco_at ?? m?.marco_atm ?? m?.marco_atm_at ?? null;
+      const atTxt = at ? ` (${new Date(at).toLocaleDateString()})` : '';
+      return `• ${tm}${atTxt}: ${r}`;
+    }).join('\n');
+
+  const efeitos =
+    eff
+      ? `\nEfeitos últimas 10: abriu ${eff.abriu ?? 0} · fechou ${eff.fechou ?? 0} · neutro ${eff.neutro ?? 0}`
+      : '';
+
+  const dicaTxt = dica ? `\nDica de estilo: ${dica}` : '';
+  const aberturaTxt = aberturaHibrida ? `\nSugestão de abertura leve: ${aberturaHibrida}` : '';
+
+  const partes = [];
+  if (temas?.length) partes.push(`🔁 Temas recorrentes (30d):\n${topTemas}`);
+  if (marcos?.length) partes.push(`⏱️ Marcos recentes:\n${marcosTxt}`);
+  if (efeitos) partes.push(efeitos);
+  if (dicaTxt) partes.push(dicaTxt);
+  if (aberturaTxt) partes.push(aberturaTxt);
+
+  if (!partes.length) return '';
+  return `\n🧩 Sinais de contexto (derivados):\n${partes.join('\n')}`;
+}
+
 // ----------------------------------
 // FUNÇÃO PRINCIPAL
 // ----------------------------------
@@ -520,6 +567,9 @@ export async function montarContextoEco({
   texto,
   userEmbedding,
   skipSaudacao = true,
+  // >>> NOVO: insumos do modo híbrido
+  derivados,
+  aberturaHibrida,
 }: {
   perfil?: PerfilEmocional | null;
   ultimaMsg?: string;
@@ -532,6 +582,8 @@ export async function montarContextoEco({
   texto?: string;
   userEmbedding?: number[];
   skipSaudacao?: boolean;
+  derivados?: any;                // <<< NEW
+  aberturaHibrida?: string | null // <<< NEW
 }): Promise<string> {
   const assetsDir     = path.join(process.cwd(), 'assets');
   const modulosDir    = path.join(assetsDir, 'modulos');
@@ -604,6 +656,17 @@ ${forbidden.trim()}`
   // PERFIL EMOCIONAL
   // ----------------------------------
   if (perfil) contexto += `\n\n${construirStateSummary(perfil, nivel)}`;
+
+  // ----------------------------------
+  // BLOCO DERIVADOS (modo híbrido)
+  // ----------------------------------
+  if (derivados) {
+    try {
+      contexto += renderDerivados(derivados, aberturaHibrida);
+    } catch (e) {
+      log.warn('Falha ao renderizar derivados:', (e as Error).message);
+    }
+  }
 
   // ----------------------------------
   // MEMÓRIAS (evitar custo quando NV1)
@@ -868,7 +931,7 @@ NÃO inicie a resposta com fórmulas como:
 - "como você chega", "como você está chegando", "como chega aqui hoje", "como você chega hoje".
 Se a mensagem do usuário for apenas uma saudação breve, não repita a saudação, não faça perguntas fenomenológicas de abertura; apenas acolha de forma simples quando apropriado.`.trim();
 
-  // ===== PATCH 3: RESPONSE_PLAN (1 pergunta viva + 1 micro-prática) =====
+  // RESPONSE_PLAN (1 pergunta viva + 1 micro-prática)
   const permitirPerguntaViva =
     nivel >= 2 &&
     !isSaudacaoBreve &&

@@ -1,13 +1,11 @@
 // ============================================================================
-// getEcoResponseOtimizado — versão corrigida e equivalente ao original
-// - Corrige fast-path de saudação (usa { text, meta } + clientHour)
-// - Remove IO paralelo não usado
-// - Reaproveita embedding com cache
-// - Usa extração ROBUSTA do bloco técnico (com response_format, fallback de modelo e regex)
-// - Mantém fallback de modelo gpt-5 → gpt-5-chat (403)
-// - Mantém métricas/analytics e pós-processo assíncrono iguais ao original
-// - Mantém histórico enxuto e max_tokens reduzido
-// - ✅ Compat: re-export getEcoResponse e fallback local para NodeCache (sem @types)
+// getEcoResponseOtimizado — versão com MODO HÍBRIDO + DERIVADOS
+// - Mantém suas otimizações originais
+// - Injeta derivados (top temas, marcos, heurística de interação) no prompt
+// - Abertura opcional: sugere 1 insight leve (se o usuário aceitar)
+// - Bloco técnico ampliado: tema_recorrente, evolucao_temporal, impacto_resposta_estimado,
+//   sugestao_proximo_passo, modo_hibrido_acionado, tipo_referencia
+// - Fallbacks, caches e pós-processo inalterados
 // ============================================================================
 
 // IMPORTS
@@ -35,6 +33,9 @@ import {
   trackPerguntaProfunda,
   trackEcoDemorou,
 } from "../analytics/events/mixpanelEvents";
+
+// >>> NEW: derivados (top temas, marcos, dica de estilo) para o modo híbrido
+import { getDerivados, insightAbertura } from "../services/derivadosService";
 
 // ============================================================================
 // MODELOS (OpenRouter) — com ENV de fallback
@@ -243,10 +244,8 @@ function extrairBlocoPorRegex(mensagemUsuario: string, respostaIa: string) {
 declare const require: any;
 let NodeCacheLib: any;
 try {
-  // tenta usar o pacote real, se estiver instalado
   NodeCacheLib = require("node-cache");
 } catch {
-  // fallback mínimo com TTL (segundos) e get/set
   class SimpleCache {
     private map = new Map<string, { v: any; exp: number }>();
     private stdTTL = 0;
@@ -266,7 +265,6 @@ try {
     }
     set<T = any>(k: string, v: T): boolean {
       if (this.map.size >= this.maxKeys) {
-        // política simples: remove a primeira chave
         const first = this.map.keys().next().value;
         if (first) this.map.delete(first);
       }
@@ -337,7 +335,6 @@ async function montarContextoOtimizado(params: any) {
     return cached + `\n\nMensagem atual: ${params.texto}`;
   }
   const contexto = await montarContextoEco(params);
-  // Cacheia apenas contextos mais "estáveis"
   if ((params.nivel ?? 2) <= 2) {
     PROMPT_CACHE.set(cacheKey, contexto);
   }
@@ -361,16 +358,14 @@ async function gerarBlocoTecnicoSeparado({
     const palavrasUser = mensagemUsuario.trim().split(/\s+/).length;
     const palavrasResp = respostaIa.trim().split(/\s+/).length;
     if (palavrasUser < 4 && palavrasResp < 20) {
-      console.log(
-        "ℹ️ Bloco técnico: pulado por baixa relevância (texto curto)"
-      );
+      console.log("ℹ️ Bloco técnico: pulado por baixa relevância (texto curto)");
       return null;
     }
 
     const mkPrompt = (enxuto = false) =>
       enxuto
         ? `Retorne SOMENTE este JSON válido, sem comentários e sem markdown:
-{"emocao_principal":"","intensidade":0,"tags":[],"dominio_vida":"","padrao_comportamental":"","nivel_abertura":"baixo","categoria":"","analise_resumo":""}
+{"emocao_principal":"","intensidade":0,"tags":[],"dominio_vida":"","padrao_comportamental":"","nivel_abertura":"baixo","categoria":"","analise_resumo":"","tema_recorrente":null,"evolucao_temporal":null,"impacto_resposta_estimado":null,"sugestao_proximo_passo":null,"modo_hibrido_acionado":false,"tipo_referencia":null}
 Baseie no texto do usuário: "${mensagemUsuario}"
 e na resposta da IA: "${respostaIa}"
 Se não souber algum campo, use null, [], "" ou 0.`
@@ -394,7 +389,13 @@ JSON alvo:
   "padrao_comportamental": "",
   "nivel_abertura": "baixo" | "médio" | "alto",
   "categoria": "",
-  "analise_resumo": ""
+  "analise_resumo": "",
+  "tema_recorrente": null,
+  "evolucao_temporal": null,
+  "impacto_resposta_estimado": "abriu" | "fechou" | "neutro" | null,
+  "sugestao_proximo_passo": null,
+  "modo_hibrido_acionado": false,
+  "tipo_referencia": "abertura" | "durante" | "emocao_intensa" | null
 }
 
 Regras:
@@ -428,9 +429,7 @@ Regras:
 
     // 2) se vazio, prompt enxuto
     if (!rawContent || rawContent.trim().length < 5) {
-      console.warn(
-        "⚠️ Bloco técnico vazio — tentando novamente (prompt enxuto)..."
-      );
+      console.warn("⚠️ Bloco técnico vazio — tentando novamente (prompt enxuto)...");
       data = await doCall(mkPrompt(true), usadoModel);
       rawContent = data?.choices?.[0]?.message?.content ?? "";
     }
@@ -438,9 +437,7 @@ Regras:
     // 3) se ainda vazio, tenta modelo alternativo
     if (!rawContent || rawContent.trim().length < 5) {
       if (MODEL_TECH_ALT && MODEL_TECH_ALT !== usadoModel) {
-        console.warn(
-          `↩️ Tentando modelo técnico alternativo: ${MODEL_TECH_ALT}`
-        );
+        console.warn(`↩️ Tentando modelo técnico alternativo: ${MODEL_TECH_ALT}`);
         usadoModel = MODEL_TECH_ALT;
         data = await doCall(mkPrompt(true), usadoModel);
         rawContent = data?.choices?.[0]?.message?.content ?? "";
@@ -458,16 +455,14 @@ Regras:
 
     const match = rawContent.match(/\{[\s\S]*\}/);
     if (!match) {
-      console.warn(
-        "⚠️ Bloco técnico: nenhum JSON detectado na resposta — usando fallback regex."
-      );
+      console.warn("⚠️ Bloco técnico: nenhum JSON detectado — usando fallback regex.");
       const regexBloco = extrairBlocoPorRegex(mensagemUsuario, respostaIa);
       return regexBloco.intensidade > 0 ? regexBloco : null;
     }
 
     const parsed = JSON.parse(match[0]);
 
-    // sanitização
+    // sanitização (INCLUI novos campos do híbrido)
     const permitido = [
       "emocao_principal",
       "intensidade",
@@ -477,6 +472,12 @@ Regras:
       "nivel_abertura",
       "categoria",
       "analise_resumo",
+      "tema_recorrente",
+      "evolucao_temporal",
+      "impacto_resposta_estimado",
+      "sugestao_proximo_passo",
+      "modo_hibrido_acionado",
+      "tipo_referencia",
     ];
     const cleanJson: any = {};
     for (const k of permitido) cleanJson[k] = parsed[k] ?? null;
@@ -565,7 +566,7 @@ async function streamResponse(payload: any, headers: any) {
 }
 
 // ============================================================================
-// FUNÇÃO PRINCIPAL OTIMIZADA (equivalente ao original)
+// FUNÇÃO PRINCIPAL OTIMIZADA (equivalente ao original) + HÍBRIDO
 // ============================================================================
 export async function getEcoResponseOtimizado({
   messages,
@@ -575,7 +576,7 @@ export async function getEcoResponseOtimizado({
   mems = [],
   forcarMetodoViva = false,
   blocoTecnicoForcado = null,
-  clientHour, // ← NOVO: hora local do cliente [0-23]
+  clientHour, // hora local do cliente [0-23]
 }: {
   messages: { id?: string; role: string; content: string }[];
   userId?: string;
@@ -584,7 +585,7 @@ export async function getEcoResponseOtimizado({
   mems?: any[];
   forcarMetodoViva?: boolean;
   blocoTecnicoForcado?: any;
-  clientHour?: number; // ← NOVO
+  clientHour?: number;
 }): Promise<{
   message: string;
   intensidade?: number;
@@ -602,7 +603,7 @@ export async function getEcoResponseOtimizado({
     }
     if (!accessToken) throw new Error("Token (accessToken) ausente.");
 
-    // 1) FAST-PATH: usa { text, meta } + clientHour e salva referência leve sem embedding
+    // 1) FAST-PATH: saudação
     const auto: SaudacaoAutoResp | null = respostaSaudacaoAutomatica({
       messages,
       userName,
@@ -617,22 +618,19 @@ export async function getEcoResponseOtimizado({
             const refFastPath = {
               usuario_id: userId,
               mensagem_id: messages.at(-1)?.id ?? null,
-              resumo_eco: auto.text, // resposta curta
+              resumo_eco: auto.text,
               emocao_principal: "indefinida",
-              intensidade: 3, // leve
-              contexto: ultimaMsg, // entrada do usuário
+              intensidade: 3,
+              contexto: ultimaMsg,
               dominio_vida: "social",
               padrao_comportamental: "abertura para interação",
               nivel_abertura: 1,
               categoria: "interação social",
               analise_resumo: auto.text,
               tags: ["saudação"],
-              // embedding: omitido de propósito
             } satisfies ReferenciaPayload;
             await salvarReferenciaTemporaria(refFastPath);
-          } catch {
-            /* silencioso */
-          }
+          } catch { /* silencioso */ }
         });
       }
       return { message: auto.text };
@@ -642,9 +640,7 @@ export async function getEcoResponseOtimizado({
     const supabase = createClient(
       process.env.SUPABASE_URL!,
       process.env.SUPABASE_ANON_KEY!,
-      {
-        global: { headers: { Authorization: `Bearer ${accessToken}` } },
-      }
+      { global: { headers: { Authorization: `Bearer ${accessToken}` } } }
     );
 
     const ultimaMsg = messages.at(-1)?.content || "";
@@ -660,7 +656,20 @@ export async function getEcoResponseOtimizado({
     const vivaAtivo = forcarMetodoViva || gate.aplicar;
     const vivaBloco = blocoTecnicoForcado || (gate.aplicar ? gate.bloco : null);
 
-    // 5) Montagem do prompt (com cache)
+    // >>> NEW: 4.1) Derivados + insight de abertura (híbrido)
+    let derivados: any = null;
+    let aberturaHibrida: string | null = null;
+    if (userId) {
+      try {
+        derivados = await getDerivados(userId, accessToken);
+        aberturaHibrida = insightAbertura(derivados);
+      } catch {
+        derivados = null;
+        aberturaHibrida = null;
+      }
+    }
+
+    // 5) Montagem do prompt (com cache) — passando derivados + aberturaHibrida
     const systemPrompt = await montarContextoOtimizado({
       userId,
       userName,
@@ -672,6 +681,8 @@ export async function getEcoResponseOtimizado({
       heuristicas,
       userEmbedding,
       skipSaudacao: true,
+      derivados,           // <<< NEW
+      aberturaHibrida,     // <<< NEW
     });
 
     // 6) Histórico enxuto
@@ -686,7 +697,7 @@ export async function getEcoResponseOtimizado({
 
     const apiKey = process.env.OPENROUTER_API_KEY!;
 
-    // 7) Chamada ao modelo (sem streaming aqui, para obter usage/tokens e reduzir overhead)
+    // 7) Chamada ao modelo
     const inicioEco = now();
     const data = await callOpenRouterChat(
       {
@@ -741,8 +752,7 @@ export async function getEcoResponseOtimizado({
     if (bloco && typeof bloco.intensidade === "number") {
       responsePayload.intensidade = bloco.intensidade;
       responsePayload.resumo =
-        typeof bloco?.analise_resumo === "string" &&
-        bloco.analise_resumo.trim().length > 0
+        typeof bloco?.analise_resumo === "string" && bloco.analise_resumo.trim().length > 0
           ? bloco.analise_resumo.trim()
           : cleaned;
       responsePayload.emocao = bloco.emocao_principal || "indefinida";
@@ -752,7 +762,7 @@ export async function getEcoResponseOtimizado({
       responsePayload.categoria = bloco.categoria ?? null;
     }
 
-    // 10) Pós-processo NÃO bloqueante — idêntico ao original, mas reusando cache de embedding
+    // 10) Pós-processo NÃO bloqueante — reuso de cache
     fireAndForget(async () => {
       try {
         const cleanedSafe =
@@ -837,18 +847,13 @@ export async function getEcoResponseOtimizado({
             if (error) {
               console.warn("⚠️ Erro ao salvar memória:", error.message);
             } else {
-              console.log(
-                `✅ Memória salva com sucesso para o usuário ${userId}.`
-              );
+              console.log(`✅ Memória salva com sucesso para o usuário ${userId}.`);
               try {
                 console.log(`🔄 Atualizando perfil emocional de ${userId}...`);
                 await updateEmotionalProfile(userId!);
                 console.log(`🧠 Perfil emocional atualizado com sucesso.`);
               } catch (err: any) {
-                console.error(
-                  "❌ Erro ao atualizar perfil emocional:",
-                  err?.message || err
-                );
+                console.error("❌ Erro ao atualizar perfil emocional:", err?.message || err);
               }
             }
             trackMemoriaRegistrada({
@@ -859,14 +864,11 @@ export async function getEcoResponseOtimizado({
               categoria: payloadBase.categoria,
             });
           } else if (intensidadeNum > 0) {
-            // Para referência leve, o tipo aceita embedding opcional
             const payloadRef = {
               ...payloadBase,
             } satisfies ReferenciaPayload;
             await salvarReferenciaTemporaria(payloadRef);
-            console.log(
-              `📎 Referência emocional leve registrada para ${userId}`
-            );
+            console.log(`📎 Referência emocional leve registrada para ${userId}`);
             trackReferenciaEmocional({
               userId,
               intensidade: intensidadeNum,
