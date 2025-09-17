@@ -520,6 +520,55 @@ async function gerarBlocoTecnicoComCache(
   return bloco;
 }
 
+// ---------------------- (NEW) Loader de DERIVADOS no Supabase ----------------------
+type Efeito = "abriu" | "fechou" | "neutro";
+
+async function carregarDerivadosDoUsuario(
+  supabase: ReturnType<typeof createClient>,
+  userId: string
+) {
+  // TOP TEMAS 30d
+  const { data: statsRows } = await supabase
+    .from("user_theme_stats")
+    .select("tema, freq_30d, int_media_30d")
+    .eq("user_id", userId)
+    .order("freq_30d", { ascending: false })
+    .limit(5);
+
+  // MARCOS temporais
+  const { data: marcosRows } = await supabase
+    .from("user_temporal_milestones")
+    .select("tema, resumo_evolucao, marco_at")
+    .eq("user_id", userId)
+    .order("marco_at", { ascending: false })
+    .limit(3);
+
+  // EFEITOS recentes
+  const { data: efeitosRows } = await supabase
+    .from("interaction_effects")
+    .select("efeito, score, created_at")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false })
+    .limit(30);
+
+  // Converte para o formato esperado por getDerivados(...)
+  const efeitos = (efeitosRows ?? []).map((r) => ({
+    x: { efeito: (r.efeito as Efeito) ?? "neutro" },
+  }));
+
+  const scores = (efeitosRows ?? [])
+    .map((r) => Number(r?.score))
+    .filter((v) => Number.isFinite(v));
+  const media = scores.length ? scores.reduce((a, b) => a + b, 0) / scores.length : 0;
+
+  return getDerivados(
+    (statsRows ?? []) as any,   // TemaStat[]
+    (marcosRows ?? []) as any,  // Marco[]
+    efeitos as any,             // EfeitoItem[]
+    media                       // number
+  );
+}
+
 // ============================================================================
 // STREAMING (mantido, mas NÃO usado aqui — só habilite se for streamar ao cliente)
 // ============================================================================
@@ -661,9 +710,10 @@ export async function getEcoResponseOtimizado({
     let aberturaHibrida: string | null = null;
     if (userId) {
       try {
-        derivados = await getDerivados(userId, accessToken);
+        derivados = await carregarDerivadosDoUsuario(supabase, userId);
         aberturaHibrida = insightAbertura(derivados);
-      } catch {
+      } catch (e) {
+        console.warn("⚠️ Falha ao carregar derivados:", (e as Error)?.message);
         derivados = null;
         aberturaHibrida = null;
       }
