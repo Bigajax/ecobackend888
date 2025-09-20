@@ -1,16 +1,12 @@
 // ============================================================================
-// getEcoResponseOtimizado — versão com MODO HÍBRIDO + DERIVADOS + SUGESTÃO ATIVA
-// - Mantém suas otimizações originais
-// - Injeta derivados (top temas, marcos, heurística de interação) no prompt
-// - Sugestão ativa: lembra situação passada e mostra evolução 7/30/90/120d
-// - Bloco técnico ampliado: tema_recorrente, evolucao_temporal, impacto_resposta_estimado,
-//   sugestao_proximo_passo, modo_hibrido_acionado, tipo_referencia
-// - Fallbacks, caches e pós-processo inalterados
+// getEcoResponseOtimizado — MODO HÍBRIDO + DERIVADOS + SUGESTÃO ATIVA
+// + Otimizações de latência: fast-lane, timeouts, keep-alive, orçamentos
 // ============================================================================
 
-// IMPORTS
 import axios from "axios";
 import crypto from "crypto";
+import http from "http";
+import https from "https";
 import { createClient } from "@supabase/supabase-js";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
@@ -49,7 +45,7 @@ const MODEL_MAIN =
 const MODEL_TECH =
   process.env.ECO_MODEL_TECH || "openai/gpt-5-chat"; // bloco técnico (prioridade)
 const MODEL_TECH_ALT =
-  process.env.ECO_MODEL_TECH_ALT || "openai/gpt-5-mini"; // fallback técnico
+  process.env.ECO_MODEL_TECH_ALT || "openai/gpt-5-mini"; // fallback técnico / fast-lane
 const MODEL_FALLBACK_MAIN = "openai/gpt-5-chat"; // fallback automático para 403 do gpt-5
 
 // ============================================================================
@@ -81,6 +77,7 @@ const formatarTextoEco = (t: string) =>
     .trim();
 
 const now = () => Date.now();
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 function fireAndForget(fn: () => Promise<void>) {
   setImmediate(() => {
@@ -162,17 +159,22 @@ function ensureEnvs() {
   if (missing.length) throw new Error(`ENVs ausentes: ${missing.join(", ")}`);
 }
 
-// Axios helper: loga status/corpo quando a OpenRouter responder erro
-// e faz fallback automático para gpt-5-chat quando necessário
+// ============================================================================
+// OpenRouter helper com keep-alive + timeout + fallbacks
+// ============================================================================
+const httpAgent = new http.Agent({ keepAlive: true });
+const httpsAgent = new https.Agent({ keepAlive: true });
+
 async function callOpenRouterChat(
   payload: any,
-  headers: Record<string, string>
+  headers: Record<string, string>,
+  timeoutMs: number = 12000
 ) {
   try {
     const resp = await axios.post(
       "https://openrouter.ai/api/v1/chat/completions",
       payload,
-      { headers }
+      { headers, timeout: timeoutMs, httpAgent, httpsAgent }
     );
     return resp.data;
   } catch (err: any) {
@@ -180,29 +182,51 @@ async function callOpenRouterChat(
     const body = err?.response?.data;
     const msg =
       body?.error?.message || body?.message || err?.message || "erro desconhecido";
-    console.error("[OpenRouter ERROR]", status, body);
+    const isTimeout = err?.code === "ECONNABORTED" || /timeout/i.test(msg);
 
+    console.error("[OpenRouter ERROR]", status, body ?? msg);
+
+    // fallback exigido pelo provider (403 gpt-5 → gpt-5-chat)
     const precisaFallbackGPT5 =
       status === 403 &&
       payload?.model === "openai/gpt-5" &&
       /requiring a key|switch to gpt-5-chat/i.test(msg);
 
     if (precisaFallbackGPT5) {
-      console.warn(
-        "↩️ Fallback automático: trocando openai/gpt-5 → openai/gpt-5-chat…"
-      );
+      console.warn("↩️ Fallback automático: openai/gpt-5 → openai/gpt-5-chat…");
       const retryPayload = { ...payload, model: MODEL_FALLBACK_MAIN };
       const retryResp = await axios.post(
         "https://openrouter.ai/api/v1/chat/completions",
         retryPayload,
-        { headers }
+        { headers, timeout: timeoutMs, httpAgent, httpsAgent }
       );
       return retryResp.data;
     }
 
-    throw new Error(
-      `Falha OpenRouter (${payload?.model}): ${status} - ${msg}`
-    );
+    // ⏱️ timeout → tenta modelo rápido com menos tokens
+    if (isTimeout && payload?.model !== MODEL_TECH_ALT) {
+      console.warn(`⏱️ Timeout (${timeoutMs}ms). Trocando para ${MODEL_TECH_ALT}…`);
+      const retryPayload = {
+        ...payload,
+        model: MODEL_TECH_ALT,
+        max_tokens: Math.min(220, Math.floor((payload?.max_tokens ?? 300) * 0.5)),
+        temperature: Math.min(0.7, payload?.temperature ?? 0.7),
+        top_p: 0.9,
+      };
+      const retryResp = await axios.post(
+        "https://openrouter.ai/api/v1/chat/completions",
+        retryPayload,
+        {
+          headers,
+          timeout: Math.max(4000, Math.floor(timeoutMs * 0.6)),
+          httpAgent,
+          httpsAgent,
+        }
+      );
+      return retryResp.data;
+    }
+
+    throw new Error(`Falha OpenRouter (${payload?.model}): ${status ?? "??"} - ${msg}`);
   }
 }
 
@@ -367,7 +391,7 @@ async function getEmbeddingCached(
 }
 
 // ============================================================================
-// PARALELIZAÇÃO ENXUTA (apenas o que entra no prompt)
+// PARALELIZAÇÃO ENXUTA (apenas o que entra no prompt) + orçamento
 // ============================================================================
 async function operacoesParalelas(ultimaMsg: string, userId?: string) {
   // Só gera embedding uma vez
@@ -393,6 +417,22 @@ async function operacoesParalelas(ultimaMsg: string, userId?: string) {
   return { heuristicas, userEmbedding };
 }
 
+async function operacoesParalelasComOrcamento(ultimaMsg: string, userId?: string) {
+  const short = ultimaMsg.trim().length < 80 || ultimaMsg.trim().split(/\s+/).length < 12;
+  if (short) return { heuristicas: [], userEmbedding: [] as number[] };
+
+  let result = { heuristicas: [], userEmbedding: [] as number[] };
+
+  await Promise.race([
+    (async () => {
+      result = await operacoesParalelas(ultimaMsg, userId);
+    })(),
+    (async () => { await sleep(250); })(), // 250ms budget
+  ]);
+
+  return result;
+}
+
 // ============================================================================
 // OTIMIZAÇÃO DO PROMPT (reduz tokens) c/ cache
 // ============================================================================
@@ -411,7 +451,7 @@ async function montarContextoOtimizado(params: any) {
 }
 
 // ============================================================================
-// BLOCO TÉCNICO — versão ROBUSTA com cache e fallbacks (do original)
+// BLOCO TÉCNICO — versão ROBUSTA com cache e fallbacks (do original) + timeout
 // ============================================================================
 const BLOCO_CACHE = new Map<string, any>();
 async function gerarBlocoTecnicoSeparado({
@@ -479,7 +519,7 @@ Regras:
       "X-Title": "Eco App - Bloco Tecnico",
     };
 
-    const doCall = async (prompt: string, model: string) =>
+    const doCall = async (prompt: string, model: string, timeout = 4000) =>
       await callOpenRouterChat(
         {
           model,
@@ -488,18 +528,19 @@ Regras:
           max_tokens: 480,
           response_format: { type: "json_object" },
         },
-        headers
+        headers,
+        timeout
       );
 
     // 1) tentativa com MODEL_TECH + prompt completo
     let usadoModel = MODEL_TECH;
-    let data = await doCall(mkPrompt(false), usadoModel);
+    let data = await doCall(mkPrompt(false), usadoModel, 4000);
     let rawContent: string = data?.choices?.[0]?.message?.content ?? "";
 
     // 2) se vazio, prompt enxuto
     if (!rawContent || rawContent.trim().length < 5) {
       console.warn("⚠️ Bloco técnico vazio — tentando novamente (prompt enxuto)...");
-      data = await doCall(mkPrompt(true), usadoModel);
+      data = await doCall(mkPrompt(true), usadoModel, 3500);
       rawContent = data?.choices?.[0]?.message?.content ?? "";
     }
 
@@ -508,7 +549,7 @@ Regras:
       if (MODEL_TECH_ALT && MODEL_TECH_ALT !== usadoModel) {
         console.warn(`↩️ Tentando modelo técnico alternativo: ${MODEL_TECH_ALT}`);
         usadoModel = MODEL_TECH_ALT;
-        data = await doCall(mkPrompt(true), usadoModel);
+        data = await doCall(mkPrompt(true), usadoModel, 3500);
         rawContent = data?.choices?.[0]?.message?.content ?? "";
       }
     }
@@ -641,7 +682,6 @@ async function carregarDerivadosDoUsuario(
 // ============================================================================
 // >>> NEW: Sugestão ativa (evolução 7/30/90/120d + lembrança)
 // ============================================================================
-
 function avgByEmotion(rows: any[], alvo?: string | null) {
   if (!rows?.length) return { emotion: alvo ?? null, avg: null };
   const map = new Map<string, { sum: number; n: number }>();
@@ -885,7 +925,7 @@ export async function getEcoResponseOtimizado({
     }
     if (!accessToken) throw new Error("Token (accessToken) ausente.");
 
-    // 1) FAST-PATH: saudação
+    // 1) FAST-PATH: saudação automática
     const auto: SaudacaoAutoResp | null = respostaSaudacaoAutomatica({
       messages,
       userName,
@@ -893,7 +933,7 @@ export async function getEcoResponseOtimizado({
     } as any);
     if (auto) {
       console.log("⚡ Fast-path:", now() - t0, "ms");
-      const ultimaMsg = messages.at(-1)?.content ?? "";
+      const ultimaMsgFast = messages.at(-1)?.content ?? "";
       if (userId) {
         fireAndForget(async () => {
           try {
@@ -903,7 +943,7 @@ export async function getEcoResponseOtimizado({
               resumo_eco: auto.text,
               emocao_principal: "indefinida",
               intensidade: 3,
-              contexto: ultimaMsg,
+              contexto: ultimaMsgFast,
               dominio_vida: "social",
               padrao_comportamental: "abertura para interação",
               nivel_abertura: 1,
@@ -927,24 +967,68 @@ export async function getEcoResponseOtimizado({
 
     const ultimaMsg = messages.at(-1)?.content || "";
 
-    // 3) Operações paralelas enxutas (embedding + heurísticas)
-    const { heuristicas = [], userEmbedding } = await operacoesParalelas(
-      ultimaMsg,
-      userId
-    );
+    // 2.1) 🚀 Fast-greet/short lane extra (backup caso 1) não dispare)
+    const FAST_GREET_RE = /^(?:ol[áa]|oi|oie|eai|opa|hey|hi|hello)[!.\s…]*$/i;
+    const isShort = ultimaMsg.trim().split(/\s+/).length <= 6 || ultimaMsg.length <= 28;
+
+    if (FAST_GREET_RE.test(ultimaMsg) || isShort) {
+      const lightSystem =
+        "Você é a ECO, acolhedora e concisa. Responda em 1–2 frases, em PT-BR, convidando a pessoa a começar. Evite perguntas múltiplas.";
+      const apiKey = process.env.OPENROUTER_API_KEY!;
+      const headers = {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+        "HTTP-Referer": process.env.PUBLIC_APP_URL || "http://localhost:5173",
+        "X-Title": "Eco App - Fast Lane",
+      };
+
+      const data = await callOpenRouterChat(
+        {
+          model: MODEL_TECH_ALT, // ex: openai/gpt-5-mini
+          temperature: 0.6,
+          max_tokens: 180,
+          messages: [
+            { role: "system", content: lightSystem },
+            { role: "user", content: ultimaMsg },
+          ],
+        },
+        headers,
+        6000 // timeout curto
+      );
+
+      const raw = data?.choices?.[0]?.message?.content ?? "";
+      const cleaned = formatarTextoEco(limparResposta(raw || "Olá! 🙂 Como você quer começar hoje?"));
+      return { message: cleaned };
+    }
+
+    // 3) Operações paralelas com orçamento (embedding + heurísticas)
+    const { heuristicas = [], userEmbedding } =
+      await operacoesParalelasComOrcamento(ultimaMsg, userId);
 
     // 4) Gate VIVA (heurístico)
     const gate = heuristicaPreViva(ultimaMsg);
     const vivaAtivo = forcarMetodoViva || gate.aplicar;
     const vivaBloco = blocoTecnicoForcado || (gate.aplicar ? gate.bloco : null);
 
-    // >>> NEW: 4.1) Derivados + insight de abertura (híbrido)
+    // >>> NEW: 4.1) Derivados + insight de abertura (híbrido) com orçamento
     let derivados: any = null;
     let aberturaHibrida: string | null = null;
     if (userId) {
       try {
-        derivados = await carregarDerivadosDoUsuario(supabase, userId);
-        aberturaHibrida = insightAbertura(derivados);
+        const raced = await Promise.race([
+          (async () => {
+            const d = await carregarDerivadosDoUsuario(supabase, userId);
+            return { ok: true, d };
+          })(),
+          (async () => {
+            await sleep(200);
+            return { ok: false, d: null };
+          })(),
+        ]);
+        if ((raced as any).ok) {
+          derivados = (raced as any).d;
+          try { aberturaHibrida = insightAbertura(derivados); } catch {}
+        }
       } catch (e) {
         console.warn("⚠️ Falha ao carregar derivados:", (e as Error)?.message);
         derivados = null;
@@ -982,7 +1066,7 @@ export async function getEcoResponseOtimizado({
 
     const apiKey = process.env.OPENROUTER_API_KEY!;
 
-    // 7) Chamada ao modelo
+    // 7) Chamada ao modelo principal (timeout + fallback autom.)
     const inicioEco = now();
     const data = await callOpenRouterChat(
       {
@@ -999,7 +1083,8 @@ export async function getEcoResponseOtimizado({
         "Content-Type": "application/json",
         "HTTP-Referer": process.env.PUBLIC_APP_URL || "http://localhost:5173",
         "X-Title": "Eco App - Chat",
-      }
+      },
+      9000 // ⏱️ 9s para o principal; timeout cai no mini automaticamente
     );
 
     const duracaoEco = now() - inicioEco;
@@ -1021,7 +1106,7 @@ export async function getEcoResponseOtimizado({
 
     const cleaned = formatarTextoEco(limparResposta(raw));
 
-    // 8) Bloco técnico (robusto + cache)
+    // 8) Bloco técnico (robusto + cache + timeout interno)
     const bloco = await gerarBlocoTecnicoComCache(ultimaMsg, cleaned, apiKey);
     // LOG do bloco técnico
     logBlocoTecnico(bloco);

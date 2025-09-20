@@ -155,10 +155,12 @@ async function readStaticOnce(p: string) {
 }
 
 const cacheModulos = new Map<string, string>();
+const tokenCountCache = new Map<string, number>(); // ⬅️ cache de tokens por módulo
 const fileIndex = new Map<string, string>(); // nome -> caminho absoluto
 let fileIndexBuilt = false;
 
 async function buildFileIndexOnce(roots: string[]) {
+  if (fileIndexBuilt) return; // ⬅️ evita rebuild por request
   for (const base of roots) {
     try {
       const entries = await fs.readdir(base);
@@ -321,7 +323,12 @@ async function montarComBudget(
     const conteudo = await lerModulo(nome, pastas);
     if (!conteudo) { cortados.push(`${nome} [missing]`); continue; }
 
-    const t = enc.encode(conteudo).length;
+    // cache de contagem de tokens por módulo
+    let t = tokenCountCache.get(nome) ?? null;
+    if (t == null) {
+      t = enc.encode(conteudo).length;
+      tokenCountCache.set(nome, t);
+    }
 
     // evita estouro no final — reserva 10% do budget
     if (total + t > budgetTokens || budgetTokens - total < Math.ceil(budgetTokens * 0.1)) {
@@ -437,7 +444,6 @@ function coletarCandidatosExtras({
       if (hit && f.arquivo) pushCand(cands, { arquivo: f.arquivo, cat:'filosofico', score: 2, reasons:['filosófico 3–6'] });
     }
     for (const e of estoicosTriggerMap ?? []) {
-      // usar .some() (ativação realista)
       const hit = e.gatilhos?.some((g) => txt.includes(normalizarTexto(g)));
       if (hit && e.arquivo) pushCand(cands, { arquivo: e.arquivo, cat:'filosofico', score: 2.5, reasons:['estoico 3–6'] });
     }
@@ -555,6 +561,10 @@ function renderDerivados(der: any, aberturaHibrida?: string | null) {
 // ----------------------------------
 // FUNÇÃO PRINCIPAL
 // ----------------------------------
+
+// encoder global (evita custo por request)
+const ENC = get_encoding('cl100k_base');
+
 export async function montarContextoEco({
   perfil,
   ultimaMsg,
@@ -597,8 +607,8 @@ export async function montarContextoEco({
 
   const forbidden = await readStaticOnce(path.join(modulosDir, 'eco_forbidden_patterns.txt'));
 
-  // Encoder único por request
-  const enc = get_encoding('cl100k_base');
+  // Encoder único por request (reuso global)
+  const enc = ENC;
 
   let contexto = '';
   const entrada = (texto ?? ultimaMsg ?? '').trim();
@@ -723,7 +733,12 @@ ${forbidden.trim()}`
               'heuristicasEmbedding',
             )
           : withTimeout(
-              buscarHeuristicasSemelhantes(entrada, userId ?? null),
+              buscarHeuristicasSemelhantes({
+                usuarioId: userId ?? null,
+                texto: entrada,
+                matchCount: 5,
+                threshold: 0.75,
+              } as any),
               TIMEOUT_EMB_MS,
               'heuristicasEmbeddingText',
             )
