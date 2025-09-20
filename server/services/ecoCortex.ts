@@ -1,4 +1,4 @@
-// ============================================================================
+// ============================================================================ 
 // getEcoResponseOtimizado — MODO HÍBRIDO + DERIVADOS + SUGESTÃO ATIVA
 // + Otimizações de latência: fast-lane, timeouts, keep-alive, orçamentos
 // ============================================================================
@@ -36,6 +36,11 @@ import {
 
 // >>> NEW: derivados (top temas, marcos, dica de estilo) para o modo híbrido
 import { getDerivados, insightAbertura } from "../services/derivadosService";
+
+// ----------------------------------------------------------------------------
+// TIPOS AUXILIARES (corrige inferência de never[] nas operações paralelas)
+// ----------------------------------------------------------------------------
+type ParalelasResult = { heuristicas: any[]; userEmbedding: number[] };
 
 // ============================================================================
 // MODELOS (OpenRouter) — com ENV de fallback
@@ -393,7 +398,7 @@ async function getEmbeddingCached(
 // ============================================================================
 // PARALELIZAÇÃO ENXUTA (apenas o que entra no prompt) + orçamento
 // ============================================================================
-async function operacoesParalelas(ultimaMsg: string, userId?: string) {
+async function operacoesParalelas(ultimaMsg: string, userId?: string): Promise<ParalelasResult> {
   // Só gera embedding uma vez
   let userEmbedding: number[] = [];
   if (ultimaMsg.trim().length > 0) {
@@ -417,11 +422,11 @@ async function operacoesParalelas(ultimaMsg: string, userId?: string) {
   return { heuristicas, userEmbedding };
 }
 
-async function operacoesParalelasComOrcamento(ultimaMsg: string, userId?: string) {
+async function operacoesParalelasComOrcamento(ultimaMsg: string, userId?: string): Promise<ParalelasResult> {
   const short = ultimaMsg.trim().length < 80 || ultimaMsg.trim().split(/\s+/).length < 12;
-  if (short) return { heuristicas: [], userEmbedding: [] as number[] };
+  if (short) return { heuristicas: [] as any[], userEmbedding: [] as number[] };
 
-  let result = { heuristicas: [], userEmbedding: [] as number[] };
+  let result: ParalelasResult = { heuristicas: [] as any[], userEmbedding: [] as number[] };
 
   await Promise.race([
     (async () => {
@@ -1002,7 +1007,7 @@ export async function getEcoResponseOtimizado({
     }
 
     // 3) Operações paralelas com orçamento (embedding + heurísticas)
-    const { heuristicas = [], userEmbedding } =
+    const { heuristicas, userEmbedding } =
       await operacoesParalelasComOrcamento(ultimaMsg, userId);
 
     // 4) Gate VIVA (heurístico)
