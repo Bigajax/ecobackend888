@@ -20,8 +20,8 @@ import {
 } from "./Selector";
 import { MAX_PROMPT_TOKENS, NIVEL1_BUDGET, MARGIN_TOKENS } from "../../utils/config";
 
-// ⚠️ matriz está em controllers:
-import { matrizPromptBaseV2, matrizPromptBase } from "../../controllers/matrizPromptBase";
+// 🔽 importa a matriz com fallback p/ qualquer formato de export
+import * as Matriz from "../../controllers/matrizPromptBase";
 
 const ENC = get_encoding("cl100k_base");
 
@@ -54,7 +54,7 @@ export class ContextBuilder {
     if (input.perfil) contexto += `\n\n${construirStateSummary(input.perfil, nivel)}`;
     if (input.derivados) contexto += renderDerivados(input.derivados, input.aberturaHibrida);
 
-    // memórias (mantém tua regra)
+    // memórias
     let memsUsadas: any[] = input.mems ?? [];
     if (input.forcarMetodoViva && input.blocoTecnicoForcado) {
       memsUsadas = [{
@@ -76,10 +76,16 @@ export class ContextBuilder {
     }
 
     const intensidadeContexto = Math.max(0, ...(memsUsadas ?? []).map((m:any) => m.intensidade ?? 0));
-    if (memsUsadas?.length && nivel > 1) contexto += `\n\n${construirNarrativaMemorias(memsUsadas)}`;
+    if (memsUsadas?.length && nivel > 1) {
+      contexto += `\n\n${construirNarrativaMemorias(memsUsadas)}`;
+    }
 
-    // matriz (já importada estaticamente acima)
-    const matriz = (matrizPromptBaseV2 as any) ?? (matrizPromptBase as any);
+    // matriz (fallback para qualquer nome/export)
+    const matriz =
+      (Matriz as any).matrizPromptBaseV2 ??
+      (Matriz as any).matrizPromptBase ??
+      (Matriz as any).MatrizPromptBase ??
+      (Matriz as any).default;
 
     const flags = derivarFlags(entrada);
     const baseSel = selecionarModulosBase({ nivel, intensidade: intensidadeContexto, matriz, flags });
@@ -87,7 +93,8 @@ export class ContextBuilder {
     // extras (rankeados)
     const extras = selecionarExtras({
       userId: input.userId,
-      entrada, nivel,
+      entrada,
+      nivel,
       intensidade: intensidadeContexto,
       memsUsadas,
       heuristicaAtiva: undefined,
@@ -146,12 +153,15 @@ Se a mensagem do usuário for apenas uma saudação breve, não repita a saudaç
     });
     const overheadTokens = enc.encode(overhead).length;
 
-    const budgetRestante = Math.max(1000, MAX_PROMPT_TOKENS - tokensContexto - overheadTokens - MARGIN_TOKENS);
+    const budgetRestante = Math.max(
+      1000,
+      MAX_PROMPT_TOKENS - tokensContexto - overheadTokens - MARGIN_TOKENS
+    );
 
     // NV1 curto
     if (nivel === 1) {
       const nomesNv1 = isV2Matrix(matriz)
-        ? resolveModulesForLevelV2(1, matriz)
+        ? resolveModulesForLevelV2(1 as any, matriz)
         : [ ...(matriz.alwaysInclude ?? []), "ECO_ORQUESTRA_NIVEL1.txt" ];
 
       const stitched = await this.budgeter.stitch(nomesNv1, {
@@ -163,7 +173,7 @@ Se a mensagem do usuário for apenas uma saudação breve, não repita a saudaç
 - Responda breve (≤ 3 linhas), sem perguntas exploratórias.
 - Acolha e respeite silêncio. Não usar memórias neste nível.
 - Use a Estrutura Padrão de Resposta como planejamento interno, mas NÃO exiba títulos/numeração.
-- ${antiSaudacaoGuard}`;
+- ${antiSaudacaoGuard}`.trim();
 
       const prompt = [
         contextoMin,
@@ -218,16 +228,4 @@ Se a mensagem do usuário for apenas uma saudação breve, não repita a saudaç
       }
     };
   }
-}
-
-// funções finas para compatibilidade com o orquestrador/preview
-export async function buildContextWithMeta(params: any) {
-  const b = new ContextBuilder();
-  return b.build(params);
-}
-
-export async function montarContextoEco(params: any) {
-  const b = new ContextBuilder();
-  const out = await b.build(params);
-  return out.prompt;
 }

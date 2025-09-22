@@ -5,8 +5,7 @@ const cache = new Map<string, string>();
 async function readOnce(p: string) {
   if (cache.has(p)) return cache.get(p)!;
   const c = (await fs.readFile(p, "utf-8")).trim();
-  cache.set(p, c);
-  return c;
+  cache.set(p, c); return c;
 }
 
 export function construirStateSummary(perfil: any, nivel: number): string {
@@ -29,14 +28,19 @@ export function construirNarrativaMemorias(mems: any[]): string {
     (b.intensidade ?? 0) - (a.intensidade ?? 0) ||
     (b.similaridade ?? 0) - (a.similaridade ?? 0)
   ).slice(0,2);
+
   const temas = new Set<string>();
   const emocoes = new Set<string>();
+
   for (const m of ord) {
-    (m.tags ?? []).slice(0,3).forEach((t)=>temas.add(t));
-    if (m.emocao_principal) emocoes.add(m.emocao_principal);
+    (m.tags ?? []).slice(0,3).forEach((t: string) => temas.add(t));
+    if (m.emocao_principal) emocoes.add(m.emocao_principal as string);
   }
-  const temasTxt = [...temas].slice(0,3).join(", ") || "—";
-  const emocoesTxt = [...emocoes].slice(0,2).join(", ") || "—";
+
+  // evita spread em Set (compat com targets antigos)
+  const temasTxt = Array.from(temas).slice(0,3).join(", ") || "—";
+  const emocoesTxt = Array.from(emocoes).slice(0,2).join(", ") || "—";
+
   return `\n📜 Continuidade: temas (${temasTxt}) e emoções (${emocoesTxt}); use só se fizer sentido agora.`;
 }
 
@@ -67,7 +71,7 @@ export function renderDerivados(der: any, aberturaHibrida?: string | null) {
   const dicaTxt = dica ? `\nDica de estilo: ${dica}` : "";
   const aberturaTxt = aberturaHibrida ? `\nSugestão de abertura leve: ${aberturaHibrida}` : "";
 
-  const partes = [];
+  const partes: string[] = [];
   if (temas?.length) partes.push(`🔁 Temas recorrentes (30d):\n${topTemas}`);
   if (marcos?.length) partes.push(`⏱️ Marcos recentes:\n${marcosTxt}`);
   if (efeitos) partes.push(efeitos);
@@ -80,8 +84,7 @@ export function renderDerivados(der: any, aberturaHibrida?: string | null) {
 
 export async function loadStaticGuards(modulosDir: string) {
   const forbidden = await readOnce(path.join(modulosDir, "eco_forbidden_patterns.txt"));
-  let criterios = "";
-  let memoriaInstrucoes = "";
+  let criterios = ""; let memoriaInstrucoes = "";
   try { criterios = await readOnce(path.join(modulosDir, "eco_json_trigger_criteria.txt")); } catch {}
   try { memoriaInstrucoes = await readOnce(path.join(modulosDir, "MEMORIAS_NO_CONTEXTO.txt")); } catch {}
   return { forbidden, criterios, memoriaInstrucoes };
@@ -94,11 +97,8 @@ export function buildOverhead({
   instrucoesFinais,
   antiSaudacaoGuard,
 }:{
-  criterios?: string;
-  memoriaInstrucoes?: string;
-  responsePlanJson: string;
-  instrucoesFinais: string;
-  antiSaudacaoGuard: string;
+  criterios?: string; memoriaInstrucoes?: string; responsePlanJson: string;
+  instrucoesFinais: string; antiSaudacaoGuard: string;
 }) {
   const blocks = [
     criterios ? `\n${criterios}` : "",
