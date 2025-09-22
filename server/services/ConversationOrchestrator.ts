@@ -191,10 +191,14 @@ export async function getEcoResponse({
   const micro = microReflexoLocal(ultimaMsg);
   if (micro) return { message: micro };
 
-  const msgs = [
-    { role: "system", content: systemPrompt },
-    ...messages.slice(-5).map((m) => ({ role: mapRoleForOpenAI(m.role), content: m.content })),
-  ];
+ const msgs: { role: "system" | "user" | "assistant"; content: string }[] = [
+  { role: "system", content: systemPrompt },
+  ...messages.slice(-5).map((m) => ({
+    role: mapRoleForOpenAI(m.role) as "system" | "user" | "assistant",
+    content: m.content,
+  })),
+];
+
 
   // 7) chamada ao modelo principal → Claude Sonnet 4.0 via OpenRouter
   const maxTokens = ultimaMsg.length < 140 ? 420 : ultimaMsg.length < 280 ? 560 : 700;
