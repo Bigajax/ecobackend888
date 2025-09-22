@@ -6,7 +6,7 @@ import {
   mapRoleForOpenAI,
   now,
   sleep,
-  GREET_RE,                 // <- veio de utils/config via barrel
+  GREET_RE,
   type GetEcoParams,
   type GetEcoResult,
   type ParalelasResult,
@@ -16,17 +16,17 @@ import { supabaseWithBearer } from "../adapters/SupabaseAdapter";
 import { PROMPT_CACHE } from "../services/CacheService";
 import { getEmbeddingCached } from "../adapters/EmbeddingAdapter";
 import { gerarBlocoTecnicoComCache } from "../core/EmotionalAnalyzer";
-import { fastGreet, microReflexoLocal, chatCompletion } from "../core/ResponseGenerator";
+import { fastGreet, microReflexoLocal } from "../core/ResponseGenerator";
+import { claudeChatCompletion } from "../core/ClaudeAdapter"; // ✅ Claude via OpenRouter
 import { GreetGuard } from "../policies/GreetGuard";
 import { getDerivados, insightAbertura } from "../services/derivadosService";
 import { buscarHeuristicasSemelhantes } from "../services/heuristicaService";
-// ⬇️ moved: prompt builder novo
-import { buildContextWithMeta, montarContextoEco } from "../services/promptContext";
+import { montarContextoEco } from "../services/promptContext";
 import { respostaSaudacaoAutomatica } from "../utils/respostaSaudacaoAutomatica";
 import { saveMemoryOrReference } from "../services/MemoryService";
 import { trackMensagemEnviada, trackEcoDemorou } from "../analytics/events/mixpanelEvents";
 
-// ---------- helpers locais ----------
+// ---------- helpers ----------
 function hasSubstance(msg: string) {
   const t = (msg || "").trim().toLowerCase();
   if (t.length >= 30) return true;
@@ -106,7 +106,7 @@ export async function getEcoResponse({
   }
   const ultimaMsg = messages.at(-1)?.content || "";
 
-  // 1) fast-greet (puro + sem substância + cooldown)
+  // 1) fast-greet
   const trimmed = ultimaMsg.trim();
   const isPureGreeting = GREET_RE.test(trimmed) && trimmed.split(/\s+/).length <= 3;
   if (!hasSubstance(ultimaMsg) && isPureGreeting && GreetGuard.can(userId)) {
@@ -114,21 +114,18 @@ export async function getEcoResponse({
     const auto = respostaSaudacaoAutomatica({ messages, userName, clientHour } as any);
     if (auto) return { message: auto.text };
 
-    // opcional: mini-model
     try {
       return { message: await fastGreet(trimmed) };
-    } catch {
-      // segue fluxo normal se mini falhar
-    }
+    } catch {}
   }
 
   // 2) supabase
   const supabase = supabaseWithBearer(accessToken);
 
-  // 3) paralelas com orçamento
+  // 3) paralelas
   const { heuristicas, userEmbedding } = await operacoesParalelasComOrcamento(ultimaMsg, userId);
 
-  // 4) viva + derivados (com orçamento leve)
+  // 4) viva + derivados
   const vivaAtivo = forcarMetodoViva || heuristicaPreViva(ultimaMsg);
   const derivados = userId
     ? await Promise.race([
@@ -174,7 +171,7 @@ export async function getEcoResponse({
 
   const aberturaHibrida = derivados ? (() => { try { return insightAbertura(derivados); } catch { return null; } })() : null;
 
-  // 5) system prompt otimizado (com cache)
+  // 5) system prompt
   const systemPrompt = await montarContextoOtimizado({
     userId,
     userName,
@@ -190,7 +187,7 @@ export async function getEcoResponse({
     aberturaHibrida,
   });
 
-  // 6) micro-reflexo local (latência ~0)
+  // 6) micro-reflexo local
   const micro = microReflexoLocal(ultimaMsg);
   if (micro) return { message: micro };
 
@@ -199,29 +196,31 @@ export async function getEcoResponse({
     ...messages.slice(-5).map((m) => ({ role: mapRoleForOpenAI(m.role), content: m.content })),
   ];
 
-  // 7) chamada ao modelo (com hedge interno)
+  // 7) chamada ao modelo principal → Claude Sonnet 4.0 via OpenRouter
   const maxTokens = ultimaMsg.length < 140 ? 420 : ultimaMsg.length < 280 ? 560 : 700;
   const inicioEco = now();
-  const data = await chatCompletion(msgs, maxTokens);
+  const data = await claudeChatCompletion({
+    messages: msgs,
+    model: process.env.ECO_CLAUDE_MODEL || "anthropic/claude-4-sonnet",
+    temperature: 0.6,
+    maxTokens,
+  });
   const duracaoEco = now() - inicioEco;
   if (duracaoEco > 3000) trackEcoDemorou({ userId, duracaoMs: duracaoEco, ultimaMsg });
 
-  const raw: string = data?.choices?.[0]?.message?.content ?? "";
+  const raw: string = data?.content ?? "";
   const cleaned = formatarTextoEco(
     limparResposta(raw || "Desculpa, não consegui responder agora. Pode tentar de novo?")
   );
 
-  // 8) bloco técnico
+  // 8) bloco técnico (GPT-5.0 via EmotionalAnalyzer)
   const bloco = await gerarBlocoTecnicoComCache(ultimaMsg, cleaned);
 
-  // 9) payload de retorno
+  // 9) retorno
   const response: GetEcoResult = { message: cleaned };
   if (bloco && typeof bloco.intensidade === "number") {
     response.intensidade = bloco.intensidade;
-    response.resumo =
-      typeof bloco?.analise_resumo === "string" && bloco.analise_resumo.trim().length
-        ? bloco.analise_resumo.trim()
-        : cleaned;
+    response.resumo = bloco?.analise_resumo?.trim().length ? bloco.analise_resumo.trim() : cleaned;
     response.emocao = bloco.emocao_principal || "indefinida";
     response.tags = Array.isArray(bloco.tags) ? bloco.tags : [];
     response.categoria = bloco.categoria ?? null;
@@ -229,7 +228,6 @@ export async function getEcoResponse({
     response.categoria = bloco.categoria ?? null;
   }
 
-  // métrica simples
   trackMensagemEnviada({
     userId,
     tempoRespostaMs: duracaoEco,
@@ -237,7 +235,7 @@ export async function getEcoResponse({
     modelo: data?.model,
   });
 
-  // 10) pós-processo não bloqueante (memória/ref)
+  // 10) pós-processo
   (async () => {
     try {
       if (userId) {
