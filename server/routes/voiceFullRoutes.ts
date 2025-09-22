@@ -1,7 +1,7 @@
 import express from "express";
 import multer from "multer";
 import { generateAudio } from "../services/elevenlabsService";
-import { getEcoResponse } from "../services/ecoCortex";
+import { getEcoResponse } from "../services/ConversationOrchestrator";
 import { transcribeWithWhisper } from "../scripts/transcribe";
 
 const router = express.Router();

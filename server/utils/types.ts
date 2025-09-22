@@ -41,3 +41,23 @@ export type GetEcoResult = {
   categoria?: string | null;
   proactive?: ProactivePayload;
 };
+// Nivel  de abertura aceito pela matriz
+export type NivelNum = 1 | 2 | 3;
+
+// Memória leve usada no contexto
+export interface Memoria {
+  created_at?: string;
+  resumo_eco: string;
+  tags?: string[];
+  intensidade?: number;
+  similaridade?: number;
+  score?: number;
+  emocao_principal?: string;
+  nivel_abertura?: number | string;
+}
+
+// Heurística básica (por arquivo + gatilhos)
+export interface Heuristica {
+  arquivo: string;
+  gatilhos: string[];
+}
