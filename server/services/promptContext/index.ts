@@ -1,5 +1,5 @@
-// server/services/promptContext/index.ts
-export * from "./ContextBuilder";
+// services/promptContext/index.ts
+export { buildContextWithMeta, montarContextoEco } from "./ContextBuilder";
 export * from "./Budgeter";
 export * from "./ModuleStore";
 export * from "./Selector";

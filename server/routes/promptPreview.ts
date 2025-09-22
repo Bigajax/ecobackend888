@@ -1,7 +1,6 @@
+// server/routes/promptPreview.ts
 import { Request, Response } from "express";
-// certo
 import { buildContextWithMeta } from "../services/promptContext";
-
 
 export const getPromptEcoPreview = async (_req: Request, res: Response) => {
   try {

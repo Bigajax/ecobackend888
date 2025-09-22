@@ -2,9 +2,26 @@ import path from "path";
 import { get_encoding } from "@dqbd/tiktoken";
 import { Budgeter } from "./Budgeter";
 import { ModuleStore } from "./ModuleStore";
-import { buildOverhead, construirNarrativaMemorias, construirStateSummary, loadStaticGuards, renderDerivados } from "./Signals";
-import { selecionarModulosBase, derivarNivel, derivarFlags, detectarSaudacaoBreve, isV2Matrix, resolveModulesForLevelV2, selecionarExtras } from "./Selector";
+import {
+  buildOverhead,
+  construirNarrativaMemorias,
+  construirStateSummary,
+  loadStaticGuards,
+  renderDerivados,
+} from "./Signals";
+import {
+  selecionarModulosBase,
+  derivarNivel,
+  derivarFlags,
+  detectarSaudacaoBreve,
+  isV2Matrix,
+  resolveModulesForLevelV2,
+  selecionarExtras,
+} from "./Selector";
 import { MAX_PROMPT_TOKENS, NIVEL1_BUDGET, MARGIN_TOKENS } from "../../utils/config";
+
+// ⚠️ matriz está em controllers:
+import { matrizPromptBaseV2, matrizPromptBase } from "../../controllers/matrizPromptBase";
 
 const ENC = get_encoding("cl100k_base");
 
@@ -26,7 +43,9 @@ export class ContextBuilder {
     const saudacaoBreve = detectarSaudacaoBreve(entrada);
 
     let contexto = "";
-    if (saudacaoBreve) contexto += `\n🔎 Detecção: saudação breve. Evite perguntas de abertura; acolha sem repetir a saudação.`;
+    if (saudacaoBreve) {
+      contexto += `\n🔎 Detecção: saudação breve. Evite perguntas de abertura; acolha sem repetir a saudação.`;
+    }
 
     const nivel = derivarNivel(entrada, saudacaoBreve);
     const desc  = nivel === 1 ? "superficial" : nivel === 2 ? "reflexiva" : "profunda";
@@ -59,9 +78,8 @@ export class ContextBuilder {
     const intensidadeContexto = Math.max(0, ...(memsUsadas ?? []).map((m:any) => m.intensidade ?? 0));
     if (memsUsadas?.length && nivel > 1) contexto += `\n\n${construirNarrativaMemorias(memsUsadas)}`;
 
-    // matriz
-    const mod = await import("./matrizPromptBase"); // mantém teu caminho local desta pasta
-    const matriz = (mod as any).matrizPromptBaseV2 ?? (mod as any).matrizPromptBase;
+    // matriz (já importada estaticamente acima)
+    const matriz = (matrizPromptBaseV2 as any) ?? (matrizPromptBase as any);
 
     const flags = derivarFlags(entrada);
     const baseSel = selecionarModulosBase({ nivel, intensidade: intensidadeContexto, matriz, flags });
@@ -92,16 +110,18 @@ Se a mensagem do usuário for apenas uma saudação breve, não repita a saudaç
     const responsePlan = {
       allow_live_question: permitirPerguntaViva,
       live_question: permitirPerguntaViva
-        ? { text: flags.curiosidade
+        ? {
+            text: flags.curiosidade
               ? "O que fica mais vivo em você quando olha para isso agora — sem precisar explicar?"
               : (intensidadeContexto >= 6
                   ? "Se couber, o que seu corpo te conta sobre isso neste instante (uma palavra ou imagem)?"
                   : "Se fizer sentido, qual seria um próximo passo gentil a partir daqui?"),
-            max_count: 1 }
+            max_count: 1,
+          }
         : null,
       allow_micro_practice: false,
       micro_practice: null as any,
-      guardrails: { no_new_topics_on_closure: true, max_new_prompts: 1 }
+      guardrails: { no_new_topics_on_closure: true, max_new_prompts: 1 },
     };
 
     const followPlanGuard =
@@ -198,4 +218,16 @@ Se a mensagem do usuário for apenas uma saudação breve, não repita a saudaç
       }
     };
   }
+}
+
+// funções finas para compatibilidade com o orquestrador/preview
+export async function buildContextWithMeta(params: any) {
+  const b = new ContextBuilder();
+  return b.build(params);
+}
+
+export async function montarContextoEco(params: any) {
+  const b = new ContextBuilder();
+  const out = await b.build(params);
+  return out.prompt;
 }

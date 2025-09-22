@@ -21,7 +21,7 @@ import { GreetGuard } from "../policies/GreetGuard";
 import { getDerivados, insightAbertura } from "../services/derivadosService";
 import { buscarHeuristicasSemelhantes } from "../services/heuristicaService";
 // ⬇️ moved: prompt builder novo
-import { montarContextoEco } from "../services/promptContext/ContextBuilder";
+import { buildContextWithMeta, montarContextoEco } from "../services/promptContext";
 import { respostaSaudacaoAutomatica } from "../utils/respostaSaudacaoAutomatica";
 import { saveMemoryOrReference } from "../services/MemoryService";
 import { trackMensagemEnviada, trackEcoDemorou } from "../analytics/events/mixpanelEvents";
