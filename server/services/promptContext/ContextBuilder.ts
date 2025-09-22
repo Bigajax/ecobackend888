@@ -29,15 +29,20 @@ export class ContextBuilder {
   private budgeter = new Budgeter();
 
   async build(input: any) {
-    const assetsDir      = path.join(process.cwd(), "assets");
-    const modulosDir     = path.join(assetsDir, "modulos");
-    const modCogDir      = path.join(assetsDir, "modulos_cognitivos");
-    const modFilosDir    = path.join(assetsDir, "modulos_filosoficos");
-    const modEstoicosDir = path.join(modFilosDir, "estoicos");
-    const modEmocDir     = path.join(assetsDir, "modulos_emocionais");
-    ModuleStore.I.configure([modulosDir, modEmocDir, modEstoicosDir, modFilosDir, modCogDir]);
+    const assetsDir       = path.join(process.cwd(), "assets");
+    // NOVO: pastas alinhadas à tua refatoração
+    const coreDir         = path.join(assetsDir, "modulos_core");
+    const extrasDir       = path.join(assetsDir, "modulos_extras");
+    const modCogDir       = path.join(assetsDir, "modulos_cognitivos");
+    const modFilosDir     = path.join(assetsDir, "modulos_filosoficos");
+    const modEstoicosDir  = path.join(modFilosDir, "estoicos");
+    const modEmocDir      = path.join(assetsDir, "modulos_emocionais");
 
-    const { criterios, memoriaInstrucoes } = await loadStaticGuards(modulosDir);
+    // ordem: core → extras → opcionais
+    ModuleStore.I.configure([coreDir, extrasDir, modEmocDir, modEstoicosDir, modFilosDir, modCogDir]);
+
+    // guards estáticos agora vivem no core
+    const { criterios, memoriaInstrucoes } = await loadStaticGuards(coreDir);
 
     const entrada = (input.texto ?? "").trim();
     const saudacaoBreve = detectarSaudacaoBreve(entrada);
@@ -54,7 +59,7 @@ export class ContextBuilder {
     if (input.perfil) contexto += `\n\n${construirStateSummary(input.perfil, nivel)}`;
     if (input.derivados) contexto += renderDerivados(input.derivados, input.aberturaHibrida);
 
-    // memórias
+    // ===== memórias =====
     let memsUsadas: any[] = input.mems ?? [];
     if (input.forcarMetodoViva && input.blocoTecnicoForcado) {
       memsUsadas = [{
@@ -80,7 +85,7 @@ export class ContextBuilder {
       contexto += `\n\n${construirNarrativaMemorias(memsUsadas)}`;
     }
 
-    // matriz (fallback para qualquer nome/export)
+    // ===== matriz =====
     const matriz =
       (Matriz as any).matrizPromptBaseV2 ??
       (Matriz as any).matrizPromptBase ??
@@ -90,7 +95,7 @@ export class ContextBuilder {
     const flags = derivarFlags(entrada);
     const baseSel = selecionarModulosBase({ nivel, intensidade: intensidadeContexto, matriz, flags });
 
-    // extras (rankeados)
+    // extras (rankeados pelo teu seletor; inclui opcionais se você plugou)
     const extras = selecionarExtras({
       userId: input.userId,
       entrada,
@@ -101,7 +106,7 @@ export class ContextBuilder {
       heuristicasEmbedding: input.heuristicas,
     });
 
-    // contexto/overhead
+    // ===== contexto / overhead =====
     const contextoMin = contexto.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
     const enc = ENC;
     const tokensContexto = enc.encode(contextoMin).length;
@@ -158,11 +163,12 @@ Se a mensagem do usuário for apenas uma saudação breve, não repita a saudaç
       MAX_PROMPT_TOKENS - tokensContexto - overheadTokens - MARGIN_TOKENS
     );
 
-    // NV1 curto
+    // ===== NV1 curto =====
     if (nivel === 1) {
       const nomesNv1 = isV2Matrix(matriz)
         ? resolveModulesForLevelV2(1 as any, matriz)
-        : [ ...(matriz.alwaysInclude ?? []), "ECO_ORQUESTRA_NIVEL1.txt" ];
+        // legado: só alwaysInclude (sem ECO_ORQUESTRA_NIVEL1.txt, que foi removido)
+        : [ ...(matriz.alwaysInclude ?? []) ];
 
       const stitched = await this.budgeter.stitch(nomesNv1, {
         budgetTokens: Math.min(budgetRestante, NIVEL1_BUDGET),
@@ -194,16 +200,15 @@ Se a mensagem do usuário for apenas uma saudação breve, não repita a saudaç
       };
     }
 
-    // NV2/NV3
+    // ===== NV2 / NV3 =====
     const nomesPre = [...new Set([...baseSel.selecionados, ...extras])];
 
-    // prioridade V2
+    // prioridade adaptada à Matriz V3 (sem ECO_ORQUESTRA_*)
     let prioridade: string[] | undefined = (matriz as any)?.limites?.prioridade;
     if (isV2Matrix(matriz)) {
       const pv2 = [
         ...(matriz.baseModules?.core ?? []),
-        "ECO_ORQUESTRA_NIVEL1.txt","ECO_ORQUESTRA_NIVEL2.txt","ECO_ORQUESTRA_NIVEL3.txt",
-        ...(matriz.baseModules?.emotional ?? []),
+        ...(matriz.baseModules?.emotional ?? []), // hoje vazio, mas mantido p/ compat
         ...(matriz.baseModules?.advanced ?? []),
       ];
       prioridade = [...new Set([ ...pv2, ...(prioridade ?? []) ])];

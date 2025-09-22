@@ -1,406 +1,105 @@
 // ================================
-// Matriz de Decisão ECO (V2)
+// Matriz de Decisão ECO (V3 — Enxuta)
+// Compatível com as interfaces/validador atuais
 // ================================
 
-export interface CondicaoEspecial {
-  descricao: string;
-  regra: string; // variáveis disponíveis: nivel, intensidade, curiosidade, pedido_pratico, duvida_classificacao
-}
-
-export interface Limites {
-  prioridade?: string[]; // ordem sugerida sob budget
-}
-
-// Interface base mantida para compatibilidade
-export interface MatrizPromptBase {
-  alwaysInclude: string[];
-  byNivel: Record<number, string[]>;
-  intensidadeMinima: Record<string, number>;
-  condicoesEspeciais: Record<string, CondicaoEspecial>;
-  limites?: Limites;
-}
-
-// Tipos auxiliares
-type Nivel = 1 | 2 | 3;
-type Camada = 'core' | 'emotional' | 'advanced';
-
-// Interface estendida com sistema de herança
-export interface MatrizPromptBaseV2 extends MatrizPromptBase {
-  baseModules: Record<Camada, string[]>;
-  byNivelV2: Record<
-    Nivel,
-    {
-      specific: string[];
-      inherits: Camada[];
-    }
-  >;
-}
-
-// Versão otimizada aplicando melhorias
 export const matrizPromptBaseV2: MatrizPromptBaseV2 = {
-  // ===== SISTEMA DE HERANÇA (NOVO) =====
+  // ===== SISTEMA DE HERANÇA (enxuto) =====
   baseModules: {
     core: [
+      // modulos_core/
       'PRINCIPIOS_CHAVE.txt',
       'IDENTIDADE.txt',
       'ECO_ESTRUTURA_DE_RESPOSTA.txt',
-      'POLITICA_REDIRECIONAMENTO.txt',
-      // ⬇️ entra em todos os níveis, inclusive NV1
-      'CRITERIO_ENCERRAMENTO_SENSIVEL.txt',
-    ],
-    emotional: [
-      'CONTEXTO_EMOCIONAL.txt',
       'MODULACAO_TOM_REGISTRO.txt',
-      'CONTINUIDADE_EMOCIONAL.txt',
-      'CRITERIO_SUFICIENCIA_REFLEXIVA.txt',
-      'ADAPTACAO_CULTURAL_LINGUISTICA.txt',
-      'VARIEDADE_FORMA_TOM.txt', // playbook unificado
+      'MEMORIAS_CONTEXTO.txt',
+      'ENCERRAMENTO_SENSIVEL.txt',
     ],
+    // não usamos mais pacotes “emocional” dedicados — fica vazio
+    emotional: [],
+
+    // extras acionados por gatilho (modulos_extras/)
     advanced: [
-      'MEMORIAS_REFERENCIAS_CONTEXTO.txt',
-      'REVIVER_MEMORIAS.txt',
-      'EVOLUCAO_NIVEL_ABERTURA.txt',
-      'EVOLUCAO_EMOCIONAL_E_NARRATIVA.txt',
-      'ESTRUTURA_NARRATIVA_VARIAVEL.txt',
-      'HEURISTICA_EXAUSTAO.txt',
-      'SITUACOES_ESPECIFICAS.txt',
+      'METODO_VIVA_ENXUTO.txt',
+      'ESCALA_INTENSIDADE_0a10.txt',
       'BLOCO_TECNICO_MEMORIA.txt',
-      'ESCALA_INTENSIDADE.txt',
     ],
   },
 
+  // ===== Mapeamento por nível (simples: todo mundo herda o core) =====
   byNivelV2: {
-    1: { specific: ['ECO_ORQUESTRA_NIVEL1.txt'], inherits: ['core'] },
-    2: {
-      specific: [
-        'ECO_ORQUESTRA_NIVEL2.txt',
-        'MOVIMENTOS_INFORMATIVOS.txt',
-        'METODO_VIVA_MIN.txt',           // ✅ NV2 usa versão enxuta
-        'CONVITE_PARA_EXPLORACAO.txt',
-        'IDENTIFICACAO_PADROES.txt',
-        'META_REFLEXAO.txt',
-        'NARRATIVA_SOFISTICADA.txt',
-      ],
-      inherits: ['core', 'emotional'],
-    },
-    3: {
-      specific: [
-        'ECO_ORQUESTRA_NIVEL3.txt',
-        'PERGUNTAS_ABERTAS.txt',
-        'METODO_VIVA.txt',               // ✅ NV3 mantém versão completa
-      ],
-      inherits: ['core', 'emotional', 'advanced'],
-    },
+    1: { specific: [], inherits: ['core'] },
+    2: { specific: [], inherits: ['core'] },
+    3: { specific: [], inherits: ['core'] },
   },
 
-  // ===== COMPATIBILIDADE RETROATIVA =====
+  // ===== COMPATIBILIDADE LEGADA =====
   alwaysInclude: [
     'PRINCIPIOS_CHAVE.txt',
     'IDENTIDADE.txt',
     'ECO_ESTRUTURA_DE_RESPOSTA.txt',
-    'POLITICA_REDIRECIONAMENTO.txt',
-    // ✅ também no legado para NV1 puro
-    'CRITERIO_ENCERRAMENTO_SENSIVEL.txt',
+    'MODULACAO_TOM_REGISTRO.txt',
+    'MEMORIAS_CONTEXTO.txt',
+    'ENCERRAMENTO_SENSIVEL.txt',
   ],
 
   byNivel: {
-    1: [
-      'ECO_ORQUESTRA_NIVEL1.txt',
-      // ✅ garante presença no legado NV1
-      'CRITERIO_ENCERRAMENTO_SENSIVEL.txt',
-    ],
-    2: [
-      'ECO_ORQUESTRA_NIVEL2.txt',
-      'CONTEXTO_EMOCIONAL.txt',
-      'MOVIMENTOS_INFORMATIVOS.txt',
-      'METODO_VIVA_MIN.txt',            // ✅ trocado para MIN no legado NV2
-      'MODULACAO_TOM_REGISTRO.txt',
-      'CONTINUIDADE_EMOCIONAL.txt',
-      'CRITERIO_SUFICIENCIA_REFLEXIVA.txt',
-      'ADAPTACAO_CULTURAL_LINGUISTICA.txt',
-      'VARIEDADE_FORMA_TOM.txt',
-      'CONVITE_PARA_EXPLORACAO.txt',
-      'IDENTIFICACAO_PADROES.txt',
-      'META_REFLEXAO.txt',
-      'NARRATIVA_SOFISTICADA.txt',
-      // ✅ legado NV2
-      'CRITERIO_ENCERRAMENTO_SENSIVEL.txt',
-    ],
-    3: [
-      'ECO_ORQUESTRA_NIVEL3.txt',
-      'CONTEXTO_EMOCIONAL.txt',
-      'MOVIMENTOS_INFORMATIVOS.txt',
-      'METODO_VIVA.txt',                // ✅ FULL no legado NV3
-      'MODULACAO_TOM_REGISTRO.txt',
-      'CONTINUIDADE_EMOCIONAL.txt',
-      'CRITERIO_SUFICIENCIA_REFLEXIVA.txt',
-      'ADAPTACAO_CULTURAL_LINGUISTICA.txt',
-      'VARIEDADE_FORMA_TOM.txt',
-      'PERGUNTAS_ABERTAS.txt',
-      'MEMORIAS_REFERENCIAS_CONTEXTO.txt',
-      'REVIVER_MEMORIAS.txt',
-      'EVOLUCAO_NIVEL_ABERTURA.txt',
-      'EVOLUCAO_EMOCIONAL_E_NARRATIVA.txt',
-      'ESTRUTURA_NARRATIVA_VARIAVEL.txt',
-      'HEURISTICA_EXAUSTAO.txt',
-      'SITUACOES_ESPECIFICAS.txt',
-      'BLOCO_TECNICO_MEMORIA.txt',
-      'ESCALA_INTENSIDADE.txt',
-      'CONVITE_PARA_EXPLORACAO.txt',
-      'IDENTIFICACAO_PADROES.txt',
-      'META_REFLEXAO.txt',
-      'NARRATIVA_SOFISTICADA.txt',
-      // ✅ legado NV3
-      'CRITERIO_ENCERRAMENTO_SENSIVEL.txt',
-    ],
+    1: ['ENCERRAMENTO_SENSIVEL.txt'], // redundante mas mantido para legacy
+    2: [],
+    3: [],
   },
 
-  // ===== GATING POR INTENSIDADE =====
+  // ===== GATING POR INTENSIDADE (apenas o que precisa) =====
   intensidadeMinima: {
-    'BLOCO_TECNICO_MEMORIA.txt': 7,
-    'ESCALA_INTENSIDADE.txt': 7,
-    'METODO_VIVA.txt': 8,         // ✅ FULL sobe para 8
-    'METODO_VIVA_MIN.txt': 7,     // ✅ MIN entra com 7
-    'HEURISTICA_EXAUSTAO.txt': 7,
+    'BLOCO_TECNICO_MEMORIA.txt': 7,     // gerar JSON só em ≥7 (ou regras da escala)
+    'METODO_VIVA_ENXUTO.txt': 7,        // VIVA só quando houver emoção forte
+    // A escala não precisa de threshold (é mapa sempre útil) — não listar aqui
   },
 
-  // ===== REGRAS SEMÂNTICAS =====
+  // ===== REGRAS SEMÂNTICAS (extras) =====
   condicoesEspeciais: {
-    'METODO_VIVA_MIN.txt': {
-      descricao: 'Versão enxuta para NV2; emoção forte com abertura real',
+    // Escala: pode entrar sempre que houver conteúdo emocional (fica leve)
+    'ESCALA_INTENSIDADE_0a10.txt': {
+      descricao: 'Mapa para calibrar tom/ritmo; usar quando houver emoção em cena',
+      regra: 'nivel>=1', // sempre disponível
+    },
+
+    'METODO_VIVA_ENXUTO.txt': {
+      descricao: 'Ativar quando emoção clara (≥7) e abertura ≥2; máx. 3 movimentos',
       regra: 'intensidade>=7 && nivel>=2',
     },
-    'METODO_VIVA.txt': {
-      descricao: 'Versão completa; priorizar em intensidade muito alta ou NV3',
-      regra: 'intensidade>=8 && nivel>=2',
-    },
-    'META_REFLEXAO.txt': {
-      descricao: 'Só quando há material emocional para investigar processo',
-      regra: 'intensidade>=6 && nivel>=2',
-    },
-    'CONVITE_PARA_EXPLORACAO.txt': {
-      descricao: 'Abrir espaço com cuidado quando já há movimento emocional',
-      regra: 'intensidade>=5 && nivel>=2',
-    },
-    'IDENTIFICACAO_PADROES.txt': {
-      descricao: 'Apontar padrões apenas com abertura suficiente',
-      regra: 'intensidade>=5 && nivel>=2',
-    },
-    'NARRATIVA_SOFISTICADA.txt': {
-      descricao: 'Usar cadência/imagens suaves só se houver campo',
-      regra: 'intensidade>=5 && nivel>=2',
-    },
-    'MOVIMENTOS_INFORMATIVOS.txt': {
-      descricao: 'Explicações/insights curtos só com curiosidade/pedido ou dúvida de classificação',
-      regra: 'nivel>=2 && (curiosidade==true || pedido_pratico==true || duvida_classificacao==true)',
-    },
-    'PERGUNTAS_ABERTAS.txt': {
-      descricao: 'Perguntas fenomenológicas quando há abertura clara',
-      regra: 'nivel==3 || (nivel==2 && curiosidade==true)',
-    },
-    'EVOLUCAO_NIVEL_ABERTURA.txt': {
-      descricao: 'Acompanhar mudança de abertura durante a sessão',
-      regra: 'nivel==3 || (nivel==2 && intensidade>=6)',
-    },
-    'EVOLUCAO_EMOCIONAL_E_NARRATIVA.txt': {
-      descricao: 'Seguir o crescimento emocional sem reiniciar tom',
-      regra: 'nivel>=2',
-    },
-    'ESTRUTURA_NARRATIVA_VARIAVEL.txt': {
-      descricao: 'Variar forma conforme o momento',
-      regra: 'nivel>=2',
-    },
-    'HEURISTICA_EXAUSTAO.txt': {
-      descricao: 'Ativar em quadros de sobrecarga/exaustão',
+
+    'BLOCO_TECNICO_MEMORIA.txt': {
+      descricao: 'Gerar bloco técnico ao final quando emoção ≥7',
       regra: 'intensidade>=7',
     },
-    'SITUACOES_ESPECIFICAS.txt': {
-      descricao: 'Usar em pedidos práticos/temas objetivos',
-      regra: 'pedido_pratico==true',
-    },
-    'BLOCO_TECNICO_MEMORIA.txt': {
-      descricao: 'Gerar memória técnica apenas em emoção intensa',
-      regra: 'intensidade>=7 && nivel>=2',
-    },
-    'VARIEDADE_FORMA_TOM.txt': {
-      descricao: 'Playbook de forma e tom (só quando há abertura real)',
-      regra: 'nivel>=2',
-    },
-    // ⬇️ disponível desde NV1 (conteúdo do módulo já orienta quando usar)
-    'CRITERIO_ENCERRAMENTO_SENSIVEL.txt': {
-      descricao: 'Encerrar com presença e continuidade quando o campo pede pausa/assentimento',
+
+    // Core que podem ser reafirmados (opcional)
+    'ENCERRAMENTO_SENSIVEL.txt': {
+      descricao: 'Fechar suave quando houver assentimento/pausa ou queda de energia',
       regra: 'nivel>=1',
     },
   },
 
-  // ===== PRIORIZAÇÃO DE BUDGET =====
+  // ===== PRIORIZAÇÃO DE BUDGET (ordem de corte) =====
   limites: {
     prioridade: [
       // 🔝 NÚCLEO ESSENCIAL (nunca cortar)
       'PRINCIPIOS_CHAVE.txt',
       'IDENTIDADE.txt',
       'ECO_ESTRUTURA_DE_RESPOSTA.txt',
-      'POLITICA_REDIRECIONAMENTO.txt',
-      'CRITERIO_ENCERRAMENTO_SENSIVEL.txt',
-
-      // 🔝 ORQUESTRADORES (protegidos)
-      'ECO_ORQUESTRA_NIVEL1.txt',
-      'ECO_ORQUESTRA_NIVEL2.txt',
-      'ECO_ORQUESTRA_NIVEL3.txt',
-
-      // 🎯 MODULAÇÃO E CONTEXTO (alta prioridade)
       'MODULACAO_TOM_REGISTRO.txt',
-      'CONTEXTO_EMOCIONAL.txt',
+      'MEMORIAS_CONTEXTO.txt',
+      'ENCERRAMENTO_SENSIVEL.txt',
 
-      // ⚕️ MÓDULOS DE REGULAÇÃO (entram via triggers)
-      'ORIENTACAO_GROUNDING.txt',
-      'RESPIRACAO_GUIADA_BOX.txt',
-      'DR_DISPENZA_BENCAO_CENTROS_LITE.txt',
+      // 🎚️ MAPA SEMPRE ÚTIL
+      'ESCALA_INTENSIDADE_0a10.txt',
 
-      // 🧠🫀✨ EXTRAS ACIONADOS POR TRIGGERS (ordem sugerida)
-      // 1) Emocionais
-      'eco_emo_vergonha_combate.txt',
-      'eco_vulnerabilidade_mitos.txt',
-      'eco_vulnerabilidade_defesas.txt',
+      // 🫖 INTERVENÇÃO CONDICIONAL
+      'METODO_VIVA_ENXUTO.txt',
 
-      // 2) Estoicos
-      'eco_presenca_racional.txt',
-      'eco_observador_presente.txt',
-
-      // 3) Filosóficos
-      'eco_corpo_emocao.txt',
-      'eco_identificacao_mente.txt',
-      'eco_presenca_silenciosa.txt',
-      'eco_fim_do_sofrimento.txt',
-
-      // 4) Heurísticas cognitivas
-      'eco_heuristica_ancoragem.txt',
-      'eco_heuristica_causas_superam_estatisticas.txt',
-      'eco_heuristica_disponibilidade.txt',
-      'eco_heuristica_disponibilidade_emocao_risco.txt',
-      'eco_heuristica_excesso_confianca.txt',
-      'eco_heuristica_certeza_emocional.txt',
-      'eco_heuristica_ilusao_validade.txt',
-      'eco_heuristica_lei_pequenos_numeros.txt',
-      'eco_heuristica_regressao_media.txt',
-      'eco_heuristica_taxabase_causal.txt',
-      'eco_heuristica_intuicao_especialista.txt',
-      'heuristica_ilusao_compreensao.txt',
-      'heuristica_previsao_regressiva.txt',
-
-      // 🔄 CONTINUIDADE E ADAPTAÇÃO
-      'CONTINUIDADE_EMOCIONAL.txt',
-      'CRITERIO_SUFICIENCIA_REFLEXIVA.txt',
-      'ADAPTACAO_CULTURAL_LINGUISTICA.txt',
-      'VARIEDADE_FORMA_TOM.txt',
-
-      // 🎨 NARRATIVA E EXPLORAÇÃO
-      'CONVITE_PARA_EXPLORACAO.txt',
-      'IDENTIFICACAO_PADROES.txt',
-      'META_REFLEXAO.txt',
-      'NARRATIVA_SOFISTICADA.txt',
-      'ESTRUTURA_NARRATIVA_VARIAVEL.txt',
-      'EVOLUCAO_EMOCIONAL_E_NARRATIVA.txt',
-      'EVOLUCAO_NIVEL_ABERTURA.txt',
-
-      // 📚 INFORMATIVO E INTERATIVO
-      'METODO_VIVA_MIN.txt',      // ✅ entra antes do FULL para NV2 respirar
-      'MOVIMENTOS_INFORMATIVOS.txt',
-      'PERGUNTAS_ABERTAS.txt',
-      'METODO_VIVA.txt',          // ✅ FULL fica abaixo; só sobe com gating
-
-      // 💾 MEMÓRIAS (podem ser cortadas em budget apertado)
-      'MEMORIAS_NO_CONTEXTO.txt',
-      'MEMORIAS_REFERENCIAS_CONTEXTO.txt',
-      'REVIVER_MEMORIAS.txt',
-      'ESCALA_INTENSIDADE.txt',
+      // 🧠 SAÍDA TÉCNICA (pode cortar sob budget apertado; só quando for exigida)
       'BLOCO_TECNICO_MEMORIA.txt',
     ],
   },
 };
-
-// ===== HELPER FUNCTIONS =====
-
-export function resolveModulesForLevel(
-  nivel: number,
-  matriz: MatrizPromptBaseV2,
-): string[] {
-  const levelConfig = matriz.byNivelV2[nivel as Nivel];
-  if (!levelConfig) {
-    return [...(matriz.alwaysInclude || []), ...(matriz.byNivel[nivel] || [])];
-  }
-  const inherited = levelConfig.inherits.flatMap(
-    (category) => matriz.baseModules[category as Camada] || [],
-  );
-  return [...new Set([...inherited, ...levelConfig.specific])];
-}
-
-export function resolveModulesLegacy(nivel: number, matriz: MatrizPromptBase): string[] {
-  return [...(matriz.alwaysInclude || []), ...(matriz.byNivel[nivel] || [])];
-}
-
-// ===== VALIDAÇÃO =====
-export interface ValidationResult {
-  isValid: boolean;
-  errors: string[];
-  warnings: string[];
-  stats: {
-    totalModules: number;
-    modulesByLevel: Record<number, number>;
-    duplicatesRemoved: number;
-  };
-}
-
-export function validateMatrix(matriz: MatrizPromptBaseV2): ValidationResult {
-  const errors: string[] = [];
-  const warnings: string[] = [];
-  const stats = {
-    totalModules: 0,
-    modulesByLevel: {} as Record<number, number>,
-    duplicatesRemoved: 0,
-  };
-
-  for (const nivel of [1, 2, 3] as const) {
-    const legacyModules = resolveModulesLegacy(nivel, matriz);
-    const newModules = resolveModulesForLevel(nivel, matriz);
-
-    stats.modulesByLevel[nivel] = newModules.length;
-    stats.totalModules += newModules.length;
-
-    const legacySet = new Set(legacyModules);
-    const newSet = new Set(newModules);
-
-    const onlyInLegacy = [...legacySet].filter((m) => !newSet.has(m));
-    const onlyInNew = [...newSet].filter((m) => !legacySet.has(m));
-
-    if (onlyInLegacy.length > 0) {
-      warnings.push(`Nível ${nivel}: módulos apenas no sistema antigo: ${onlyInLegacy.join(', ')}`);
-    }
-    if (onlyInNew.length > 0) {
-      warnings.push(`Nível ${nivel}: módulos apenas no sistema novo: ${onlyInNew.join(', ')}`);
-    }
-
-    const duplicates = legacyModules.length - new Set(legacyModules).size;
-    stats.duplicatesRemoved += Math.max(0, duplicates);
-  }
-
-  const allModules = new Set<string>([
-    ...matriz.alwaysInclude,
-    ...Object.values(matriz.byNivel).flat(),
-    ...Object.values(matriz.baseModules).flat(),
-  ]);
-
-  for (const module of Object.keys(matriz.intensidadeMinima)) {
-    if (!allModules.has(module)) {
-      errors.push(`Módulo '${module}' em intensidadeMinima não encontrado`);
-    }
-  }
-
-  for (const module of Object.keys(matriz.condicoesEspeciais)) {
-    if (!allModules.has(module)) {
-      errors.push(`Módulo '${module}' em condicoesEspeciais não encontrado`);
-    }
-  }
-
-  return { isValid: errors.length === 0, errors, warnings, stats };
-}

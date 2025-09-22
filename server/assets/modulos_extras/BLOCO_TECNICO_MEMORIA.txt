@@ -1,0 +1,4 @@
+Gerar apenas se ≥7 (ou critérios da Escala). JSON puro com:
+emocao_principal, intensidade, tags (≤5), dominio_vida, padrao_comportamental, nivel_abertura, categoria, analise_resumo (≤2 frases, ≤25 palavras).
+
+Categorias: emocional | relacional | existencial | profissional | corpo | outro.
