@@ -1,9 +1,5 @@
 // core/ClaudeAdapter.ts
-import Anthropic from "@anthropic-ai/sdk";
-
-const client = new Anthropic({ apiKey: process.env.OPENROUTER_API_KEY! });
-
-type Msg = { role: "system"|"user"|"assistant"; content: string };
+type Msg = { role: "system" | "user" | "assistant"; content: string };
 
 export async function claudeChatCompletion({
   messages,
@@ -18,48 +14,54 @@ export async function claudeChatCompletion({
   temperature?: number;
   maxTokens?: number;
 }) {
-  const system = messages.find(m => m.role === "system")?.content ?? "";
+  const system = messages.find((m) => m.role === "system")?.content ?? "";
   const turns = messages
-    .filter(m => m.role !== "system")
-    .map(m => ({ role: m.role as "user"|"assistant", content: m.content }));
+    .filter((m) => m.role !== "system")
+    .map((m) => ({ role: m.role, content: m.content }));
+
+  const headers = {
+    Authorization: `Bearer ${process.env.OPENROUTER_API_KEY!}`,
+    "Content-Type": "application/json",
+    "HTTP-Referer": process.env.PUBLIC_APP_URL || "http://localhost:5173",
+    "X-Title": "Eco App - ClaudeAdapter",
+  };
+
+  async function call(modelToUse: string) {
+    const resp = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        model: modelToUse,
+        temperature,
+        max_tokens: maxTokens,
+        messages: [
+          ...(system ? [{ role: "system", content: system }] : []),
+          ...turns,
+        ],
+      }),
+    });
+
+    if (!resp.ok) {
+      throw new Error(`OpenRouter error: ${resp.status} ${resp.statusText}`);
+    }
+
+    const data = await resp.json();
+    const text = data?.choices?.[0]?.message?.content ?? "";
+
+    return {
+      content: text,
+      model: data?.model,
+      usage: {
+        total_tokens: data?.usage?.total_tokens ?? null,
+      },
+      raw: data,
+    };
+  }
 
   try {
-    const resp = await client.messages.create({
-      model,
-      system: system || undefined,
-      max_tokens: maxTokens,
-      temperature,
-      messages: turns,
-    });
-
-    const text = (resp.content?.[0] as any)?.text ?? "";
-    return {
-      content: text,
-      model: resp.model,
-      usage: {
-        total_tokens: (resp.usage?.input_tokens ?? 0) + (resp.usage?.output_tokens ?? 0),
-      },
-      raw: resp,
-    };
+    return await call(model);
   } catch (err) {
     console.warn(`⚠️ Claude ${model} falhou, tentando fallback ${fallbackModel}`, err);
-
-    const resp = await client.messages.create({
-      model: fallbackModel,
-      system: system || undefined,
-      max_tokens: maxTokens,
-      temperature,
-      messages: turns,
-    });
-
-    const text = (resp.content?.[0] as any)?.text ?? "";
-    return {
-      content: text,
-      model: resp.model,
-      usage: {
-        total_tokens: (resp.usage?.input_tokens ?? 0) + (resp.usage?.output_tokens ?? 0),
-      },
-      raw: resp,
-    };
+    return await call(fallbackModel!);
   }
 }
