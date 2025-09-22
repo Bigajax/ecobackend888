@@ -23,33 +23,40 @@ const PORT = Number(process.env.PORT || 3001);
 
 /* ----------------------------- CORS ----------------------------- */
 /**
- * Allowlist: domínio principal do Vercel + localhost, com regex para previews (*.vercel.app).
- * Você pode adicionar mais origens via env: CORS_ALLOW_ORIGINS="https://minha.app,https://outra.com"
+ * Allowlist padrão + regex para previews do Vercel.
+ * Você pode adicionar mais origens via env:
+ *   CORS_ALLOW_ORIGINS="https://minha.app,https://outra.com"
  */
 const defaultAllow = [
   "https://ecofrontend888.vercel.app",
   "http://localhost:3000",
   "http://127.0.0.1:3000",
+  "http://localhost:5173",       // ✅ adicionado
+  "http://127.0.0.1:5173",       // ✅ adicionado
 ];
+
 const extraAllow =
   (process.env.CORS_ALLOW_ORIGINS || "")
     .split(",")
     .map((s) => s.trim())
-    .filter(Boolean) || [];
+    .filter(Boolean);
 
 const allowList = new Set<string>([...defaultAllow, ...extraAllow]);
+
+// Permite qualquer subdomínio *.vercel.app
 const vercelRegex = /^https?:\/\/([a-z0-9-]+)\.vercel\.app$/i;
 
 const corsOptions: cors.CorsOptions = {
   origin(origin, cb) {
-    // SSR/curl/etc. (sem Origin) → libera
+    // SSR/curl/health checks (sem Origin) → liberar
     if (!origin) return cb(null, true);
+
     if (allowList.has(origin) || vercelRegex.test(origin)) {
-      return cb(null, true); // o pacote cors reflete a origem automaticamente
+      return cb(null, true);
     }
     return cb(new Error(`Not allowed by CORS: ${origin}`));
   },
-  credentials: true, // seguro, pois não usamos "*" e refletimos a origem
+  credentials: true,
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With", "Accept", "Origin"],
   optionsSuccessStatus: 204,
@@ -131,6 +138,7 @@ app.use((err: any, req: Request, res: Response, _next: NextFunction) => {
 /* ---------------------------- Start ---------------------------- */
 app.listen(PORT, async () => {
   console.log(`Servidor Express rodando na porta ${PORT}`);
+  console.log("CORS allowlist:", Array.from(allowList).join(", "));
   if (process.env.REGISTRAR_HEURISTICAS === "true") {
     await registrarTodasHeuristicas();
     console.log("🎯 Heurísticas registradas.");
