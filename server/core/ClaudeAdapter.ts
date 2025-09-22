@@ -3,8 +3,8 @@ type Msg = { role: "system" | "user" | "assistant"; content: string };
 
 export async function claudeChatCompletion({
   messages,
-  model = process.env.ECO_CLAUDE_MODEL || "anthropic/claude-3.7-sonnet",
-  fallbackModel = process.env.ECO_CLAUDE_MODEL_FALLBACK || "anthropic/claude-3.5-sonnet",
+  model = process.env.ECO_CLAUDE_MODEL || "anthropic/claude-sonnet-4",
+  fallbackModel = process.env.ECO_CLAUDE_MODEL_FALLBACK || "anthropic/claude-3.7-sonnet",
   temperature = 0.5,
   maxTokens = 700,
 }: {
