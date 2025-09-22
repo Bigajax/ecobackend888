@@ -1,105 +1,124 @@
-// ================================
-// Matriz de Decisão ECO (V3 — Enxuta)
-// Compatível com as interfaces/validador atuais
-// ================================
+// controllers/matrizPromptBase.ts
+// Matriz de Decisão ECO (V3 — Enxuta) + Tipos locais para evitar erro TS2304
 
+// ===== Tipos =====
+export interface CondicaoEspecial {
+  descricao: string;
+  regra: string; // variáveis: nivel, intensidade, curiosidade, pedido_pratico, duvida_classificacao
+}
+export interface Limites {
+  prioridade?: string[]; // ordem sugerida sob budget
+}
+export interface MatrizPromptBase {
+  alwaysInclude: string[];
+  byNivel: Record<number, string[]>;
+  intensidadeMinima: Record<string, number>;
+  condicoesEspeciais: Record<string, CondicaoEspecial>;
+  limites?: Limites;
+}
+
+type Nivel = 1 | 2 | 3;
+type Camada = "core" | "emotional" | "advanced";
+
+export interface MatrizPromptBaseV2 extends MatrizPromptBase {
+  baseModules: Record<Camada, string[]>;
+  byNivelV2: Record<
+    Nivel,
+    {
+      specific: string[];
+      inherits: Camada[];
+    }
+  >;
+}
+
+// ===== Matriz V3 Enxuta =====
 export const matrizPromptBaseV2: MatrizPromptBaseV2 = {
-  // ===== SISTEMA DE HERANÇA (enxuto) =====
+  // Núcleo + Extras
   baseModules: {
     core: [
-      // modulos_core/
-      'PRINCIPIOS_CHAVE.txt',
-      'IDENTIDADE.txt',
-      'ECO_ESTRUTURA_DE_RESPOSTA.txt',
-      'MODULACAO_TOM_REGISTRO.txt',
-      'MEMORIAS_CONTEXTO.txt',
-      'ENCERRAMENTO_SENSIVEL.txt',
+      "PRINCIPIOS_CHAVE.txt",
+      "IDENTIDADE.txt",
+      "ECO_ESTRUTURA_DE_RESPOSTA.txt",
+      "MODULACAO_TOM_REGISTRO.txt",
+      "MEMORIAS_CONTEXTO.txt",
+      "ENCERRAMENTO_SENSIVEL.txt",
     ],
-    // não usamos mais pacotes “emocional” dedicados — fica vazio
-    emotional: [],
-
-    // extras acionados por gatilho (modulos_extras/)
+    emotional: [], // mantido vazio por compatibilidade
     advanced: [
-      'METODO_VIVA_ENXUTO.txt',
-      'ESCALA_INTENSIDADE_0a10.txt',
-      'BLOCO_TECNICO_MEMORIA.txt',
+      "METODO_VIVA_ENXUTO.txt",
+      "ESCALA_INTENSIDADE_0a10.txt",
+      "BLOCO_TECNICO_MEMORIA.txt",
     ],
   },
 
-  // ===== Mapeamento por nível (simples: todo mundo herda o core) =====
+  // Todo nível herda o core; extras entram por condicional
   byNivelV2: {
-    1: { specific: [], inherits: ['core'] },
-    2: { specific: [], inherits: ['core'] },
-    3: { specific: [], inherits: ['core'] },
+    1: { specific: [], inherits: ["core"] },
+    2: { specific: [], inherits: ["core"] },
+    3: { specific: [], inherits: ["core"] },
   },
 
-  // ===== COMPATIBILIDADE LEGADA =====
+  // Compat legado (mantido, mas mínimo)
   alwaysInclude: [
-    'PRINCIPIOS_CHAVE.txt',
-    'IDENTIDADE.txt',
-    'ECO_ESTRUTURA_DE_RESPOSTA.txt',
-    'MODULACAO_TOM_REGISTRO.txt',
-    'MEMORIAS_CONTEXTO.txt',
-    'ENCERRAMENTO_SENSIVEL.txt',
+    "PRINCIPIOS_CHAVE.txt",
+    "IDENTIDADE.txt",
+    "ECO_ESTRUTURA_DE_RESPOSTA.txt",
+    "MODULACAO_TOM_REGISTRO.txt",
+    "MEMORIAS_CONTEXTO.txt",
+    "ENCERRAMENTO_SENSIVEL.txt",
   ],
-
   byNivel: {
-    1: ['ENCERRAMENTO_SENSIVEL.txt'], // redundante mas mantido para legacy
+    1: ["ENCERRAMENTO_SENSIVEL.txt"],
     2: [],
     3: [],
   },
 
-  // ===== GATING POR INTENSIDADE (apenas o que precisa) =====
+  // Gating (mínimo necessário)
   intensidadeMinima: {
-    'BLOCO_TECNICO_MEMORIA.txt': 7,     // gerar JSON só em ≥7 (ou regras da escala)
-    'METODO_VIVA_ENXUTO.txt': 7,        // VIVA só quando houver emoção forte
-    // A escala não precisa de threshold (é mapa sempre útil) — não listar aqui
+    "BLOCO_TECNICO_MEMORIA.txt": 7,   // JSON técnico só em ≥7
+    "METODO_VIVA_ENXUTO.txt": 7,      // VIVA seletivo em ≥7
+    // A escala é “mapa”, não precisa threshold
   },
 
-  // ===== REGRAS SEMÂNTICAS (extras) =====
+  // Regras semânticas
   condicoesEspeciais: {
-    // Escala: pode entrar sempre que houver conteúdo emocional (fica leve)
-    'ESCALA_INTENSIDADE_0a10.txt': {
-      descricao: 'Mapa para calibrar tom/ritmo; usar quando houver emoção em cena',
-      regra: 'nivel>=1', // sempre disponível
+    "ESCALA_INTENSIDADE_0a10.txt": {
+      descricao: "Mapa para calibrar tom/ritmo; usar quando houver emoção em cena",
+      regra: "nivel>=1",
     },
-
-    'METODO_VIVA_ENXUTO.txt': {
-      descricao: 'Ativar quando emoção clara (≥7) e abertura ≥2; máx. 3 movimentos',
-      regra: 'intensidade>=7 && nivel>=2',
+    "METODO_VIVA_ENXUTO.txt": {
+      descricao: "Ativar quando emoção clara (≥7) e abertura ≥2; máx. 3 movimentos",
+      regra: "intensidade>=7 && nivel>=2",
     },
-
-    'BLOCO_TECNICO_MEMORIA.txt': {
-      descricao: 'Gerar bloco técnico ao final quando emoção ≥7',
-      regra: 'intensidade>=7',
+    "BLOCO_TECNICO_MEMORIA.txt": {
+      descricao: "Gerar bloco técnico ao final quando emoção ≥7",
+      regra: "intensidade>=7",
     },
-
-    // Core que podem ser reafirmados (opcional)
-    'ENCERRAMENTO_SENSIVEL.txt': {
-      descricao: 'Fechar suave quando houver assentimento/pausa ou queda de energia',
-      regra: 'nivel>=1',
+    "ENCERRAMENTO_SENSIVEL.txt": {
+      descricao: "Fechar suave quando houver assentimento/pausa ou queda de energia",
+      regra: "nivel>=1",
     },
   },
 
-  // ===== PRIORIZAÇÃO DE BUDGET (ordem de corte) =====
+  // Prioridade de budget (ordem de corte)
   limites: {
     prioridade: [
-      // 🔝 NÚCLEO ESSENCIAL (nunca cortar)
-      'PRINCIPIOS_CHAVE.txt',
-      'IDENTIDADE.txt',
-      'ECO_ESTRUTURA_DE_RESPOSTA.txt',
-      'MODULACAO_TOM_REGISTRO.txt',
-      'MEMORIAS_CONTEXTO.txt',
-      'ENCERRAMENTO_SENSIVEL.txt',
-
-      // 🎚️ MAPA SEMPRE ÚTIL
-      'ESCALA_INTENSIDADE_0a10.txt',
-
-      // 🫖 INTERVENÇÃO CONDICIONAL
-      'METODO_VIVA_ENXUTO.txt',
-
-      // 🧠 SAÍDA TÉCNICA (pode cortar sob budget apertado; só quando for exigida)
-      'BLOCO_TECNICO_MEMORIA.txt',
+      // 🔝 Núcleo — nunca cortar
+      "PRINCIPIOS_CHAVE.txt",
+      "IDENTIDADE.txt",
+      "ECO_ESTRUTURA_DE_RESPOSTA.txt",
+      "MODULACAO_TOM_REGISTRO.txt",
+      "MEMORIAS_CONTEXTO.txt",
+      "ENCERRAMENTO_SENSIVEL.txt",
+      // 🎚️ Mapa sempre útil
+      "ESCALA_INTENSIDADE_0a10.txt",
+      // 🫖 Intervenção condicional
+      "METODO_VIVA_ENXUTO.txt",
+      // 🧠 Saída técnica (cortável se budget apertar)
+      "BLOCO_TECNICO_MEMORIA.txt",
     ],
   },
 };
+
+// export default para compat com import * as Matriz / Matriz.default
+export default matrizPromptBaseV2;

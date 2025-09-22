@@ -104,7 +104,9 @@ export function derivarFlags(entrada: string) {
 }
 
 // -------------------------------------
-// Extras rankeados com cooldown
+// Extras rankeados com cooldown (1 por resposta)
+// Prioridade: emocional > cognitivo > filosofico
+// Evitar opcionais em crise (≥8), exceto emocionais se houver
 // -------------------------------------
 type Cat = "emocional" | "cognitivo" | "filosofico";
 type ExtraCand = { arquivo: string; cat: Cat; score: number };
@@ -154,22 +156,26 @@ export function selecionarExtras({
     }
   };
 
-  // 1) Cognitivos — gatilho literal + embedding (até intensidade 6)
-  for (const h of heuristicasTriggerMap ?? []) {
-    if (h.gatilhos?.some((g: string) => txt.includes(normalizar(g))) && intensidade <= 6) {
-      push({ arquivo: h.arquivo, cat: "cognitivo", score: 2 });
+  const emCrise = intensidade >= 8;
+
+  // 1) Cognitivos — gatilho literal + embedding (somente até intensidade 6; não em crise)
+  if (!emCrise) {
+    for (const h of heuristicasTriggerMap ?? []) {
+      if (h.gatilhos?.some((g: string) => txt.includes(normalizar(g))) && intensidade <= 6) {
+        push({ arquivo: h.arquivo, cat: "cognitivo", score: 2 });
+      }
+    }
+    for (const he of heuristicasEmbedding ?? []) {
+      const s = Math.min(1, Math.max(0, he.similarity ?? he.similaridade ?? 0.6));
+      if (intensidade <= 6 && he?.arquivo) push({ arquivo: he.arquivo, cat: "cognitivo", score: 1 + 2 * s });
+    }
+    if (heuristicaAtiva?.arquivo && intensidade <= 6) {
+      push({ arquivo: heuristicaAtiva.arquivo, cat: "cognitivo", score: 2.5 });
     }
   }
-  for (const he of heuristicasEmbedding ?? []) {
-    const s = Math.min(1, Math.max(0, he.similarity ?? he.similaridade ?? 0.6));
-    if (intensidade <= 6 && he?.arquivo) push({ arquivo: he.arquivo, cat: "cognitivo", score: 1 + 2 * s });
-  }
-  if (heuristicaAtiva?.arquivo && intensidade <= 6) {
-    push({ arquivo: heuristicaAtiva.arquivo, cat: "cognitivo", score: 2.5 });
-  }
 
-  // 2) Filosóficos/Estoicos — faixa 3–6 e abertura ≥2
-  const okFilo = nivel >= 2 && intensidade >= 3 && intensidade <= 6;
+  // 2) Filosóficos/Estoicos — faixa 3–6 e abertura ≥2 (não em crise)
+  const okFilo = !emCrise && nivel >= 2 && intensidade >= 3 && intensidade <= 6;
   if (okFilo) {
     for (const f of filosoficosTriggerMap ?? []) {
       if (f.gatilhos?.some((g: string) => txt.includes(normalizar(g)))) {
@@ -194,30 +200,30 @@ export function selecionarExtras({
     const emoMatch = (m.tags ?? []).some((t: string) => emos.includes(t));
     const gatMatch = (m.gatilhos ?? []).some((g: string) => txt.includes(normalizar(g)));
     if (minOK && (tagMatch || emoMatch || gatMatch)) {
+      // bônus se intensidade alta
       push({ arquivo: m.arquivo, cat: "emocional", score: 3 + (intensidade >= 7 ? 1 : 0) });
     }
   }
 
-  // ranking + cooldown + cota por categoria
-  const cool = cands.filter((c) => !inCooldown(userId, c.arquivo, 900)).sort((a, b) => b.score - a.score);
-  const want: Record<Cat, number> = { emocional: intensidade >= 7 ? 1 : 0, cognitivo: 1, filosofico: 1 };
-  const used: Record<Cat, number> = { emocional: 0, cognitivo: 0, filosofico: 0 };
-  const sel: string[] = [];
+  // ===== ranking + cooldown =====
+  const ranked = cands
+    .filter((c) => !inCooldown(userId, c.arquivo, 900))
+    .sort((a, b) => b.score - a.score);
 
-  for (const c of cool) {
-    if (used[c.cat] < want[c.cat]) {
-      sel.push(c.arquivo);
-      used[c.cat] += 1;
-    }
-  }
+  // ===== prioridade e máx. 1 opcional =====
+  const byCat: Record<Cat, ExtraCand[]> = { emocional: [], cognitivo: [], filosofico: [] };
+  for (const c of ranked) byCat[c.cat].push(c);
 
-  // fallback emocional se intensidade alta
-  if (intensidade >= 7 && !sel.some((a) => cands.find((c) => c.arquivo === a)?.cat === "emocional")) {
-    const emo = cool.find((c) => c.cat === "emocional");
-    if (emo) sel.push(emo.arquivo);
-  }
+  // Prioridade: emocional > cognitivo > filosofico
+  const chosen =
+    (byCat.emocional[0]?.arquivo) ??
+    (byCat.cognitivo[0]?.arquivo) ??
+    (byCat.filosofico[0]?.arquivo);
 
-  const final = sel.slice(0, HARD_CAP_EXTRAS);
+  // respeita HARD_CAP_EXTRAS (mas, na prática, será 1)
+  const cap = Math.max(1, HARD_CAP_EXTRAS || 1);
+  const final = chosen ? [chosen].slice(0, cap) : [];
+
   mark(userId, final);
   return final;
 }
