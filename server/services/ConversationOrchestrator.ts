@@ -35,6 +35,19 @@ import {
 /* ---------------------------- Helpers ------------------------------ */
 /* ------------------------------------------------------------------ */
 
+// Nome curto
+const firstName = (s?: string) => (s || "").trim().split(/\s+/)[0] || "";
+
+// Remove correções de identidade tipo "sou a Eco, não o Rafa"
+function stripIdentityCorrection(text: string, nome?: string) {
+  if (!nome) return text;
+  const re = new RegExp(
+    String.raw`(?:^|\n).*?(?:eu\s*)?sou\s*a?\s*eco[^.\n]*não\s+o?a?\s*${nome}\b.*`,
+    "i"
+  );
+  return text.replace(re, "").trim();
+}
+
 // Heurística de baixa complexidade → ativa fast-lane
 function isLowComplexity(texto: string) {
   const t = (texto || "").trim();
@@ -115,14 +128,27 @@ async function withTimeout<T>(
   ]) as Promise<T>;
 }
 
+/* ------------------------ Fast-lane LLM ------------------------ */
 // Rota rápida: modelo leve, histórico curto, tokens baixos
 async function fastLaneLLM({
   messages,
+  userName,
 }: {
   messages: { role: any; content: string }[];
+  userName?: string;
 }) {
+  const nome = firstName(userName);
+
   const system =
-    "Você é a Eco. Responda curto (1–2 frases), claro e gentil. Evite jargões. Se pedirem passos, no máximo 3 itens.";
+    // sua frase base:
+    "Você é a Eco, um coach de autoconhecimento empático e reflexivo, que guia o usuário a se perceber melhor com clareza e leveza. Seu papel é oferecer presença, espelhamento e encorajamento sábio. " +
+    // regras operacionais da fast-lane:
+    "Responda curto (1–2 frases), claro e gentil. Evite jargões. Se pedirem passos, no máximo 3 itens. " +
+    // grounding do nome + proibição de correção de identidade:
+    (nome
+      ? `O usuário se chama ${nome}. Use o nome apenas quando fizer sentido. Nunca corrija nomes nem diga frases como "sou a Eco, não o ${nome}". `
+      : "Nunca corrija nomes. ");
+
   const slim: Array<{ role: "system" | "user" | "assistant"; content: string }> =
     [
       { role: "system", content: system },
@@ -143,7 +169,8 @@ async function fastLaneLLM({
   });
 
   const raw: string = data?.content ?? "";
-  const cleaned = formatarTextoEco(limparResposta(raw || "Posso te ajudar nisso!"));
+  let cleaned = formatarTextoEco(limparResposta(raw || "Posso te ajudar nisso!"));
+  cleaned = stripIdentityCorrection(cleaned, nome);
   return { cleaned, usage: data?.usage, model: data?.model };
 }
 
@@ -213,7 +240,7 @@ export async function getEcoResponse({
   const vivaAtivo = forcarMetodoViva || heuristicaPreViva(ultimaMsg);
   if (low && !vivaAtivo) {
     const inicioFast = now();
-    const fast = await fastLaneLLM({ messages: messages as any });
+    const fast = await fastLaneLLM({ messages: messages as any, userName });
 
     // bloco técnico com orçamento mínimo (não travar)
     let bloco: any = null;
