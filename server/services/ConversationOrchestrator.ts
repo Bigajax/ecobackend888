@@ -116,7 +116,10 @@ async function fastLaneLLM({
     "Você é a Eco. Responda curto (1–2 frases), claro e gentil. Evite jargões. Se pedirem passos, no máximo 3 itens.";
   const slim = [
     { role: "system", content: system },
-    ...messages.slice(-3).map(m => ({ role: mapRoleForOpenAI(m.role) as "system" | "user" | "assistant", content: m.content })),
+    ...messages.slice(-3).map(m => ({
+      role: mapRoleForOpenAI(m.role) as "system" | "user" | "assistant",
+      content: m.content
+    })),
   ];
 
   const data = await claudeChatCompletion({
@@ -127,7 +130,7 @@ async function fastLaneLLM({
   });
 
   const raw: string = data?.content ?? "";
-  the const cleaned = formatarTextoEco(limparResposta(raw || "Posso te ajudar nisso!"));
+  const cleaned = formatarTextoEco(limparResposta(raw || "Posso te ajudar nisso!"));
   return { cleaned, usage: data?.usage, model: data?.model };
 }
 
@@ -159,7 +162,7 @@ export async function getEcoResponse({
   if (micro) return { message: micro };
 
   // 1) SAUDAÇÃO/DESPEDIDA AUTOMÁTICA (backend decide)
-  // 🔧 Converte o histórico para o tipo esperado pelo util (role union)
+  // Converte o histórico para o tipo esperado pelo util (role union)
   const saudaMsgs: SaudMsg[] = messages.slice(-4).map((m: any) => ({
     role: mapRoleForOpenAI(m.role) as "user" | "assistant" | "system",
     content: m.content,
