@@ -15,7 +15,7 @@ import { supabaseWithBearer } from "../adapters/SupabaseAdapter";
 import { PROMPT_CACHE } from "../services/CacheService";
 import { getEmbeddingCached } from "../adapters/EmbeddingAdapter";
 import { gerarBlocoTecnicoComCache } from "../core/EmotionalAnalyzer";
-import { fastGreet, microReflexoLocal } from "../core/ResponseGenerator";
+import { microReflexoLocal } from "../core/ResponseGenerator";
 import { claudeChatCompletion } from "../core/ClaudeAdapter"; // ✅ Claude via OpenRouter
 import { GreetGuard } from "../policies/GreetGuard";
 import { getDerivados, insightAbertura } from "../services/derivadosService";
@@ -28,12 +28,6 @@ import { trackMensagemEnviada, trackEcoDemorou } from "../analytics/events/mixpa
 /* ------------------------------------------------------------------ */
 /* ---------------------------- Helpers ------------------------------ */
 /* ------------------------------------------------------------------ */
-
-function hasSubstance(msg: string) {
-  const t = (msg || "").trim().toLowerCase();
-  if (t.length >= 30) return true;
-  return /cansad|triste|ansios|irritad|preocupad|estou|sinto|tive|aconteceu|preciso|quero|dor|insônia|medo/.test(t);
-}
 
 // Heurística de baixa complexidade → ativa fast-lane
 function isLowComplexity(texto: string) {
@@ -138,7 +132,7 @@ async function fastLaneLLM({
 /* -------------------------- Orquestrador --------------------------- */
 /* ------------------------------------------------------------------ */
 
-// Helper para garantir o union do tipo aceito por SaudMsg.role
+// Helper: restringe role ao union aceito pela saudação
 type SaudRole = "user" | "assistant" | "system";
 function toSaudRole(r: any): SaudRole | undefined {
   if (r === "user" || r === "assistant" || r === "system") return r;
@@ -164,19 +158,20 @@ export async function getEcoResponse({
     throw new Error('Parâmetro "messages" vazio ou inválido.');
   }
   const ultimaMsg = messages.at(-1)?.content || "";
-  const trimmed = ultimaMsg.trim();
 
   // 0) micro-reflexo local → retorno imediato
   const micro = microReflexoLocal(ultimaMsg);
   if (micro) return { message: micro };
 
   // 1) SAUDAÇÃO/DESPEDIDA AUTOMÁTICA (backend decide)
-  // Converte o histórico para o tipo esperado pelo util (role union) e faz cast explícito
-  const saudaMsgs = messages.slice(-4).map((m: any) => ({
-    role: toSaudRole(m.role),
-    content: m.content as string,
-  })) as SaudMsg[];
-
+  // Construção sem .map para não inferir string:
+  const saudaMsgs: SaudMsg[] = [];
+  for (const m of messages.slice(-4)) {
+    saudaMsgs.push({
+      role: toSaudRole((m as any).role),
+      content: (m as any).content || "",
+    });
+  }
   const auto = respostaSaudacaoAutomatica({ messages: saudaMsgs, userName, clientHour });
 
   if (auto?.meta?.isFarewell) {
@@ -316,7 +311,7 @@ export async function getEcoResponse({
     { role: "system", content: systemPrompt },
     ...messages.slice(-5).map((m) => ({
       role: mapRoleForOpenAI(m.role) as "system" | "user" | "assistant",
-      content: m.content,
+      content: (m as any).content,
     })),
   ];
 
