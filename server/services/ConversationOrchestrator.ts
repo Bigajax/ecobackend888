@@ -138,6 +138,15 @@ async function fastLaneLLM({
 /* -------------------------- Orquestrador --------------------------- */
 /* ------------------------------------------------------------------ */
 
+// Helper para garantir o union do tipo aceito por SaudMsg.role
+type SaudRole = "user" | "assistant" | "system";
+function toSaudRole(r: any): SaudRole | undefined {
+  if (r === "user" || r === "assistant" || r === "system") return r;
+  const m = mapRoleForOpenAI(r);
+  if (m === "user" || m === "assistant" || m === "system") return m;
+  return undefined;
+}
+
 export async function getEcoResponse({
   messages,
   userId,
@@ -162,11 +171,12 @@ export async function getEcoResponse({
   if (micro) return { message: micro };
 
   // 1) SAUDAÇÃO/DESPEDIDA AUTOMÁTICA (backend decide)
-  // Converte o histórico para o tipo esperado pelo util (role union)
-  const saudaMsgs: SaudMsg[] = messages.slice(-4).map((m: any) => ({
-    role: mapRoleForOpenAI(m.role) as "user" | "assistant" | "system",
-    content: m.content,
-  }));
+  // Converte o histórico para o tipo esperado pelo util (role union) e faz cast explícito
+  const saudaMsgs = messages.slice(-4).map((m: any) => ({
+    role: toSaudRole(m.role),
+    content: m.content as string,
+  })) as SaudMsg[];
+
   const auto = respostaSaudacaoAutomatica({ messages: saudaMsgs, userName, clientHour });
 
   if (auto?.meta?.isFarewell) {
