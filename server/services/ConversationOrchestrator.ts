@@ -6,7 +6,6 @@ import {
   mapRoleForOpenAI,
   now,
   sleep,
-  GREET_RE,
   type GetEcoParams,
   type GetEcoResult,
   type ParalelasResult,
@@ -159,13 +158,19 @@ export async function getEcoResponse({
   const micro = microReflexoLocal(ultimaMsg);
   if (micro) return { message: micro };
 
-  // 1) fast-greet
-  const isPureGreeting = GREET_RE.test(trimmed) && trimmed.split(/\s+/).length <= 3;
-  if (!hasSubstance(ultimaMsg) && isPureGreeting && GreetGuard.can(userId)) {
-    GreetGuard.mark(userId);
-    const auto = respostaSaudacaoAutomatica({ messages, userName, clientHour } as any);
-    if (auto) return { message: auto.text };
-    try { return { message: await fastGreet(trimmed) }; } catch {}
+  // 1) SAUDAÇÃO/DESPEDIDA AUTOMÁTICA (usa somente a função util, sem GREET_RE no orquestrador)
+  const auto = respostaSaudacaoAutomatica({ messages: messages as any, userName, clientHour });
+  if (auto?.meta?.isFarewell) {
+    // Despedida sempre pode retornar sem throttling
+    return { message: auto.text };
+  }
+  if (auto?.meta?.isGreeting) {
+    // Evita disparo consecutivo de saudação
+    if (GreetGuard.can(userId)) {
+      GreetGuard.mark(userId);
+      return { message: auto.text };
+    }
+    // se bloqueado pelo guard, cai para fast-lane/rota normal
   }
 
   // 2) roteamento rápido (baixa complexidade e sem VIVA forçado)
@@ -189,7 +194,7 @@ export async function getEcoResponse({
           await saveMemoryOrReference({
             supabase,
             userId,
-            lastMessageId: messages.at(-1)?.id ?? null,
+            lastMessageId: (messages as any).at(-1)?.id ?? null,
             cleaned: fast.cleaned,
             bloco,
             ultimaMsg,
@@ -339,7 +344,7 @@ export async function getEcoResponse({
         await saveMemoryOrReference({
           supabase,
           userId,
-          lastMessageId: messages.at(-1)?.id ?? null,
+          lastMessageId: (messages as any).at(-1)?.id ?? null,
           cleaned,
           bloco,
           ultimaMsg,
