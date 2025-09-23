@@ -26,11 +26,23 @@ import { respostaSaudacaoAutomatica } from "../utils/respostaSaudacaoAutomatica"
 import { saveMemoryOrReference } from "../services/MemoryService";
 import { trackMensagemEnviada, trackEcoDemorou } from "../analytics/events/mixpanelEvents";
 
-// ---------- helpers ----------
+/* ------------------------------------------------------------------ */
+/* ---------------------------- Helpers ------------------------------ */
+/* ------------------------------------------------------------------ */
+
 function hasSubstance(msg: string) {
   const t = (msg || "").trim().toLowerCase();
   if (t.length >= 30) return true;
   return /cansad|triste|ansios|irritad|preocupad|estou|sinto|tive|aconteceu|preciso|quero|dor|insônia|medo/.test(t);
+}
+
+// Heurística de baixa complexidade → ativa fast-lane
+function isLowComplexity(texto: string) {
+  const t = (texto || "").trim();
+  if (t.length <= 120) return true;
+  const words = t.split(/\s+/).length;
+  if (words <= 18) return true;
+  return !/crise|p[aâ]nico|desesper|vontade de sumir|explod|insuport|plano detalhado|passo a passo/i.test(t);
 }
 
 async function operacoesParalelas(ultimaMsg: string, userId?: string): Promise<ParalelasResult> {
@@ -87,7 +99,43 @@ function heuristicaPreViva(m: string) {
   return gat.some(r => r.test(texto)) || len >= 180;
 }
 
-// ---------- orquestrador ----------
+// Timeout lógico: não deixa tarefas auxiliares atrasarem a resposta
+async function withTimeout<T>(p: Promise<T>, ms: number, label = "tarefa"): Promise<T> {
+  return Promise.race([
+    p,
+    new Promise<T>((_, rej) => setTimeout(() => rej(new Error(`${label} timeout ${ms}ms`)), ms)),
+  ]) as Promise<T>;
+}
+
+// Rota rápida: modelo leve, histórico curto, tokens baixos
+async function fastLaneLLM({
+  messages,
+}: {
+  messages: { role: string; content: string }[];
+}) {
+  const system =
+    "Você é a Eco. Responda curto (1–2 frases), claro e gentil. Evite jargões. Se pedirem passos, no máximo 3 itens.";
+  const slim = [
+    { role: "system", content: system },
+    ...messages.slice(-3).map(m => ({ role: mapRoleForOpenAI(m.role) as "system" | "user" | "assistant", content: m.content })),
+  ];
+
+  const data = await claudeChatCompletion({
+    messages: slim,
+    model: process.env.ECO_FAST_MODEL || "anthropic/claude-3-5-haiku",
+    temperature: 0.5,
+    maxTokens: 220,
+  });
+
+  const raw: string = data?.content ?? "";
+  const cleaned = formatarTextoEco(limparResposta(raw || "Posso te ajudar nisso!"));
+  return { cleaned, usage: data?.usage, model: data?.model };
+}
+
+/* ------------------------------------------------------------------ */
+/* -------------------------- Orquestrador --------------------------- */
+/* ------------------------------------------------------------------ */
+
 export async function getEcoResponse({
   messages,
   userId,
@@ -105,33 +153,88 @@ export async function getEcoResponse({
     throw new Error('Parâmetro "messages" vazio ou inválido.');
   }
   const ultimaMsg = messages.at(-1)?.content || "";
+  const trimmed = ultimaMsg.trim();
+
+  // 0) micro-reflexo local → retorno imediato
+  const micro = microReflexoLocal(ultimaMsg);
+  if (micro) return { message: micro };
 
   // 1) fast-greet
-  const trimmed = ultimaMsg.trim();
   const isPureGreeting = GREET_RE.test(trimmed) && trimmed.split(/\s+/).length <= 3;
   if (!hasSubstance(ultimaMsg) && isPureGreeting && GreetGuard.can(userId)) {
     GreetGuard.mark(userId);
     const auto = respostaSaudacaoAutomatica({ messages, userName, clientHour } as any);
     if (auto) return { message: auto.text };
-
-    try {
-      return { message: await fastGreet(trimmed) };
-    } catch {}
+    try { return { message: await fastGreet(trimmed) }; } catch {}
   }
 
-  // 2) supabase
+  // 2) roteamento rápido (baixa complexidade e sem VIVA forçado)
+  const low = isLowComplexity(ultimaMsg);
+  const vivaAtivo = forcarMetodoViva || heuristicaPreViva(ultimaMsg);
+  if (low && !vivaAtivo) {
+    const inicioFast = now();
+    const fast = await fastLaneLLM({ messages });
+
+    // bloco técnico com orçamento mínimo (não travar)
+    let bloco: any = null;
+    try {
+      bloco = await withTimeout(gerarBlocoTecnicoComCache(ultimaMsg, fast.cleaned), 250, "bloco-tecnico");
+    } catch {}
+
+    // pós-processo assíncrono (salvar memória) sem bloquear a resposta
+    (async () => {
+      try {
+        if (userId) {
+          const supabase = supabaseWithBearer(accessToken);
+          await saveMemoryOrReference({
+            supabase,
+            userId,
+            lastMessageId: messages.at(-1)?.id ?? null,
+            cleaned: fast.cleaned,
+            bloco,
+            ultimaMsg,
+          });
+        }
+      } catch (e) {
+        console.warn("⚠️ Pós-processo fastLane falhou:", (e as Error).message);
+      }
+    })();
+
+    // telemetria da rota rápida
+    trackMensagemEnviada({
+      userId,
+      tempoRespostaMs: now() - inicioFast,
+      tokensUsados: fast?.usage?.total_tokens || null,
+      modelo: fast?.model,
+    });
+
+    const resp: GetEcoResult = { message: fast.cleaned };
+    if (bloco && typeof bloco.intensidade === "number") {
+      resp.intensidade = bloco.intensidade;
+      resp.resumo = bloco?.analise_resumo?.trim().length ? bloco.analise_resumo.trim() : fast.cleaned;
+      resp.emocao = bloco.emocao_principal || "indefinida";
+      resp.tags = Array.isArray(bloco.tags) ? bloco.tags : [];
+      resp.categoria = bloco.categoria ?? null;
+    } else if (bloco) {
+      resp.categoria = bloco.categoria ?? null;
+    }
+    return resp;
+  }
+
+  // 3) rota completa
   const supabase = supabaseWithBearer(accessToken);
 
-  // 3) paralelas
-  const { heuristicas, userEmbedding } = await operacoesParalelasComOrcamento(ultimaMsg, userId);
+  // 3.1) paralelas (embeddings/heurísticas) com orçamento curto
+  const { heuristicas, userEmbedding } = await Promise.race([
+    operacoesParalelas(ultimaMsg, userId),
+    sleep(180).then(() => ({ heuristicas: [], userEmbedding: [] })),
+  ]);
 
-  // 4) viva + derivados
-  const vivaAtivo = forcarMetodoViva || heuristicaPreViva(ultimaMsg);
+  // 3.2) derivados com timeout curto
   const derivados = userId
-    ? await Promise.race([
-        (async () => ({
-          ok: true,
-          d: await (async () => {
+    ? await withTimeout(
+        (async () => {
+          try {
             const { data: stats } = await supabase
               .from("user_theme_stats")
               .select("tema,freq_30d,int_media_30d")
@@ -160,18 +263,18 @@ export async function getEcoResponse({
             const media = scores.length ? scores.reduce((a: number, b: number) => a + b, 0) / scores.length : 0;
 
             return getDerivados((stats || []) as any, (marcos || []) as any, arr as any, media);
-          })(),
-        }))(),
-        (async () => {
-          await sleep(200);
-          return { ok: false, d: null as any };
+          } catch {
+            return null;
+          }
         })(),
-      ]).then((r: any) => (r.ok ? r.d : null))
+        180,
+        "derivados"
+      )
     : null;
 
   const aberturaHibrida = derivados ? (() => { try { return insightAbertura(derivados); } catch { return null; } })() : null;
 
-  // 5) system prompt
+  // 3.3) system prompt (com cache)
   const systemPrompt = await montarContextoOtimizado({
     userId,
     userName,
@@ -187,20 +290,15 @@ export async function getEcoResponse({
     aberturaHibrida,
   });
 
-  // 6) micro-reflexo local
-  const micro = microReflexoLocal(ultimaMsg);
-  if (micro) return { message: micro };
+  const msgs: { role: "system" | "user" | "assistant"; content: string }[] = [
+    { role: "system", content: systemPrompt },
+    ...messages.slice(-5).map((m) => ({
+      role: mapRoleForOpenAI(m.role) as "system" | "user" | "assistant",
+      content: m.content,
+    })),
+  ];
 
- const msgs: { role: "system" | "user" | "assistant"; content: string }[] = [
-  { role: "system", content: systemPrompt },
-  ...messages.slice(-5).map((m) => ({
-    role: mapRoleForOpenAI(m.role) as "system" | "user" | "assistant",
-    content: m.content,
-  })),
-];
-
-
-  // 7) chamada ao modelo principal → Claude Sonnet 4.0 via OpenRouter
+  // 3.4) chamada ao modelo principal → Claude Sonnet 4.x via OpenRouter
   const maxTokens = ultimaMsg.length < 140 ? 420 : ultimaMsg.length < 280 ? 560 : 700;
   const inicioEco = now();
   const data = await claudeChatCompletion({
@@ -210,17 +308,19 @@ export async function getEcoResponse({
     maxTokens,
   });
   const duracaoEco = now() - inicioEco;
-  if (duracaoEco > 3000) trackEcoDemorou({ userId, duracaoMs: duracaoEco, ultimaMsg });
+  if (duracaoEco > 2500) trackEcoDemorou({ userId, duracaoMs: duracaoEco, ultimaMsg });
 
   const raw: string = data?.content ?? "";
   const cleaned = formatarTextoEco(
     limparResposta(raw || "Desculpa, não consegui responder agora. Pode tentar de novo?")
   );
 
-  // 8) bloco técnico (GPT-5.0 via EmotionalAnalyzer)
-  const bloco = await gerarBlocoTecnicoComCache(ultimaMsg, cleaned);
+  // 3.5) bloco técnico com orçamento curto
+  let bloco: any = null;
+  try {
+    bloco = await withTimeout(gerarBlocoTecnicoComCache(ultimaMsg, cleaned), 300, "bloco-tecnico");
+  } catch {}
 
-  // 9) retorno
   const response: GetEcoResult = { message: cleaned };
   if (bloco && typeof bloco.intensidade === "number") {
     response.intensidade = bloco.intensidade;
@@ -232,14 +332,7 @@ export async function getEcoResponse({
     response.categoria = bloco.categoria ?? null;
   }
 
-  trackMensagemEnviada({
-    userId,
-    tempoRespostaMs: duracaoEco,
-    tokensUsados: data?.usage?.total_tokens || null,
-    modelo: data?.model,
-  });
-
-  // 10) pós-processo
+  // 3.6) pós-processo assíncrono
   (async () => {
     try {
       if (userId) {
@@ -256,6 +349,14 @@ export async function getEcoResponse({
       console.warn("⚠️ Pós-processo falhou:", (e as Error).message);
     }
   })();
+
+  // 3.7) telemetria
+  trackMensagemEnviada({
+    userId,
+    tempoRespostaMs: duracaoEco,
+    tokensUsados: data?.usage?.total_tokens || null,
+    modelo: data?.model,
+  });
 
   return response;
 }
