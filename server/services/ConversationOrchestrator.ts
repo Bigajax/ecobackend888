@@ -127,7 +127,7 @@ async function fastLaneLLM({
   });
 
   const raw: string = data?.content ?? "";
-  const cleaned = formatarTextoEco(limparResposta(raw || "Posso te ajudar nisso!"));
+  the const cleaned = formatarTextoEco(limparResposta(raw || "Posso te ajudar nisso!"));
   return { cleaned, usage: data?.usage, model: data?.model };
 }
 
@@ -161,7 +161,7 @@ export async function getEcoResponse({
   // 1) SAUDAÇÃO/DESPEDIDA AUTOMÁTICA (backend decide)
   // 🔧 Converte o histórico para o tipo esperado pelo util (role union)
   const saudaMsgs: SaudMsg[] = messages.slice(-4).map((m: any) => ({
-    role: mapRoleForOpenAI(m.role) as "user" | "assistant" | "system" | undefined,
+    role: mapRoleForOpenAI(m.role) as "user" | "assistant" | "system",
     content: m.content,
   }));
   const auto = respostaSaudacaoAutomatica({ messages: saudaMsgs, userName, clientHour });
