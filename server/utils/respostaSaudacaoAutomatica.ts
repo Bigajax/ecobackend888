@@ -1,7 +1,8 @@
 // utils/respostaSaudacaoAutomatica.ts
 // Saudação natural e orientada ao autoconhecimento — com FAST-PATH e meta (nível 1 fixo)
 
-export type Msg = { role?: "user" | "assistant" | "system"; content: string };
+export type MsgRole = "user" | "assistant" | "system";
+export type Msg = { role?: MsgRole; content: string };
 
 export type SaudacaoAutoMeta = {
   isGreeting: boolean;
