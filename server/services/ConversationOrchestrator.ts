@@ -21,7 +21,7 @@ import { GreetGuard } from "../policies/GreetGuard";
 import { getDerivados, insightAbertura } from "../services/derivadosService";
 import { buscarHeuristicasSemelhantes } from "../services/heuristicaService";
 import { montarContextoEco } from "../services/promptContext";
-import { respostaSaudacaoAutomatica } from "../utils/respostaSaudacaoAutomatica";
+import { respostaSaudacaoAutomatica, type Msg as SaudMsg } from "../utils/respostaSaudacaoAutomatica";
 import { saveMemoryOrReference } from "../services/MemoryService";
 import { trackMensagemEnviada, trackEcoDemorou } from "../analytics/events/mixpanelEvents";
 
@@ -158,14 +158,18 @@ export async function getEcoResponse({
   const micro = microReflexoLocal(ultimaMsg);
   if (micro) return { message: micro };
 
-  // 1) SAUDAÇÃO/DESPEDIDA AUTOMÁTICA (usa somente a função util, sem GREET_RE no orquestrador)
-  const auto = respostaSaudacaoAutomatica({ messages: messages as any, userName, clientHour });
+  // 1) SAUDAÇÃO/DESPEDIDA AUTOMÁTICA (backend decide)
+  // 🔧 Converte o histórico para o tipo esperado pelo util (role union)
+  const saudaMsgs: SaudMsg[] = messages.slice(-4).map((m: any) => ({
+    role: mapRoleForOpenAI(m.role) as "user" | "assistant" | "system" | undefined,
+    content: m.content,
+  }));
+  const auto = respostaSaudacaoAutomatica({ messages: saudaMsgs, userName, clientHour });
+
   if (auto?.meta?.isFarewell) {
-    // Despedida sempre pode retornar sem throttling
     return { message: auto.text };
   }
   if (auto?.meta?.isGreeting) {
-    // Evita disparo consecutivo de saudação
     if (GreetGuard.can(userId)) {
       GreetGuard.mark(userId);
       return { message: auto.text };
