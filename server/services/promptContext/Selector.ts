@@ -24,6 +24,19 @@ export const resolveModulesForLevelV2 = (nivel: NivelNum, m: any): string[] => {
 };
 
 // -------------------------------------
+// Ordenação por prioridade (limites.prioridade)
+// -------------------------------------
+const orderByPrioridade = (nomes: string[], prioridade?: string[]) => {
+  if (!prioridade?.length) return [...new Set(nomes)];
+  const idx = new Map(prioridade.map((n, i) => [n, i]));
+  return [...new Set(nomes)].sort((a, b) => {
+    const ia = idx.has(a) ? (idx.get(a) as number) : Number.POSITIVE_INFINITY;
+    const ib = idx.has(b) ? (idx.get(b) as number) : Number.POSITIVE_INFINITY;
+    return ia - ib;
+  });
+};
+
+// -------------------------------------
 // Seleção base com gating (intensidade / regra)
 // -------------------------------------
 export function selecionarModulosBase({
@@ -69,8 +82,11 @@ export function selecionarModulosBase({
     return ok;
   });
 
+  // ✅ aplica prioridade definida na matriz
+  const priorizado = orderByPrioridade(posGating, matriz?.limites?.prioridade);
+
   return {
-    selecionados: posGating,
+    selecionados: priorizado,
     debug: { raw: dedup, inherited, specific, posGating, cortadosPorRegraOuIntensidade: cortados },
   };
 }
@@ -183,7 +199,7 @@ export function selecionarExtras({
       }
     }
     for (const e of estoicosTriggerMap ?? []) {
-      // fix: usar `g` (gatilho), não o objeto inteiro
+      // ✅ usar o gatilho (string), não o objeto inteiro
       if (e.gatilhos?.some((g: string) => txt.includes(normalizar(g)))) {
         push({ arquivo: e.arquivo, cat: "filosofico", score: 2.5 });
       }
@@ -193,12 +209,17 @@ export function selecionarExtras({
   // 3) Emocionais — por tags/emoção + intensidadeMin + gatilho textual
   const tags = memsUsadas?.flatMap((m) => m.tags ?? []) ?? [];
   const emos = memsUsadas?.map((m) => m.emocao_principal).filter(Boolean) ?? [];
+
   for (const m of emocionaisTriggerMap ?? []) {
     if (!m?.arquivo) continue;
+
     const minOK = typeof m.intensidadeMinima === "number" ? intensidade >= m.intensidadeMinima : true;
-    const tagMatch = (m.tags ?? []).some((t: string) => tags.includes(t));
-    const emoMatch = (m.tags ?? []).some((t: string) => emos.includes(t));
+
+    // ✅ aceita tanto tags quando listas de emoções definidas no trigger
+    const tagMatch = (m.tags ?? m.tags_gatilho ?? []).some((t: string) => tags.includes(t));
+    const emoMatch = (m.emocoes ?? m.emocoes_gatilho ?? []).some((e: string) => emos.includes(e));
     const gatMatch = (m.gatilhos ?? []).some((g: string) => txt.includes(normalizar(g)));
+
     if (minOK && (tagMatch || emoMatch || gatMatch)) {
       // bônus se intensidade alta
       push({ arquivo: m.arquivo, cat: "emocional", score: 3 + (intensidade >= 7 ? 1 : 0) });

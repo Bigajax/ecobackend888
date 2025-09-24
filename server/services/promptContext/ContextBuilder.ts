@@ -1,3 +1,4 @@
+// server/services/promptContext/ContextBuilder.ts
 import path from "path";
 import { get_encoding } from "@dqbd/tiktoken";
 import { Budgeter } from "./Budgeter";
@@ -25,23 +26,59 @@ import * as Matriz from "../../controllers/matrizPromptBase";
 
 const ENC = get_encoding("cl100k_base");
 
+function uniqPreservingOrder(arr: (string | undefined | null)[]) {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const v of arr) {
+    const s = (v ?? "").trim();
+    if (!s || seen.has(s)) continue;
+    seen.add(s);
+    out.push(s);
+  }
+  return out;
+}
+
+/**
+ * Prioridade unificada a ser passada ao Budgeter.
+ * - Em V2: todos os módulos das camadas (core/emotional/advanced) VÊM PRIMEIRO,
+ *   seguidos de limites.prioridade.
+ * - Em legado: apenas limites.prioridade (quando houver).
+ */
+function buildUnifiedPriority(matriz: any): string[] | undefined {
+  const limites: string[] = (matriz?.limites?.prioridade ?? []) as string[];
+
+  if (isV2Matrix(matriz)) {
+    const baseLayers: string[] = uniqPreservingOrder([
+      ...(matriz.baseModules?.core ?? []),
+      ...(matriz.baseModules?.emotional ?? []),
+      ...(matriz.baseModules?.advanced ?? []),
+    ]);
+
+    const merged = uniqPreservingOrder([...baseLayers, ...limites]);
+    return merged.length ? merged : undefined;
+  }
+
+  const legacy = uniqPreservingOrder(limites);
+  return legacy.length ? legacy : undefined;
+}
+
 export class ContextBuilder {
   private budgeter = new Budgeter();
 
   async build(input: any) {
-    const assetsDir       = path.join(process.cwd(), "assets");
-    // NOVO: pastas alinhadas à tua refatoração
-    const coreDir         = path.join(assetsDir, "modulos_core");
-    const extrasDir       = path.join(assetsDir, "modulos_extras");
-    const modCogDir       = path.join(assetsDir, "modulos_cognitivos");
-    const modFilosDir     = path.join(assetsDir, "modulos_filosoficos");
-    const modEstoicosDir  = path.join(modFilosDir, "estoicos");
-    const modEmocDir      = path.join(assetsDir, "modulos_emocionais");
+    const assetsDir = path.join(process.cwd(), "assets");
+    // Pastas alinhadas
+    const coreDir        = path.join(assetsDir, "modulos_core");
+    const extrasDir      = path.join(assetsDir, "modulos_extras");
+    const modCogDir      = path.join(assetsDir, "modulos_cognitivos");
+    const modFilosDir    = path.join(assetsDir, "modulos_filosoficos");
+    const modEstoicosDir = path.join(modFilosDir, "estoicos");
+    const modEmocDir     = path.join(assetsDir, "modulos_emocionais");
 
     // ordem: core → extras → opcionais
     ModuleStore.I.configure([coreDir, extrasDir, modEmocDir, modEstoicosDir, modFilosDir, modCogDir]);
 
-    // guards estáticos agora vivem no core
+    // guards estáticos no core
     const { criterios, memoriaInstrucoes } = await loadStaticGuards(coreDir);
 
     const entrada = (input.texto ?? "").trim();
@@ -53,7 +90,7 @@ export class ContextBuilder {
     }
 
     const nivel = derivarNivel(entrada, saudacaoBreve);
-    const desc  = nivel === 1 ? "superficial" : nivel === 2 ? "reflexiva" : "profunda";
+    const desc = nivel === 1 ? "superficial" : nivel === 2 ? "reflexiva" : "profunda";
     contexto += `\n📶 Abertura emocional sugerida (heurística): ${desc}`;
 
     if (input.perfil) contexto += `\n\n${construirStateSummary(input.perfil, nivel)}`;
@@ -62,25 +99,30 @@ export class ContextBuilder {
     // ===== memórias =====
     let memsUsadas: any[] = input.mems ?? [];
     if (input.forcarMetodoViva && input.blocoTecnicoForcado) {
-      memsUsadas = [{
-        resumo_eco: input.blocoTecnicoForcado.analise_resumo ?? entrada ?? "",
-        intensidade: Number(input.blocoTecnicoForcado.intensidade ?? 0),
-        emocao_principal: input.blocoTecnicoForcado.emocao_principal ?? "",
-        tags: input.blocoTecnicoForcado.tags ?? [],
-      }];
+      memsUsadas = [
+        {
+          resumo_eco: input.blocoTecnicoForcado.analise_resumo ?? entrada ?? "",
+          intensidade: Number(input.blocoTecnicoForcado.intensidade ?? 0),
+          emocao_principal: input.blocoTecnicoForcado.emocao_principal ?? "",
+          tags: input.blocoTecnicoForcado.tags ?? [],
+        },
+      ];
     } else if (nivel === 1) {
       memsUsadas = [];
     }
     if (entrada && input.perfil && nivel > 1) {
-      memsUsadas = [...(memsUsadas||[]), {
-        resumo_eco: entrada,
-        tags: input.perfil.temas_recorrentes ? Object.keys(input.perfil.temas_recorrentes) : [],
-        intensidade: 0,
-        emocao_principal: Object.keys(input.perfil.emocoes_frequentes || {})[0] || "",
-      }];
+      memsUsadas = [
+        ...(memsUsadas || []),
+        {
+          resumo_eco: entrada,
+          tags: input.perfil.temas_recorrentes ? Object.keys(input.perfil.temas_recorrentes) : [],
+          intensidade: 0,
+          emocao_principal: Object.keys(input.perfil.emocoes_frequentes || {})[0] || "",
+        },
+      ];
     }
 
-    const intensidadeContexto = Math.max(0, ...(memsUsadas ?? []).map((m:any) => m.intensidade ?? 0));
+    const intensidadeContexto = Math.max(0, ...(memsUsadas ?? []).map((m: any) => m.intensidade ?? 0));
     if (memsUsadas?.length && nivel > 1) {
       contexto += `\n\n${construirNarrativaMemorias(memsUsadas)}`;
     }
@@ -95,7 +137,7 @@ export class ContextBuilder {
     const flags = derivarFlags(entrada);
     const baseSel = selecionarModulosBase({ nivel, intensidade: intensidadeContexto, matriz, flags });
 
-    // extras (rankeados pelo teu seletor; inclui opcionais se você plugou)
+    // extras (rankeados)
     const extras = selecionarExtras({
       userId: input.userId,
       entrada,
@@ -125,9 +167,9 @@ Se a mensagem do usuário for apenas uma saudação breve, não repita a saudaç
         ? {
             text: flags.curiosidade
               ? "O que fica mais vivo em você quando olha para isso agora — sem precisar explicar?"
-              : (intensidadeContexto >= 6
-                  ? "Se couber, o que seu corpo te conta sobre isso neste instante (uma palavra ou imagem)?"
-                  : "Se fizer sentido, qual seria um próximo passo gentil a partir daqui?"),
+              : intensidadeContexto >= 6
+              ? "Se couber, o que seu corpo te conta sobre isso neste instante (uma palavra ou imagem)?"
+              : "Se fizer sentido, qual seria um próximo passo gentil a partir daqui?",
             max_count: 1,
           }
         : null,
@@ -136,8 +178,7 @@ Se a mensagem do usuário for apenas uma saudação breve, não repita a saudaç
       guardrails: { no_new_topics_on_closure: true, max_new_prompts: 1 },
     };
 
-    const followPlanGuard =
-      `- Siga o RESPONSE_PLAN: no máximo 1 pergunta viva (se allow_live_question=true) e no máximo 1 micro-prática (se allow_micro_practice=true). Slots são opcionais.`;
+    const followPlanGuard = `- Siga o RESPONSE_PLAN: no máximo 1 pergunta viva (se allow_live_question=true) e no máximo 1 micro-prática (se allow_micro_practice=true). Slots são opcionais.`;
 
     const instrucoesFinais = `
 ⚠️ INSTRUÇÃO AO MODELO:
@@ -167,11 +208,12 @@ Se a mensagem do usuário for apenas uma saudação breve, não repita a saudaç
     if (nivel === 1) {
       const nomesNv1 = isV2Matrix(matriz)
         ? resolveModulesForLevelV2(1 as any, matriz)
-        // legado: só alwaysInclude (sem ECO_ORQUESTRA_NIVEL1.txt, que foi removido)
-        : [ ...(matriz.alwaysInclude ?? []) ];
+        : [...(matriz.alwaysInclude ?? [])];
 
       const stitched = await this.budgeter.stitch(nomesNv1, {
         budgetTokens: Math.min(budgetRestante, NIVEL1_BUDGET),
+        // prioridade não é crítica para NV1, mas já podemos respeitar a unificada
+        priority: buildUnifiedPriority(matriz),
       });
 
       const instrucoesNv1 = `
@@ -181,12 +223,12 @@ Se a mensagem do usuário for apenas uma saudação breve, não repita a saudaç
 - Use a Estrutura Padrão de Resposta como planejamento interno, mas NÃO exiba títulos/numeração.
 - ${antiSaudacaoGuard}`.trim();
 
-      const prompt = [
-        contextoMin,
-        stitched.text,
-        instrucoesNv1,
-        overhead,
-      ].filter(Boolean).join("\n\n").replace(/[ \t]+\n/g,"\n").replace(/\n{3,}/g,"\n\n").trim();
+      const prompt = [contextoMin, stitched.text, instrucoesNv1, overhead]
+        .filter(Boolean)
+        .join("\n\n")
+        .replace(/[ \t]+\n/g, "\n")
+        .replace(/\n{3,}/g, "\n\n")
+        .trim();
 
       const total = enc.encode(prompt).length;
       return {
@@ -195,32 +237,28 @@ Se a mensagem do usuário for apenas uma saudação breve, não repita a saudaç
           nivel,
           tokens: { contexto: tokensContexto, overhead: overheadTokens, total, budgetRestante },
           modulos: { incluidos: stitched.used, cortados: stitched.cut },
-          flags: { curiosidade: flags.curiosidade, pedido_pratico: flags.pedido_pratico, saudacaoBreve }
-        }
+          flags: { curiosidade: flags.curiosidade, pedido_pratico: flags.pedido_pratico, saudacaoBreve },
+        },
       };
     }
 
     // ===== NV2 / NV3 =====
-    const nomesPre = [...new Set([...baseSel.selecionados, ...extras])];
+    const nomesPre = uniqPreservingOrder([...baseSel.selecionados, ...extras]);
 
-    // prioridade adaptada à Matriz V3 (sem ECO_ORQUESTRA_*)
-    let prioridade: string[] | undefined = (matriz as any)?.limites?.prioridade;
-    if (isV2Matrix(matriz)) {
-      const pv2 = [
-        ...(matriz.baseModules?.core ?? []),
-        ...(matriz.baseModules?.emotional ?? []), // hoje vazio, mas mantido p/ compat
-        ...(matriz.baseModules?.advanced ?? []),
-      ];
-      prioridade = [...new Set([ ...pv2, ...(prioridade ?? []) ])];
-    }
+    // ✅ prioridade unificada (V2: baseModules primeiro, depois limites.prioridade)
+    const prioridade = buildUnifiedPriority(matriz);
 
     const stitched = await this.budgeter.stitch(nomesPre, {
       budgetTokens: budgetRestante,
       priority: prioridade,
     });
 
-    const prompt = [ contextoMin, stitched.text.trim(), overhead ]
-      .filter(Boolean).join("\n\n").replace(/[ \t]+\n/g,"\n").replace(/\n{3,}/g,"\n\n").trim();
+    const prompt = [contextoMin, stitched.text.trim(), overhead]
+      .filter(Boolean)
+      .join("\n\n")
+      .replace(/[ \t]+\n/g, "\n")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
 
     const total = enc.encode(prompt).length;
     return {
@@ -229,8 +267,8 @@ Se a mensagem do usuário for apenas uma saudação breve, não repita a saudaç
         nivel,
         tokens: { contexto: tokensContexto, overhead: overheadTokens, total, budgetRestante },
         modulos: { incluidos: stitched.used, cortados: stitched.cut },
-        flags: { curiosidade: flags.curiosidade, pedido_pratico: flags.pedido_pratico, saudacaoBreve }
-      }
+        flags: { curiosidade: flags.curiosidade, pedido_pratico: flags.pedido_pratico, saudacaoBreve },
+      },
     };
   }
 }
