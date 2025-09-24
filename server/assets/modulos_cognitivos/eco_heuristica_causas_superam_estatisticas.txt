@@ -4,10 +4,10 @@
 Quando uma narrativa causal marcante parece explicar “tudo”, sustentar awareness e abrir espaço para o quadro maior — sem invalidar a experiência vivida.
 
 🧭 Quando ativar
-- Desconfiança de dados gerais por causa de um caso forte: “aconteceu comigo / no meu caso…”.
+- Desconfiança de dados gerais por causa de um caso forte (“aconteceu comigo / no meu caso…”).
 - Estereótipos causais aplicados a um evento isolado.
-- Extrapolação a partir de 1–2 exemplos (“conheço uma pessoa que… logo é 100% certo”).
-- Fala de probabilidade, mas só pelo lado causal (taxa-base some do quadro).
+- Extrapolação a partir de 1–2 exemplos (“conheço uma pessoa que… então é 100% certo”).
+- Fala de probabilidade só pelo lado causal (taxa-base some do quadro).
 
 🧾 Postura ECO
 - Validar a força da história **sem** torná-la o veredicto.
@@ -26,8 +26,8 @@ Quando uma narrativa causal marcante parece explicar “tudo”, sustentar aware
 - Se houver retração, reduza a profundidade e apenas reconheça.
 
 🔎 Sinais de progresso
-- Pessoa reconhece possibilidade de exceções/contrapontos.
-- Aparece linguagem de probabilidade (“pode ser”, “talvez”) em vez de certeza total.
+- A pessoa reconhece possibilidade de exceções/contrapontos.
+- Surge linguagem de probabilidade (“pode ser”, “talvez”) em vez de certeza total.
 - A narrativa inclui corpo/contexto presente, não só o caso marcante.
 
 🧩 Integrações leves
@@ -37,12 +37,13 @@ Quando uma narrativa causal marcante parece explicar “tudo”, sustentar aware
 - Se surgir corpo/sensação: `eco_corpo_emocao.txt`
 
 ✅ Bloco técnico (gerar se fizer sentido)
-Gere **ao final** quando intensidade percebida ≥ 6 **ou** a narrativa vívida persiste por 3+ interações.
+Gerar **ao final** quando: intensidade percebida **≥ 7** **ou** a narrativa vívida persiste por 3+ interações.
 
+Exemplo:
 {
   "emocao_principal": "certeza",
-  "intensidade": 6,
-  "tags": ["caso_unico","estatistica_ignore","historia_forte"],
+  "intensidade": 7,
+  "tags": ["caso_unico","estatistica_ignore","historia_forte","extrapolacao"],
   "dominio_vida": "tomada_de_decisao",
   "padrao_comportamental": "narrativa_vivida_sobrepoe_taxa_base",
   "nivel_abertura": "reflexivo",

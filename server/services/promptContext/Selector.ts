@@ -1,7 +1,7 @@
 // server/services/promptContext/Selector.ts
 import { evalRule } from "../../utils/ruleEval";
 import { heuristicasTriggerMap, tagsPorHeuristica } from "../../assets/config/heuristicasTriggers";
-import { filosoficosTriggerMap } from "../../assets/config/filosoficosTriggers";
+// ⚠️ removido: import { filosoficosTriggerMap } from "../../assets/config/filosoficosTriggers";
 import { estoicosTriggerMap } from "../../assets/config/estoicosTriggers";
 import { emocionaisTriggerMap } from "../../assets/config/emocionaisTriggers";
 import { heuristicaNivelAbertura } from "../../utils/heuristicaNivelAbertura";
@@ -11,9 +11,9 @@ import type { Memoria, Heuristica, NivelNum } from "../../utils/types";
 const normalizar = (t: string) =>
   (t || "").toLowerCase().normalize("NFD").replace(/\p{Diacritic}/gu, "");
 
-// -------------------------------------
-// Matriz V2 helpers
-// -------------------------------------
+/* -------------------------------------
+ * Matriz V2 helpers
+ * ----------------------------------- */
 export const isV2Matrix = (m: any) => !!m?.byNivelV2 && !!m?.baseModules;
 
 export const resolveModulesForLevelV2 = (nivel: NivelNum, m: any): string[] => {
@@ -23,9 +23,9 @@ export const resolveModulesForLevelV2 = (nivel: NivelNum, m: any): string[] => {
   return [...inherited, ...(cfg.specific ?? [])];
 };
 
-// -------------------------------------
-// Ordenação por prioridade (limites.prioridade)
-// -------------------------------------
+/* -------------------------------------
+ * Ordenação por prioridade (limites.prioridade)
+ * ----------------------------------- */
 const orderByPrioridade = (nomes: string[], prioridade?: string[]) => {
   if (!prioridade?.length) return [...new Set(nomes)];
   const idx = new Map(prioridade.map((n, i) => [n, i]));
@@ -36,9 +36,9 @@ const orderByPrioridade = (nomes: string[], prioridade?: string[]) => {
   });
 };
 
-// -------------------------------------
-// Seleção base com gating (intensidade / regra)
-// -------------------------------------
+/* -------------------------------------
+ * Seleção base com gating (intensidade / regra)
+ * ----------------------------------- */
 export function selecionarModulosBase({
   nivel,
   intensidade,
@@ -91,9 +91,9 @@ export function selecionarModulosBase({
   };
 }
 
-// -------------------------------------
-// Sinais simples
-// -------------------------------------
+/* -------------------------------------
+ * Sinais simples
+ * ----------------------------------- */
 export function detectarSaudacaoBreve(t: string) {
   const s = normalizar(t);
   return s.length > 0 && s.length <= MAX_LEN_FOR_GREETING && GREET_RE.test(s);
@@ -119,11 +119,11 @@ export function derivarFlags(entrada: string) {
   return { curiosidade, pedido_pratico, duvida_classificacao: false };
 }
 
-// -------------------------------------
-// Extras rankeados com cooldown (1 por resposta)
-// Prioridade: emocional > cognitivo > filosofico
-// Evitar opcionais em crise (≥8), exceto emocionais se houver
-// -------------------------------------
+/* -------------------------------------
+ * Extras rankeados com cooldown (1 por resposta)
+ * Prioridade: emocional > cognitivo > filosofico
+ * Evitar opcionais em crise (≥8), exceto emocionais se houver
+ * ----------------------------------- */
 type Cat = "emocional" | "cognitivo" | "filosofico";
 type ExtraCand = { arquivo: string; cat: Cat; score: number };
 
@@ -162,6 +162,8 @@ export function selecionarExtras({
   heuristicasEmbedding?: any[];
 }) {
   const txt = normalizar(entrada);
+  const { pedido_pratico } = derivarFlags(entrada); // 👈 gating para filosófico/estoico
+
   const cands: ExtraCand[] = [];
   const push = (x: ExtraCand) => {
     const i = cands.findIndex((c) => c.arquivo === x.arquivo);
@@ -174,7 +176,7 @@ export function selecionarExtras({
 
   const emCrise = intensidade >= 8;
 
-  // 1) Cognitivos — gatilho literal + embedding (somente até intensidade 6; não em crise)
+  // 1) Cognitivos — gatilho literal + embedding (≤6; não em crise)
   if (!emCrise) {
     for (const h of heuristicasTriggerMap ?? []) {
       if (h.gatilhos?.some((g: string) => txt.includes(normalizar(g))) && intensidade <= 6) {
@@ -190,17 +192,12 @@ export function selecionarExtras({
     }
   }
 
-  // 2) Filosóficos/Estoicos — faixa 3–6 e abertura ≥2 (não em crise)
-  const okFilo = !emCrise && nivel >= 2 && intensidade >= 3 && intensidade <= 6;
+  // 2) Filosófico/Estoico — faixa 3–6, abertura ≥2, sem pedido prático, não em crise
+  const okFilo = !emCrise && nivel >= 2 && intensidade >= 3 && intensidade <= 6 && !pedido_pratico;
   if (okFilo) {
-    for (const f of filosoficosTriggerMap ?? []) {
-      if (f.gatilhos?.some((g: string) => txt.includes(normalizar(g)))) {
-        push({ arquivo: f.arquivo, cat: "filosofico", score: 2 });
-      }
-    }
     for (const e of estoicosTriggerMap ?? []) {
-      // ✅ usar o gatilho (string), não o objeto inteiro
       if (e.gatilhos?.some((g: string) => txt.includes(normalizar(g)))) {
+        // tratamos como categoria "filosofico" para a prioridade de categorias
         push({ arquivo: e.arquivo, cat: "filosofico", score: 2.5 });
       }
     }
@@ -215,13 +212,12 @@ export function selecionarExtras({
 
     const minOK = typeof m.intensidadeMinima === "number" ? intensidade >= m.intensidadeMinima : true;
 
-    // ✅ aceita tanto tags quando listas de emoções definidas no trigger
+    // aceita tanto `tags` quanto `tags_gatilho` e `emocoes`/`emocoes_gatilho`
     const tagMatch = (m.tags ?? m.tags_gatilho ?? []).some((t: string) => tags.includes(t));
     const emoMatch = (m.emocoes ?? m.emocoes_gatilho ?? []).some((e: string) => emos.includes(e));
     const gatMatch = (m.gatilhos ?? []).some((g: string) => txt.includes(normalizar(g)));
 
     if (minOK && (tagMatch || emoMatch || gatMatch)) {
-      // bônus se intensidade alta
       push({ arquivo: m.arquivo, cat: "emocional", score: 3 + (intensidade >= 7 ? 1 : 0) });
     }
   }
@@ -231,24 +227,26 @@ export function selecionarExtras({
     .filter((c) => !inCooldown(userId, c.arquivo, 900))
     .sort((a, b) => b.score - a.score);
 
-  // ===== prioridade e máx. 1 opcional =====
+  // ===== prioridade de categoria + HARD_CAP_EXTRAS =====
   const byCat: Record<Cat, ExtraCand[]> = { emocional: [], cognitivo: [], filosofico: [] };
   for (const c of ranked) byCat[c.cat].push(c);
 
-  // Prioridade: emocional > cognitivo > filosofico
-  const chosen =
-    (byCat.emocional[0]?.arquivo) ??
-    (byCat.cognitivo[0]?.arquivo) ??
-    (byCat.filosofico[0]?.arquivo);
-
-  // respeita HARD_CAP_EXTRAS (mas, na prática, será 1)
   const cap = Math.max(1, HARD_CAP_EXTRAS || 1);
-  const final = chosen ? [chosen].slice(0, cap) : [];
+  const ordem: Cat[] = ["emocional", "cognitivo", "filosofico"];
+
+  const final: string[] = [];
+  for (const cat of ordem) {
+    for (const cand of byCat[cat]) {
+      if (!final.includes(cand.arquivo)) final.push(cand.arquivo);
+      if (final.length >= cap) break;
+    }
+    if (final.length >= cap) break;
+  }
 
   mark(userId, final);
   return final;
 }
 
-// util small
+/* util small */
 export const tagsDeHeuristica = (h?: Heuristica | null) =>
   h ? (tagsPorHeuristica[h.arquivo] ?? []) : [];

@@ -1,7 +1,7 @@
 /* assets/config/heuristicasTriggers.ts
    ──────────────────────────────────────────
    Notas:
-   - Gatilhos em ascii (sem acento) para casar com normalizarTexto().
+   - Gatilhos em ASCII (sem acento) para casar com normalizar().
    - 2+ palavras por gatilho para reduzir falso-positivo.
    - Foco em n-grams comuns em conversa real.
 */
@@ -19,9 +19,17 @@ export const heuristicasTriggerMap: HeuristicaTrigger[] = [
     gatilhos: [
       "antes era melhor",
       "nada se compara",
-      "ja estive bem",
+      "nunca vai ser igual",
+      "naquela epoca",
+      "naquele tempo",
+      "depois do que aconteceu",
       "nao aceito menos",
-      "depois do que aconteceu"
+      "regra do passado",
+      "vivi meu auge",
+      "ficou marcado",
+      "vivo do passado",
+      "comparando com o passado",
+      "so comparo com antes"
     ]
   },
 
@@ -31,9 +39,21 @@ export const heuristicasTriggerMap: HeuristicaTrigger[] = [
     gatilhos: [
       "aconteceu comigo",
       "eu vivi isso",
-      "mas no meu caso",
+      "no meu caso",
       "e diferente comigo",
-      "sei que parece raro"
+      "conheco uma pessoa",
+      "um exemplo prova",
+      "um caso prova",
+      "estatistica nao importa",
+      "estatistica nao serve",
+      "ignora estatistica",
+      "exemplo marcante",
+      "caso marcante",
+      "sempre acontece assim",
+      "logo e 100 por cento",
+      "taxa base",
+      "extrapolacao por exemplo",
+      "vi acontecer entao e verdade"
     ]
   },
 
@@ -41,22 +61,19 @@ export const heuristicasTriggerMap: HeuristicaTrigger[] = [
   {
     arquivo: "eco_heuristica_disponibilidade.txt",
     gatilhos: [
-      "acabei de ver",
-      "todo mundo fala",
-      "esta em todo lugar",
-      "nao se fala de outra coisa"
-    ]
-  },
-
-  // ── Disponibilidade + emocao/risco: catastrofizacao por lembranca viva
-  {
-    arquivo: "eco_heuristica_disponibilidade_emocao_risco.txt",
-    gatilhos: [
-      "tenho medo de tentar",
-      "sempre da errado",
-      "ja sofri demais",
-      "vai dar problema",
-      "vou quebrar a cara"
+      "so lembro das vezes",
+      "isso acontece o tempo todo",
+      "toda hora acontece",
+      "toda vez acontece",
+      "sempre acontece",
+      "sempre foi assim",
+      "ultimamente so isso acontece",
+      "aconteceu de novo",
+      "lembro das vezes que falhei",
+      "so lembro do que doeu",
+      "o que vem na cabeca",
+      "o que aparece primeiro",
+      "o que mais aparece"
     ]
   },
 
@@ -64,10 +81,22 @@ export const heuristicasTriggerMap: HeuristicaTrigger[] = [
   {
     arquivo: "eco_heuristica_excesso_confianca.txt",
     gatilhos: [
-      "nao tem como dar errado",
-      "certeza absoluta",
-      "cem por cento garantido",
-      "impossivel falhar"
+      "eu sei exatamente quem eu sou",
+      "eu ja entendi tudo",
+      "ja entendi tudo",
+      "sempre vai ser assim",
+      "vai ser sempre assim",
+      "eu ja conheco esse ciclo",
+      "ja conheco esse ciclo",
+      "tenho certeza do que vai acontecer",
+      "eu tenho certeza absoluta",
+      "nao tenho duvidas sobre isso",
+      "isso e um fato",
+      "eu estou 100 por cento certo",
+      "100 por cento certo",
+      "100% certo",
+      "eu ja vi isso mil vezes",
+      "sempre igual"
     ]
   },
 
@@ -75,16 +104,24 @@ export const heuristicasTriggerMap: HeuristicaTrigger[] = [
   {
     arquivo: "eco_heuristica_certeza_emocional.txt",
     gatilhos: [
-      "claramente certo",
-      "ja esta decidido",
-      "e evidente",
-      "eu tinha certeza",
-      "tudo confirmava",
-      "era obvio demais",
-      "nao podia estar enganado",
-      "intuicao dizia isso",
-      "estava tudo alinhado",
-      "parecia que era pra ser"
+      "eu tenho certeza",
+      "tenho certeza",
+      "com certeza",
+      "eu ja sei como termina",
+      "eu ja sei como isso vai acabar",
+      "sempre e assim",
+      "e sempre assim",
+      "nunca falha",
+      "isso e um fato",
+      "e fato",
+      "nao tem duvida",
+      "e obvio",
+      "eu sei exatamente",
+      "vai ser assim",
+      "vai dar errado de novo",
+      "todos fazem isso",
+      "ninguem muda",
+      "todo mundo e assim"
     ]
   },
 
@@ -92,49 +129,22 @@ export const heuristicasTriggerMap: HeuristicaTrigger[] = [
   {
     arquivo: "eco_heuristica_ilusao_validade.txt",
     gatilhos: [
-      "so podia ser isso",
-      "confianca absoluta",
-      "e a unica explicacao",
-      "esta tudo se encaixando",
-      "nao tenho mais duvidas",
-      "sei exatamente onde isso vai parar",
-      "claro como o dia",
-      "nao tem como ser diferente",
-      "eu sinto isso com muita forca"
-    ]
-  },
-
-  // ── Lei dos pequenos numeros: generalizar por amostra minima
-  {
-    arquivo: "eco_heuristica_lei_pequenos_numeros.txt",
-    gatilhos: [
-      "funcionou tres vezes",
-      "so precisei de dois casos",
-      "com pouca amostra deu certo",
-      "amostra muito pequena"
-    ]
-  },
-
-  // ── Regressao a media: picos tendem a normalizar (lido como perda/culpa)
-  {
-    arquivo: "eco_heuristica_regressao_media.txt",
-    gatilhos: [
-      "perdi a mao",
-      "pior que antes",
-      "nunca consigo manter",
-      "desandou de novo",
-      "deve ter sido sorte"
-    ]
-  },
-
-  // ── Base-rate/causalidade aparente: ignora taxa base e estereotipa
-  {
-    arquivo: "eco_heuristica_taxabase_causal.txt",
-    gatilhos: [
-      "so acontece ali",
-      "sempre esse grupo",
-      "gente desse tipo e assim",
-      "ja sei como esse pessoal e"
+      "tenho certeza",
+      "certeza absoluta",
+      "nao tenho duvidas",
+      "estava tudo indicando isso",
+      "todos os sinais mostravam",
+      "nao tem como dar errado",
+      "vai dar certo com certeza",
+      "minha intuicao nunca falha",
+      "minha leitura sempre acerta",
+      "eu sei ler as pessoas",
+      "eu sempre acerto",
+      "eu ja conheco esse padrao",
+      "ja conheco esse padrao",
+      "isso e um fato",
+      "100 por cento certo",
+      "100% certo"
     ]
   },
 
@@ -142,40 +152,76 @@ export const heuristicasTriggerMap: HeuristicaTrigger[] = [
   {
     arquivo: "eco_heuristica_intuicao_especialista.txt",
     gatilhos: [
+      "especialista confiavel",
+      "mentor experiente",
+      "autoridade no assunto",
+      "muito experiente",
+      "experiencia dele",
+      "experiencia dela",
       "ele sempre acerta",
-      "ela tem um feeling",
-      "a experiencia dele basta",
-      "nao tem como ela errar",
-      "confio no faro dele",
-      "segui o que ele sentiu"
+      "ela sempre acerta",
+      "acerta sempre",
+      "nunca erra",
+      "sente essas coisas",
+      "tem intuicao apurada",
+      "ele sabe das coisas",
+      "ela sabe das coisas",
+      "confio porque acerta",
+      "historico de acertos",
+      "segui a intuicao dele",
+      "segui a intuicao dela"
     ]
   },
 
-  // ── Ilusao de compreensao (hindsight): ja era obvio depois que aconteceu
+  // ── Regressao a media: picos/vales seguidos de retorno natural
   {
-    arquivo: "heuristica_ilusao_compreensao.txt",
+    arquivo: "eco_heuristica_regressao_media.txt",
+    gatilhos: [
+      "depois do pico caiu",
+      "queda de desempenho",
+      "caiu desempenho",
+      "desandou depois",
+      "regredi no desempenho",
+      "voltei ao normal",
+      "voltei a piorar",
+      "um erro prova tudo",
+      "um erro mostra tudo",
+      "perdi a mao",
+      "foi so sorte",
+      "foi so azar",
+      "depois do elogio errei",
+      "uma critica define",
+      "um elogio define",
+      "um dia otimo outro pessimo",
+      "montanha russa",
+      "estava indo bem e falhei",
+      "tudo desmoronou",
+      "nada mais funciona"
+    ]
+  },
+
+  // ── Ilusao de compreensao do passado (hindsight)
+  {
+    arquivo: "eco_heuristica_ilusao_compreensao_passado.txt",
     gatilhos: [
       "eu sabia que ia dar errado",
-      "era obvio demais",
-      "claro que isso ia acontecer",
-      "sempre soube disso",
-      "ja dava pra ver",
-      "estava na cara",
-      "todo mundo dizia",
-      "nao era surpresa",
-      "ja esperava por isso"
-    ]
-  },
-
-  // ── Previsao regressiva: extrapola linha reta (otimismo/pessimismo)
-  {
-    arquivo: "heuristica_previsao_regressiva.txt",
-    gatilhos: [
-      "vai explodir de crescer",
-      "isso vai bombar",
-      "certeza de sucesso",
-      "vai fracassar com certeza",
-      "nada vai segurar isso"
+      "eu sabia que ia dar certo",
+      "era obvio",
+      "sempre foi obvio",
+      "ficou claro depois",
+      "dava para prever",
+      "todo mundo sabia",
+      "estava escrito",
+      "inevitavel",
+      "so podia acabar assim",
+      "ele sempre foi um fracassado",
+      "ela conseguiu porque e perfeita",
+      "sempre foi assim",
+      "agora faz todo sentido",
+      "olhando agora era claro",
+      "no fundo eu sempre soube",
+      "resultado mostrou quem ele e",
+      "resultado mostrou quem eu sou"
     ]
   }
 ];
@@ -189,13 +235,10 @@ export const tagsPorHeuristica: Record<string, string[]> = {
     "caso_unico", "estatistica_ignore", "historia_forte"
   ],
   "eco_heuristica_disponibilidade.txt": [
-    "disponibilidade", "repeticao_midia"
-  ],
-  "eco_heuristica_disponibilidade_emocao_risco.txt": [
-    "disponibilidade_risco", "medo", "memoria_viva"
+    "disponibilidade", "memoria_viva"
   ],
   "eco_heuristica_excesso_confianca.txt": [
-    "excesso_confianca", "certeza", "arrogancia"
+    "excesso_confianca", "certeza", "conviccao_rigida"
   ],
   "eco_heuristica_certeza_emocional.txt": [
     "certeza_emocional", "coerencia_narrativa", "conviccao_rapida"
@@ -203,22 +246,13 @@ export const tagsPorHeuristica: Record<string, string[]> = {
   "eco_heuristica_ilusao_validade.txt": [
     "ilusao_validade", "validacao_subjetiva", "superconfianca", "feedback_limitado"
   ],
-  "eco_heuristica_lei_pequenos_numeros.txt": [
-    "pequena_amostra", "lei_numeros", "generalizacao"
-  ],
-  "eco_heuristica_regressao_media.txt": [
-    "regressao_media", "sorte", "volta_normal"
-  ],
-  "eco_heuristica_taxabase_causal.txt": [
-    "taxabase", "estereotipo", "causalidade_aparente"
-  ],
   "eco_heuristica_intuicao_especialista.txt": [
     "intuicao_especialista", "autoridade_confianca", "ambiente_instavel", "feedback_ausente"
   ],
-  "heuristica_ilusao_compreensao.txt": [
-    "ilusao_compreensao", "narrativa_passado", "certeza_excessiva", "explicacao_causal_simples"
+  "eco_heuristica_regressao_media.txt": [
+    "regressao_media", "oscilacao", "volta_normal"
   ],
-  "heuristica_previsao_regressiva.txt": [
-    "previsao_regressiva", "super_otimismo", "super_pessimismo"
+  "eco_heuristica_ilusao_compreensao_passado.txt": [
+    "ilusao_compreensao", "narrativa_passado", "certeza_excessiva", "explicacao_causal_simples"
   ]
 };

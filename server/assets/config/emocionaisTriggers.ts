@@ -1,79 +1,82 @@
+// assets/config/emocionaisTriggers.ts
+
 export interface ModuloEmocionalTrigger {
   arquivo: string;
   gatilhos: string[];
   relacionado?: string[];
   tags?: string[];
+  emocoes?: string[];
   intensidadeMinima?: number;
 }
 
 export const emocionaisTriggerMap: ModuloEmocionalTrigger[] = [
   {
     arquivo: "eco_vulnerabilidade_mitos.txt",
+    intensidadeMinima: 3, // ativa de leve pra cima
     gatilhos: [
-      "mostrar o que sinto",         // pega “mostrar meus sentimentos…”
-      "parece fraqueza sentir",      // pega “sentir demais é fraqueza…”
-      "nao posso me abrir",          // acentos removidos no normalizador
-      "perigoso se abrir",
-      "me proteger emocionalmente",
-      "nao quero parecer vulneravel"
+      "vulnerabilidade e fraqueza",
+      "nao posso demonstrar fraqueza",
+      "tenho que ser forte sempre",
+      "mostrar sentimento e fraqueza",
+      "nao posso chorar",
+      "preciso manter controle",
+      "tenho que me proteger sempre",
+      "se eu me abrir vou ser julgado",
+      "medo de me expor",
+      "prefiro nao sentir"
     ],
-    relacionado: [
-      "eco_identificacao_mente.txt",
-      "eco_corpo_emocao.txt",
-      "eco_heuristica_disponibilidade_emocao_risco.txt"
-    ],
-    tags: ["vulnerabilidade", "medo", "autoprotecao", "coragem", "inseguranca"],
-    intensidadeMinima: 5
+    tags: ["vulnerabilidade", "armadura", "medo_de_julgamento", "controle", "pertencimento"],
+    emocoes: ["medo", "vergonha", "ansiedade"],
+    relacionado: ["eco_corpo_emocao.txt", "eco_identificacao_mente.txt"]
   },
+
   {
     arquivo: "eco_emo_vergonha_combate.txt",
+    intensidadeMinima: 4, // ativa a partir de moderado
     gatilhos: [
+      "tenho vergonha",
+      "sinto vergonha",
+      "medo de julgamento",
+      "medo de ser rejeitado",
+      "vao descobrir",
       "sou um fracasso",
       "sou uma decepcao",
-      "me sinto indigno",
+      "sou defeituoso",
+      "sou errado",
       "nao sou bom o bastante",
-      "ninguem me aceitaria",
-      "tenho vergonha",
-      "medo de ser julgado",
-      "me sinto errado",
-      "sou um erro",
-      "nao quero que descubram",
-      "odeio parecer fraco",
-      "escondo meus erros",
-      "finjo que nao me importo",
-      "me justifico quando erro"
+      "nao pertenco",
+      "me sinto indigno"
     ],
-    relacionado: [
-      "eco_identificacao_mente.txt",
-      "eco_corpo_emocao.txt"
-    ],
-    tags: ["vergonha", "vulnerabilidade", "autocritica", "inadequacao", "rejeicao", "autoimagem", "defesa emocional", "culpa"],
-    intensidadeMinima: 6
+    tags: ["vergonha", "inadequacao", "rejeicao", "autoimagem", "pertencimento"],
+    emocoes: ["vergonha", "culpa"],
+    relacionado: ["eco_vulnerabilidade_mitos.txt"]
   },
+
   {
     arquivo: "eco_vulnerabilidade_defesas.txt",
+    intensidadeMinima: 4, // pode entrar até em alta se fizer sentido
     gatilhos: [
-      "nao posso sentir",
-      "parecer forte o tempo todo",
-      "nao gosto de depender",
-      "evito demonstrar",
-      "nao quero que saibam",
-      "me sinto fraco quando choro",
-      "prefiro lidar sozinho",
-      "me protejo escondendo",
-      "nao posso baixar a guarda",
-      "me sinto exposto",
-      "fico na defensiva",
-      "evito pensar no que machuca",
-      "nao quero parecer vulneravel",
-      "desconforto com proximidade"
+      "me fecho",
+      "nao mostro o que sinto",
+      "sempre forte",
+      "nao posso demonstrar fraqueza",
+      "evito sentir",
+      "fugir da emocao",
+      "so trabalho",
+      "produtividade sem parar",
+      "perfeccionista",
+      "preciso ser perfeito",
+      "autodepreciacao",
+      "me diminuo antes",
+      "eu me saboto",
+      "me escondo",
+      "medo de me expor",
+      "culpo os outros",
+      "ataco antes",
+      "defendo antes"
     ],
-    relacionado: [
-      "eco_identificacao_mente.txt",
-      "eco_corpo_emocao.txt",
-      "eco_heuristica_disponibilidade_emocao_risco.txt"
-    ],
-    tags: ["vulnerabilidade", "defesa emocional", "evitacao", "medo de julgamento", "esconder emocoes", "controle", "rigidez", "isolamento", "inseguranca", "perfeccionismo"],
-    intensidadeMinima: 5
+    tags: ["defesas", "vulnerabilidade", "perfeccionismo", "evitamento", "autoprotecao"],
+    emocoes: ["medo", "vergonha", "ansiedade"],
+    relacionado: ["eco_vulnerabilidade_mitos.txt", "eco_corpo_emocao.txt"]
   }
 ];

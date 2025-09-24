@@ -137,17 +137,6 @@ export class ContextBuilder {
     const flags = derivarFlags(entrada);
     const baseSel = selecionarModulosBase({ nivel, intensidade: intensidadeContexto, matriz, flags });
 
-    // extras (rankeados)
-    const extras = selecionarExtras({
-      userId: input.userId,
-      entrada,
-      nivel,
-      intensidade: intensidadeContexto,
-      memsUsadas,
-      heuristicaAtiva: undefined,
-      heuristicasEmbedding: input.heuristicas,
-    });
-
     // ===== contexto / overhead =====
     const contextoMin = contexto.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
     const enc = ENC;
@@ -178,7 +167,8 @@ Se a mensagem do usuário for apenas uma saudação breve, não repita a saudaç
       guardrails: { no_new_topics_on_closure: true, max_new_prompts: 1 },
     };
 
-    const followPlanGuard = `- Siga o RESPONSE_PLAN: no máximo 1 pergunta viva (se allow_live_question=true) e no máximo 1 micro-prática (se allow_micro_practice=true). Slots são opcionais.`;
+    const followPlanGuard =
+      `- Siga o RESPONSE_PLAN: no máximo 1 pergunta viva (se allow_live_question=true) e no máximo 1 micro-prática (se allow_micro_practice=true). Slots são opcionais.`;
 
     const instrucoesFinais = `
 ⚠️ INSTRUÇÃO AO MODELO:
@@ -199,8 +189,9 @@ Se a mensagem do usuário for apenas uma saudação breve, não repita a saudaç
     });
     const overheadTokens = enc.encode(overhead).length;
 
+    // ⚠️ Floor em 0 (evita exceder MAX_PROMPT_TOKENS)
     const budgetRestante = Math.max(
-      1000,
+      0,
       MAX_PROMPT_TOKENS - tokensContexto - overheadTokens - MARGIN_TOKENS
     );
 
@@ -212,7 +203,7 @@ Se a mensagem do usuário for apenas uma saudação breve, não repita a saudaç
 
       const stitched = await this.budgeter.stitch(nomesNv1, {
         budgetTokens: Math.min(budgetRestante, NIVEL1_BUDGET),
-        // prioridade não é crítica para NV1, mas já podemos respeitar a unificada
+        // prioridade não é crítica para NV1, mas já respeitamos a unificada
         priority: buildUnifiedPriority(matriz),
       });
 
@@ -243,6 +234,17 @@ Se a mensagem do usuário for apenas uma saudação breve, não repita a saudaç
     }
 
     // ===== NV2 / NV3 =====
+    // Extras só fazem sentido aqui (evita custo desnecessário no NV1)
+    const extras = selecionarExtras({
+      userId: input.userId,
+      entrada,
+      nivel,
+      intensidade: intensidadeContexto,
+      memsUsadas,
+      heuristicaAtiva: undefined,
+      heuristicasEmbedding: input.heuristicas,
+    });
+
     const nomesPre = uniqPreservingOrder([...baseSel.selecionados, ...extras]);
 
     // ✅ prioridade unificada (V2: baseModules primeiro, depois limites.prioridade)
