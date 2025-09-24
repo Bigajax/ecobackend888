@@ -1,36 +1,35 @@
 // server/lib/supabaseAdmin.ts
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
-let cached: SupabaseClient | null = null;
+const url =
+  process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || "";
+const serviceKey =
+  process.env.SUPABASE_SERVICE_ROLE_KEY ||
+  process.env.SUPABASE_SECRET ||
+  process.env.SUPABASE_KEY ||
+  "";
 
-export default function getSupabaseAdmin(): SupabaseClient {
-  if (cached) return cached;
+if (!url || !serviceKey) {
+  const missing = [
+    !url ? "SUPABASE_URL (ou NEXT_PUBLIC_SUPABASE_URL)" : null,
+    !serviceKey
+      ? "SUPABASE_SERVICE_ROLE_KEY (ou SUPABASE_SECRET/SUPABASE_KEY)"
+      : null,
+  ]
+    .filter(Boolean)
+    .join(", ");
 
-  const url =
-    process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || "";
-  const serviceKey =
-    process.env.SUPABASE_SERVICE_ROLE_KEY ||
-    process.env.SUPABASE_SECRET ||
-    process.env.SUPABASE_KEY ||
-    "";
-
-  if (!url || !serviceKey) {
-    const missing = [
-      !url ? "SUPABASE_URL (ou NEXT_PUBLIC_SUPABASE_URL)" : null,
-      !serviceKey ? "SUPABASE_SERVICE_ROLE_KEY (ou SUPABASE_SECRET/SUPABASE_KEY)" : null,
-    ]
-      .filter(Boolean)
-      .join(", ");
-
-    throw new Error(
-      `Supabase admin não configurado: defina ${missing} nas variáveis de ambiente.`
-    );
-  }
-
-  cached = createClient(url, serviceKey, {
-    auth: { autoRefreshToken: false, persistSession: false },
-    // opcional: headers, schema, etc.
-  });
-  return cached;
+  throw new Error(
+    `Supabase admin não configurado: defina ${missing} nas variáveis de ambiente.`
+  );
 }
 
+/**
+ * Cliente Supabase admin singleton
+ * - usa service role key
+ * - sem persistência de sessão
+ */
+export const supabase: SupabaseClient = createClient(url, serviceKey, {
+  auth: { autoRefreshToken: false, persistSession: false },
+  // opcional: headers, schema etc.
+});
