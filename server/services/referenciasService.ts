@@ -1,6 +1,6 @@
 // services/referenciasService.ts
-import supabaseAdmin from '../lib/supabaseAdmin';
-import { unitNorm } from './embeddingService';
+import getSupabaseAdmin from "../lib/supabaseAdmin";
+import { unitNorm } from "./embeddingService";
 
 interface BlocoTecnicoBase {
   usuario_id: string;
@@ -26,12 +26,18 @@ const clamp = (n: number, min: number, max: number) => Math.min(Math.max(n, min)
 
 function sanitizeTags(tags?: string[] | null): string[] | null {
   if (!Array.isArray(tags) || tags.length === 0) return null;
-  const cleaned = Array.from(new Set(tags.map(t => (typeof t === 'string' ? t.trim() : '')).filter(Boolean)));
+  const cleaned = Array.from(
+    new Set(
+      tags
+        .map((t) => (typeof t === "string" ? t.trim() : ""))
+        .filter(Boolean)
+    )
+  );
   return cleaned.slice(0, 16);
 }
 
 function sanitizeTexto(s: string, cap = 8000): string {
-  return (s || '').toString().trim().replace(/\s+/g, ' ').slice(0, cap);
+  return (s || "").toString().trim().replace(/\s+/g, " ").slice(0, cap);
 }
 
 function orNull<T>(v: T | undefined | null): T | null {
@@ -45,13 +51,13 @@ function orNull<T>(v: T | undefined | null): T | null {
  */
 export async function salvarReferenciaTemporaria(bloco: ReferenciaPayload) {
   try {
-    if (!bloco?.usuario_id) throw new Error('usuario_id ausente');
-    if (!bloco?.resumo_eco) throw new Error('resumo_eco ausente');
-    if (!bloco?.contexto) throw new Error('contexto ausente');
-    if (typeof bloco.intensidade !== 'number') throw new Error('intensidade ausente');
+    if (!bloco?.usuario_id) throw new Error("usuario_id ausente");
+    if (!bloco?.resumo_eco) throw new Error("resumo_eco ausente");
+    if (!bloco?.contexto) throw new Error("contexto ausente");
+    if (typeof bloco.intensidade !== "number") throw new Error("intensidade ausente");
 
     // normalizações & sanitização
-    const payload: any = {
+    const payload: Record<string, any> = {
       usuario_id: bloco.usuario_id,
       mensagem_id: orNull(bloco.mensagem_id),
       referencia_anterior_id: orNull(bloco.referencia_anterior_id),
@@ -61,7 +67,7 @@ export async function salvarReferenciaTemporaria(bloco: ReferenciaPayload) {
       contexto: sanitizeTexto(bloco.contexto, 8000),
       dominio_vida: orNull(bloco.dominio_vida?.trim?.() || bloco.dominio_vida || null),
       padrao_comportamental: orNull(bloco.padrao_comportamental?.trim?.() || bloco.padrao_comportamental || null),
-      nivel_abertura: typeof bloco.nivel_abertura === 'number' ? bloco.nivel_abertura : null,
+      nivel_abertura: typeof bloco.nivel_abertura === "number" ? bloco.nivel_abertura : null,
       analise_resumo: orNull(bloco.analise_resumo?.trim?.() || bloco.analise_resumo || null),
       categoria: orNull(bloco.categoria?.trim?.() || bloco.categoria || null),
       tags: sanitizeTags(bloco.tags),
@@ -73,14 +79,17 @@ export async function salvarReferenciaTemporaria(bloco: ReferenciaPayload) {
       payload.embedding = unitNorm(bloco.embedding);
     }
 
-    const { data, error } = await supabaseAdmin
-      .from('referencias_temporarias')
+    // ⚠️ pegue o client chamando o factory
+    const supabase = getSupabaseAdmin();
+
+    const { data, error } = await supabase
+      .from("referencias_temporarias")
       .insert([payload])
-      .select('id, created_at')  // útil para confirmar
+      .select("id, created_at") // útil para confirmar
       .single();
 
     if (error) {
-      console.error('❌ Erro ao salvar referência temporária:', {
+      console.error("❌ Erro ao salvar referência temporária:", {
         message: error.message,
         details: (error as any)?.details ?? null,
         hint: (error as any)?.hint ?? null,
@@ -93,10 +102,16 @@ export async function salvarReferenciaTemporaria(bloco: ReferenciaPayload) {
       throw error;
     }
 
-    console.log('✅ Referência temporária salva:', { id: data?.id, created_at: data?.created_at });
+    console.log("✅ Referência temporária salva:", {
+      id: (data as any)?.id,
+      created_at: (data as any)?.created_at,
+    });
     return data;
   } catch (err) {
-    console.error('❌ Erro inesperado em salvarReferenciaTemporaria:', (err as Error).message);
+    console.error(
+      "❌ Erro inesperado em salvarReferenciaTemporaria:",
+      (err as Error).message
+    );
     throw err;
   }
 }

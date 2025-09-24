@@ -21,7 +21,10 @@ import { claudeChatCompletion } from "../core/ClaudeAdapter";
 import { GreetGuard } from "../policies/GreetGuard";
 import { getDerivados, insightAbertura } from "../services/derivadosService";
 import { buscarHeuristicasSemelhantes } from "../services/heuristicaService";
-import { montarContextoEco } from "../services/promptContext";
+
+// 👉 usa o builder exportado pelo barrel services/promptContext/index.ts
+import { ContextBuilder } from "../services/promptContext";
+
 import {
   respostaSaudacaoAutomatica,
   type Msg as SaudMsg,
@@ -61,7 +64,7 @@ function stripIdentityCorrection(text: string, nome?: string) {
 
 function isLowComplexity(texto: string) {
   const t = (texto || "").trim();
-  if (t.length <= 140) return true; // levemente mais permissivo
+  if (t.length <= 140) return true;
   const words = t.split(/\s+/).length;
   if (words <= 22) return true;
   return !/crise|p[aâ]nico|desesper|vontade de sumir|explod|insuport|plano detalhado|passo a passo/i.test(
@@ -112,7 +115,11 @@ async function withTimeoutOrNull<T>(
   }
 }
 
-// ⚙️ cache com chave estável (userId + nivel derivado + intensidade máx de memórias)
+/**
+ * ⚙️ Monta (ou recupera) o contexto com cache por (userId, nível, intensidade).
+ * Observação: o ContextBuilder já inclui "Mensagem atual: ..." no prompt final.
+ * Portanto, não concatenamos novamente ao ler do cache.
+ */
 async function montarContextoOtimizado(params: any) {
   const entrada = String(params.texto ?? "");
   const saudacaoBreve = detectarSaudacaoBreve(entrada);
@@ -125,15 +132,20 @@ async function montarContextoOtimizado(params: any) {
     intensidade
   )}`;
 
-  if (PROMPT_CACHE.has(cacheKey)) {
+  const cached = PROMPT_CACHE.get(cacheKey);
+  if (cached) {
     if (isDebug()) log.debug("[Orchestrator] contexto via cache", { cacheKey });
-    return PROMPT_CACHE.get(cacheKey)! + `\n\nMensagem atual: ${params.texto}`;
+    return cached; // ✅ já inclui "Mensagem atual: ..."
   }
+
   const t0 = Date.now();
-  const contexto = await montarContextoEco(params);
+  const contexto = await ContextBuilder.build(params); // ✅ usa builder unificado
   if (isDebug())
     log.debug("[Orchestrator] contexto construído", { ms: Date.now() - t0 });
+
+  // NV1 tende a se repetir mais — cache curto ajuda
   if (nivel <= 2) PROMPT_CACHE.set(cacheKey, contexto);
+
   return contexto;
 }
 

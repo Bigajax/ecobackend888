@@ -1,5 +1,6 @@
-import { Router, Request, Response } from "express";
-import supabaseAdmin from "../lib/supabaseAdmin";
+// routes/perfilEmocional.routes.ts (ou caminho equivalente)
+import { Router, type Request, type Response } from "express";
+import getSupabaseAdmin from "../lib/supabaseAdmin";
 import { updateEmotionalProfile } from "../services/updateEmotionalProfile";
 
 const router = Router();
@@ -36,7 +37,8 @@ function getUserIdFromReq(req: Request): string | null {
 }
 
 async function carregarPerfil(userId: string) {
-  const { data, error } = await supabaseAdmin
+  const supabase = getSupabaseAdmin();
+  const { data, error } = await supabase
     .from("perfis_emocionais")
     .select(
       `

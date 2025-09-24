@@ -6,6 +6,10 @@
  * - Deduplica módulos.
  * - Anota cortes com motivo (+tokens que faltaram).
  * - Permite reservar tokens para separadores e margem final.
+ *
+ * OBS: Exporta a classe `Budgeter` (named export) para compatibilidade com imports:
+ *   import { Budgeter } from './Budgeter';
+ * Também exporta as funções puras `budgetModules` e `debugBudgetInfo`.
  */
 
 export type BudgetInput = {
@@ -56,7 +60,7 @@ function moduleCost(tokens: number, sep: number): number {
 }
 
 /**
- * Aplica orçamento.
+ * Aplica orçamento (versão funcional pura).
  * Estratégia:
  *   - Percorre `ordered` deduplicado.
  *   - Inclui módulo se couber no orçamento restante (considerando safetyMargin).
@@ -80,7 +84,8 @@ export function budgetModules({
   const hardCap = Math.max(0, budgetTokens - safetyMarginTokens);
 
   for (const name of list) {
-    const modTokens = Math.max(0, tokenOf(name) | 0); // defensivo
+    const modTokensRaw = tokenOf(name);
+    const modTokens = Number.isFinite(modTokensRaw) ? Math.max(0, modTokensRaw | 0) : 0;
     const addCost = moduleCost(modTokens, sep);
 
     // Cabe? (usar hardCap para manter margem)
@@ -125,3 +130,83 @@ export function debugBudgetInfo(
     safetyMarginTokens,
   };
 }
+
+/* ==================================================================== */
+/*  CLASSE Budgeter (compat com "new Budgeter(...)")                     */
+/* ==================================================================== */
+
+export class Budgeter {
+  private tokenOf: (name: string) => number;
+  private budgetTokens: number;
+  private sepTokens: number;
+  private safetyMarginTokens: number;
+
+  /**
+   * @param maxTokens Orçamento total (exclui overhead de sistema)
+   * @param tokenOf Função para obter tokens por módulo
+   * @param sepTokens Tokens por separador (default 1)
+   * @param safetyMarginTokens Reserva de segurança (default 0)
+   */
+  constructor(
+    maxTokens: number,
+    tokenOf: (name: string) => number,
+    sepTokens = 1,
+    safetyMarginTokens = 0
+  ) {
+    this.budgetTokens = Math.max(0, maxTokens | 0);
+    this.tokenOf = tokenOf;
+    this.sepTokens = coalesceSep(sepTokens);
+    this.safetyMarginTokens = Math.max(0, safetyMarginTokens | 0);
+  }
+
+  /**
+   * Planeja os módulos que cabem no orçamento respeitando a ordem.
+   */
+  plan(ordered: string[]): BudgetResult {
+    return budgetModules({
+      ordered,
+      tokenOf: this.tokenOf,
+      budgetTokens: this.budgetTokens,
+      sepTokens: this.sepTokens,
+      safetyMarginTokens: this.safetyMarginTokens,
+    });
+  }
+
+  /**
+   * Atualiza o orçamento total.
+   */
+  setBudgetTokens(v: number) {
+    this.budgetTokens = Math.max(0, v | 0);
+  }
+
+  /**
+   * Atualiza o custo de separador.
+   */
+  setSepTokens(v: number) {
+    this.sepTokens = coalesceSep(v);
+  }
+
+  /**
+   * Atualiza a margem de segurança.
+   */
+  setSafetyMarginTokens(v: number) {
+    this.safetyMarginTokens = Math.max(0, v | 0);
+  }
+
+  /**
+   * Atualiza a função de custo por módulo (tokens).
+   */
+  setTokenOf(fn: (name: string) => number) {
+    this.tokenOf = fn;
+  }
+
+  /**
+   * Helper estático para um *one-off*.
+   */
+  static run(input: BudgetInput): BudgetResult {
+    return budgetModules(input);
+  }
+}
+
+// (Opcional) default export, caso algum arquivo use `import Budgeter from './Budgeter'`
+export default Budgeter;

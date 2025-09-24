@@ -5,13 +5,12 @@ import dotenv from "dotenv";
 
 // ---------- Carregamento .env robusto (dist-friendly) ----------
 (function loadEnv() {
-  // 1) DOTENV_PATH explícito
   const explicit = process.env.DOTENV_PATH;
   if (explicit && fs.existsSync(explicit)) {
     dotenv.config({ path: explicit });
     return;
   }
-  // 2) ../.env relativo ao arquivo compilado (dist/src/server.js -> dist/.env ou ../.env)
+
   const tryPaths = [
     path.resolve(__dirname, "../.env"),
     path.resolve(__dirname, "../../.env"),
@@ -28,6 +27,7 @@ import dotenv from "dotenv";
 import express, { Request, Response, NextFunction } from "express";
 import cors from "cors";
 
+// Rotas
 import promptRoutes from "./routes/promptRoutes";
 import memoryRoutes from "./routes/memoryRoutes";
 import profileRoutes from "./routes/perfilEmocionalRoutes";
@@ -37,8 +37,11 @@ import openrouterRoutes from "./routes/openrouterRoutes";
 import relatorioRoutes from "./routes/relatorioEmocionalRoutes";
 import feedbackRoutes from "./routes/feedback";
 
-import { registrarTodasHeuristicas } from "./services/registrarTodasHeuristicas";
-import { registrarModulosFilosoficos } from "./services/registrarModulosFilosoficos";
+// Jobs de registro (imports **default**)
+import registrarTodasHeuristicas from "./services/registrarTodasHeuristicas";
+import registrarModulosFilosoficos from "./services/registrarModulosFilosoficos";
+
+// Logger
 import { log } from "./services/promptContext/logger";
 
 const app = express();
@@ -48,11 +51,6 @@ const PORT = Number(process.env.PORT || 3001);
 app.set("trust proxy", 1);
 
 /* ----------------------------- CORS ----------------------------- */
-/**
- * Allowlist padrão + regex para previews do Vercel.
- * Pode adicionar mais origens via env:
- *   CORS_ALLOW_ORIGINS="https://minha.app,https://outra.com"
- */
 const defaultAllow = [
   "https://ecofrontend888.vercel.app",
   "http://localhost:3000",
@@ -85,10 +83,10 @@ const corsOptions: cors.CorsOptions = {
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With", "Accept", "Origin"],
   optionsSuccessStatus: 204,
-  maxAge: 86400, // cache do preflight por 24h
+  maxAge: 86400, // 24h
 };
 
-// Cabeçalhos de Vary para caches (CDN/proxy) tratarem CORS corretamente
+// Vary para caches tratarem CORS corretamente
 app.use((req, res, next) => {
   res.setHeader("Vary", "Origin, Access-Control-Request-Method, Access-Control-Request-Headers");
   next();
@@ -131,7 +129,7 @@ app.use("/api", openrouterRoutes); // /api/ask-eco
 app.use("/api/relatorio-emocional", relatorioRoutes);
 app.use("/api/feedback", feedbackRoutes);
 
-// Retrocompat (suporta chamadas antigas como /memorias/similares)
+// Retrocompat
 app.use("/memorias", memoryRoutes);
 app.use("/perfil-emocional", profileRoutes);
 app.use("/relatorio-emocional", relatorioRoutes);
@@ -139,7 +137,6 @@ app.use("/relatorio-emocional", relatorioRoutes);
 /* ----------------------- 404 & Error handler ------------------- */
 // 404
 app.use((req: Request, res: Response) => {
-  // mantém CORS também em 404
   const origin = req.headers.origin as string | undefined;
   if (origin && (allowList.has(origin) || vercelRegex.test(origin))) {
     res.setHeader("Access-Control-Allow-Origin", origin);
@@ -150,17 +147,13 @@ app.use((req: Request, res: Response) => {
 
 // Error handler
 app.use((err: any, req: Request, res: Response, _next: NextFunction) => {
-  // garante headers CORS também em erros
   const origin = req.headers.origin as string | undefined;
   if (origin && (allowList.has(origin) || vercelRegex.test(origin))) {
     res.setHeader("Access-Control-Allow-Origin", origin);
     res.setHeader("Access-Control-Allow-Credentials", "true");
   }
-
-  // Se for preflight que caiu aqui, devolve 204
   if (req.method === "OPTIONS") return res.sendStatus(204);
 
-  // Log estruturado do erro
   log.error("Erro não tratado:", {
     message: err?.message,
     stack: err?.stack,

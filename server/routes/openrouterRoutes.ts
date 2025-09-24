@@ -1,12 +1,13 @@
-import express from "express";
-import supabaseAdmin from "../lib/supabaseAdmin";
+// routes/openrouterRoutes.ts
+import express, { type Request, type Response } from "express";
+import getSupabaseAdmin from "../lib/supabaseAdmin";
 
 import { getEcoResponse } from "../services/ConversationOrchestrator";
 import { embedTextoCompleto } from "../services/embeddingService";
 import { buscarMemoriasSemelhantes } from "../services/buscarMemorias";
 
 // montar contexto e log
-import { ContextBuilder } from "../services/promptContext/ContextBuilder";
+import { ContextBuilder } from "../services/promptContext";
 import { log, isDebug } from "../services/promptContext/logger";
 
 const router = express.Router();
@@ -24,7 +25,7 @@ function normalizarMensagens(body: any): Array<{ role: string; content: any }> |
   return null;
 }
 
-router.post("/ask-eco", async (req, res) => {
+router.post("/ask-eco", async (req: Request, res: Response) => {
   const { usuario_id, nome_usuario } = req.body;
   const mensagensParaIA = normalizarMensagens(req.body);
 
@@ -40,7 +41,9 @@ router.post("/ask-eco", async (req, res) => {
   }
 
   try {
-    const { data, error } = await supabaseAdmin.auth.getUser(token);
+    // Supabase (lazy)
+    const supabase = getSupabaseAdmin();
+    const { data, error } = await supabase.auth.getUser(token);
     if (error || !data?.user) {
       return res.status(401).json({ error: "Token inválido ou usuário não encontrado." });
     }
@@ -62,7 +65,7 @@ router.post("/ask-eco", async (req, res) => {
 
     // threshold adaptativo
     let threshold = 0.15;
-    if (ultimaMsg.trim().length < 20) threshold = 0.10;
+    if (ultimaMsg.trim().length < 20) threshold = 0.1;
     if (/lembr|record|memó/i.test(ultimaMsg)) threshold = Math.min(threshold, 0.12);
 
     // memórias
@@ -83,8 +86,7 @@ router.post("/ask-eco", async (req, res) => {
       memsSimilares = [];
     }
 
-    // ===== monta contexto com ContextBuilder =====
-    const builder = new ContextBuilder();
+    // ===== monta contexto com ContextBuilder (sem 'new') =====
     const buildIn = {
       userId: usuario_id,
       texto: ultimaMsg,
@@ -95,14 +97,11 @@ router.post("/ask-eco", async (req, res) => {
       forcarMetodoViva: req.body?.forcarMetodoViva ?? false,
       aberturaHibrida: req.body?.aberturaHibrida ?? null,
     };
-    const { prompt, meta } = await builder.build(buildIn);
+    const prompt = await ContextBuilder.build(buildIn);
 
     if (isDebug()) {
       log.debug("[ask-eco] Contexto montado", {
-        tokens: meta?.tokens,
-        nivel: meta?.nivel,
-        usados: meta?.modulos?.incluidos,
-        cortados: meta?.modulos?.cortados,
+        promptLen: typeof prompt === "string" ? prompt.length : -1,
       });
     }
 
@@ -113,9 +112,8 @@ router.post("/ask-eco", async (req, res) => {
       userName: nome_usuario,
       accessToken: token,
       mems: memsSimilares,
-      // suporte no orchestrator já preparado
-      promptOverride: prompt,
-    } as any); // <- se GetEcoParams ainda não tipar promptOverride
+      promptOverride: prompt, // <- string
+    } as any); // se GetEcoParams não tipar promptOverride ainda
 
     return res.status(200).json(resposta);
   } catch (err: any) {

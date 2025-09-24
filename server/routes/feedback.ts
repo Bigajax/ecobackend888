@@ -1,6 +1,7 @@
+// routes/feedbackRoutes.ts (ou caminho equivalente)
 import { Router, type Request, type Response } from "express";
 import { z } from "zod";
-import supabaseAdmin from "../lib/supabaseAdmin";
+import getSupabaseAdmin from "../lib/supabaseAdmin";
 
 const router = Router();
 
@@ -17,16 +18,16 @@ const FeedbackSchema = z.object({
 // POST /api/feedback
 // eslint-disable-next-line @typescript-eslint/no-misused-promises
 router.post("/", async (req: Request, res: Response): Promise<void> => {
-  const parse = FeedbackSchema.safeParse(req.body);
-  if (!parse.success) {
+  const parsed = FeedbackSchema.safeParse(req.body);
+  if (!parsed.success) {
     res.status(400).json({
       error: "Payload inválido",
-      details: parse.error.flatten(),
+      details: parsed.error.flatten(),
     });
     return;
   }
 
-  const payload = parse.data;
+  const payload = parsed.data;
 
   const insertBody: Record<string, unknown> = {
     sessao_id: payload.sessaoId,
@@ -42,20 +43,29 @@ router.post("/", async (req: Request, res: Response): Promise<void> => {
     (insertBody as any).mensagem_id = payload.mensagemId;
   }
 
-  const { error } = await supabaseAdmin
-    .from("feedback_interacoes")
-    .insert(insertBody);
+  try {
+    const supabase = getSupabaseAdmin();
+    const { error } = await supabase.from("feedback_interacoes").insert(insertBody);
 
-  if (error) {
-    console.error("[feedback] insert error:", error);
+    if (error) {
+      console.error("[feedback] insert error:", error);
+      res.status(500).json({
+        error: "Falha ao salvar feedback",
+        details: error.message,
+      });
+      return;
+    }
+
+    res.status(201).json({ ok: true });
+  } catch (e: any) {
+    // erro de configuração (ex.: envs do Supabase ausentes)
+    console.error("[feedback] supabase error:", e);
     res.status(500).json({
-      error: "Falha ao salvar feedback",
-      details: error.message,
+      error: "Falha ao inicializar serviço de dados",
+      details: e?.message ?? String(e),
     });
-    return;
   }
-
-  res.json({ ok: true });
 });
 
 export default router;
+

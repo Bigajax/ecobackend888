@@ -4,11 +4,38 @@ import fetch, { Headers } from "node-fetch";
 
 dotenv.config();
 
-const ELEVEN_API_KEY = process.env.ELEVEN_API_KEY;
-const DEFAULT_VOICE_ID = (process.env.ELEVEN_VOICE_ID || "e5WNhrdI30aXpS2RSGm1").trim(); // sua voz padrão (PT-BR)
+/* ───────────────────────── helpers de env (lazy) ───────────────────────── */
 
-if (!ELEVEN_API_KEY) {
-  throw new Error("❌ ELEVEN_API_KEY não está definida.");
+function getApiKey(): string {
+  const key =
+    process.env.ELEVEN_API_KEY ||
+    process.env.ELEVENLABS_API_KEY ||
+    process.env.ELEVEN_TOKEN ||
+    "";
+  if (!key) {
+    throw new Error(
+      "ELEVEN_API_KEY não configurada. Defina ELEVEN_API_KEY (ou ELEVENLABS_API_KEY/ELEVEN_TOKEN) nas variáveis de ambiente."
+    );
+  }
+  return key.trim();
+}
+
+function getDefaultVoiceId(): string {
+  // sua voz padrão (PT-BR) — ajuste o ID se quiser
+  const vid = (process.env.ELEVEN_VOICE_ID || "e5WNhrdI30aXpS2RSGm1").trim();
+  if (!vid) {
+    throw new Error("VOICE_ID vazio/inválido (ELEVEN_VOICE_ID).");
+  }
+  return vid;
+}
+
+/** Permite decidir em runtime se TTS está habilitado sem lançar erro. */
+export function isElevenEnabled(): boolean {
+  return Boolean(
+    process.env.ELEVEN_API_KEY ||
+      process.env.ELEVENLABS_API_KEY ||
+      process.env.ELEVEN_TOKEN
+  );
 }
 
 /** aguardinha para backoff */
@@ -16,27 +43,33 @@ function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+/* ──────────────────────────── TTS principal ──────────────────────────── */
 /**
  * Gera áudio TTS usando ElevenLabs (preset CALMO).
  * - prosódia suave (stability ↑), pouca teatralidade (style ↓)
  * - mantém fidelidade de timbre (similarity_boost ↑)
  * - speaker_boost ligado para dar presença em celular
  */
-export async function generateAudio(text: string, voiceId?: string): Promise<Buffer> {
+export async function generateAudio(
+  text: string,
+  voiceId?: string
+): Promise<Buffer> {
   // --- saneamento básico
   if (typeof text !== "string") throw new Error("Texto inválido para conversão em áudio.");
   const sanitized = text.replace(/\s+/g, " ").trim();
   if (!sanitized) throw new Error("Texto vazio após saneamento.");
   const limited = sanitized.slice(0, 2400); // limite seguro
 
-  // Para PT-BR, o v2 costuma soar mais natural. (Se enviar trechos MUITO longos e quiser baratear, troque para eleven_turbo_v2_5)
-  const model = "eleven_multilingual_v2";
+  // validação lazy (só aqui)
+  const ELEVEN_API_KEY = getApiKey();
+  const vid = (voiceId || getDefaultVoiceId()).trim();
 
-  const vid = (voiceId || DEFAULT_VOICE_ID || "").trim();
-  if (!vid) throw new Error("VOICE_ID vazio/inválido.");
+  // Para PT-BR, o v2 costuma soar mais natural.
+  // (Se enviar trechos MUITO longos e quiser baratear, troque para eleven_turbo_v2_5)
+  const model = process.env.ELEVEN_MODEL_ID || "eleven_multilingual_v2";
 
   const headers = new Headers({
-    "xi-api-key": ELEVEN_API_KEY!,
+    "xi-api-key": ELEVEN_API_KEY,
     "Content-Type": "application/json",
     Accept: "audio/mpeg",
   });
@@ -51,7 +84,7 @@ export async function generateAudio(text: string, voiceId?: string): Promise<Buf
     model_id: model,
     voice_settings: {
       stability: 0.65,
-      similarity_boost: 0.90,
+      similarity_boost: 0.9,
       style: 0.12,
       use_speaker_boost: true,
     },
@@ -63,7 +96,9 @@ export async function generateAudio(text: string, voiceId?: string): Promise<Buf
    * Chama um endpoint (com ou sem /stream) com até 3 tentativas para 429/5xx.
    */
   const call = async (suffix: string) => {
-    const url = `https://api.elevenlabs.io/v1/text-to-speech/${vid}${suffix}`;
+    const url = `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(
+      vid
+    )}${suffix}`;
 
     let attempt = 0;
     const maxAttempts = 3;
@@ -105,7 +140,10 @@ export async function generateAudio(text: string, voiceId?: string): Promise<Buf
             throw new Error("Chave inválida ou sem permissão de TTS na ElevenLabs.");
           }
           if (resp.status === 404) throw new Error("VOICE_ID inválido/não encontrado.");
-          if (resp.status === 422) throw new Error("Requisição inválida (texto vazio/curto ou parâmetros inconsistentes).");
+          if (resp.status === 422)
+            throw new Error(
+              "Requisição inválida (texto vazio/curto ou parâmetros inconsistentes)."
+            );
 
           const e: any = new Error(`ElevenLabs ${resp.status}: ${resp.statusText}`);
           e.status = resp.status;

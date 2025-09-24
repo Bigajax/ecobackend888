@@ -22,7 +22,8 @@ function makeEncoder(): Encoder {
     return enc;
   } catch (err) {
     const te = new TextEncoder();
-    if (isDebug()) log.debug("[ModuleStore] Encoder: TextEncoder fallback", { err: String(err) });
+    if (isDebug())
+      log.debug("[ModuleStore] Encoder: TextEncoder fallback", { err: String(err) });
     return { encode: (s: string) => Array.from(te.encode(s)) };
   }
 }
@@ -31,7 +32,9 @@ const enc = makeEncoder();
 
 export class ModuleStore {
   private static _i: ModuleStore;
-  static get I() { return (this._i ??= new ModuleStore()); }
+  static get I() {
+    return (this._i ??= new ModuleStore());
+  }
 
   private roots: string[] = [];
   private fileIndexBuilt = false;
@@ -49,6 +52,23 @@ export class ModuleStore {
     if (isDebug()) log.debug("[ModuleStore.configure]", { roots: this.roots });
   }
 
+  // ---------- AJUSTE: método estático para compatibilidade ----------
+  /** Compat: permite chamar ModuleStore.buildFileIndexOnce() de forma estática. */
+  static async buildFileIndexOnce(): Promise<void> {
+    return this.I.buildFileIndexOnce();
+  }
+  /** (opcional) Compat: wrappers estáticos úteis */
+  static configure(roots: string[]) {
+    this.I.configure(roots);
+  }
+  static async read(name: string): Promise<string | null> {
+    return this.I.read(name);
+  }
+  static tokenCountOf(name: string, content?: string): number {
+    return this.I.tokenCountOf(name, content);
+  }
+  // ------------------------------------------------------------------
+
   private async buildFileIndexOnce() {
     if (this.fileIndexBuilt) return;
     let totalIndexed = 0;
@@ -65,15 +85,20 @@ export class ModuleStore {
         }
       } catch (err) {
         // diretório ausente → ignora
-        if (isDebug()) log.debug("[ModuleStore.buildFileIndexOnce] skipping root (not found)", { base, err: String(err) });
+        if (isDebug())
+          log.debug("[ModuleStore.buildFileIndexOnce] skipping root (not found)", {
+            base,
+            err: String(err),
+          });
       }
     }
 
     this.fileIndexBuilt = true;
-    if (isDebug()) log.debug("[ModuleStore.buildFileIndexOnce] index built", {
-      roots: this.roots.length,
-      files: totalIndexed
-    });
+    if (isDebug())
+      log.debug("[ModuleStore.buildFileIndexOnce] index built", {
+        roots: this.roots.length,
+        files: totalIndexed,
+      });
   }
 
   /** Lê um módulo por nome (ex.: "PRINCIPIOS_CHAVE.txt"). */
@@ -82,7 +107,11 @@ export class ModuleStore {
 
     const cached = this.cacheModulos.get(name);
     if (cached != null) {
-      if (isDebug()) log.debug("[ModuleStore.read] cache hit", { name, tokens: this.tokenCountCache.get(name) ?? -1 });
+      if (isDebug())
+        log.debug("[ModuleStore.read] cache hit", {
+          name,
+          tokens: this.tokenCountCache.get(name) ?? -1,
+        });
       return cached;
     }
 
@@ -95,10 +124,20 @@ export class ModuleStore {
         const c = (await fs.readFile(p, "utf-8")).trim();
         this.cacheModulos.set(name, c);
         this.tokenCountCache.set(name, enc.encode(c).length); // pré-cache dos tokens
-        if (isDebug()) log.debug("[ModuleStore.read] index path", { name, path: p, tokens: this.tokenCountCache.get(name) });
+        if (isDebug())
+          log.debug("[ModuleStore.read] index path", {
+            name,
+            path: p,
+            tokens: this.tokenCountCache.get(name),
+          });
         return c;
       } catch (err) {
-        if (isDebug()) log.debug("[ModuleStore.read] read fail (indexed path)", { name, path: p, err: String(err) });
+        if (isDebug())
+          log.debug("[ModuleStore.read] read fail (indexed path)", {
+            name,
+            path: p,
+            err: String(err),
+          });
       }
     }
 
@@ -109,7 +148,12 @@ export class ModuleStore {
         const c = (await fs.readFile(full, "utf-8")).trim();
         this.cacheModulos.set(name, c);
         this.tokenCountCache.set(name, enc.encode(c).length);
-        if (isDebug()) log.debug("[ModuleStore.read] fallback path", { name, path: full, tokens: this.tokenCountCache.get(name) });
+        if (isDebug())
+          log.debug("[ModuleStore.read] fallback path", {
+            name,
+            path: full,
+            tokens: this.tokenCountCache.get(name),
+          });
         return c;
       } catch {
         // tenta próximo root
@@ -141,7 +185,12 @@ export class ModuleStore {
     const cachedContent = this.cacheModulos.get(name) ?? "";
     const n = enc.encode(cachedContent).length;
     this.tokenCountCache.set(name, n);
-    if (isDebug()) log.debug("[ModuleStore.tokenCountOf] module", { name, n, hadContent: cachedContent.length > 0 });
+    if (isDebug())
+      log.debug("[ModuleStore.tokenCountOf] module", {
+        name,
+        n,
+        hadContent: cachedContent.length > 0,
+      });
     return n;
   }
 }

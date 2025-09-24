@@ -215,3 +215,23 @@ export function buildCacheKey(...parts: (string | number | null | undefined)[]) 
     .map((p) => (p === null || p === undefined ? "_" : String(p)))
     .join(":");
 }
+
+/* ------------------------------------------------------------------ */
+/*  COMPAT: exports esperados por outros módulos                       */
+/* ------------------------------------------------------------------ */
+
+/**
+ * embeddingCache — compat com adapters que esperam um Map<string, number[]>
+ * Usado p/ guardar embeddings já calculados (ex.: hashing de texto → vetor).
+ */
+export const embeddingCache = new Map<string, number[]>();
+
+/**
+ * BLOCO_CACHE — compat com analisadores/bloco técnico.
+ * Mantém TTL por TinyCache, mas se preferir Map “puro”, troque o tipo.
+ */
+export const BLOCO_CACHE = new TinyCache<unknown>({
+  name: "bloco",
+  maxItems: 1000,
+  defaultTTLms: 10 * 60_000, // 10 min
+});

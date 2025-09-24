@@ -1,5 +1,5 @@
 // services/buscarHeuristicas.ts
-import supabaseAdmin from "../lib/supabaseAdmin";
+import getSupabaseAdmin from "../lib/supabaseAdmin";
 import { embedTextoCompleto, unitNorm } from "./embeddingService";
 
 /** Formato das heurísticas retornadas (sem o vetor de embedding). */
@@ -45,7 +45,7 @@ export async function buscarHeuristicasSemelhantes(
     let texto = "";
     let userEmbedding: number[] | undefined;
     let uid: string | null = null;
-    let th = Math.max(0, Math.min(1, Number(threshold) || 0.8));
+    let th = clamp01(Number(threshold) || 0.8);
     let k = Math.max(1, Number(matchCount) || 5);
     let hydrate = true;
 
@@ -58,7 +58,7 @@ export async function buscarHeuristicasSemelhantes(
       texto = input.texto ?? "";
       userEmbedding = input.userEmbedding;
       uid = input.usuarioId ?? null;
-      if (typeof input.threshold === "number") th = Math.max(0, Math.min(1, input.threshold));
+      if (typeof input.threshold === "number") th = clamp01(input.threshold);
       if (typeof input.matchCount === "number") k = Math.max(1, input.matchCount);
       if (typeof input.hydrate === "boolean") hydrate = input.hydrate;
     }
@@ -72,11 +72,18 @@ export async function buscarHeuristicasSemelhantes(
     // ---------------------------
     // Gera OU reaproveita o embedding (e normaliza)
     // ---------------------------
-    const query_embedding = userEmbedding?.length
-      ? unitNorm(userEmbedding)
-      : unitNorm(await embedTextoCompleto(texto, "🔍 heuristica"));
-
-    console.log(`📡 Embedding (heurística) pronto (dim=${query_embedding.length}).`);
+    let query_embedding: number[];
+    if (userEmbedding?.length) {
+      const ue = toNumberArray(userEmbedding);
+      if (!ue) return [];
+      query_embedding = unitNorm(ue);
+    } else {
+      const raw = await embedTextoCompleto(texto, "🔍 heuristica");
+      const parsed = Array.isArray(raw) ? raw : safeJsonArray(raw);
+      const num = toNumberArray(parsed);
+      if (!num) return [];
+      query_embedding = unitNorm(num);
+    }
 
     // ---------------------------
     // RPC (args devem bater com a função SQL existente)
@@ -84,7 +91,8 @@ export async function buscarHeuristicasSemelhantes(
     //   input_usuario_id uuid, match_count int, match_threshold double precision, query_embedding vector
     // ) RETURNS TABLE(id uuid, similarity double precision)
     // ---------------------------
-    const { data, error } = await supabaseAdmin.rpc("buscar_heuristica_semelhante", {
+    const supabase = getSupabaseAdmin();
+    const { data, error } = await supabase.rpc("buscar_heuristica_semelhante", {
       input_usuario_id: uid,
       match_count: k,
       match_threshold: th,
@@ -100,8 +108,9 @@ export async function buscarHeuristicasSemelhantes(
       return [];
     }
 
-    const base = ((data ?? []) as Array<{ id: string; similarity: number }>)
-      .filter((r) => typeof r.similarity === "number" && r.similarity >= th);
+    const base = ((data ?? []) as Array<{ id: string; similarity: number }>).filter(
+      (r) => typeof r.similarity === "number" && r.similarity >= th
+    );
 
     if (base.length === 0) return [];
 
@@ -111,13 +120,13 @@ export async function buscarHeuristicasSemelhantes(
     // ---------------------------
     if (!hydrate) {
       // retorna só id + similarity
-      return base.map((r) => ({ id: r.id, similarity: r.similarity }));
+      return base.map((r) => ({ id: r.id, similarity: r.similarity } as Heuristica));
     }
 
     const ids = base.map((r) => r.id);
 
     // Atenção ao RLS: supabaseAdmin deve ter permissão de leitura.
-    const { data: metas, error: metaErr } = await supabaseAdmin
+    const { data: metas, error: metaErr } = await supabase
       .from("heuristicas_embeddings")
       .select("id, arquivo, tipo, origem, tags, usuario_id")
       .in("id", ids);
@@ -129,7 +138,7 @@ export async function buscarHeuristicasSemelhantes(
         hint: (metaErr as any)?.hint ?? null,
       });
       // devolve só o básico
-      return base.map((r) => ({ id: r.id, similarity: r.similarity }));
+      return base.map((r) => ({ id: r.id, similarity: r.similarity } as Heuristica));
     }
 
     // index para merge O(1)
@@ -149,15 +158,40 @@ export async function buscarHeuristicasSemelhantes(
       };
     });
 
-    // ⚠️ Se você quiser filtrar por tipo, faça aqui (agora com segurança):
-    // return merged.filter((item) => ["cognitiva", "filosofico"].includes(item.tipo ?? ""));
-
     return merged;
-  } catch (err) {
+  } catch (err: any) {
     console.error(
       "❌ Erro inesperado ao gerar/usar embedding ou buscar heurísticas:",
-      (err as Error).message
+      err?.message ?? err
     );
     return [];
   }
+}
+
+/* --------------------------------- helpers -------------------------------- */
+
+function clamp01(x: number) {
+  return Math.max(0, Math.min(1, x));
+}
+
+/** Tenta parsear JSON em array (quando `embedTextoCompleto` retorna string JSON). */
+function safeJsonArray(v: unknown): unknown[] | null {
+  try {
+    const parsed = JSON.parse(String(v));
+    return Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Converte um array desconhecido em `number[]`, descartando valores não numéricos/NaN.
+ * Retorna `null` se não conseguir produzir pelo menos 2 números válidos.
+ */
+function toNumberArray(arr: unknown): number[] | null {
+  if (!Array.isArray(arr)) return null;
+  const nums = arr
+    .map((x) => (typeof x === "number" ? x : Number(x)))
+    .filter((x) => Number.isFinite(x));
+  return nums.length >= 2 ? nums : null;
 }

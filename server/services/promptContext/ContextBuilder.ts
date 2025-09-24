@@ -5,8 +5,11 @@ import { isDebug, log } from "./logger";
 import { Budgeter } from "./Budgeter";
 import { ModuleStore } from "./ModuleStore";
 import { Selector, derivarNivel, detectarSaudacaoBreve } from "./Selector";
-import type { MemoriaCompacta } from "./types";
 
+// Definição mínima para evitar falta de tipo (usamos apenas 'intensidade').
+type MemoriaCompacta = { intensidade?: number };
+
+// ----- Params -----
 type BuildParams = {
   userId?: string | null;
   userName?: string | null;
@@ -24,18 +27,18 @@ type BuildParams = {
 
 export async function montarContextoEco(params: BuildParams): Promise<string> {
   const {
-    userId,
-    userName,
+    userId: _userId,
+    userName: _userName,
     texto,
     mems = [],
-    heuristicas = [],
-    userEmbedding = [],
+    heuristicas: _heuristicas = [],
+    userEmbedding: _userEmbedding = [],
     forcarMetodoViva = false,
-    blocoTecnicoForcado = null,
-    skipSaudacao = false,
+    blocoTecnicoForcado: _blocoTecnicoForcado = null,
+    skipSaudacao: _skipSaudacao = false,
     derivados = null,
     aberturaHibrida = null,
-    perfil = null,
+    perfil: _perfil = null,
   } = params;
 
   /* ---------- Sinais básicos ---------- */
@@ -80,27 +83,40 @@ export async function montarContextoEco(params: BuildParams): Promise<string> {
     "ANTISALDO_MIN.txt",   // guarda-corpo de saudação
   ];
 
+  /* ---------- Index de arquivos ---------- */
+  await ModuleStore.buildFileIndexOnce();
+
   /* ---------- Loader com contagem de tokens ---------- */
-  const store = await ModuleStore.buildFileIndexOnce();
   const loader = async (name: string) => {
-    const text = await store.read(name);
-    const tokens = await store.tokenCountOf(text);
+    const text = (await ModuleStore.read(name)) ?? "";
+    // contar tokens a partir do conteúdo (independe de cache prévio)
+    const tokens = ModuleStore.tokenCountOf(name, text);
     return { name, text, tokens };
   };
 
   /* ---------- Orçamento ---------- */
   const budgetTokens = Number(process.env.ECO_CONTEXT_BUDGET_TOKENS ?? 2500);
-  const budgeter = new Budgeter({ budgetTokens });
-
   const ordered = nivel === 1 ? MIN_NV1 : [...new Set(modulesAfterGating)];
 
-  const loaded: { name: string; text: string; tokens: number }[] = [];
+  // Carrega candidatos (para obter tokens exatos)
+  const candidates: { name: string; text: string; tokens: number }[] = [];
   for (const n of ordered) {
     const it = await loader(n);
-    const ok = budgeter.tryInclude(it.name, it.tokens);
-    if (ok) loaded.push(it);
-    else budgeter.registerCut(it.name, it.tokens);
+    candidates.push(it); // se vazio, tokens=0 e o budgeter decide
   }
+
+  // Mapa de tokens para o Budgeter
+  const tokenMap = Object.fromEntries(candidates.map((c) => [c.name, c.tokens]));
+  const budgetResult = Budgeter.run({
+    ordered,
+    tokenOf: (name: string) => tokenMap[name] ?? 0,
+    budgetTokens,
+    sepTokens: 1,
+    safetyMarginTokens: 0,
+  });
+
+  // Filtra os que cabem no orçamento preservando ordem
+  const loaded = candidates.filter((c) => budgetResult.used.includes(c.name));
 
   /* ---------- Reduções/recortes ---------- */
   const reduced = loaded.map((m) => {
@@ -156,9 +172,9 @@ export async function montarContextoEco(params: BuildParams): Promise<string> {
 
   /* ---------- Métricas & Debug ---------- */
   if (isDebug()) {
-    const tokensContexto = await store.tokenCountOf(texto);
-    const overheadTokens = await store.tokenCountOf(instrucional);
-    const total = await store.tokenCountOf(prompt);
+    const tokensContexto = ModuleStore.tokenCountOf("__INLINE__:ctx", texto);
+    const overheadTokens = ModuleStore.tokenCountOf("__INLINE__:ovh", instrucional);
+    const total = ModuleStore.tokenCountOf("__INLINE__:ALL", prompt);
     log.debug("[ContextBuilder] tokens & orçamento", {
       tokensContexto,
       overheadTokens,
@@ -167,9 +183,9 @@ export async function montarContextoEco(params: BuildParams): Promise<string> {
       budgetRestante: Math.max(0, 8000 - 256 - total),
     });
     log.debug("[Budgeter] resultado", {
-      used: budgeter.used,
-      cut: budgeter.cut,
-      tokens: budgeter.totalUsed,
+      used: budgetResult.used,
+      cut: budgetResult.cut,
+      tokens: budgetResult.tokens,
     });
     log.info("[ContextBuilder] NV" + nivel + " pronto", { totalTokens: total });
   }
@@ -232,7 +248,7 @@ function extrairIdentidadeResumida(text: string): string | "" {
 function resumirIdentidadeFallback(_text: string): string {
   return [
     "IDENTIDADE — ECO (resumo)",
-    "Você é a Eco: presença empática, reflexiva e clara.",
+    "Você é a Eco: coach de autoconhecimento empático, reflexivo e bem-humorado. Guie o usuário a refletir sobre si através de perguntas curiosas e insights gentis.",
     "Fale simples, em 1–3 linhas por parágrafo. Máx. 1 pergunta viva.",
     "Convide escolhas; evite jargões e diagnósticos.",
   ].join("\n");

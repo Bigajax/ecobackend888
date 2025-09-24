@@ -1,6 +1,6 @@
 // services/buscarMemorias.ts
 import { embedTextoCompleto, unitNorm } from "./embeddingService";
-import supabaseAdmin from "../lib/supabaseAdmin";
+import getSupabaseAdmin from "../lib/supabaseAdmin";
 
 export interface MemoriaSimilar {
   id: string;
@@ -52,8 +52,7 @@ export async function buscarMemoriasSemelhantes(
       threshold =
         typeof entradaOrOpts.threshold === "number" ? entradaOrOpts.threshold : threshold;
       daysBack =
-        typeof entradaOrOpts.daysBack === "number" ||
-        entradaOrOpts.daysBack === null
+        typeof entradaOrOpts.daysBack === "number" || entradaOrOpts.daysBack === null
           ? entradaOrOpts.daysBack
           : daysBack;
       if (typeof entradaOrOpts.userId === "string") userId = entradaOrOpts.userId;
@@ -65,16 +64,25 @@ export async function buscarMemoriasSemelhantes(
     // ---------------------------
     // Gera OU reaproveita o embedding (e normaliza)
     // ---------------------------
-    const queryEmbedding = userEmbedding?.length
-      ? unitNorm(userEmbedding)
-      : unitNorm(await embedTextoCompleto(texto));
+    let queryEmbedding: number[] | undefined;
+    if (userEmbedding?.length) {
+      queryEmbedding = unitNorm(userEmbedding);
+    } else {
+      const raw = await embedTextoCompleto(texto);
+      const asArr: number[] | null = safeJsonNumberArray(raw);
+      if (!asArr) return [];
+      queryEmbedding = unitNorm(asArr);
+    }
 
     const match_count = Math.max(1, k);
     const match_threshold = Math.max(0, Math.min(1, Number(threshold) || 0.8));
 
+    // Supabase (lazy)
+    const supabase = getSupabaseAdmin();
+
     // Helper para chamar a RPC v2 com days_back variável
     const call = async (db: number | null) => {
-      const { data, error } = await supabaseAdmin.rpc(
+      const { data, error } = await supabase.rpc(
         "buscar_memorias_semelhantes_v2",
         {
           query_embedding: queryEmbedding,  // vector(1536)
@@ -114,7 +122,12 @@ export async function buscarMemoriasSemelhantes(
         resumo_eco: d.resumo_eco as string,
         tags: d.tags ?? undefined,
         emocao_principal: d.emocao_principal ?? undefined,
-        intensidade: typeof d.intensidade === "number" ? d.intensidade : Number(d.intensidade),
+        intensidade:
+          typeof d.intensidade === "number"
+            ? d.intensidade
+            : d.intensidade != null
+            ? Number(d.intensidade)
+            : undefined,
         created_at: d.created_at as string | undefined,
         similarity:
           typeof d.similarity === "number"
@@ -133,5 +146,20 @@ export async function buscarMemoriasSemelhantes(
   } catch (e) {
     console.error("❌ Erro interno ao buscar memórias:", (e as Error).message);
     return [];
+  }
+}
+
+/* --------------------------------- helpers -------------------------------- */
+
+/** Converte algo JSON-like em number[] seguro, ou null se inválido */
+function safeJsonNumberArray(v: unknown): number[] | null {
+  try {
+    const parsed = Array.isArray(v) ? v : JSON.parse(String(v));
+    if (!Array.isArray(parsed)) return null;
+    const nums = parsed.map((x) => Number(x));
+    if (nums.some((n) => !Number.isFinite(n))) return null;
+    return nums;
+  } catch {
+    return null;
   }
 }

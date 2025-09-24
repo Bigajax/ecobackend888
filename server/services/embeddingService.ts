@@ -1,109 +1,82 @@
-// embeddingService.ts
+// server/services/embeddingService.ts
 import OpenAI from "openai";
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+/** Cache do client para evitar recriar */
+let _openai: OpenAI | null = null;
 
-// Backoff simples
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+/** Pega o client OpenAI em lazy-init. Lança erro se a key não estiver configurada. */
+function getOpenAI(): OpenAI {
+  if (_openai) return _openai;
 
-/** Normaliza o vetor para norma-2 = 1 (útil para métricas de cosseno). */
-export function unitNorm(vec: number[]): number[] {
-  // filtra NaN/Infinity defensivamente
-  const clean = vec.map((v) => (Number.isFinite(v) ? v : 0));
-  const norm = Math.sqrt(clean.reduce((s, v) => s + v * v, 0)) || 1;
-  return clean.map((v) => v / norm);
+  // tente múltiplas variáveis comuns
+  const apiKey =
+    process.env.OPENAI_API_KEY ||
+    process.env.OPENAI_KEY ||
+    process.env.OPENAI_TOKEN ||
+    "";
+
+  if (!apiKey) {
+    // Se quiser permitir fallback em dev, habilite ALLOW_FAKE_EMBEDDINGS=true
+    if (process.env.ALLOW_FAKE_EMBEDDINGS === "true") {
+      // Não criamos cliente — quem chamar embedTextoCompleto lidará com o fake
+      return (_openai as any) as OpenAI; // apenas para satisfazer o tipo; não será usado
+    }
+    throw new Error(
+      "OPENAI_API_KEY ausente. Defina OPENAI_API_KEY (ou OPENAI_KEY/OPENAI_TOKEN) nas variáveis de ambiente."
+    );
+  }
+
+  _openai = new OpenAI({ apiKey });
+  return _openai;
+}
+
+/** Normaliza vetor para norma-2 = 1 (evita NaN/divisão por zero) */
+export function unitNorm(vec: number[] | Float32Array): number[] {
+  let sum = 0;
+  for (let i = 0; i < vec.length; i++) sum += vec[i] * vec[i];
+  const norm = Math.sqrt(sum) || 1;
+  const out = new Array(vec.length);
+  for (let i = 0; i < vec.length; i++) out[i] = vec[i] / norm;
+  return out;
+}
+
+/** Fallback determinístico de “embedding” para dev/testes sem API key */
+function fakeEmbedding(text: string, dim = 256): number[] {
+  // hashing simples e estável por byte
+  const te = new TextEncoder();
+  const bytes = te.encode(text || "");
+  const v = new Array(dim).fill(0);
+  for (let i = 0; i < bytes.length; i++) {
+    v[i % dim] += (bytes[i] - 127) / 127; // [-1,1] aprox
+  }
+  return unitNorm(v);
 }
 
 /**
- * Gera embedding vetorial do texto usando OpenAI.
- * - Se `texto` já for um vetor (number[]), **normaliza** e retorna (evita recomputar).
+ * Gera embedding para um texto completo.
+ * @param texto Texto de entrada
+ * @param _tag  (opcional) rótulo para logs/segmentação — ignorado pela API, mantido por compat
+ * @returns Vetor de embedding (number[])
  */
-export async function gerarEmbeddingOpenAI(
-  texto: unknown,
-  origem?: string
-): Promise<number[]> {
-  try {
-    // 1) Já veio vetor → normaliza e retorna
-    if (Array.isArray(texto) && texto.every((x) => typeof x === "number")) {
-      const v = unitNorm(texto as number[]);
-      if (v.length < 128) {
-        console.warn(
-          `⚠️ Embedding recebido muito curto${origem ? ` [${origem}]` : ""} (${v.length} dims).`
-        );
-      }
-      return v;
-    }
-
-    // 2) Conversão segura para string
-    let textoConvertido = "";
-    if (typeof texto === "string") {
-      textoConvertido = texto.trim();
-    } else if (texto != null && typeof (texto as any).toString === "function") {
-      textoConvertido = (texto as any).toString().trim();
-    }
-
-    // 3) Fallback para textos vazios/curtos
-    if (!textoConvertido || textoConvertido.length < 3) {
-      console.warn(
-        `⚠️ Texto para embedding inválido${origem ? ` [${origem}]` : ""}. Usando placeholder.`
-      );
-      textoConvertido = "PLACEHOLDER EMBEDDING";
-    }
-
-    // 4) Normalização leve + corte pra evitar inputs gigantes
-    const textoParaEmbedding = textoConvertido.replace(/\s+/g, " ").slice(0, 8000);
-
-    // 5) Chamada à OpenAI com retries (429/5xx)
-    const maxTries = 3;
-    let lastErr: any = null;
-
-    for (let attempt = 1; attempt <= maxTries; attempt++) {
-      try {
-        const response = await openai.embeddings.create({
-          model: "text-embedding-3-small", // 1536 dims
-          input: textoParaEmbedding,
-        });
-
-        const embedding = response.data?.[0]?.embedding;
-
-        if (!Array.isArray(embedding) || embedding.length < 128) {
-          throw new Error("Embedding não gerado ou incompleto.");
-        }
-
-        const norm = unitNorm(embedding);
-
-        console.log(
-          `📡 Embedding gerado com sucesso${
-            origem ? ` [${origem}]` : ""
-          } (dim=${norm.length}).`
-        );
-        return norm;
-      } catch (err: any) {
-        lastErr = err;
-        const status = err?.status || err?.response?.status;
-        const retriable = status === 429 || (status >= 500 && status < 600);
-        console.warn(
-          `⚠️ Falha ao gerar embedding (tentativa ${attempt}/${maxTries})${
-            origem ? ` [${origem}]` : ""
-          } — status: ${status ?? "n/a"} — ${err?.message || err}`
-        );
-        if (attempt < maxTries && retriable) {
-          await sleep(400 * attempt); // backoff linear
-          continue;
-        }
-        break;
-      }
-    }
-
-    throw lastErr ?? new Error("Falha desconhecida ao gerar embedding.");
-  } catch (error: any) {
-    console.error(
-      `🚨 Erro ao gerar embedding${origem ? ` [${origem}]` : ""}:`,
-      error?.message || error
-    );
-    throw error;
+export async function embedTextoCompleto(texto: string, _tag?: string): Promise<number[]> {
+  // Fallback para dev/test
+  if (process.env.ALLOW_FAKE_EMBEDDINGS === "true" && !process.env.OPENAI_API_KEY) {
+    return fakeEmbedding(texto);
   }
-}
 
-// Compat: nome antigo
-export const embedTextoCompleto = gerarEmbeddingOpenAI;
+  const client = getOpenAI();
+  const model = process.env.EMBEDDING_MODEL || "text-embedding-3-small";
+
+  // A API do OpenAI aceita arrays de inputs; usamos um só
+  // (Se quiser truncar, pode limitar tamanho do texto aqui)
+  const resp = await client.embeddings.create({
+    model,
+    input: texto,
+  });
+
+  const emb = resp.data?.[0]?.embedding;
+  if (!emb || !Array.isArray(emb)) {
+    throw new Error("Falha ao obter embedding da API OpenAI.");
+  }
+  return emb as number[];
+}

@@ -1,6 +1,6 @@
 // src/routes/memorias.routes.ts
-import express from "express";
-import supabaseAdmin from "../lib/supabaseAdmin";
+import express, { type Request, type Response } from "express";
+import getSupabaseAdmin from "../lib/supabaseAdmin";
 import { embedTextoCompleto } from "../services/embeddingService";
 import { heuristicaNivelAbertura } from "../utils/heuristicaNivelAbertura";
 import { gerarTagsAutomaticasViaIA } from "../services/tagService";
@@ -11,16 +11,23 @@ const router = express.Router();
 /* ────────────────────────────────────────────────
    🔐 Auth helper – extrai usuário autenticado (Bearer)
 ────────────────────────────────────────────────── */
-async function getUsuarioAutenticado(req: express.Request) {
+async function getUsuarioAutenticado(req: Request) {
   const authHeader = req.headers.authorization;
   if (!authHeader?.startsWith("Bearer ")) return null;
   const token = authHeader.slice("Bearer ".length).trim();
-  const { data, error } = await supabaseAdmin.auth.getUser(token);
-  if (error || !data?.user) {
-    console.warn("[Auth] Falha ao obter usuário:", error?.message);
+
+  try {
+    const supabase = getSupabaseAdmin();
+    const { data, error } = await supabase.auth.getUser(token);
+    if (error || !data?.user) {
+      console.warn("[Auth] Falha ao obter usuário:", error?.message);
+      return null;
+    }
+    return data.user;
+  } catch (e: any) {
+    console.error("[Auth] Erro de inicialização do Supabase:", e?.message ?? e);
     return null;
   }
-  return data.user;
 }
 
 /* ──────────────────────────────────────────────── */
@@ -61,7 +68,7 @@ function gerarResumoEco(
 /* ────────────────────────────────────────────────
    ✅ POST /api/memorias/registrar → salva memória
 ────────────────────────────────────────────────── */
-router.post("/registrar", async (req, res) => {
+router.post("/registrar", async (req: Request, res: Response) => {
   const user = await getUsuarioAutenticado(req);
   if (!user) return res.status(401).json({ error: "Usuário não autenticado." });
 
@@ -88,11 +95,12 @@ router.post("/registrar", async (req, res) => {
     const salvar = toBool(salvar_memoria, true);
     const destinoTabela = intensidade >= 7 && salvar ? "memories" : "referencias_temporarias";
 
-    let finalTags: string[] = Array.isArray(tags)
-      ? tags
-      : typeof tags === "string"
-      ? tags.split(",").map((t) => t.trim()).filter(Boolean)
-      : [];
+    let finalTags: string[] =
+      Array.isArray(tags)
+        ? tags
+        : typeof tags === "string"
+        ? tags.split(",").map((t) => t.trim()).filter(Boolean)
+        : [];
 
     if (finalTags.length === 0) {
       finalTags = await gerarTagsAutomaticasViaIA(texto);
@@ -114,7 +122,8 @@ router.post("/registrar", async (req, res) => {
     const nivelCalc =
       typeof nivel_abertura === "number" ? nivel_abertura : heuristicaNivelAbertura(texto);
 
-    const { data, error } = await supabaseAdmin
+    const supabase = getSupabaseAdmin();
+    const { data, error } = await supabase
       .from(destinoTabela)
       .insert([
         {
@@ -157,7 +166,7 @@ router.post("/registrar", async (req, res) => {
      - tags=tag1&tags=tag2  (ou tags="tag1,tag2")
      - limite=5  (ou limit=5)
 ────────────────────────────────────────────────── */
-router.get("/", async (req, res) => {
+router.get("/", async (req: Request, res: Response) => {
   const user = await getUsuarioAutenticado(req);
   if (!user) return res.status(401).json({ error: "Usuário não autenticado." });
 
@@ -178,7 +187,8 @@ router.get("/", async (req, res) => {
   }
 
   try {
-    let query = supabaseAdmin
+    const supabase = getSupabaseAdmin();
+    let query = supabase
       .from("memories")
       .select("*")
       .eq("usuario_id", user.id)
@@ -218,7 +228,7 @@ router.get("/", async (req, res) => {
      - limite (ou limit): number (1..5)
      - threshold? : 0..1
 ────────────────────────────────────────────────── */
-router.post("/similares", async (req, res) => {
+router.post("/similares", async (req: Request, res: Response) => {
   const user = await getUsuarioAutenticado(req);
   if (!user) return res.status(401).json({ error: "Usuário não autenticado." });
 
@@ -257,3 +267,4 @@ router.post("/similares", async (req, res) => {
 });
 
 export default router;
+
