@@ -30,10 +30,19 @@ import {
   trackMensagemEnviada,
   trackEcoDemorou,
 } from "../analytics/events/mixpanelEvents";
+
 // 🔽 logger
 import { log, isDebug } from "../services/promptContext/logger";
 // 🔽 helpers para cache key previsível
-import { derivarNivel, detectarSaudacaoBreve } from "../services/promptContext/Selector";
+import {
+  derivarNivel,
+  detectarSaudacaoBreve,
+} from "../services/promptContext/Selector";
+
+/* ---------------------------- Consts ---------------------------- */
+
+const DERIVADOS_TIMEOUT_MS = Number(process.env.ECO_DERIVADOS_TIMEOUT_MS ?? 600);
+const PARALELAS_TIMEOUT_MS = Number(process.env.ECO_PARALELAS_TIMEOUT_MS ?? 180);
 
 /* ---------------------------- Helpers ---------------------------- */
 
@@ -53,10 +62,15 @@ function isLowComplexity(texto: string) {
   if (t.length <= 120) return true;
   const words = t.split(/\s+/).length;
   if (words <= 18) return true;
-  return !/crise|p[aâ]nico|desesper|vontade de sumir|explod|insuport|plano detalhado|passo a passo/i.test(t);
+  return !/crise|p[aâ]nico|desesper|vontade de sumir|explod|insuport|plano detalhado|passo a passo/i.test(
+    t
+  );
 }
 
-async function operacoesParalelas(ultimaMsg: string, userId?: string): Promise<ParalelasResult> {
+async function operacoesParalelas(
+  ultimaMsg: string,
+  userId?: string
+): Promise<ParalelasResult> {
   let userEmbedding: number[] = [];
   if (ultimaMsg.trim().length > 0) {
     userEmbedding = await getEmbeddingCached(ultimaMsg, "entrada_usuario");
@@ -77,13 +91,37 @@ async function operacoesParalelas(ultimaMsg: string, userId?: string): Promise<P
   return { heuristicas, userEmbedding };
 }
 
+// Timeout que NÃO quebra o fluxo (retorna null em erro/timeout)
+async function withTimeoutOrNull<T>(
+  p: Promise<T>,
+  ms: number,
+  label = "tarefa"
+): Promise<T | null> {
+  try {
+    return (await Promise.race([
+      p,
+      new Promise<T>((_, rej) =>
+        setTimeout(() => rej(new Error(`${label} timeout ${ms}ms`)), ms)
+      ),
+    ])) as T;
+  } catch (e: any) {
+    log.warn(`[Orchestrator] ${label} falhou/timeout (${ms}ms): ${e?.message}`);
+    return null;
+  }
+}
+
 // ⚙️ cache com chave estável (userId + nivel derivado + intensidade máx de memórias)
 async function montarContextoOtimizado(params: any) {
   const entrada = String(params.texto ?? "");
   const saudacaoBreve = detectarSaudacaoBreve(entrada);
   const nivel = derivarNivel(entrada, saudacaoBreve);
-  const intensidade = Math.max(0, ...(params.mems ?? []).map((m: any) => Number(m?.intensidade ?? 0)));
-  const cacheKey = `ctx:${params.userId || "anon"}:${nivel}:${Math.round(intensidade)}`;
+  const intensidade = Math.max(
+    0,
+    ...(params.mems ?? []).map((m: any) => Number(m?.intensidade ?? 0))
+  );
+  const cacheKey = `ctx:${params.userId || "anon"}:${nivel}:${Math.round(
+    intensidade
+  )}`;
 
   if (PROMPT_CACHE.has(cacheKey)) {
     if (isDebug()) log.debug("[Orchestrator] contexto via cache", { cacheKey });
@@ -91,7 +129,8 @@ async function montarContextoOtimizado(params: any) {
   }
   const t0 = Date.now();
   const contexto = await montarContextoEco(params);
-  if (isDebug()) log.debug("[Orchestrator] contexto construído", { ms: Date.now() - t0 });
+  if (isDebug())
+    log.debug("[Orchestrator] contexto construído", { ms: Date.now() - t0 });
   if (nivel <= 2) PROMPT_CACHE.set(cacheKey, contexto);
   return contexto;
 }
@@ -99,15 +138,22 @@ async function montarContextoOtimizado(params: any) {
 function heuristicaPreViva(m: string) {
   const texto = (m || "").toLowerCase();
   const len = texto.length;
-  const gat = [/ang[uú]st/i, /p[aâ]nico/i, /desesper/i, /crise/i, /sofr/i, /n[aã]o aguento/i, /vontade de sumir/i, /explod/i, /impulsiv/i, /medo/i, /ansiedad/i, /culpa/i, /triste/i];
+  const gat = [
+    /ang[uú]st/i,
+    /p[aâ]nico/i,
+    /desesper/i,
+    /crise/i,
+    /sofr/i,
+    /n[aã]o aguento/i,
+    /vontade de sumir/i,
+    /explod/i,
+    /impulsiv/i,
+    /medo/i,
+    /ansiedad/i,
+    /culpa/i,
+    /triste/i,
+  ];
   return gat.some((r) => r.test(texto)) || len >= 180;
-}
-
-async function withTimeout<T>(p: Promise<T>, ms: number, label = "tarefa"): Promise<T> {
-  return Promise.race([
-    p,
-    new Promise<T>((_, rej) => setTimeout(() => rej(new Error(`${label} timeout ${ms}ms`)), ms)),
-  ]) as Promise<T>;
 }
 
 /* -------------------------- Fast-lane --------------------------- */
@@ -123,15 +169,21 @@ async function fastLaneLLM({
   const system =
     "Você é a Eco, um coach de autoconhecimento empático e reflexivo, que guia o usuário a se perceber melhor com clareza e leveza. Seu papel é oferecer presença, espelhamento e encorajamento sábio. " +
     "Responda curto (1–2 frases), claro e gentil. Evite jargões. Se pedirem passos, no máximo 3 itens. " +
-    (nome ? `O usuário se chama ${nome}. Use o nome apenas quando fizer sentido. Nunca corrija nomes nem diga frases como "sou a Eco, não o ${nome}". ` : "Nunca corrija nomes. ");
+    (nome
+      ? `O usuário se chama ${nome}. Use o nome apenas quando fizer sentido. Nunca corrija nomes nem diga frases como "sou a Eco, não o ${nome}". `
+      : "Nunca corrija nomes. ");
 
-  const slim: Array<{ role: "system" | "user" | "assistant"; content: string }> = [
-    { role: "system", content: system },
-    ...messages.slice(-3).map((m) => ({
-      role: mapRoleForOpenAI((m as any).role) as "system" | "user" | "assistant",
-      content: (m as any).content,
-    })),
-  ];
+  const slim: Array<{ role: "system" | "user" | "assistant"; content: string }> =
+    [
+      { role: "system", content: system },
+      ...messages.slice(-3).map((m) => ({
+        role: mapRoleForOpenAI((m as any).role) as
+          | "system"
+          | "user"
+          | "assistant",
+        content: (m as any).content,
+      })),
+    ];
 
   const data = await claudeChatCompletion({
     messages: slim,
@@ -156,18 +208,21 @@ function toSaudRole(r: any): SaudRole | undefined {
   return undefined;
 }
 
-export async function getEcoResponse({
-  messages,
-  userId,
-  userName,
-  accessToken,
-  mems = [],
-  forcarMetodoViva = false,
-  blocoTecnicoForcado = null,
-  clientHour,
-  // ⬇️ novo: permite rota passar prompt já montado (ex.: openrouterRoutes)
-  promptOverride,
-}: GetEcoParams & { promptOverride?: string }): Promise<GetEcoResult> {
+export async function getEcoResponse(
+  {
+    messages,
+    userId,
+    userName,
+    accessToken,
+    mems = [],
+    forcarMetodoViva = false,
+    blocoTecnicoForcado = null,
+    clientHour,
+    // ⬇️ novos
+    promptOverride,
+    metaFromBuilder,
+  }: GetEcoParams & { promptOverride?: string; metaFromBuilder?: any }
+): Promise<GetEcoResult> {
   const t0 = now();
   ensureEnvs();
 
@@ -183,19 +238,31 @@ export async function getEcoResponse({
   // 1) saudação/despedida
   const saudaMsgs: SaudMsg[] = [];
   for (const m of (messages as any[]).slice(-4)) {
-    saudaMsgs.push({ role: toSaudRole((m as any).role), content: (m as any).content || "" });
+    saudaMsgs.push({
+      role: toSaudRole((m as any).role),
+      content: (m as any).content || "",
+    });
   }
   const auto = respostaSaudacaoAutomatica({ messages: saudaMsgs, userName, clientHour });
   if (auto?.meta?.isFarewell) return { message: auto.text };
   if (auto?.meta?.isGreeting) {
-    if (GreetGuard.can(userId)) { GreetGuard.mark(userId); return { message: auto.text }; }
+    if (GreetGuard.can(userId)) {
+      GreetGuard.mark(userId);
+      return { message: auto.text };
+    }
   }
 
   // 2) roteamento
   const low = isLowComplexity(ultimaMsg);
   const vivaAtivo = forcarMetodoViva || heuristicaPreViva(ultimaMsg);
-  const forceFull = process.env.ECO_FORCE_FULL === "1";
-  if (isDebug()) log.debug("[Orchestrator] roteamento", { low, vivaAtivo, forceFull, ultimaLen: (ultimaMsg || "").length });
+  const forceFull = process.env.ECO_FORCE_FULL === "1" || !!promptOverride;
+  if (isDebug())
+    log.debug("[Orchestrator] roteamento", {
+      low,
+      vivaAtivo,
+      forceFull,
+      ultimaLen: (ultimaMsg || "").length,
+    });
 
   if (!forceFull && low && !vivaAtivo && !promptOverride) {
     const inicioFast = now();
@@ -203,7 +270,7 @@ export async function getEcoResponse({
 
     let bloco: any = null;
     try {
-      bloco = await withTimeout(gerarBlocoTecnicoComCache(ultimaMsg, fast.cleaned), 250, "bloco-tecnico");
+      bloco = await gerarBlocoTecnicoComCache(ultimaMsg, fast.cleaned);
     } catch {}
 
     (async () => {
@@ -220,7 +287,7 @@ export async function getEcoResponse({
           });
         }
       } catch (e) {
-        console.warn("⚠️ Pós-processo fastLane falhou:", (e as Error).message);
+        log.warn("⚠️ Pós-processo fastLane falhou:", (e as Error).message);
       }
     })();
 
@@ -234,7 +301,9 @@ export async function getEcoResponse({
     const resp: GetEcoResult = { message: fast.cleaned };
     if (bloco && typeof bloco.intensidade === "number") {
       resp.intensidade = bloco.intensidade;
-      resp.resumo = bloco?.analise_resumo?.trim().length ? bloco.analise_resumo.trim() : fast.cleaned;
+      resp.resumo = bloco?.analise_resumo?.trim().length
+        ? bloco.analise_resumo.trim()
+        : fast.cleaned;
       resp.emocao = bloco.emocao_principal || "indefinida";
       resp.tags = Array.isArray(bloco.tags) ? bloco.tags : [];
       resp.categoria = bloco.categoria ?? null;
@@ -247,13 +316,30 @@ export async function getEcoResponse({
   // 3) rota completa
   const supabase = supabaseWithBearer(accessToken);
 
-  const { heuristicas, userEmbedding } = await Promise.race([
-    operacoesParalelas(ultimaMsg, userId),
-    sleep(180).then(() => ({ heuristicas: [], userEmbedding: [] })),
-  ]);
+  // 3.1) paralelas — só se NÃO houver promptOverride
+  let heuristicas: any[] = [];
+  let userEmbedding: number[] = [];
+  if (!promptOverride) {
+    const paralelas = await Promise.race([
+      operacoesParalelas(ultimaMsg, userId),
+      sleep(PARALELAS_TIMEOUT_MS).then(() => ({
+        heuristicas: [],
+        userEmbedding: [],
+      })),
+    ]);
+    heuristicas = paralelas.heuristicas;
+    userEmbedding = paralelas.userEmbedding;
+  }
 
-  const derivados = userId
-    ? await withTimeout(
+  // 3.2) derivados — tolerante a timeout/erro; pula se promptOverride ou NV1
+  const shouldSkipDerivados =
+    !!promptOverride ||
+    (metaFromBuilder && Number(metaFromBuilder.nivel) === 1) ||
+    !userId;
+
+  const derivados = shouldSkipDerivados
+    ? null
+    : await withTimeoutOrNull(
         (async () => {
           try {
             const { data: stats } = await supabase
@@ -277,21 +363,39 @@ export async function getEcoResponse({
               .order("created_at", { ascending: false })
               .limit(30);
 
-            const arr = (efeitos || []).map((r: any) => ({ x: { efeito: (r.efeito as any) ?? "neutro" } }));
-            const scores = (efeitos || []).map((r: any) => Number(r?.score)).filter((v: number) => Number.isFinite(v));
-            const media = scores.length ? scores.reduce((a: number, b: number) => a + b, 0) / scores.length : 0;
+            const arr = (efeitos || []).map((r: any) => ({
+              x: { efeito: (r.efeito as any) ?? "neutro" },
+            }));
+            const scores = (efeitos || [])
+              .map((r: any) => Number(r?.score))
+              .filter((v: number) => Number.isFinite(v));
+            const media = scores.length
+              ? scores.reduce((a: number, b: number) => a + b, 0) / scores.length
+              : 0;
 
-            return getDerivados((stats || []) as any, (marcos || []) as any, arr as any, media);
+            return getDerivados(
+              (stats || []) as any,
+              (marcos || []) as any,
+              arr as any,
+              media
+            );
           } catch {
             return null;
           }
         })(),
-        180,
+        DERIVADOS_TIMEOUT_MS,
         "derivados"
-      )
-    : null;
+      );
 
-  const aberturaHibrida = derivados ? (() => { try { return insightAbertura(derivados); } catch { return null; } })() : null;
+  const aberturaHibrida = derivados
+    ? (() => {
+        try {
+          return insightAbertura(derivados);
+        } catch {
+          return null;
+        }
+      })()
+    : null;
 
   // 3.3) system prompt (usa override se veio da rota)
   const systemPrompt =
@@ -314,12 +418,16 @@ export async function getEcoResponse({
   const msgs: { role: "system" | "user" | "assistant"; content: string }[] = [
     { role: "system", content: systemPrompt },
     ...(messages as any[]).slice(-5).map((m) => ({
-      role: mapRoleForOpenAI((m as any).role) as "system" | "user" | "assistant",
+      role: mapRoleForOpenAI((m as any).role) as
+        | "system"
+        | "user"
+        | "assistant",
       content: (m as any).content,
     })),
   ];
 
-  const maxTokens = ultimaMsg.length < 140 ? 420 : ultimaMsg.length < 280 ? 560 : 700;
+  const maxTokens =
+    ultimaMsg.length < 140 ? 420 : ultimaMsg.length < 280 ? 560 : 700;
   const inicioEco = now();
   const data = await claudeChatCompletion({
     messages: msgs,
@@ -328,20 +436,27 @@ export async function getEcoResponse({
     maxTokens,
   });
   const duracaoEco = now() - inicioEco;
-  if (duracaoEco > 2500) trackEcoDemorou({ userId, duracaoMs: duracaoEco, ultimaMsg });
+  if (duracaoEco > 2500)
+    trackEcoDemorou({ userId, duracaoMs: duracaoEco, ultimaMsg });
 
   const raw: string = data?.content ?? "";
-  const cleaned = formatarTextoEco(limparResposta(raw || "Desculpa, não consegui responder agora. Pode tentar de novo?"));
+  const cleaned = formatarTextoEco(
+    limparResposta(
+      raw || "Desculpa, não consegui responder agora. Pode tentar de novo?"
+    )
+  );
 
   let bloco: any = null;
   try {
-    bloco = await withTimeout(gerarBlocoTecnicoComCache(ultimaMsg, cleaned), 300, "bloco-tecnico");
+    bloco = await gerarBlocoTecnicoComCache(ultimaMsg, cleaned);
   } catch {}
 
   const response: GetEcoResult = { message: cleaned };
   if (bloco && typeof bloco.intensidade === "number") {
     response.intensidade = bloco.intensidade;
-    response.resumo = bloco?.analise_resumo?.trim().length ? bloco.analise_resumo.trim() : cleaned;
+    response.resumo = bloco?.analise_resumo?.trim().length
+      ? bloco.analise_resumo.trim()
+      : cleaned;
     response.emocao = bloco.emocao_principal || "indefinida";
     response.tags = Array.isArray(bloco.tags) ? bloco.tags : [];
     response.categoria = bloco.categoria ?? null;
@@ -362,7 +477,7 @@ export async function getEcoResponse({
         });
       }
     } catch (e) {
-      console.warn("⚠️ Pós-processo falhou:", (e as Error).message);
+      log.warn("⚠️ Pós-processo falhou:", (e as Error).message);
     }
   })();
 
@@ -373,7 +488,11 @@ export async function getEcoResponse({
     modelo: data?.model,
   });
 
-  if (isDebug()) log.debug("[Orchestrator] resposta pronta", { duracaoEcoMs: duracaoEco, lenMensagem: (cleaned || "").length });
+  if (isDebug())
+    log.debug("[Orchestrator] resposta pronta", {
+      duracaoEcoMs: duracaoEco,
+      lenMensagem: (cleaned || "").length,
+    });
 
   return response;
 }
