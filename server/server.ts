@@ -1,7 +1,29 @@
 // server/src/server.ts
 import path from "path";
+import fs from "fs";
 import dotenv from "dotenv";
-dotenv.config({ path: process.env.DOTENV_PATH || path.resolve(__dirname, "../.env") });
+
+// ---------- Carregamento .env robusto (dist-friendly) ----------
+(function loadEnv() {
+  // 1) DOTENV_PATH explícito
+  const explicit = process.env.DOTENV_PATH;
+  if (explicit && fs.existsSync(explicit)) {
+    dotenv.config({ path: explicit });
+    return;
+  }
+  // 2) ../.env relativo ao arquivo compilado (dist/src/server.js -> dist/.env ou ../.env)
+  const tryPaths = [
+    path.resolve(__dirname, "../.env"),
+    path.resolve(__dirname, "../../.env"),
+    path.resolve(process.cwd(), ".env"),
+  ];
+  for (const p of tryPaths) {
+    if (fs.existsSync(p)) {
+      dotenv.config({ path: p });
+      return;
+    }
+  }
+})();
 
 import express, { Request, Response, NextFunction } from "express";
 import cors from "cors";
@@ -17,29 +39,32 @@ import feedbackRoutes from "./routes/feedback";
 
 import { registrarTodasHeuristicas } from "./services/registrarTodasHeuristicas";
 import { registrarModulosFilosoficos } from "./services/registrarModulosFilosoficos";
+import { log } from "./services/promptContext/logger";
 
 const app = express();
 const PORT = Number(process.env.PORT || 3001);
 
+// Render/Proxies (X-Forwarded-*)
+app.set("trust proxy", 1);
+
 /* ----------------------------- CORS ----------------------------- */
 /**
  * Allowlist padrão + regex para previews do Vercel.
- * Você pode adicionar mais origens via env:
+ * Pode adicionar mais origens via env:
  *   CORS_ALLOW_ORIGINS="https://minha.app,https://outra.com"
  */
 const defaultAllow = [
   "https://ecofrontend888.vercel.app",
   "http://localhost:3000",
   "http://127.0.0.1:3000",
-  "http://localhost:5173",       // ✅ adicionado
-  "http://127.0.0.1:5173",       // ✅ adicionado
+  "http://localhost:5173",
+  "http://127.0.0.1:5173",
 ];
 
-const extraAllow =
-  (process.env.CORS_ALLOW_ORIGINS || "")
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
+const extraAllow = (process.env.CORS_ALLOW_ORIGINS || "")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
 
 const allowList = new Set<string>([...defaultAllow, ...extraAllow]);
 
@@ -75,12 +100,12 @@ app.use(cors(corsOptions));
 app.options("*", cors(corsOptions));
 
 /* ------------------------- Body parsing ------------------------- */
-app.use(express.json());
+app.use(express.json({ limit: "1mb" }));
 app.use(express.urlencoded({ extended: true }));
 
 /* ------------------------------ Log ---------------------------- */
 app.use((req, _res, next) => {
-  console.log(`Backend: [${req.method}] ${req.originalUrl} (Origin: ${req.headers.origin || "-"})`);
+  log.info(`Backend: [${req.method}] ${req.originalUrl} (Origin: ${req.headers.origin || "-"})`);
   next();
 });
 
@@ -93,6 +118,8 @@ app.use((req, _res, next) => {
 
 /* -------------------------- Healthcheck ------------------------ */
 app.get("/", (_req: Request, res: Response) => res.status(200).send("OK"));
+app.get("/healthz", (_req, res) => res.status(200).json({ status: "ok" }));
+app.get("/readyz", (_req, res) => res.status(200).json({ ready: true }));
 
 /* ----------------------------- Rotas --------------------------- */
 app.use("/api", promptRoutes);
@@ -123,29 +150,47 @@ app.use((req: Request, res: Response) => {
 
 // Error handler
 app.use((err: any, req: Request, res: Response, _next: NextFunction) => {
-  console.error("Erro não tratado:", err);
   // garante headers CORS também em erros
   const origin = req.headers.origin as string | undefined;
   if (origin && (allowList.has(origin) || vercelRegex.test(origin))) {
     res.setHeader("Access-Control-Allow-Origin", origin);
     res.setHeader("Access-Control-Allow-Credentials", "true");
   }
+
   // Se for preflight que caiu aqui, devolve 204
   if (req.method === "OPTIONS") return res.sendStatus(204);
+
+  // Log estruturado do erro
+  log.error("Erro não tratado:", {
+    message: err?.message,
+    stack: err?.stack,
+    name: err?.name,
+  });
+
   res.status(500).json({ error: "Erro interno" });
 });
 
 /* ---------------------------- Start ---------------------------- */
 app.listen(PORT, async () => {
-  console.log(`Servidor Express rodando na porta ${PORT}`);
-  console.log("CORS allowlist:", Array.from(allowList).join(", "));
-  if (process.env.REGISTRAR_HEURISTICAS === "true") {
-    await registrarTodasHeuristicas();
-    console.log("🎯 Heurísticas registradas.");
-  }
-  if (process.env.REGISTRAR_FILOSOFICOS === "true") {
-    await registrarModulosFilosoficos();
-    console.log("🧘 Módulos filosóficos registrados.");
+  log.info(`Servidor Express rodando na porta ${PORT}`);
+  log.info("CORS allowlist:", Array.from(allowList).join(", "));
+  log.info("Boot", {
+    ECO_LOG_LEVEL: process.env.ECO_LOG_LEVEL ?? "(unset)",
+    ECO_DEBUG: process.env.ECO_DEBUG ?? "(unset)",
+    NODE_ENV: process.env.NODE_ENV ?? "(unset)",
+  });
+
+  try {
+    if (process.env.REGISTRAR_HEURISTICAS === "true") {
+      await registrarTodasHeuristicas();
+      log.info("🎯 Heurísticas registradas.");
+    }
+    if (process.env.REGISTRAR_FILOSOFICOS === "true") {
+      await registrarModulosFilosoficos();
+      log.info("🧘 Módulos filosóficos registrados.");
+    }
+  } catch (e: any) {
+    log.error("Falha ao registrar recursos iniciais:", { message: e?.message, stack: e?.stack });
   }
 });
 
