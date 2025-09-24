@@ -1,4 +1,5 @@
 // server/services/ConversationOrchestrator.ts
+
 import {
   ensureEnvs,
   formatarTextoEco,
@@ -48,6 +49,7 @@ const PARALELAS_TIMEOUT_MS = Number(process.env.ECO_PARALELAS_TIMEOUT_MS ?? 180)
 
 const firstName = (s?: string) => (s || "").trim().split(/\s+/)[0] || "";
 
+// Remove respostas do tipo “sou a Eco, não o {nome}”
 function stripIdentityCorrection(text: string, nome?: string) {
   if (!nome) return text;
   const re = new RegExp(
@@ -59,9 +61,9 @@ function stripIdentityCorrection(text: string, nome?: string) {
 
 function isLowComplexity(texto: string) {
   const t = (texto || "").trim();
-  if (t.length <= 120) return true;
+  if (t.length <= 140) return true; // levemente mais permissivo
   const words = t.split(/\s+/).length;
-  if (words <= 18) return true;
+  if (words <= 22) return true;
   return !/crise|p[aâ]nico|desesper|vontade de sumir|explod|insuport|plano detalhado|passo a passo/i.test(
     t
   );
@@ -167,7 +169,7 @@ async function fastLaneLLM({
 }) {
   const nome = firstName(userName);
   const system =
-    "Você é a Eco, um coach de autoconhecimento empático e reflexivo, que guia o usuário a se perceber melhor com clareza e leveza. Seu papel é oferecer presença, espelhamento e encorajamento sábio. " +
+    "Você é a Eco, um coach de autoconhecimento empático e reflexivo, que guia o usuário a se perceber melhor com clareza e leveza. " +
     "Responda curto (1–2 frases), claro e gentil. Evite jargões. Se pedirem passos, no máximo 3 itens. " +
     (nome
       ? `O usuário se chama ${nome}. Use o nome apenas quando fizer sentido. Nunca corrija nomes nem diga frases como "sou a Eco, não o ${nome}". `
@@ -253,18 +255,28 @@ export async function getEcoResponse(
   }
 
   // 2) roteamento
+  const saudacaoBreve = detectarSaudacaoBreve(ultimaMsg);
+  const nivelRoteador = derivarNivel(ultimaMsg, saudacaoBreve);
   const low = isLowComplexity(ultimaMsg);
   const vivaAtivo = forcarMetodoViva || heuristicaPreViva(ultimaMsg);
-  const forceFull = process.env.ECO_FORCE_FULL === "1" || !!promptOverride;
+
+  // 🔁 IMPORTANTE: fast-lane reativada por padrão
+  // -> Só força rota completa se houver promptOverride.
+  const forceFull = !!promptOverride;
+
   if (isDebug())
     log.debug("[Orchestrator] roteamento", {
       low,
       vivaAtivo,
       forceFull,
+      nivelRoteador,
       ultimaLen: (ultimaMsg || "").length,
     });
 
-  if (!forceFull && low && !vivaAtivo && !promptOverride) {
+  const podeFastLane =
+    !forceFull && low && !vivaAtivo && !promptOverride && nivelRoteador <= 1;
+
+  if (podeFastLane) {
     const inicioFast = now();
     const fast = await fastLaneLLM({ messages: messages as any, userName });
 
@@ -431,7 +443,7 @@ export async function getEcoResponse(
   const inicioEco = now();
   const data = await claudeChatCompletion({
     messages: msgs,
-    model: process.env.ECO_CLAUDE_MODEL || "anthropic/claude-4-sonnet",
+    model: process.env.ECO_CLAUDE_MODEL || "anthropic/claude-3-5-sonnet",
     temperature: 0.6,
     maxTokens,
   });
@@ -440,10 +452,14 @@ export async function getEcoResponse(
     trackEcoDemorou({ userId, duracaoMs: duracaoEco, ultimaMsg });
 
   const raw: string = data?.content ?? "";
-  const cleaned = formatarTextoEco(
-    limparResposta(
-      raw || "Desculpa, não consegui responder agora. Pode tentar de novo?"
-    )
+  // 🔧 também limpamos identidade aqui para evitar repetições do tipo “sou a Eco…”
+  const cleaned = stripIdentityCorrection(
+    formatarTextoEco(
+      limparResposta(
+        raw || "Desculpa, não consegui responder agora. Pode tentar de novo?"
+      )
+    ),
+    firstName(userName)
   );
 
   let bloco: any = null;

@@ -1,336 +1,317 @@
 // server/services/promptContext/ContextBuilder.ts
-import path from "path";
-import { get_encoding } from "@dqbd/tiktoken";
+import crypto from "crypto";
+import { isDebug, log } from "./logger";
 import { Budgeter } from "./Budgeter";
 import { ModuleStore } from "./ModuleStore";
-import {
-  buildOverhead,
-  construirNarrativaMemorias,
-  construirStateSummary,
-  loadStaticGuards,
-  renderDerivados,
-} from "./Signals";
-import {
-  selecionarModulosBase,
-  derivarNivel,
-  derivarFlags,
-  detectarSaudacaoBreve,
-  isV2Matrix,
-  resolveModulesForLevelV2,
-  selecionarExtras,
-} from "./Selector";
-import { MAX_PROMPT_TOKENS, NIVEL1_BUDGET, MARGIN_TOKENS } from "../../utils/config";
-// 🔽 matriz com fallback
-import * as Matriz from "../../controllers/matrizPromptBase";
-// 🔽 logger local (server/services/promptContext/logger.ts ou ./logger/index.ts)
-import { log, isDebug } from "./logger";
+import { Selector, derivarNivel, detectarSaudacaoBreve } from "./Selector";
+import type { MemoriaCompacta } from "./types";
 
-const ENC = get_encoding("cl100k_base");
+type BuildParams = {
+  userId?: string | null;
+  userName?: string | null;
+  texto: string;
+  mems?: MemoriaCompacta[];
+  heuristicas?: any[];
+  userEmbedding?: number[];
+  forcarMetodoViva?: boolean;
+  blocoTecnicoForcado?: any;
+  skipSaudacao?: boolean;
+  derivados?: any;
+  aberturaHibrida?: any;
+  perfil?: any;
+};
 
-function uniqPreservingOrder(arr: (string | undefined | null)[]) {
-  const out: string[] = [];
-  const seen = new Set<string>();
-  for (const v of arr) {
-    const s = (v ?? "").trim();
-    if (!s || seen.has(s)) continue;
-    seen.add(s);
-    out.push(s);
-  }
-  return out;
-}
+export async function montarContextoEco(params: BuildParams): Promise<string> {
+  const {
+    userId,
+    userName,
+    texto,
+    mems = [],
+    heuristicas = [],
+    userEmbedding = [],
+    forcarMetodoViva = false,
+    blocoTecnicoForcado = null,
+    skipSaudacao = false,
+    derivados = null,
+    aberturaHibrida = null,
+    perfil = null,
+  } = params;
 
-/**
- * Prioridade unificada a ser passada ao Budgeter.
- * - Em V2: camadas base (core/emotional/advanced) VÊM PRIMEIRO, seguidas de limites.prioridade.
- * - Em legado: apenas limites.prioridade.
- */
-function buildUnifiedPriority(matriz: any): string[] | undefined {
-  const limites: string[] = (matriz?.limites?.prioridade ?? []) as string[];
+  /* ---------- Sinais básicos ---------- */
+  const saudacaoBreve = detectarSaudacaoBreve(texto);
+  const nivel = derivarNivel(texto, saudacaoBreve);
 
-  if (isV2Matrix(matriz)) {
-    const baseLayers: string[] = uniqPreservingOrder([
-      ...(matriz.baseModules?.core ?? []),
-      ...(matriz.baseModules?.emotional ?? []),
-      ...(matriz.baseModules?.advanced ?? []),
-    ]);
+  /* ---------- Memo/overhead ---------- */
+  const memIntensity = Math.max(0, ...mems.map((m) => Number(m?.intensidade ?? 0)));
+  const memCount = mems.length;
 
-    const merged = uniqPreservingOrder([...baseLayers, ...limites]);
-    return merged.length ? merged : undefined;
-  }
+  /* ---------- Roteamento base de módulos ---------- */
+  const baseSelection = Selector.selecionarModulosBase({
+    nivel,
+    intensidade: memIntensity,
+    flags: Selector.derivarFlags(texto),
+  });
 
-  const legacy = uniqPreservingOrder(limites);
-  return legacy.length ? legacy : undefined;
-}
+  /* ---------- Overhead instrucional ---------- */
+  const responsePlan =
+    "Fluxo: acolher (1 linha) • espelhar o núcleo (1 linha) • (opcional) pedir permissão para uma impressão curta • 0–1 pergunta viva • fechar leve. Máx. 1 pergunta viva; linguagem simples; parágrafos curtos (1–3 linhas).";
 
-export class ContextBuilder {
-  private budgeter = new Budgeter();
+  const instrucoesFinais =
+    "Ética: sem diagnósticos ou promessas de cura. Priorize autonomia, cuidado e ritmo. Se tema clínico/urgente, acolha e oriente a buscar apoio adequado, sem rótulos.";
 
-  async build(input: any) {
-    const t0 = Date.now();
-    try {
-      const assetsDir = path.join(process.cwd(), "assets");
-      // Pastas alinhadas
-      const coreDir        = path.join(assetsDir, "modulos_core");
-      const extrasDir      = path.join(assetsDir, "modulos_extras");
-      const modCogDir      = path.join(assetsDir, "modulos_cognitivos");
-      const modFilosDir    = path.join(assetsDir, "modulos_filosoficos");
-      const modEstoicosDir = path.join(modFilosDir, "estoicos");
-      const modEmocDir     = path.join(assetsDir, "modulos_emocionais");
-
-      // ordem: core → extras → opcionais
-      ModuleStore.I.configure([coreDir, extrasDir, modEmocDir, modEstoicosDir, modFilosDir, modCogDir]);
-      if (isDebug()) log.debug("[ContextBuilder] roots configurados", {
-        coreDir, extrasDir, modEmocDir, modEstoicosDir, modFilosDir, modCogDir
-      });
-
-      // guards estáticos (placeholders)
-      const { criterios, memoriaInstrucoes } = await loadStaticGuards(coreDir);
-
-      const entrada = (input.texto ?? "").trim();
-      const saudacaoBreve = detectarSaudacaoBreve(entrada);
-      if (isDebug()) {
-        log.info("[ContextBuilder] início build", {
-          userId: input?.userId ?? null,
-          lenEntrada: entrada.length,
-          saudacaoBreve
-        });
-      }
-
-      let contexto = "";
-      if (saudacaoBreve) {
-        contexto += `\n🔎 Detecção: saudação breve. Evite perguntas de abertura; acolha sem repetir a saudação.`;
-      }
-
-      const nivel = derivarNivel(entrada, saudacaoBreve);
-      const desc = nivel === 1 ? "superficial" : nivel === 2 ? "reflexiva" : "profunda";
-      contexto += `\n📶 Abertura emocional sugerida (heurística): ${desc}`;
-
-      if (input.perfil) contexto += `\n\n${construirStateSummary(input.perfil, nivel)}`;
-      if (input.derivados) contexto += renderDerivados(input.derivados, input.aberturaHibrida);
-
-      // ===== memórias =====
-      let memsUsadas: any[] = input.mems ?? [];
-      if (input.forcarMetodoViva && input.blocoTecnicoForcado) {
-        memsUsadas = [
-          {
-            resumo_eco: input.blocoTecnicoForcado.analise_resumo ?? entrada ?? "",
-            intensidade: Number(input.blocoTecnicoForcado.intensidade ?? 0),
-            emocao_principal: input.blocoTecnicoForcado.emocao_principal ?? "",
-            tags: input.blocoTecnicoForcado.tags ?? [],
-          },
+  // Em NV1, o plano e a antisaudação já estão dentro dos módulos (NV1_CORE + ANTISALDO_MIN).
+  const overhead: Array<[string, string]> =
+    nivel === 1
+      ? [["ECO_INSTRUCOES_FINAIS", instrucoesFinais]]
+      : [
+          ["ECO_RESPONSE_PLAN", responsePlan],
+          ["ECO_INSTRUCOES_FINAIS", instrucoesFinais],
         ];
-      } else if (nivel === 1) {
-        memsUsadas = [];
-      }
-      if (entrada && input.perfil && nivel > 1) {
-        memsUsadas = [
-          ...(memsUsadas || []),
-          {
-            resumo_eco: entrada,
-            tags: input.perfil.temas_recorrentes ? Object.keys(input.perfil.temas_recorrentes) : [],
-            intensidade: 0,
-            emocao_principal: Object.keys(input.perfil.emocoes_frequentes || {})[0] || "",
-          },
-        ];
-      }
 
-      const intensidadeContexto = Math.max(0, ...(memsUsadas ?? []).map((m: any) => m.intensidade ?? 0));
-      if (memsUsadas?.length && nivel > 1) {
-        contexto += `\n\n${construirNarrativaMemorias(memsUsadas)}`;
-      }
-      if (isDebug()) {
-        log.debug("[ContextBuilder] memórias agregadas", {
-          qtd: memsUsadas?.length ?? 0,
-          intensidadeContexto
-        });
-      }
+  /* ---------- Módulos candidatos ---------- */
+  const modulesRaw = baseSelection.raw ?? [];
+  const modulesAfterGating = baseSelection.posGating ?? modulesRaw;
 
-      // ===== matriz =====
-      const matriz =
-        (Matriz as any).matrizPromptBaseV2 ??
-        (Matriz as any).matrizPromptBase ??
-        (Matriz as any).MatrizPromptBase ??
-        (Matriz as any).default;
+  // Política NV1: usar os módulos mínimos dedicados (sem IDENTIDADE.txt grande)
+  const MIN_NV1: string[] = [
+    "NV1_CORE.txt",        // regras concisas (princípios, forma, escala)
+    "IDENTIDADE_MINI.txt", // essência curta da Eco
+    "ANTISALDO_MIN.txt",   // guarda-corpo de saudação
+  ];
 
-      const flags = derivarFlags(entrada);
-      const baseSel = selecionarModulosBase({ nivel, intensidade: intensidadeContexto, matriz, flags });
-      if (isDebug()) {
-        log.debug("[ContextBuilder] seleção base (pós-gating)", {
-          nivel, flags, selecionados: baseSel.selecionados, debug: baseSel.debug
-        });
-      }
+  /* ---------- Loader com contagem de tokens ---------- */
+  const store = await ModuleStore.buildFileIndexOnce();
+  const loader = async (name: string) => {
+    const text = await store.read(name);
+    const tokens = await store.tokenCountOf(text);
+    return { name, text, tokens };
+  };
 
-      // ===== contexto / overhead =====
-      const contextoMin = contexto.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
-      const enc = ENC;
-      const tokensContexto = enc.encode(contextoMin).length;
+  /* ---------- Orçamento ---------- */
+  const budgetTokens = Number(process.env.ECO_CONTEXT_BUDGET_TOKENS ?? 2500);
+  const budgeter = new Budgeter({ budgetTokens });
 
-      const antiSaudacaoGuard = `
-NÃO inicie a resposta com fórmulas como:
-- "como você chega", "como você está chegando", "como chega aqui hoje", "como você chega hoje".
-Se a mensagem do usuário for apenas uma saudação breve, não repita a saudação, não faça perguntas fenomenológicas de abertura; apenas acolha de forma simples quando apropriado.`.trim();
+  const ordered =
+    nivel === 1
+      ? MIN_NV1
+      : [...new Set(modulesAfterGating)];
 
-      const permitirPerguntaViva =
-        nivel >= 2 && !saudacaoBreve && (flags.curiosidade === true || intensidadeContexto >= 5);
+  const loaded: { name: string; text: string; tokens: number }[] = [];
+  for (const n of ordered) {
+    const it = await loader(n);
+    const ok = budgeter.tryInclude(it.name, it.tokens);
+    if (ok) loaded.push(it);
+    else budgeter.registerCut(it.name, it.tokens);
+  }
 
-      const responsePlan = {
-        allow_live_question: permitirPerguntaViva,
-        live_question: permitirPerguntaViva
-          ? {
-              text: flags.curiosidade
-                ? "O que fica mais vivo em você quando olha para isso agora — sem precisar explicar?"
-                : intensidadeContexto >= 6
-                ? "Se couber, o que seu corpo te conta sobre isso neste instante (uma palavra ou imagem)?"
-                : "Se fizer sentido, qual seria um próximo passo gentil a partir daqui?",
-              max_count: 1,
-            }
-          : null,
-        allow_micro_practice: false,
-        micro_practice: null as any,
-        guardrails: { no_new_topics_on_closure: true, max_new_prompts: 1 },
-      };
+  /* ---------- Reduções/recortes ---------- */
+  const reduced = loaded.map((m) => {
+    // Em NV1, os módulos já são “mini”; não recortar.
+    if (nivel === 1) return m;
 
-      const followPlanGuard =
-        `- Siga o RESPONSE_PLAN: no máximo 1 pergunta viva (se allow_live_question=true) e no máximo 1 micro-prática (se allow_micro_practice=true). Slots são opcionais.`;
-
-      const instrucoesFinais = `
-⚠️ INSTRUÇÃO AO MODELO:
-- Use memórias/contexto como suporte, não como script.
-- Ajuste a profundidade e o tom conforme o nível de abertura (superficial, reflexiva, profunda).
-- Respeite o ritmo e a autonomia do usuário.
-- Evite soluções prontas e interpretações rígidas.
-- Use a “Estrutura Padrão de Resposta” como planejamento interno (6 partes), mas NÃO exiba títulos/numeração.
-- ${antiSaudacaoGuard}
-- ${followPlanGuard}`.trim();
-
-      const overhead = buildOverhead({
-        criterios,
-        memoriaInstrucoes,
-        responsePlanJson: JSON.stringify(responsePlan),
-        instrucoesFinais,
-        antiSaudacaoGuard,
-      });
-      const overheadTokens = enc.encode(overhead).length;
-
-      // ⚠️ Floor em 0 (evita exceder MAX_PROMPT_TOKENS)
-      const budgetRestante = Math.max(
-        0,
-        MAX_PROMPT_TOKENS - tokensContexto - overheadTokens - MARGIN_TOKENS
-      );
-
-      if (isDebug()) {
-        log.debug("[ContextBuilder] tokens & orçamento", {
-          tokensContexto,
-          overheadTokens,
-          MAX_PROMPT_TOKENS,
-          MARGIN_TOKENS,
-          budgetRestante
-        });
-      }
-
-      // ===== NV1 curto =====
-      if (nivel === 1) {
-        const nomesNv1 = isV2Matrix(matriz)
-          ? resolveModulesForLevelV2(1 as any, matriz)
-          : [...(matriz.alwaysInclude ?? [])];
-
-        const stitched = await this.budgeter.stitch(nomesNv1, {
-          budgetTokens: Math.min(budgetRestante, NIVEL1_BUDGET),
-          // prioridade não é crítica para NV1, mas já respeitamos a unificada
-          priority: buildUnifiedPriority(matriz),
-        });
-
-        if (isDebug()) log.debug("[ContextBuilder] NV1 stitch", stitched);
-
-        const instrucoesNv1 = `
-⚠️ INSTRUÇÃO:
-- Responda breve (≤ 3 linhas), sem perguntas exploratórias.
-- Acolha e respeite silêncio. Não usar memórias neste nível.
-- Use a Estrutura Padrão de Resposta como planejamento interno, mas NÃO exiba títulos/numeração.
-- ${antiSaudacaoGuard}`.trim();
-
-        const prompt = [contextoMin, stitched.text, instrucoesNv1, overhead]
-          .filter(Boolean)
-          .join("\n\n")
-          .replace(/[ \t]+\n/g, "\n")
-          .replace(/\n{3,}/g, "\n\n")
-          .trim();
-
-        const total = enc.encode(prompt).length;
-
-        if (isDebug()) log.info("[ContextBuilder] NV1 pronto", { totalTokens: total });
-
-        return {
-          prompt,
-          meta: {
-            nivel,
-            tokens: { contexto: tokensContexto, overhead: overheadTokens, total, budgetRestante },
-            modulos: { incluidos: stitched.used, cortados: stitched.cut },
-            flags: { curiosidade: flags.curiosidade, pedido_pratico: flags.pedido_pratico, saudacaoBreve },
-          },
-        };
-      }
-
-      // ===== NV2 / NV3 =====
-      // Extras só fazem sentido aqui (evita custo no NV1)
-      const extras = selecionarExtras({
-        userId: input.userId,
-        entrada,
-        nivel,
-        intensidade: intensidadeContexto,
-        memsUsadas,
-        heuristicaAtiva: undefined,
-        heuristicasEmbedding: input.heuristicas,
-      });
-
-      const nomesPre = uniqPreservingOrder([...baseSel.selecionados, ...extras]);
-      const prioridade = buildUnifiedPriority(matriz);
-
-      if (isDebug()) {
-        log.debug("[ContextBuilder] candidatos NV2/3", {
-          base: baseSel.selecionados,
-          extras,
-          nomesPre,
-          prioridade
-        });
-      }
-
-      const stitched = await this.budgeter.stitch(nomesPre, {
-        budgetTokens: budgetRestante,
-        priority: prioridade,
-      });
-
-      const prompt = [contextoMin, stitched.text.trim(), overhead]
-        .filter(Boolean)
-        .join("\n\n")
-        .replace(/[ \t]+\n/g, "\n")
-        .replace(/\n{3,}/g, "\n\n")
-        .trim();
-
-      const total = enc.encode(prompt).length;
-
-      if (isDebug()) {
-        log.info("[ContextBuilder] NV2/3 pronto", {
-          totalTokens: total,
-          usados: stitched.used,
-          cortados: stitched.cut
-        });
-      }
-
-      return {
-        prompt,
-        meta: {
-          nivel,
-          tokens: { contexto: tokensContexto, overhead: overheadTokens, total, budgetRestante },
-          modulos: { incluidos: stitched.used, cortados: stitched.cut },
-          flags: { curiosidade: flags.curiosidade, pedido_pratico: flags.pedido_pratico, saudacaoBreve },
-        },
-      };
-    } catch (err: any) {
-      log.error?.("[ContextBuilder] erro ao montar contexto", { err: String(err?.stack || err) });
-      throw err;
-    } finally {
-      if (isDebug()) log.debug("[ContextBuilder] tempo total ms", { ms: Date.now() - t0 });
+    // NV2/3 — compactações leves quando presentes
+    if (m.name === "PRINCIPIOS_CHAVE.txt") {
+      return { ...m, text: compactarPrincipios(m.text) };
     }
+    if (m.name === "IDENTIDADE.txt") {
+      const resumida = extrairIdentidadeResumida(m.text);
+      return { ...m, text: resumida || resumirIdentidadeFallback(m.text) };
+    }
+    return m;
+  });
+
+  /* ---------- Dedupe e ordenação final ---------- */
+  const stitched =
+    nivel === 1
+      ? stitchNV1(reduced)
+      : stitchNV(nivel, reduced);
+
+  const instrucional = overhead
+    .map(([title, body]) => `### ${title}\n${body}`.trim())
+    .join("\n\n");
+
+  /* ---------- Cabeçalho + extras ---------- */
+  const header = [
+    `Nível de abertura: ${nivel}`,
+    memCount > 0 ? `Memórias (internas): ${memCount} itens` : `Memórias: none`,
+    forcarMetodoViva ? "Forçar VIVA: sim" : "Forçar VIVA: não",
+  ].join(" | ");
+
+  const extras: string[] = [];
+  if (aberturaHibrida?.sugestaoNivel != null) {
+    extras.push(`Ajuste dinâmico de abertura (sugerido): ${aberturaHibrida.sugestaoNivel}`);
   }
+  if (derivados?.resumoTopicos) {
+    const top = String(derivados.resumoTopicos).slice(0, 220);
+    extras.push(`Observações de continuidade: ${top}${top.length >= 220 ? "…" : ""}`);
+  }
+  const dyn = extras.length ? `\n\n${extras.map((e) => `• ${e}`).join("\n")}` : "";
+
+  /* ---------- Prompt final ---------- */
+  const prompt =
+    [
+      `// CONTEXTO ECO — NV${nivel}`,
+      `// ${header}${dyn}`,
+      "",
+      stitched,
+      "",
+      instrucional,
+      "",
+      `Mensagem atual: ${texto}`,
+    ]
+      .join("\n")
+      .trim();
+
+  /* ---------- Métricas & Debug ---------- */
+  if (isDebug()) {
+    const tokensContexto = await store.tokenCountOf(texto);
+    const overheadTokens = await store.tokenCountOf(instrucional);
+    const total = await store.tokenCountOf(prompt);
+    log.debug("[ContextBuilder] tokens & orçamento", {
+      tokensContexto,
+      overheadTokens,
+      MAX_PROMPT_TOKENS: 8000,
+      MARGIN_TOKENS: 256,
+      budgetRestante: Math.max(0, 8000 - 256 - total),
+    });
+    log.debug("[Budgeter] resultado", {
+      used: budgeter.used,
+      cut: budgeter.cut,
+      tokens: budgeter.totalUsed,
+    });
+    log.info("[ContextBuilder] NV" + nivel + " pronto", { totalTokens: total });
+  }
+
+  return prompt;
 }
+
+/* =======================================================================
+   Utilidades de compactação / dedupe
+======================================================================= */
+
+function hash(text: string) {
+  return crypto.createHash("sha1").update(text).digest("hex").slice(0, 10);
+}
+
+function dedupeBySection(text: string): string {
+  const lines = text.split(/\r?\n/);
+  const out: string[] = [];
+  const seenTitles = new Set<string>();
+  const seenHashes = new Set<string>();
+  let currentBlock: string[] = [];
+
+  const flush = () => {
+    if (currentBlock.length === 0) return;
+    const blockText = currentBlock.join("\n").trim();
+    const key = hash(blockText);
+    if (!seenHashes.has(key)) {
+      seenHashes.add(key);
+      out.push(blockText);
+    }
+    currentBlock = [];
+  };
+
+  for (const ln of lines) {
+    const isTitle = /^#{1,6}\s+/.test(ln) || /^[A-ZÁÂÃÉÊÍÓÔÕÚÜÇ0-9][^\n]{0,80}$/.test(ln);
+    if (isTitle) {
+      flush();
+      const normalizedTitle = ln.trim().toUpperCase().replace(/\s+/g, " ");
+      if (seenTitles.has(normalizedTitle)) {
+        // descarta bloco repetido
+        currentBlock = [];
+        continue;
+      }
+      seenTitles.add(normalizedTitle);
+    }
+    currentBlock.push(ln);
+  }
+  flush();
+  return out.join("\n");
+}
+
+function extrairIdentidadeResumida(text: string): string | "" {
+  const m = text.match(/(IDENTIDADE\s+RESUMIDA[\s\S]*?)(?:\n#{1,6}\s+|$)/i);
+  if (m) return limparEspacos(m[1]);
+  const n = text.match(/IDENTIDADE[\s\S]*?\n+([\s\S]{80,400}?)(?:\n{2,}|#{1,6}\s+)/i);
+  if (n) return "IDENTIDADE — RESUMO\n" + limparEspacos(n[1]);
+  return "";
+}
+
+function resumirIdentidadeFallback(text: string): string {
+  return [
+    "IDENTIDADE — ECO (resumo)",
+    "Você é a Eco: presença empática, reflexiva e clara.",
+    "Fale simples, em 1–3 linhas por parágrafo. Máx. 1 pergunta viva.",
+    "Convide escolhas; evite jargões e diagnósticos.",
+  ].join("\n");
+}
+
+function compactarPrincipios(text: string): string {
+  const bloco = text.replace(/\r/g, "").split("\n").slice(0, 40).join("\n");
+  const essenciais = bloco.match(/^(?:-|\*|\•)\s.*$/gim);
+  const head =
+    (text.match(/^[^\n]{5,120}$/m)?.[0] ?? "PRINCÍPIOS-CHAVE DE RESPOSTA — ECO") + "\n";
+  const corpo = (essenciais ?? [])
+    .slice(0, 6)
+    .map((l) => l.replace(/^[-*•]\s?/, "• "))
+    .join("\n");
+  return limparEspacos(head + corpo);
+}
+
+function limparEspacos(s: string) {
+  return s.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+/* ---------- Stitch ---------- */
+
+function stitchNV1(mods: Array<{ name: string; text: string }>): string {
+  const prio = ["NV1_CORE.txt", "IDENTIDADE_MINI.txt", "ANTISALDO_MIN.txt"];
+  const sorted = [
+    ...mods.filter((m) => prio.includes(m.name)).sort((a, b) => prio.indexOf(a.name) - prio.indexOf(b.name)),
+    ...mods.filter((m) => !prio.includes(m.name)),
+  ];
+  const joined = sorted
+    .map((m) => {
+      const title = titleFromName(m.name);
+      return `\n${title}\n\n${m.text}`.trim();
+    })
+    .join("\n\n");
+  return dedupeBySection(joined);
+}
+
+function stitchNV(nivel: number, mods: Array<{ name: string; text: string }>): string {
+  const prio = ["PRINCIPIOS_CHAVE.txt", "IDENTIDADE.txt", "ESCALA_ABERTURA_1a3.txt"];
+  const sorted = [
+    ...mods.filter((m) => prio.includes(m.name)).sort((a, b) => prio.indexOf(a.name) - prio.indexOf(b.name)),
+    ...mods.filter((m) => !prio.includes(m.name)),
+  ];
+  const joined = sorted
+    .map((m) => {
+      const title = titleFromName(m.name);
+      return `\n${title}\n\n${m.text}`.trim();
+    })
+    .join("\n\n");
+  return dedupeBySection(joined);
+}
+
+function titleFromName(name: string) {
+  if (/NV1_CORE/i.test(name)) return "NV1 — CORE";
+  if (/IDENTIDADE_MINI/i.test(name)) return "IDENTIDADE — ECO (mini)";
+  if (/ANTISALDO_MIN/i.test(name)) return "ANTISSALDO — Diretriz mínima";
+  if (/PRINCIPIOS/i.test(name)) return "PRINCÍPIOS-CHAVE DE RESPOSTA — ECO";
+  if (/IDENTIDADE\.txt$/i.test(name)) return "IDENTIDADE — ECO (resumo)";
+  if (/ESCALA_ABERTURA/i.test(name)) return "ESCALA DE ABERTURA (1–3)";
+  return name.replace(/\.txt$/i, "").replace(/_/g, " ");
+}
+
+/* =======================================================================
+   Facade
+======================================================================= */
+
+export const ContextBuilder = {
+  async build(params: BuildParams) {
+    return montarContextoEco(params);
+  },
+};
+
+export default montarContextoEco;
