@@ -24,7 +24,7 @@
     "@dqbd/tiktoken": "^1.0.21",
     "@google-cloud/language": "^7.0.2",
     "@google/generative-ai": "^0.24.1",
-    "@supabase/supabase-js": "^2.49.5",
+    "@supabase/supabase-js": "^2.57.4",
     "@types/express": "^4.17.21",
     "@vercel/node": "^3.2.29",
     "axios": "^1.9.0",

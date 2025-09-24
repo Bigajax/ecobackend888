@@ -1,5 +1,4 @@
-// assets/config/carregarHeuristicasComoEmbedding.ts
-import { supabase } from "../../lib/supabaseAdmin";
+import supabase from "../../lib/supabaseAdmin";               // ⬅️ default import
 import { embedTextoCompleto } from "../../services/embeddingService";
 
 export async function buscarHeuristicasSemelhantes(texto: string) {
@@ -8,7 +7,7 @@ export async function buscarHeuristicasSemelhantes(texto: string) {
 
   const { data, error } = await supabase.rpc("buscar_heuristica_semelhante", {
     query_embedding: vetorSQL,
-    match_threshold: 0.80,
+    match_threshold: 0.8,
     match_count: 3,
   });
 
@@ -16,5 +15,6 @@ export async function buscarHeuristicasSemelhantes(texto: string) {
     console.error("❌ Erro ao buscar heurísticas semelhantes:", error);
     return [];
   }
+
   return data ?? [];
 }
