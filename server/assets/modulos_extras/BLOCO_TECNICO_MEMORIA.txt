@@ -1,4 +1,48 @@
-Gerar apenas se ≥7 (ou critérios da Escala). JSON puro com:
-emocao_principal, intensidade, tags (≤5), dominio_vida, padrao_comportamental, nivel_abertura, categoria, analise_resumo (≤2 frases, ≤25 palavras).
+BLOCO TÉCNICO DE MEMÓRIA — ECO
 
-Categorias: emocional | relacional | existencial | profissional | corpo | outro.
+QUANDO GERAR
+- Somente se intensidade percebida ≥ 7 (ou critérios equivalentes da Escala).
+- Se < 7, NÃO gere bloco técnico.
+
+FORMATO E SAÍDA
+- Ao final da resposta natural (humana), ANEXE uma nova linha e depois UM ÚNICO objeto JSON puro.
+- Sem texto antes/depois, sem crases, sem “```”, sem comentários.
+- Chaves EXATAS e na ordem abaixo:
+  1) emocao_principal (string, minúscula)
+  2) intensidade (number, 0–10)
+  3) tags (array de strings, 0–5 itens, minúsculas, sem PII)
+  4) dominio_vida (string, minúscula; escolha 1)
+  5) padrao_comportamental (string curta)
+  6) nivel_abertura (number, 1–3)
+  7) categoria (string; uma de: "emocional" | "relacional" | "existencial" | "profissional" | "corpo" | "outro")
+  8) analise_resumo (string; ≤ 2 frases, ≤ 25 palavras no total)
+
+REGRAS
+- “analise_resumo” deve sintetizar o que ficou vivo/central, sem diagnósticos clínicos.
+- “tags”: máximo 5, curtas (ex.: "limites", "cansaço", "procrastinação"). Evite nomes próprios, telefones, lugares específicos.
+- “dominio_vida”: escolha UMA área mais pertinente. Sugeridas (livre): "trabalho", "estudos", "finanças", "família", "relacionamento", "amizades", "saúde", "corpo", "propósito", "rotina", "autocuidado", "outro".
+- “padrao_comportamental”: nome curto e descritivo (ex.: "evitar_conflito", "comparação_constante", "controle_excessivo").
+- “nivel_abertura”: use a classificação interna (1 superficial, 2 reflexiva, 3 profunda).
+- Nunca invente detalhes sensíveis. Se não houver dado confiável para um campo textual, use uma formulação neutra e breve (evite null/omitir chaves).
+
+CHECKLIST RÁPIDO
+[ ] Intensidade ≥ 7 confirmada?
+[ ] JSON único, sem crases/comentários?
+[ ] ≤ 5 tags, sem PII?
+[ ] “analise_resumo” ≤ 25 palavras e até 2 frases?
+
+EXEMPLO VÁLIDO
+{ "emocao_principal": "ansiedade",
+  "intensidade": 8,
+  "tags": ["pressao", "prazos", "autoexigencia"],
+  "dominio_vida": "trabalho",
+  "padrao_comportamental": "catastrofizar_resultados",
+  "nivel_abertura": 2,
+  "categoria": "profissional",
+  "analise_resumo": "A pressão por desempenho aciona ansiedade intensa e catastrofização. Precisa de um passo pequeno para recuperar senso de controle." }
+
+EXEMPLO INVÁLIDO (NÃO USAR)
+- Com crases ou texto extra.
+- Campos faltando, chaves renomeadas ou ordem trocada.
+- “analise_resumo” longa ou com dados sensíveis.
+

@@ -1,25 +1,30 @@
 // controllers/matrizPromptBase.ts
-// Matriz de Decisão ECO (V3 — Enxuta) + Tipos locais para evitar erro TS2304
+// Matriz de Decisão ECO (V3 enxuta) — alinhada aos módulos em /assets
 
-// ===== Tipos =====
+// ===== Tipos locais =====
 export interface CondicaoEspecial {
   descricao: string;
-  regra: string; // variáveis: nivel, intensidade, curiosidade, pedido_pratico, duvida_classificacao
+  // Variáveis aceitas: nivel, intensidade, curiosidade, pedido_pratico, duvida_classificacao
+  regra: string;
 }
 export interface Limites {
-  prioridade?: string[]; // ordem sugerida sob budget
+  // Ordem de prioridade para o Budgeter (módulos mais “essenciais” primeiro)
+  prioridade?: string[];
 }
+
 export interface MatrizPromptBase {
-  alwaysInclude: string[];
-  byNivel: Record<number, string[]>;
-  intensidadeMinima: Record<string, number>;
+  alwaysInclude: string[];                       // compat legado
+  byNivel: Record<number, string[]>;            // compat legado
+  intensidadeMinima: Record<string, number>;    // gates por intensidade
   condicoesEspeciais: Record<string, CondicaoEspecial>;
   limites?: Limites;
 }
 
+// Níveis/camadas
 type Nivel = 1 | 2 | 3;
 type Camada = "core" | "emotional" | "advanced";
 
+// V2: herança por camadas (core/emotional/advanced)
 export interface MatrizPromptBaseV2 extends MatrizPromptBase {
   baseModules: Record<Camada, string[]>;
   byNivelV2: Record<
@@ -31,9 +36,24 @@ export interface MatrizPromptBaseV2 extends MatrizPromptBase {
   >;
 }
 
-// ===== Matriz V3 Enxuta =====
+/* =======================================================================================
+   Matriz V3 (enxuta) — ARQUIVOS DEVEM EXISTIR EM /assets CONFORME:
+   - /assets/modulos_core
+     • PRINCIPIOS_CHAVE.txt
+     • IDENTIDADE.txt
+     • ECO_ESTRUTURA_DE_RESPOSTA.txt
+     • MODULACAO_TOM_REGISTRO.txt
+     • MEMORIAS_CONTEXTO.txt
+     • ENCERRAMENTO_SENSIVEL.txt
+   - /assets/modulos_extras
+     • METODO_VIVA_ENXUTO.txt
+     • ESCALA_INTENSIDADE_0a10.txt
+     • BLOCO_TECNICO_MEMORIA.txt
+   (emotional/filosóficos opcionais; não listados aqui)
+======================================================================================= */
+
 export const matrizPromptBaseV2: MatrizPromptBaseV2 = {
-  // Núcleo + Extras
+  /* ---------------- Núcleo + Advanced (extras condicionais) ---------------- */
   baseModules: {
     core: [
       "PRINCIPIOS_CHAVE.txt",
@@ -43,7 +63,7 @@ export const matrizPromptBaseV2: MatrizPromptBaseV2 = {
       "MEMORIAS_CONTEXTO.txt",
       "ENCERRAMENTO_SENSIVEL.txt",
     ],
-    emotional: [], // mantido vazio por compatibilidade
+    emotional: [], // reservado p/ futuros módulos emocionais “sempre que herdar”
     advanced: [
       "METODO_VIVA_ENXUTO.txt",
       "ESCALA_INTENSIDADE_0a10.txt",
@@ -51,14 +71,14 @@ export const matrizPromptBaseV2: MatrizPromptBaseV2 = {
     ],
   },
 
-  // Todo nível herda o core; extras entram por condicional
+  // Todo nível herda o core; o advanced entra por regras/gates
   byNivelV2: {
     1: { specific: [], inherits: ["core"] },
     2: { specific: [], inherits: ["core"] },
     3: { specific: [], inherits: ["core"] },
   },
 
-  // Compat legado (mantido, mas mínimo)
+  /* ---------------- Compatibilidade legado (não usados no V2) --------------- */
   alwaysInclude: [
     "PRINCIPIOS_CHAVE.txt",
     "IDENTIDADE.txt",
@@ -73,14 +93,14 @@ export const matrizPromptBaseV2: MatrizPromptBaseV2 = {
     3: [],
   },
 
-  // Gating (mínimo necessário)
+  /* -------------------------- Gates por intensidade ------------------------- */
   intensidadeMinima: {
-    "BLOCO_TECNICO_MEMORIA.txt": 7,   // JSON técnico só em ≥7
-    "METODO_VIVA_ENXUTO.txt": 7,      // VIVA seletivo em ≥7
-    // A escala é “mapa”, não precisa threshold
+    "BLOCO_TECNICO_MEMORIA.txt": 7, // JSON técnico só em ≥7
+    "METODO_VIVA_ENXUTO.txt": 7,    // VIVA seletivo em ≥7 (e nível ≥2 via regra)
+    // A escala é “mapa”, sem threshold mínimo
   },
 
-  // Regras semânticas
+  /* --------------------------- Regras semânticas ---------------------------- */
   condicoesEspeciais: {
     "ESCALA_INTENSIDADE_0a10.txt": {
       descricao: "Mapa para calibrar tom/ritmo; usar quando houver emoção em cena",
@@ -100,17 +120,19 @@ export const matrizPromptBaseV2: MatrizPromptBaseV2 = {
     },
   },
 
-  // Prioridade de budget (ordem de corte)
+  /* ---------------------- Prioridade p/ o Budgeter -------------------------- */
+  // ContextBuilder já faz o “merge” de baseModules + limites.prioridade.
+  // Mantemos aqui a ordem relativa caso o orçamento aperte.
   limites: {
     prioridade: [
-      // 🔝 Núcleo — nunca cortar
+      // 🔝 Core (nunca cortar)
       "PRINCIPIOS_CHAVE.txt",
       "IDENTIDADE.txt",
       "ECO_ESTRUTURA_DE_RESPOSTA.txt",
       "MODULACAO_TOM_REGISTRO.txt",
       "MEMORIAS_CONTEXTO.txt",
       "ENCERRAMENTO_SENSIVEL.txt",
-      // 🎚️ Mapa sempre útil
+      // 🎚️ Mapa
       "ESCALA_INTENSIDADE_0a10.txt",
       // 🫖 Intervenção condicional
       "METODO_VIVA_ENXUTO.txt",
