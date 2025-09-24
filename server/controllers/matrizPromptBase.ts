@@ -29,12 +29,9 @@ export const matrizPromptBaseV2: MatrizPromptBaseV2 = {
   baseModules: {
     // Core completo só para NV2/3
     core: [
-      "PRINCIPIOS_CHAVE.txt",
-      "IDENTIDADE.txt",
-      "ECO_ESTRUTURA_DE_RESPOSTA.txt",
-      "MODULACAO_TOM_REGISTRO.txt",
-      "MEMORIAS_CONTEXTO.txt",
-      "ENCERRAMENTO_SENSIVEL.txt",
+      "IDENTIDADE.txt",           // ✅ manter
+    "MODULACAO_TOM_REGISTRO.txt", // ✅ manter  
+    "ENCERRAMENTO_SENSIVEL.txt", 
     ],
     emotional: [],
     advanced: [
