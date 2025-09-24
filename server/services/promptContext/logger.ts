@@ -3,15 +3,26 @@
 type L = "error" | "warn" | "info" | "debug" | "trace";
 const levels: Record<L, number> = { error: 0, warn: 1, info: 2, debug: 3, trace: 4 };
 
-// ler do env de forma tolerante
+// ---------- Nível vindo do ambiente ----------
 const levelEnv = (process.env.ECO_LOG_LEVEL ?? "info").toLowerCase();
 const current: number =
   (levels as Record<string, number>)[levelEnv] != null
     ? (levels as Record<string, number>)[levelEnv]
     : levels.info;
 
-export const isDebug = () => process.env.ECO_DEBUG === "1" || current >= levels.debug;
+// Se ECO_DEBUG=1, eleva o nível efetivo para pelo menos "debug"
+const forceDebug = process.env.ECO_DEBUG === "1";
+const effective: number = forceDebug && current < levels.debug ? levels.debug : current;
 
+// Exponho helpers úteis
+export const getLogLevel = (): L => {
+  // pega a primeira chave cujo valor == effective (fallback para "info")
+  const found = (Object.keys(levels) as L[]).find(k => levels[k] === effective);
+  return found ?? "info";
+};
+export const isDebug = () => effective >= levels.debug;
+
+// ---------- Serialização segura ----------
 /** JSON.stringify seguro p/ objetos com ciclos, Map/Set, Error etc. */
 function safeStringify(v: unknown): string {
   const seen = new WeakSet<object>();
@@ -37,7 +48,7 @@ function safeStringify(v: unknown): string {
   );
 }
 
-/** Normaliza args para o console (evita [object Object] em alguns agregadores). */
+/** Normaliza args para o console (evita [object Object] em agregadores). */
 function fmtArg(a: unknown): string {
   switch (typeof a) {
     case "string":
@@ -57,11 +68,11 @@ function fmtArg(a: unknown): string {
 }
 
 function out(l: L, contextPrefix: string | null, args: unknown[]) {
-  if (levels[l] > current) return;
+  // usa o nível EFETIVO (respeita ECO_DEBUG=1)
+  if (levels[l] > effective) return;
   const ts = new Date().toISOString();
   const head = `[${ts}] [${l.toUpperCase()}]${contextPrefix ? ` ${contextPrefix}` : ""}`;
   // Render combina stdout/stderr → padronizamos console.log
-  // Monta em uma string única para manter linha compacta no agregador
   const body = args.map(fmtArg).join(" ");
   console.log(head, body);
 }
@@ -78,7 +89,6 @@ type LogAPI = {
 
 function ctxToPrefix(ctx: string | Record<string, unknown>): string {
   if (typeof ctx === "string") return `[${ctx}]`;
-  // tenta usar uma chave 'name' se houver, senão serializa
   const name = (ctx as any)?.name;
   return name ? `[${String(name)}]` : `[ctx=${safeStringify(ctx)}]`;
 }
