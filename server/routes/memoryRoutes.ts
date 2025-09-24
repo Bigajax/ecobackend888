@@ -1,6 +1,6 @@
 // src/routes/memorias.routes.ts
 import express, { type Request, type Response } from "express";
-import getSupabaseAdmin from "../lib/supabaseAdmin";
+import { supabase } from "../lib/supabaseAdmin"; // ✅ usa instância única
 import { embedTextoCompleto } from "../services/embeddingService";
 import { heuristicaNivelAbertura } from "../utils/heuristicaNivelAbertura";
 import { gerarTagsAutomaticasViaIA } from "../services/tagService";
@@ -17,7 +17,7 @@ async function getUsuarioAutenticado(req: Request) {
   const token = authHeader.slice("Bearer ".length).trim();
 
   try {
-    const supabase = getSupabaseAdmin();
+    // Em supabase-js v2 com service-role, getUser(jwt) é suportado
     const { data, error } = await supabase.auth.getUser(token);
     if (error || !data?.user) {
       console.warn("[Auth] Falha ao obter usuário:", error?.message);
@@ -25,7 +25,7 @@ async function getUsuarioAutenticado(req: Request) {
     }
     return data.user;
   } catch (e: any) {
-    console.error("[Auth] Erro de inicialização do Supabase:", e?.message ?? e);
+    console.error("[Auth] Erro no getUser(jwt):", e?.message ?? e);
     return null;
   }
 }
@@ -95,6 +95,7 @@ router.post("/registrar", async (req: Request, res: Response) => {
     const salvar = toBool(salvar_memoria, true);
     const destinoTabela = intensidade >= 7 && salvar ? "memories" : "referencias_temporarias";
 
+    // Normaliza tags (string ou array)
     let finalTags: string[] =
       Array.isArray(tags)
         ? tags
@@ -106,23 +107,28 @@ router.post("/registrar", async (req: Request, res: Response) => {
       finalTags = await gerarTagsAutomaticasViaIA(texto);
     }
 
-    // Embeddings defensivos
+    // Embeddings (garante number[])
     const rawSem = await embedTextoCompleto(texto);
-    const embedding_semantico: number[] = Array.isArray(rawSem) ? rawSem : JSON.parse(String(rawSem));
-    if (!Array.isArray(embedding_semantico)) {
+    const embedding_semantico: number[] = Array.isArray(rawSem)
+      ? (rawSem as unknown[]).map((v) => Number(v))
+      : JSON.parse(String(rawSem));
+
+    if (!Array.isArray(embedding_semantico) || embedding_semantico.some((n) => Number.isNaN(n))) {
       return res.status(500).json({ error: "Falha ao gerar embedding semântico." });
     }
 
     const rawEmo = await embedTextoCompleto(analise_resumo ?? texto);
-    const embedding_emocional: number[] = Array.isArray(rawEmo) ? rawEmo : JSON.parse(String(rawEmo));
-    if (!Array.isArray(embedding_emocional)) {
+    const embedding_emocional: number[] = Array.isArray(rawEmo)
+      ? (rawEmo as unknown[]).map((v) => Number(v))
+      : JSON.parse(String(rawEmo));
+
+    if (!Array.isArray(embedding_emocional) || embedding_emocional.some((n) => Number.isNaN(n))) {
       return res.status(500).json({ error: "Falha ao gerar embedding emocional." });
     }
 
     const nivelCalc =
       typeof nivel_abertura === "number" ? nivel_abertura : heuristicaNivelAbertura(texto);
 
-    const supabase = getSupabaseAdmin();
     const { data, error } = await supabase
       .from(destinoTabela)
       .insert([
@@ -136,7 +142,7 @@ router.post("/registrar", async (req: Request, res: Response) => {
           contexto: contexto ?? null,
           dominio_vida: dominio_vida ?? null,
           padrao_comportamental: padrao_comportamental ?? null,
-          salvar_memoria: salvar, // sempre boolean
+          salvar_memoria: Boolean(salvar),
           nivel_abertura: nivelCalc,
           analise_resumo: analise_resumo ?? null,
           categoria,
@@ -187,7 +193,6 @@ router.get("/", async (req: Request, res: Response) => {
   }
 
   try {
-    const supabase = getSupabaseAdmin();
     let query = supabase
       .from("memories")
       .select("*")
@@ -210,7 +215,7 @@ router.get("/", async (req: Request, res: Response) => {
     }
 
     const memoriesFiltradas = (data || []).filter(
-      (m) => typeof m.resumo_eco === "string" && m.resumo_eco.trim() !== "" && m.created_at
+      (m: any) => typeof m.resumo_eco === "string" && m.resumo_eco.trim() !== "" && m.created_at
     );
 
     console.log(`📥 ${memoriesFiltradas.length} memórias retornadas para ${user.id}`);
@@ -267,4 +272,3 @@ router.post("/similares", async (req: Request, res: Response) => {
 });
 
 export default router;
-

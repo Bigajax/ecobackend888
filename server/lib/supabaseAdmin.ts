@@ -24,12 +24,10 @@ if (!url || !serviceKey) {
   );
 }
 
-/**
- * Cliente Supabase admin singleton
- * - usa service role key
- * - sem persistência de sessão
- */
+/** Singleton do Supabase usando a Service Role Key (admin) */
 export const supabase: SupabaseClient = createClient(url, serviceKey, {
   auth: { autoRefreshToken: false, persistSession: false },
-  // opcional: headers, schema etc.
 });
+
+// 🔐 Compatibilidade: permite `import supabase from "..."`
+export default supabase;
