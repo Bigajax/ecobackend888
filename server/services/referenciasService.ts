@@ -1,5 +1,5 @@
 // services/referenciasService.ts
-import { supabaseAdmin } from '../lib/supabaseAdmin';
+import supabaseAdmin from '../lib/supabaseAdmin';
 import { unitNorm } from './embeddingService';
 
 interface BlocoTecnicoBase {

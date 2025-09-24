@@ -1,4 +1,4 @@
-import { supabaseAdmin } from '../lib/supabaseAdmin';
+import supabaseAdmin from '../lib/supabaseAdmin';
 import { loadEmotionStore, saveEmotionStore } from '../utils/emotionMapStore';
 
 // 🎯 Mapeamento de aliases

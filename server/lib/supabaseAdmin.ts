@@ -1,21 +1,20 @@
-import { createClient } from "@supabase/supabase-js";
+// server/lib/supabaseAdmin.ts
+import { createClient } from '@supabase/supabase-js';
 
-const url = process.env.SUPABASE_URL ?? "";
-// Use SERVICE_ROLE_KEY se existir, senão ANON_KEY (para dev)
-const key = process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.SUPABASE_ANON_KEY ?? "";
+const supabaseAdmin = createClient(
+  process.env.SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!,
+  {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
+  }
+);
 
-if (!url || !key) {
-  console.warn("[supabaseAdmin] SUPABASE_URL ou KEY ausentes; o client ficará inoperante.");
-}
+// Export default (para: import supabaseAdmin from '../lib/supabaseAdmin')
+export default supabaseAdmin;
 
-// client sem sessão persistente (lado servidor)
-const supabase = createClient(url, key, {
-  auth: { autoRefreshToken: false, persistSession: false },
-});
-
-// export default (mais robusto para resolver o TS)
-export default supabase;
-
-// (opcional) se quiser também o nomeado, mantenha abaixo.
-// Não é necessário para corrigir o erro atual.
-// export { supabase };
+// Exports nomeados compatíveis
+export { supabaseAdmin };           // para: import { supabaseAdmin } from ...
+export { supabaseAdmin as supabase }; // para: import { supabase } from ...

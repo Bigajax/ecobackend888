@@ -1,5 +1,5 @@
 // services/encadeamentoService.ts
-import { supabaseAdmin } from '../lib/supabaseAdmin';
+import supabaseAdmin from '../lib/supabaseAdmin';
 
 export interface EntradaMemoria {
   usuario_id: string;

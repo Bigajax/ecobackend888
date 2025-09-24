@@ -1,4 +1,4 @@
-import { supabaseAdmin } from '../lib/supabaseAdmin';
+import supabaseAdmin from '../lib/supabaseAdmin';
 
 interface Memoria {
   emocao_principal?: string;

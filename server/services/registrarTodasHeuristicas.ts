@@ -3,7 +3,7 @@
 import fs from 'fs/promises';
 import path from 'path';
 import { embedTextoCompleto } from './embeddingService';
-import { supabaseAdmin } from '../lib/supabaseAdmin';
+import supabaseAdmin from '../lib/supabaseAdmin';
 
 // 🔧 Caminho corrigido
 const heuristicasDir = path.join(__dirname, '../assets/modulos_cognitivos');
