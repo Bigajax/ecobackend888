@@ -3,34 +3,48 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
+// src/routes/memorias.routes.ts
 const express_1 = __importDefault(require("express"));
 const supabaseAdmin_1 = require("../lib/supabaseAdmin");
 const embeddingService_1 = require("../services/embeddingService");
 const heuristicaNivelAbertura_1 = require("../utils/heuristicaNivelAbertura");
 const tagService_1 = require("../services/tagService");
+const buscarMemorias_1 = require("../services/buscarMemorias");
 const router = express_1.default.Router();
 /* ────────────────────────────────────────────────
-   🔐 Helper – extrai usuário autenticado (Bearer)
+   🔐 Auth helper – extrai usuário autenticado (Bearer)
 ────────────────────────────────────────────────── */
 async function getUsuarioAutenticado(req) {
     const authHeader = req.headers.authorization;
-    if (!authHeader?.startsWith('Bearer '))
+    if (!authHeader?.startsWith("Bearer "))
         return null;
-    const token = authHeader.replace('Bearer ', '').trim();
+    const token = authHeader.slice("Bearer ".length).trim();
     const { data, error } = await supabaseAdmin_1.supabaseAdmin.auth.getUser(token);
     if (error || !data?.user) {
-        console.warn('[Auth] Falha ao obter usuário:', error?.message);
+        console.warn("[Auth] Falha ao obter usuário:", error?.message);
         return null;
     }
     return data.user;
 }
+/* ──────────────────────────────────────────────── */
+const safeLog = (s) => process.env.NODE_ENV === "production" ? (s || "").slice(0, 80) + "…" : s || "";
 /* ────────────────────────────────────────────────
-   ✅ Função para gerar um resumoEco bem formatado
+   🧩 Util: coagir boolean (aceita 'true'/'false')
+────────────────────────────────────────────────── */
+function toBool(v, fallback = false) {
+    if (typeof v === "boolean")
+        return v;
+    if (typeof v === "string")
+        return v.toLowerCase() === "true";
+    return fallback;
+}
+/* ────────────────────────────────────────────────
+   🧠 formata resumoEco
 ────────────────────────────────────────────────── */
 function gerarResumoEco(texto, tags = [], intensidade, emocao_principal, analise_resumo) {
-    let linhas = [`🗣️ "${texto.trim()}"`];
+    const linhas = [`🗣️ "${(texto || "").trim()}"`];
     if (tags?.length)
-        linhas.push(`🏷️ Tags: ${tags.join(', ')}`);
+        linhas.push(`🏷️ Tags: ${tags.join(", ")}`);
     if (emocao_principal)
         linhas.push(`❤️ Emoção: ${emocao_principal}`);
     linhas.push(`🔥 Intensidade: ${intensidade}`);
@@ -40,141 +54,169 @@ function gerarResumoEco(texto, tags = [], intensidade, emocao_principal, analise
     else {
         linhas.push(`⚠️ Sem análise detalhada disponível.`);
     }
-    return linhas.join('\n');
+    return linhas.join("\n");
 }
 /* ────────────────────────────────────────────────
-   ✅ POST /api/memorias/registrar → salva memória ou referência
+   ✅ POST /api/memorias/registrar → salva memória
 ────────────────────────────────────────────────── */
-router.post('/registrar', async (req, res) => {
+router.post("/registrar", async (req, res) => {
     const user = await getUsuarioAutenticado(req);
     if (!user)
-        return res.status(401).json({ erro: 'Usuário não autenticado.' });
-    const { texto, tags, intensidade, mensagem_id, emocao_principal, contexto, dominio_vida, padrao_comportamental, salvar_memoria = true, nivel_abertura, analise_resumo, categoria = 'emocional', } = req.body;
-    if (!texto ||
-        typeof intensidade !== 'number' ||
-        (!Array.isArray(tags) && typeof tags !== 'object')) {
-        return res
-            .status(400)
-            .json({ erro: 'Campos obrigatórios ausentes ou inválidos.' });
+        return res.status(401).json({ error: "Usuário não autenticado." });
+    const { texto, tags, intensidade, mensagem_id, emocao_principal, contexto, dominio_vida, padrao_comportamental, salvar_memoria = true, nivel_abertura, analise_resumo, categoria = "emocional", } = req.body ?? {};
+    if (!texto || typeof intensidade !== "number") {
+        return res.status(400).json({ error: "Campos obrigatórios ausentes ou inválidos." });
     }
     try {
-        // 🟢 Decide a tabela com base na intensidade
-        const destinoTabela = intensidade >= 7 ? 'memories' : 'referencias_temporarias';
-        // ✅ Gerar tags automaticamente se não vieram
-        let finalTags = Array.isArray(tags) ? tags : [];
+        const salvar = toBool(salvar_memoria, true);
+        const destinoTabela = intensidade >= 7 && salvar ? "memories" : "referencias_temporarias";
+        let finalTags = Array.isArray(tags)
+            ? tags
+            : typeof tags === "string"
+                ? tags.split(",").map((t) => t.trim()).filter(Boolean)
+                : [];
         if (finalTags.length === 0) {
             finalTags = await (0, tagService_1.gerarTagsAutomaticasViaIA)(texto);
         }
-        // ✅ Gerar os dois embeddings
-        const embedding_semantico = await (0, embeddingService_1.embedTextoCompleto)(texto);
-        const embedding_emocional = await (0, embeddingService_1.embedTextoCompleto)(analise_resumo ?? texto);
-        // 🔎 Calcular heurística de abertura
-        const nivelCalc = typeof nivel_abertura === 'number'
-            ? nivel_abertura
-            : (0, heuristicaNivelAbertura_1.heuristicaNivelAbertura)(texto);
-        // 🗂️ Inserir no banco
+        // Embeddings defensivos
+        const rawSem = await (0, embeddingService_1.embedTextoCompleto)(texto);
+        const embedding_semantico = Array.isArray(rawSem) ? rawSem : JSON.parse(String(rawSem));
+        if (!Array.isArray(embedding_semantico)) {
+            return res.status(500).json({ error: "Falha ao gerar embedding semântico." });
+        }
+        const rawEmo = await (0, embeddingService_1.embedTextoCompleto)(analise_resumo ?? texto);
+        const embedding_emocional = Array.isArray(rawEmo) ? rawEmo : JSON.parse(String(rawEmo));
+        if (!Array.isArray(embedding_emocional)) {
+            return res.status(500).json({ error: "Falha ao gerar embedding emocional." });
+        }
+        const nivelCalc = typeof nivel_abertura === "number" ? nivel_abertura : (0, heuristicaNivelAbertura_1.heuristicaNivelAbertura)(texto);
         const { data, error } = await supabaseAdmin_1.supabaseAdmin
             .from(destinoTabela)
-            .insert([{
+            .insert([
+            {
                 usuario_id: user.id,
                 mensagem_id: mensagem_id ?? null,
-                resumo_eco: gerarResumoEco(texto, tags, intensidade, emocao_principal, analise_resumo),
+                resumo_eco: gerarResumoEco(texto, finalTags, intensidade, emocao_principal, analise_resumo),
                 tags: finalTags,
                 intensidade,
                 emocao_principal: emocao_principal ?? null,
                 contexto: contexto ?? null,
                 dominio_vida: dominio_vida ?? null,
                 padrao_comportamental: padrao_comportamental ?? null,
-                salvar_memoria,
+                salvar_memoria: salvar, // sempre boolean
                 nivel_abertura: nivelCalc,
                 analise_resumo: analise_resumo ?? null,
                 categoria,
                 created_at: new Date().toISOString(),
                 embedding_semantico,
                 embedding_emocional,
-            }])
+            },
+        ])
             .select();
         if (error) {
-            console.error('❌ Erro ao salvar:', error.message, error.details);
-            return res.status(500).json({ erro: 'Erro ao salvar no Supabase.' });
+            console.error("❌ Erro ao salvar:", error.message, error.details);
+            return res.status(500).json({ error: "Erro ao salvar no Supabase." });
         }
         console.log(`✅ Registro salvo em [${destinoTabela}]:`, data);
-        return res.status(201).json({ sucesso: true, tabela: destinoTabela, data });
+        return res.status(201).json({ success: true, table: destinoTabela, data });
     }
     catch (err) {
-        console.error('❌ Erro inesperado ao salvar:', err.message || err);
-        return res.status(500).json({ erro: 'Erro inesperado no servidor.' });
+        console.error("❌ Erro inesperado ao salvar:", err.message || err);
+        return res.status(500).json({ error: "Erro inesperado no servidor." });
     }
 });
 /* ────────────────────────────────────────────────
-   ✅ GET /api/memorias → lista memórias salvas
+   ✅ GET /api/memorias → lista memórias (com filtro opcional por tags)
+   Params:
+     - tags=tag1&tags=tag2  (ou tags="tag1,tag2")
+     - limite=5  (ou limit=5)
 ────────────────────────────────────────────────── */
-router.get('/', async (req, res) => {
+router.get("/", async (req, res) => {
     const user = await getUsuarioAutenticado(req);
     if (!user)
-        return res.status(401).json({ error: 'Usuário não autenticado.' });
-    const { limite } = req.query;
+        return res.status(401).json({ error: "Usuário não autenticado." });
+    // aceita limite ou limit
+    const limiteParam = (req.query.limite ?? req.query.limit);
+    const lim = Math.max(0, Number(limiteParam ?? 0)) || undefined;
+    // aceita tags como múltiplos params ou string única separada por vírgula
+    let tags = [];
+    const qTags = req.query.tags;
+    if (Array.isArray(qTags)) {
+        tags = qTags
+            .flatMap((t) => String(t).split(","))
+            .map((t) => t.trim())
+            .filter(Boolean);
+    }
+    else if (typeof qTags === "string") {
+        tags = qTags.split(",").map((t) => t.trim()).filter(Boolean);
+    }
     try {
         let query = supabaseAdmin_1.supabaseAdmin
-            .from('memories')
-            .select('*')
-            .eq('usuario_id', user.id)
-            .eq('salvar_memoria', true)
-            .order('created_at', { ascending: false });
-        if (limite) {
-            const lim = Number(limite);
-            if (!isNaN(lim) && lim > 0) {
-                query = query.range(0, lim - 1);
-            }
+            .from("memories")
+            .select("*")
+            .eq("usuario_id", user.id)
+            .eq("salvar_memoria", true)
+            .order("created_at", { ascending: false });
+        if (tags.length) {
+            // Para array/text[]: usa overlaps (qualquer interseção)
+            query = query.overlaps("tags", tags);
         }
+        if (lim && lim > 0)
+            query = query.range(0, lim - 1);
         const { data, error } = await query;
         if (error) {
-            console.error('❌ Erro ao buscar memórias:', error.message, error.details);
-            return res.status(500).json({ error: 'Erro ao buscar memórias no Supabase.' });
+            console.error("❌ Erro ao buscar memórias:", error.message, error.details);
+            return res.status(500).json({ error: "Erro ao buscar memórias no Supabase." });
         }
-        const memoriesFiltradas = (data || []).filter((mem) => typeof mem.resumo_eco === 'string' &&
-            mem.resumo_eco.trim() !== '' &&
-            mem.created_at);
+        const memoriesFiltradas = (data || []).filter((m) => typeof m.resumo_eco === "string" && m.resumo_eco.trim() !== "" && m.created_at);
         console.log(`📥 ${memoriesFiltradas.length} memórias retornadas para ${user.id}`);
         return res.status(200).json({ success: true, memories: memoriesFiltradas });
     }
     catch (err) {
-        console.error('❌ Erro inesperado ao buscar memórias:', err.message || err);
-        return res.status(500).json({ error: 'Erro inesperado no servidor.' });
+        console.error("❌ Erro inesperado ao buscar memórias:", err.message || err);
+        return res.status(500).json({ error: "Erro inesperado no servidor." });
     }
 });
 /* ────────────────────────────────────────────────
-   ✅ POST /api/memorias/similares → busca memórias similares
+   ✅ POST /api/memorias/similares → delega ao service
+   Body:
+     - texto (ou query) : string
+     - limite (ou limit): number (1..5)
+     - threshold? : 0..1
 ────────────────────────────────────────────────── */
-router.post('/similares', async (req, res) => {
+router.post("/similares", async (req, res) => {
     const user = await getUsuarioAutenticado(req);
     if (!user)
-        return res.status(401).json({ erro: 'Usuário não autenticado.' });
-    const { texto, analise_resumo, limite = 5 } = req.body;
-    if (!texto || typeof texto !== 'string') {
-        return res.status(400).json({ erro: 'Texto para análise é obrigatório.' });
+        return res.status(401).json({ error: "Usuário não autenticado." });
+    const textoRaw = String(req.body?.texto ?? req.body?.query ?? "");
+    const texto = textoRaw.trim();
+    const limiteRaw = Number(req.body?.limite ?? req.body?.limit ?? 3);
+    const limite = Math.max(1, Math.min(5, isNaN(limiteRaw) ? 3 : limiteRaw));
+    let threshold = Math.max(0, Math.min(1, Number(req.body?.threshold ?? 0.15)));
+    // threshold adaptativo simples
+    if (/lembr|record|memó/i.test(texto))
+        threshold = Math.min(threshold, 0.12);
+    if (texto.length < 20)
+        threshold = Math.min(threshold, 0.1);
+    console.log("📩 /similares:", { texto: safeLog(texto), limite, threshold });
+    if (!texto) {
+        return res.status(400).json({ error: "Texto para análise é obrigatório." });
+    }
+    if (texto.length < 3) {
+        return res.status(200).json({ success: true, similares: [] });
     }
     try {
-        // 🟢 Gerar embeddings de consulta
-        const embedding_semantico = await (0, embeddingService_1.embedTextoCompleto)(texto);
-        const embedding_emocional = await (0, embeddingService_1.embedTextoCompleto)(analise_resumo ?? texto);
-        // 🟢 Chamar função RPC com priorização temporal + score duplo
-        const { data, error } = await supabaseAdmin_1.supabaseAdmin.rpc('buscar_memorias_semelhantes', {
-            consulta_embedding_semantico: embedding_semantico,
-            consulta_embedding_emocional: embedding_emocional,
-            filtro_usuario: user.id,
-            limite,
+        const similares = await (0, buscarMemorias_1.buscarMemoriasSemelhantes)(user.id, {
+            texto,
+            k: limite,
+            threshold,
         });
-        if (error) {
-            console.error('❌ Erro ao buscar memórias similares:', error.message, error.details);
-            return res.status(500).json({ erro: 'Erro ao buscar memórias similares no Supabase.' });
-        }
-        console.log(`🔍 ${data?.length ?? 0} memórias semelhantes encontradas.`);
-        return res.status(200).json({ sucesso: true, similares: data });
+        console.log(`🔍 ${similares.length} memórias semelhantes normalizadas.`);
+        return res.status(200).json({ success: true, similares });
     }
     catch (err) {
-        console.error('❌ Erro inesperado ao buscar similares:', err.message || err);
-        return res.status(500).json({ erro: 'Erro inesperado no servidor.' });
+        console.error("❌ Erro em /similares:", err.message || err);
+        return res.status(500).json({ error: "Erro inesperado no servidor." });
     }
 });
 exports.default = router;

@@ -1,204 +1,247 @@
 "use strict";
 /* assets/config/heuristicasTriggers.ts
-   ────────────────────────────────────────── */
+   ──────────────────────────────────────────
+   Notas:
+   - Gatilhos em ASCII (sem acento) para casar com normalizar().
+   - 2+ palavras por gatilho para reduzir falso-positivo.
+   - Foco em n-grams comuns em conversa real.
+*/
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.tagsPorHeuristica = exports.heuristicasTriggerMap = void 0;
 /* ───────── Heurísticas + frases-gatilho ───────── */
 exports.heuristicasTriggerMap = [
+    // ── Ancoragem: fixar referencia passada "melhor" / "antes"
     {
-        arquivo: 'eco_heuristica_ancoragem.txt',
+        arquivo: "eco_heuristica_ancoragem.txt",
         gatilhos: [
-            'antes era melhor',
-            'nada se compara',
-            'ja estive bem',
-            'não aceito menos',
-            'depois do que aconteceu'
+            "antes era melhor",
+            "nada se compara",
+            "nunca vai ser igual",
+            "naquela epoca",
+            "naquele tempo",
+            "depois do que aconteceu",
+            "nao aceito menos",
+            "regra do passado",
+            "vivi meu auge",
+            "ficou marcado",
+            "vivo do passado",
+            "comparando com o passado",
+            "so comparo com antes"
         ]
     },
+    // ── Causas > estatisticas: caso unico vence dados gerais
     {
-        arquivo: 'eco_heuristica_causas_superam_estatisticas.txt',
+        arquivo: "eco_heuristica_causas_superam_estatisticas.txt",
         gatilhos: [
-            'aconteceu comigo',
-            'eu vivi isso',
-            'sei que parece raro',
-            'mas no meu caso',
-            'é diferente comigo'
+            "aconteceu comigo",
+            "eu vivi isso",
+            "no meu caso",
+            "e diferente comigo",
+            "conheco uma pessoa",
+            "um exemplo prova",
+            "um caso prova",
+            "estatistica nao importa",
+            "estatistica nao serve",
+            "ignora estatistica",
+            "exemplo marcante",
+            "caso marcante",
+            "sempre acontece assim",
+            "logo e 100 por cento",
+            "taxa base",
+            "extrapolacao por exemplo",
+            "vi acontecer entao e verdade"
         ]
     },
+    // ── Disponibilidade: frequencia aparente pela exposicao
     {
-        arquivo: 'eco_heuristica_disponibilidade.txt',
+        arquivo: "eco_heuristica_disponibilidade.txt",
         gatilhos: [
-            'acabei de ver',
-            'todo mundo fala',
-            'está em todo lugar'
+            "so lembro das vezes",
+            "isso acontece o tempo todo",
+            "toda hora acontece",
+            "toda vez acontece",
+            "sempre acontece",
+            "sempre foi assim",
+            "ultimamente so isso acontece",
+            "aconteceu de novo",
+            "lembro das vezes que falhei",
+            "so lembro do que doeu",
+            "o que vem na cabeca",
+            "o que aparece primeiro",
+            "o que mais aparece"
         ]
     },
+    // ── Excesso de confianca: certeza sem base suficiente
     {
-        arquivo: 'eco_heuristica_disponibilidade_emocao_risco.txt',
+        arquivo: "eco_heuristica_excesso_confianca.txt",
         gatilhos: [
-            'tenho medo de tentar',
-            'sempre da errado',
-            'ja sofri demais',
-            'vai dar problema',
-            'vai quebrar a cara'
+            "eu sei exatamente quem eu sou",
+            "eu ja entendi tudo",
+            "ja entendi tudo",
+            "sempre vai ser assim",
+            "vai ser sempre assim",
+            "eu ja conheco esse ciclo",
+            "ja conheco esse ciclo",
+            "tenho certeza do que vai acontecer",
+            "eu tenho certeza absoluta",
+            "nao tenho duvidas sobre isso",
+            "isso e um fato",
+            "eu estou 100 por cento certo",
+            "100 por cento certo",
+            "100% certo",
+            "eu ja vi isso mil vezes",
+            "sempre igual"
         ]
     },
+    // ── Certeza emocional: parecer evidente por coerencia afetiva
     {
-        arquivo: 'eco_heuristica_excesso_confianca.txt',
+        arquivo: "eco_heuristica_certeza_emocional.txt",
         gatilhos: [
-            'nao tem como dar errado',
-            'certeza absoluta',
-            '100% garantido'
+            "eu tenho certeza",
+            "tenho certeza",
+            "com certeza",
+            "eu ja sei como termina",
+            "eu ja sei como isso vai acabar",
+            "sempre e assim",
+            "e sempre assim",
+            "nunca falha",
+            "isso e um fato",
+            "e fato",
+            "nao tem duvida",
+            "e obvio",
+            "eu sei exatamente",
+            "vai ser assim",
+            "vai dar errado de novo",
+            "todos fazem isso",
+            "ninguem muda",
+            "todo mundo e assim"
         ]
     },
+    // ── Ilusao de validade: narrativa soa coerente, logo esta certa
     {
-        arquivo: 'eco_heuristica_certeza_emocional.txt',
+        arquivo: "eco_heuristica_ilusao_validade.txt",
         gatilhos: [
-            'claramente certo',
-            'ja esta decidido',
-            'é evidente',
-            'eu tinha certeza',
-            'tudo confirmava',
-            'era obvio demais',
-            'parecia destino',
-            'não podia estar enganado',
-            'intuição dizia isso',
-            'forçar a realidade',
-            'estava tudo alinhado',
-            'me senti guiado',
-            'parecia que era pra ser',
-            'eu sabia que era o caminho'
+            "tenho certeza",
+            "certeza absoluta",
+            "nao tenho duvidas",
+            "estava tudo indicando isso",
+            "todos os sinais mostravam",
+            "nao tem como dar errado",
+            "vai dar certo com certeza",
+            "minha intuicao nunca falha",
+            "minha leitura sempre acerta",
+            "eu sei ler as pessoas",
+            "eu sempre acerto",
+            "eu ja conheco esse padrao",
+            "ja conheco esse padrao",
+            "isso e um fato",
+            "100 por cento certo",
+            "100% certo"
         ]
     },
+    // ── Intuicao do especialista: autoridade sem feedback robusto
     {
-        arquivo: 'eco_heuristica_ilusao_validade.txt',
+        arquivo: "eco_heuristica_intuicao_especialista.txt",
         gatilhos: [
-            'convicção total',
-            'só podia ser isso',
-            'confiança absoluta',
-            'acertamos em cheio',
-            'estava tudo indicando isso',
-            'não tem dúvida',
-            'é a única explicação',
-            'é isso e pronto',
-            'está tudo se encaixando',
-            'não tenho mais dúvidas',
-            'sei exatamente onde isso vai parar',
-            'está claro como o dia',
-            'não tem como ser diferente dessa vez',
-            'já vi esse padrão antes',
-            'eu sinto isso com uma força',
-            'é tão coerente que não pode estar errado'
+            "especialista confiavel",
+            "mentor experiente",
+            "autoridade no assunto",
+            "muito experiente",
+            "experiencia dele",
+            "experiencia dela",
+            "ele sempre acerta",
+            "ela sempre acerta",
+            "acerta sempre",
+            "nunca erra",
+            "sente essas coisas",
+            "tem intuicao apurada",
+            "ele sabe das coisas",
+            "ela sabe das coisas",
+            "confio porque acerta",
+            "historico de acertos",
+            "segui a intuicao dele",
+            "segui a intuicao dela"
         ]
     },
+    // ── Regressao a media: picos/vales seguidos de retorno natural
     {
-        arquivo: 'eco_heuristica_lei_pequenos_numeros.txt',
+        arquivo: "eco_heuristica_regressao_media.txt",
         gatilhos: [
-            'so precisei de dois casos',
-            'funcionou 3 vezes',
-            'amostra pequena'
+            "depois do pico caiu",
+            "queda de desempenho",
+            "caiu desempenho",
+            "desandou depois",
+            "regredi no desempenho",
+            "voltei ao normal",
+            "voltei a piorar",
+            "um erro prova tudo",
+            "um erro mostra tudo",
+            "perdi a mao",
+            "foi so sorte",
+            "foi so azar",
+            "depois do elogio errei",
+            "uma critica define",
+            "um elogio define",
+            "um dia otimo outro pessimo",
+            "montanha russa",
+            "estava indo bem e falhei",
+            "tudo desmoronou",
+            "nada mais funciona"
         ]
     },
+    // ── Ilusao de compreensao do passado (hindsight)
     {
-        arquivo: 'eco_heuristica_regressao_media.txt',
+        arquivo: "eco_heuristica_ilusao_compreensao_passado.txt",
         gatilhos: [
-            'perdi a mao',
-            'pior que antes',
-            'foi sorte',
-            'nunca consigo manter',
-            'desandei'
-        ]
-    },
-    {
-        arquivo: 'eco_heuristica_taxabase_causal.txt',
-        gatilhos: [
-            'so acontece ali',
-            'é sempre esse grupo',
-            'estereotipo'
-        ]
-    },
-    {
-        arquivo: 'eco_heuristica_intuicao_especialista.txt',
-        gatilhos: [
-            'ele sempre acerta',
-            'ela tem um feeling',
-            'esse tipo de pessoa sabe',
-            'a experiência dele fala mais alto',
-            'não tem como ela errar',
-            'esse cara entende',
-            'ele tem um instinto pra isso',
-            'segui o que ele sentiu',
-            'ela sente essas coisas',
-            'foi pelo que ele falou',
-            'confio no faro dele'
-        ]
-    },
-    {
-        arquivo: 'heuristica_ilusao_compreensao.txt',
-        gatilhos: [
-            'eu sabia que ia dar errado',
-            'era óbvio demais',
-            'claro que isso ia acontecer',
-            'sempre soube',
-            'já dava pra ver',
-            'estava na cara',
-            'todo mundo dizia',
-            'essas coisas sempre se repetem comigo',
-            'já percebi logo de cara',
-            'não era surpresa',
-            'já esperava por isso'
-        ]
-    },
-    {
-        arquivo: 'heuristica_previsao_regressiva.txt',
-        gatilhos: [
-            'vai explodir de crescer',
-            'vai bombar',
-            'certeza de sucesso',
-            'vai fracassar com certeza'
+            "eu sabia que ia dar errado",
+            "eu sabia que ia dar certo",
+            "era obvio",
+            "sempre foi obvio",
+            "ficou claro depois",
+            "dava para prever",
+            "todo mundo sabia",
+            "estava escrito",
+            "inevitavel",
+            "so podia acabar assim",
+            "ele sempre foi um fracassado",
+            "ela conseguiu porque e perfeita",
+            "sempre foi assim",
+            "agora faz todo sentido",
+            "olhando agora era claro",
+            "no fundo eu sempre soube",
+            "resultado mostrou quem ele e",
+            "resultado mostrou quem eu sou"
         ]
     }
 ];
 /* ───────── Tags associadas a cada heurística ───────── */
 exports.tagsPorHeuristica = {
-    'eco_heuristica_ancoragem.txt': [
-        'ancoragem', 'comparacao_passado', 'referencia_fixa'
+    "eco_heuristica_ancoragem.txt": [
+        "ancoragem", "comparacao_passado", "referencia_fixa"
     ],
-    'eco_heuristica_causas_superam_estatisticas.txt': [
-        'caso_unico', 'estatistica_ignore', 'historia_forte'
+    "eco_heuristica_causas_superam_estatisticas.txt": [
+        "caso_unico", "estatistica_ignore", "historia_forte"
     ],
-    'eco_heuristica_disponibilidade.txt': [
-        'disponibilidade', 'repeticao_midia'
+    "eco_heuristica_disponibilidade.txt": [
+        "disponibilidade", "memoria_viva"
     ],
-    'eco_heuristica_disponibilidade_emocao_risco.txt': [
-        'disponibilidade_risco', 'medo', 'memoria_viva'
+    "eco_heuristica_excesso_confianca.txt": [
+        "excesso_confianca", "certeza", "conviccao_rigida"
     ],
-    'eco_heuristica_excesso_confianca.txt': [
-        'excesso_confianca', 'certeza', 'arrogancia'
+    "eco_heuristica_certeza_emocional.txt": [
+        "certeza_emocional", "coerencia_narrativa", "conviccao_rapida"
     ],
-    'eco_heuristica_certeza_emocional.txt': [
-        'certeza_emocional', 'coerencia_narrativa', 'conviccao_rapida'
+    "eco_heuristica_ilusao_validade.txt": [
+        "ilusao_validade", "validacao_subjetiva", "superconfianca", "feedback_limitado"
     ],
-    'eco_heuristica_ilusao_validade.txt': [
-        'ilusao_validade', 'validacao_subjetiva', 'superconfianca', 'feedback_limitado'
+    "eco_heuristica_intuicao_especialista.txt": [
+        "intuicao_especialista", "autoridade_confianca", "ambiente_instavel", "feedback_ausente"
     ],
-    'eco_heuristica_lei_pequenos_numeros.txt': [
-        'pequena_amostra', 'lei_numeros', 'generalizacao'
+    "eco_heuristica_regressao_media.txt": [
+        "regressao_media", "oscilacao", "volta_normal"
     ],
-    'eco_heuristica_regressao_media.txt': [
-        'regressao_media', 'sorte', 'volta_normal'
-    ],
-    'eco_heuristica_taxabase_causal.txt': [
-        'taxabase', 'estereotipo', 'causalidade_aparente'
-    ],
-    'eco_heuristica_intuicao_especialista.txt': [
-        'intuicao_especialista', 'autoridade_confiança', 'ambiente_instavel', 'feedback_ausente'
-    ],
-    'heuristica_ilusao_compreensao.txt': [
-        'ilusao_compreensao', 'narrativa_passado', 'certeza_excessiva', 'explicacao_causal_simples'
-    ],
-    'heuristica_previsao_regressiva.txt': [
-        'previsao_regressiva', 'super_otimismo', 'super_pessimismo'
+    "eco_heuristica_ilusao_compreensao_passado.txt": [
+        "ilusao_compreensao", "narrativa_passado", "certeza_excessiva", "explicacao_causal_simples"
     ]
 };
 //# sourceMappingURL=heuristicasTriggers.js.map

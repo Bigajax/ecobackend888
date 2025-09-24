@@ -59,8 +59,7 @@ exports.DOMINIO_ALIASES = {
     familia_e_amigos: 'familia',
     relacoes_familiares: 'familia',
     trabalho_profissional: 'trabalho',
-    carreira: 'trabalho',
-    // ... adicione mais alias conforme seus dados
+    carreira: 'trabalho'
 };
 function mapearDominio(raw) {
     const normalizado = normalizarTexto(raw);
@@ -95,9 +94,7 @@ async function gerarRelatorioEmocional(userId) {
         .eq('salvar_memoria', true);
     if (error || !memorias)
         throw new Error('Erro ao buscar memórias.');
-    // ✅ Filtrar memórias significativas (intensidade >= 7)
     let significativas = memorias.filter(m => m.intensidade && m.intensidade >= 7);
-    // ✅ Agrupar por emoção e limitar a 5 mais fortes por tipo
     const agrupadasPorEmocao = {};
     for (const mem of significativas) {
         const key = normalizarTexto(mem.emocao_principal?.trim() || 'outros');
@@ -105,14 +102,11 @@ async function gerarRelatorioEmocional(userId) {
             agrupadasPorEmocao[key] = [];
         agrupadasPorEmocao[key].push(mem);
     }
-    // Ordenar cada grupo por intensidade DESC e limitar a 5
     for (const key in agrupadasPorEmocao) {
         agrupadasPorEmocao[key].sort((a, b) => (b.intensidade || 0) - (a.intensidade || 0));
         agrupadasPorEmocao[key] = agrupadasPorEmocao[key].slice(0, 5);
     }
-    // 🔥 Unificar de volta em uma lista plana
     significativas = Object.values(agrupadasPorEmocao).flat();
-    // ✅ Linha do tempo emocional agrupada por data + dominio
     const intensidadePorData = {};
     for (const mem of significativas) {
         if (!mem.created_at)
@@ -129,7 +123,6 @@ async function gerarRelatorioEmocional(userId) {
     const linhaDoTempoIntensidadeArray = Object.entries(intensidadePorData)
         .map(([data, dominios]) => ({ data, ...dominios }))
         .filter(item => Object.keys(item).length > 1);
-    // ✅ Processar dados para mapa 2D
     const emocoes = [];
     const dominios = [];
     const tags = [];
@@ -146,7 +139,7 @@ async function gerarRelatorioEmocional(userId) {
             : 'outros';
         dominios.push(dominio);
         if (mem.tags)
-            tags.push(...mem.tags.map(t => normalizarTexto(t)));
+            tags.push(...mem.tags.map((t) => normalizarTexto(t))); // ✅ Aqui foi a alteração
         let coords = emotionStore[emocaoBase];
         if (!coords) {
             coords = {
@@ -165,7 +158,6 @@ async function gerarRelatorioEmocional(userId) {
         });
     }
     await (0, emotionMapStore_1.saveEmotionStore)(emotionStore);
-    // ✅ Normalização do mapa 2D
     const valencias = pontosEmocionais.map(p => p.valencia);
     const excitacoes = pontosEmocionais.map(p => p.excitacao);
     const minValencia = Math.min(...valencias);
@@ -178,7 +170,6 @@ async function gerarRelatorioEmocional(userId) {
         excitacaoNormalizada: normalizar(p.excitacao, minExcitacao, maxExcitacao),
         cor: p.cor
     }));
-    // ✅ Frequências
     const freqEmocoes = agruparPorFrequencia(emocoes);
     const freqDominios = agruparPorFrequencia(dominios);
     const freqTags = agruparPorFrequencia(tags);

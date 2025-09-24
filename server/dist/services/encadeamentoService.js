@@ -3,18 +3,23 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.buscarUltimaReferenciaOuMemoria = buscarUltimaReferenciaOuMemoria;
 exports.salvarMemoriaComEncadeamento = salvarMemoriaComEncadeamento;
 exports.salvarReferenciaComEncadeamento = salvarReferenciaComEncadeamento;
+// services/encadeamentoService.ts
 const supabaseAdmin_1 = require("../lib/supabaseAdmin");
 /**
- * Busca a última memória ou referência para um usuário,
- * retornando { id, created_at } se houver, ou null se não houver nada.
+ * Retorna a última memória OU referência do usuário.
+ * Usa RPC: public.buscar_ultima_memoria_ou_referencia(usuario_id_input uuid)
  */
 async function buscarUltimaReferenciaOuMemoria(usuario_id) {
     try {
         const { data, error } = await supabaseAdmin_1.supabaseAdmin
-            .rpc('buscar_ultima_memoria_ou_referencia', { usuario_id_input: usuario_id }) // ajuste de nome!
+            .rpc('buscar_ultima_memoria_ou_referencia', { usuario_id_input: usuario_id })
             .single();
         if (error) {
-            console.warn('⚠️ Erro ao buscar última memória/referência:', error.message);
+            console.warn('⚠️ RPC buscar_ultima_memoria_ou_referencia falhou:', {
+                message: error.message,
+                details: error?.details ?? null,
+                hint: error?.hint ?? null,
+            });
             return null;
         }
         if (!data) {
@@ -29,58 +34,90 @@ async function buscarUltimaReferenciaOuMemoria(usuario_id) {
         return null;
     }
 }
+/** Utils */
+const clamp = (n, min, max) => Math.min(Math.max(n, min), max);
+function sanitizeTags(tags) {
+    if (!Array.isArray(tags) || tags.length === 0)
+        return null;
+    const cleaned = Array.from(new Set(tags
+        .map((t) => (typeof t === 'string' ? t.trim() : ''))
+        .filter(Boolean)));
+    // limite opcional para não estourar payloads
+    return cleaned.slice(0, 16);
+}
+function sanitizeResumo(texto) {
+    const t = (texto || '').toString().trim().replace(/\s+/g, ' ');
+    // opcional: hard cap pra evitar payloads gigantes
+    return t.slice(0, 4000);
+}
+function sanitizeEmocao(v) {
+    if (!v)
+        return null;
+    const t = v.trim();
+    return t ? t : null;
+}
 /**
- * Salva uma nova memória encadeada, referenciando a anterior se existir.
+ * Monta payload sanitizado e com encadeamento.
+ * Se `referencia_anterior_id` não vier, busca a última memória/referência do usuário.
  */
-async function salvarMemoriaComEncadeamento(mem) {
+async function buildPayloadComEncadeamento(mem) {
+    const anterior = typeof mem.referencia_anterior_id === 'string'
+        ? { id: mem.referencia_anterior_id }
+        : await buscarUltimaReferenciaOuMemoria(mem.usuario_id);
+    const payload = {
+        usuario_id: mem.usuario_id,
+        resumo_eco: sanitizeResumo(mem.resumo_eco),
+        intensidade: clamp(Number(mem.intensidade) || 0, 0, 10),
+        emocao_principal: sanitizeEmocao(mem.emocao_principal),
+        tags: sanitizeTags(mem.tags) ?? null,
+        mensagem_id: mem.mensagem_id ?? null,
+        referencia_anterior_id: anterior?.id ?? null,
+        // ❗ NÃO enviamos created_at: deixamos o banco aplicar DEFAULT now()
+    };
+    return payload;
+}
+/**
+ * Função genérica para salvar em uma tabela (memories | referencias_temporarias)
+ * já com encadeamento resolvido.
+ */
+async function salvarComEncadeamentoGenerico(tabela, mem) {
     try {
-        const anterior = await buscarUltimaReferenciaOuMemoria(mem.usuario_id);
-        const payload = {
-            usuario_id: mem.usuario_id,
-            resumo_eco: mem.resumo_eco,
-            intensidade: mem.intensidade,
-            emocao_principal: mem.emocao_principal ?? null,
-            tags: mem.tags ?? null,
-            referencia_anterior_id: anterior?.id ?? null,
-            created_at: new Date().toISOString()
-        };
-        const { error } = await supabaseAdmin_1.supabaseAdmin.from('memories').insert(payload);
+        const payload = await buildPayloadComEncadeamento(mem);
+        const { data, error } = await supabaseAdmin_1.supabaseAdmin
+            .from(tabela)
+            .insert(payload)
+            .select('id') // retorna o id criado
+            .single();
         if (error) {
-            console.error('❌ Erro ao salvar memória encadeada:', error.message);
+            console.error(`❌ Erro ao salvar em ${tabela}:`, {
+                message: error.message,
+                details: error?.details ?? null,
+                hint: error?.hint ?? null,
+            });
+            return { ok: false, error: error.message };
         }
-        else {
-            console.log('✅ Memória salva com encadeamento:', payload);
-        }
+        console.log(`✅ Registro salvo com encadeamento em ${tabela}:`, {
+            id: data?.id,
+            referencia_anterior_id: payload.referencia_anterior_id,
+        });
+        return { ok: true, id: data?.id };
     }
     catch (err) {
-        console.error('❌ Erro inesperado em salvarMemoriaComEncadeamento:', err.message);
+        console.error(`❌ Erro inesperado ao salvar em ${tabela}:`, err.message);
+        return { ok: false, error: err.message };
     }
 }
 /**
- * Salva uma nova referência temporária encadeada, referenciando a anterior se existir.
+ * Salva uma nova memória encadeada em `memories`.
+ * (Se quiser forçar salvar no passado, adicione created_at no payload e garanta permissão RLS)
+ */
+async function salvarMemoriaComEncadeamento(mem) {
+    return salvarComEncadeamentoGenerico('memories', mem);
+}
+/**
+ * Salva uma nova referência temporária encadeada em `referencias_temporarias`.
  */
 async function salvarReferenciaComEncadeamento(mem) {
-    try {
-        const anterior = await buscarUltimaReferenciaOuMemoria(mem.usuario_id);
-        const payload = {
-            usuario_id: mem.usuario_id,
-            resumo_eco: mem.resumo_eco,
-            intensidade: mem.intensidade,
-            emocao_principal: mem.emocao_principal ?? null,
-            tags: mem.tags ?? null,
-            referencia_anterior_id: anterior?.id ?? null,
-            created_at: new Date().toISOString()
-        };
-        const { error } = await supabaseAdmin_1.supabaseAdmin.from('referencias_temporarias').insert(payload);
-        if (error) {
-            console.error('❌ Erro ao salvar referência encadeada:', error.message);
-        }
-        else {
-            console.log('✅ Referência temporária salva com encadeamento:', payload);
-        }
-    }
-    catch (err) {
-        console.error('❌ Erro inesperado em salvarReferenciaComEncadeamento:', err.message);
-    }
+    return salvarComEncadeamentoGenerico('referencias_temporarias', mem);
 }
 //# sourceMappingURL=encadeamentoService.js.map

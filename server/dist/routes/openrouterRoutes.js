@@ -5,121 +5,95 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = __importDefault(require("express"));
 const supabaseAdmin_1 = require("../lib/supabaseAdmin");
-const ecoCortex_1 = require("../services/ecoCortex");
+const ConversationOrchestrator_1 = require("../services/ConversationOrchestrator");
 const embeddingService_1 = require("../services/embeddingService");
+const buscarMemorias_1 = require("../services/buscarMemorias");
 const router = express_1.default.Router();
+// log seguro de trechos (evita vazar texto completo em prod)
+const safeLog = (s) => process.env.NODE_ENV === "production" ? (s || "").slice(0, 60) + "…" : s || "";
+// normaliza array de mensagens da UI
+function normalizarMensagens(body) {
+    const { messages, mensagens, mensagem } = body || {};
+    if (Array.isArray(messages))
+        return messages;
+    if (Array.isArray(mensagens))
+        return mensagens;
+    if (mensagem)
+        return [{ role: "user", content: mensagem }];
+    return null;
+}
 router.post("/ask-eco", async (req, res) => {
-    const { usuario_id, mensagem, messages, mensagens, nome_usuario, } = req.body;
+    const { usuario_id, nome_usuario } = req.body;
+    const mensagensParaIA = normalizarMensagens(req.body);
+    // auth
     const authHeader = req.headers.authorization;
     if (!authHeader?.startsWith("Bearer ")) {
         return res.status(401).json({ error: "Token de acesso ausente." });
     }
     const token = authHeader.replace("Bearer ", "").trim();
-    const mensagensParaIA = messages ||
-        mensagens ||
-        (mensagem ? [{ role: "user", content: mensagem }] : null);
     if (!usuario_id || !mensagensParaIA) {
-        return res
-            .status(400)
-            .json({ error: "usuario_id e messages são obrigatórios." });
+        return res.status(400).json({ error: "usuario_id e messages são obrigatórios." });
     }
     try {
         const { data, error } = await supabaseAdmin_1.supabaseAdmin.auth.getUser(token);
         if (error || !data?.user) {
-            return res
-                .status(401)
-                .json({ error: "Token inválido ou usuário não encontrado." });
+            return res.status(401).json({ error: "Token inválido ou usuário não encontrado." });
         }
-        // 🌱 1. Gera embedding da última mensagem
-        const ultimaMsg = mensagensParaIA.at(-1)?.content ?? "";
-        const queryEmbedding = await (0, embeddingService_1.embedTextoCompleto)(ultimaMsg);
-        // 🌱 2. Busca memórias semanticamente semelhantes
+        // última mensagem
+        const ultimaMsg = String(mensagensParaIA.at(-1)?.content ?? "");
+        console.log("🗣️ Última mensagem:", safeLog(ultimaMsg));
+        // embedding só quando fizer sentido
+        let queryEmbedding;
+        if (ultimaMsg.trim().length >= 6) {
+            try {
+                const raw = await (0, embeddingService_1.embedTextoCompleto)(ultimaMsg);
+                queryEmbedding = Array.isArray(raw) ? raw : JSON.parse(String(raw));
+                if (!Array.isArray(queryEmbedding))
+                    queryEmbedding = undefined;
+            }
+            catch (e) {
+                console.warn("⚠️ Falha ao gerar embedding:", e?.message);
+            }
+        }
+        // threshold adaptativo para recall melhor
+        let threshold = 0.15;
+        if (ultimaMsg.trim().length < 20)
+            threshold = 0.10;
+        if (/lembr|record|memó/i.test(ultimaMsg))
+            threshold = Math.min(threshold, 0.12);
+        // busca de memórias (helper unificado)
         let memsSimilares = [];
-        if (queryEmbedding) {
-            const { data: memData, error: memErr } = await supabaseAdmin_1.supabaseAdmin.rpc("buscar_memorias_semelhantes", {
-                consulta_embedding: queryEmbedding,
-                filtro_usuario: usuario_id,
-                limite: 5,
-            });
-            if (memErr) {
-                console.warn("[ℹ️] Falha na busca de memórias semelhantes:", memErr);
-            }
-            else {
-                memsSimilares = memData || [];
-                console.log("[ℹ️] Memórias semelhantes retornadas:", memsSimilares);
-            }
-        }
-        /* ---------------------------------------------------- */
-        /* 🔥 3. PRIMEIRA RODADA — sem forçar METODO_VIVA       */
-        /* ---------------------------------------------------- */
-        const resposta1 = await (0, ecoCortex_1.getEcoResponse)({
-            messages: mensagensParaIA,
-            userId: usuario_id,
-            userName: nome_usuario,
-            accessToken: token,
-            mems: memsSimilares,
-        });
-        console.log("✅ Resposta 1 gerada.");
-        // 🌱 4. Tenta extrair o bloco técnico JSON do texto
-        let blocoTecnico = null;
         try {
-            const jsonMatch = resposta1.message.match(/\{[\s\S]*?\}$/);
-            if (jsonMatch) {
-                blocoTecnico = JSON.parse(jsonMatch[0]);
-                console.log("✅ Bloco técnico extraído:", blocoTecnico);
-            }
-            else {
-                console.log("ℹ️ Nenhum bloco técnico encontrado.");
-            }
+            memsSimilares = await (0, buscarMemorias_1.buscarMemoriasSemelhantes)(usuario_id, {
+                userEmbedding: queryEmbedding,
+                texto: queryEmbedding ? undefined : ultimaMsg,
+                k: 5,
+                threshold,
+            });
+            console.log("🔎 Memórias similares:", memsSimilares.map((m) => ({
+                id: m.id?.slice(0, 8),
+                sim: m.similaridade ?? m.similarity ?? 0,
+            })));
         }
-        catch (err) {
-            console.warn("⚠️ Erro ao tentar parsear bloco técnico:", err);
+        catch (memErr) {
+            console.warn("⚠️ Falha na busca de memórias semelhantes:", memErr?.message);
+            memsSimilares = [];
         }
-        // 🌱 5. Decide se precisa rodar a SEGUNDA RODADA com METODO_VIVA
-        let ativaViva = false;
-        if (blocoTecnico) {
-            const intensidade = blocoTecnico.intensidade ?? 0;
-            const nivelAbertura = blocoTecnico.nivel_abertura === "alto"
-                ? 3
-                : blocoTecnico.nivel_abertura === "médio"
-                    ? 2
-                    : 1;
-            if (intensidade >= 7 || (intensidade >= 5 && nivelAbertura === 3)) {
-                ativaViva = true;
-                console.log("✅ Critérios para ativar METODO_VIVA atingidos.");
-            }
-            else {
-                console.log("ℹ️ Critérios para VIVA não atendidos.");
-            }
-        }
-        if (!ativaViva) {
-            // 🎯 Não precisa VIVA, retorna a primeira resposta
-            return res.status(200).json({ message: resposta1.message });
-        }
-        /* ---------------------------------------------------- */
-        /* 🔥 6. SEGUNDA RODADA — com METODO_VIVA forçado       */
-        /* ---------------------------------------------------- */
-        console.log("🔄 Rodada 2 com METODO_VIVA.txt forçado!");
-        const resposta2 = await (0, ecoCortex_1.getEcoResponse)({
+        // orquestrador (única chamada)
+        const resposta = await (0, ConversationOrchestrator_1.getEcoResponse)({
             messages: mensagensParaIA,
             userId: usuario_id,
             userName: nome_usuario,
             accessToken: token,
             mems: memsSimilares,
-            blocoTecnicoForcado: blocoTecnico,
-            forcarMetodoViva: true
         });
-        return res.status(200).json({ message: resposta2.message });
+        return res.status(200).json(resposta);
     }
     catch (err) {
         console.error("❌ Erro no /ask-eco:", err);
         return res.status(500).json({
             error: "Erro interno ao processar a requisição.",
-            details: {
-                message: err?.message,
-                stack: err?.stack,
-                raw: err,
-            }
+            details: { message: err?.message, stack: err?.stack },
         });
     }
 });

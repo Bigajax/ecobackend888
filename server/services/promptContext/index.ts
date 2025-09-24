@@ -1,30 +1,21 @@
-// server/services/promptContext/index.ts
-
 export { Budgeter } from "./Budgeter";
 export { ModuleStore } from "./ModuleStore";
-export { ContextBuilder } from "./ContextBuilder";
-
 export * from "./Selector";
 export * from "./Signals";
 
-// ------- Tipos derivados (sem Awaited) -------
-type CtxBuilder = InstanceType<typeof ContextBuilder>;
-type UnwrapPromise<T> = T extends Promise<infer R> ? R : T;
+import { ContextBuilder } from "./ContextBuilder";
+export { ContextBuilder }; // também exportado para uso externo
 
-export type BuildInput  = Parameters<CtxBuilder["build"]>[0];
-export type BuildOutput = UnwrapPromise<ReturnType<CtxBuilder["build"]>>;
+export type CtxBuilder = InstanceType<typeof ContextBuilder>;
 
-/**
- * Função pública usada pelo Orchestrator e pelo preview.
- * Retorna prompt + meta detalhada.
- */
-export async function buildContextWithMeta(input: BuildInput): Promise<BuildOutput> {
+/** Monta prompt+meta para a EcO (usado pelo Orchestrator e pelo preview). */
+export async function buildContextWithMeta(input: any) {
   const b = new ContextBuilder();
   return b.build(input); // { prompt, meta }
 }
 
 /** Compat: retorna apenas o prompt. */
-export async function montarContextoEco(input: BuildInput): Promise<string> {
+export async function montarContextoEco(input: any): Promise<string> {
   const out = await buildContextWithMeta(input);
   return out.prompt;
 }
