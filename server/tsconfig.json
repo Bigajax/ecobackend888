@@ -2,7 +2,8 @@
   "compilerOptions": {
     "target": "es2021",
     "module": "commonjs",
-    "lib": ["es2021", "dom"],
+    "moduleResolution": "node",
+    "lib": ["es2021"],
     "rootDir": "./",
     "outDir": "./dist",
     "esModuleInterop": true,
@@ -12,7 +13,7 @@
     "resolveJsonModule": true,
     "sourceMap": true,
     "typeRoots": ["./node_modules/@types", "./types"],
-    "types": []
+    "types": ["node"]
   },
   "include": [
     "server.ts",
@@ -23,8 +24,5 @@
     "types/**/*.d.ts",
     "listenMic.ts"
   ],
-  "exclude": [
-    "node_modules",
-    "**/*.spec.ts"
-  ]
+  "exclude": ["node_modules", "**/*.spec.ts"]
 }

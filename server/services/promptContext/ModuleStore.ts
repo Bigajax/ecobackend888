@@ -3,6 +3,7 @@
 
 import * as path from "path";
 import * as fs from "fs/promises";
+import { log, isDebug } from "./logger";
 
 /**
  * Encoder resiliente:
@@ -16,12 +17,13 @@ function makeEncoder(): Encoder {
     // usar require aqui evita alguns problemas de ESM/typings em builds CJS
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const { get_encoding } = require("@dqbd/tiktoken");
-    return get_encoding("cl100k_base");
-  } catch {
+    const enc = get_encoding("cl100k_base");
+    if (isDebug()) log.debug("[ModuleStore] Encoder: tiktoken(cl100k_base)");
+    return enc;
+  } catch (err) {
     const te = new TextEncoder();
-    return {
-      encode: (s: string) => Array.from(te.encode(s)), // conta por bytes como aproximação
-    };
+    if (isDebug()) log.debug("[ModuleStore] Encoder: TextEncoder fallback", { err: String(err) });
+    return { encode: (s: string) => Array.from(te.encode(s)) };
   }
 }
 
@@ -44,10 +46,13 @@ export class ModuleStore {
     this.fileIndex.clear();
     this.cacheModulos.clear();
     this.tokenCountCache.clear();
+    if (isDebug()) log.debug("[ModuleStore.configure]", { roots: this.roots });
   }
 
   private async buildFileIndexOnce() {
     if (this.fileIndexBuilt) return;
+    let totalIndexed = 0;
+
     for (const base of this.roots) {
       try {
         const entries = await fs.readdir(base);
@@ -55,13 +60,20 @@ export class ModuleStore {
           // primeiro root na lista vence em caso de nome duplicado
           if (!this.fileIndex.has(name)) {
             this.fileIndex.set(name, path.join(base, name));
+            totalIndexed++;
           }
         }
-      } catch {
+      } catch (err) {
         // diretório ausente → ignora
+        if (isDebug()) log.debug("[ModuleStore.buildFileIndexOnce] skipping root (not found)", { base, err: String(err) });
       }
     }
+
     this.fileIndexBuilt = true;
+    if (isDebug()) log.debug("[ModuleStore.buildFileIndexOnce] index built", {
+      roots: this.roots.length,
+      files: totalIndexed
+    });
   }
 
   /** Lê um módulo por nome (ex.: "PRINCIPIOS_CHAVE.txt"). */
@@ -69,31 +81,42 @@ export class ModuleStore {
     if (!name?.trim()) return null;
 
     const cached = this.cacheModulos.get(name);
-    if (cached != null) return cached;
+    if (cached != null) {
+      if (isDebug()) log.debug("[ModuleStore.read] cache hit", { name, tokens: this.tokenCountCache.get(name) ?? -1 });
+      return cached;
+    }
 
     await this.buildFileIndexOnce();
 
     // 1) caminho já indexado
     const p = this.fileIndex.get(name);
     if (p) {
-      const c = (await fs.readFile(p, "utf-8")).trim();
-      this.cacheModulos.set(name, c);
-      this.tokenCountCache.set(name, enc.encode(c).length); // pré-cache dos tokens
-      return c;
+      try {
+        const c = (await fs.readFile(p, "utf-8")).trim();
+        this.cacheModulos.set(name, c);
+        this.tokenCountCache.set(name, enc.encode(c).length); // pré-cache dos tokens
+        if (isDebug()) log.debug("[ModuleStore.read] index path", { name, path: p, tokens: this.tokenCountCache.get(name) });
+        return c;
+      } catch (err) {
+        if (isDebug()) log.debug("[ModuleStore.read] read fail (indexed path)", { name, path: p, err: String(err) });
+      }
     }
 
     // 2) fallback direto (arquivo recém-criado pode não estar no índice)
     for (const base of this.roots) {
       try {
-        const c = (await fs.readFile(path.join(base, name), "utf-8")).trim();
+        const full = path.join(base, name);
+        const c = (await fs.readFile(full, "utf-8")).trim();
         this.cacheModulos.set(name, c);
         this.tokenCountCache.set(name, enc.encode(c).length);
+        if (isDebug()) log.debug("[ModuleStore.read] fallback path", { name, path: full, tokens: this.tokenCountCache.get(name) });
         return c;
       } catch {
         // tenta próximo root
       }
     }
 
+    if (isDebug()) log.debug("[ModuleStore.read] not found", { name });
     return null;
   }
 
@@ -108,6 +131,7 @@ export class ModuleStore {
       if (cached != null) return cached;
       const n = enc.encode(content).length;
       this.tokenCountCache.set(key, n);
+      if (isDebug()) log.debug("[ModuleStore.tokenCountOf] inline", { key, n });
       return n;
     }
 
@@ -117,6 +141,7 @@ export class ModuleStore {
     const cachedContent = this.cacheModulos.get(name) ?? "";
     const n = enc.encode(cachedContent).length;
     this.tokenCountCache.set(name, n);
+    if (isDebug()) log.debug("[ModuleStore.tokenCountOf] module", { name, n, hadContent: cachedContent.length > 0 });
     return n;
   }
 }

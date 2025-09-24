@@ -1,12 +1,14 @@
 // server/services/promptContext/Selector.ts
 import { evalRule } from "../../utils/ruleEval";
 import { heuristicasTriggerMap, tagsPorHeuristica } from "../../assets/config/heuristicasTriggers";
-// ⚠️ removido: import { filosoficosTriggerMap } from "../../assets/config/filosoficosTriggers";
+// ⚠️ sem filosoficosTriggerMap: estoicos cobrem a camada filosófica via triggers próprios
 import { estoicosTriggerMap } from "../../assets/config/estoicosTriggers";
 import { emocionaisTriggerMap } from "../../assets/config/emocionaisTriggers";
 import { heuristicaNivelAbertura } from "../../utils/heuristicaNivelAbertura";
 import { GREET_RE, HARD_CAP_EXTRAS, MAX_LEN_FOR_GREETING } from "../../utils/config";
 import type { Memoria, Heuristica, NivelNum } from "../../utils/types";
+// logger local
+import { log, isDebug } from "./logger";
 
 const normalizar = (t: string) =>
   (t || "").toLowerCase().normalize("NFD").replace(/\p{Diacritic}/gu, "");
@@ -85,6 +87,18 @@ export function selecionarModulosBase({
   // ✅ aplica prioridade definida na matriz
   const priorizado = orderByPrioridade(posGating, matriz?.limites?.prioridade);
 
+  if (isDebug()) {
+    log.debug("[Selector] selecionarModulosBase", {
+      nivel,
+      intensidade,
+      flags,
+      raw,
+      posGating,
+      priorizado,
+      cortados
+    });
+  }
+
   return {
     selecionados: priorizado,
     debug: { raw: dedup, inherited, specific, posGating, cortadosPorRegraOuIntensidade: cortados },
@@ -107,6 +121,9 @@ export function derivarNivel(entrada: string, saudacaoBreve: boolean): NivelNum 
   }
   if (saudacaoBreve) n = 1;
   if (n < 1 || n > 3) n = 1;
+
+  if (isDebug()) log.debug("[Selector] derivarNivel", { saudacaoBreve, nivel: n });
+
   return n as NivelNum;
 }
 
@@ -116,7 +133,9 @@ export function derivarFlags(entrada: string) {
     /\b(o que faço|o que eu faço|como faço|como falo|pode ajudar|tem (ideia|dica)|me ajuda|ajuda com|sugest(ão|oes))\b/i.test(
       entrada,
     );
-  return { curiosidade, pedido_pratico, duvida_classificacao: false };
+  const out = { curiosidade, pedido_pratico, duvida_classificacao: false as boolean };
+  if (isDebug()) log.debug("[Selector] derivarFlags", out);
+  return out;
 }
 
 /* -------------------------------------
@@ -146,7 +165,12 @@ const faixaCognitivos: Record<string, [number, number]> = {
 };
 const defaultFaixaCognitivo: [number, number] = [3, 6];
 
-const dentroFaixa = (arquivo: string, intensidade: number, mapa: Record<string, [number, number]>, fallback?: [number, number]) => {
+const dentroFaixa = (
+  arquivo: string,
+  intensidade: number,
+  mapa: Record<string, [number, number]>,
+  fallback?: [number, number]
+) => {
   const [minI, maxI] = mapa[arquivo] ?? fallback ?? [3, 6];
   return intensidade >= minI && intensidade <= maxI;
 };
@@ -194,7 +218,7 @@ export function selecionarExtras({
   heuristicasEmbedding?: any[];
 }) {
   const txt = normalizar(entrada);
-  const { pedido_pratico } = derivarFlags(entrada); // 👈 gating para cognitivo/estoico
+  const { pedido_pratico } = derivarFlags(entrada); // 👈 gating macro para cognitivo/estoico
 
   const cands: ExtraCand[] = [];
   const push = (x: ExtraCand) => {
@@ -228,6 +252,8 @@ export function selecionarExtras({
     if (heuristicaAtiva?.arquivo && dentroFaixa(heuristicaAtiva.arquivo, intensidade, faixaCognitivos, defaultFaixaCognitivo)) {
       push({ arquivo: heuristicaAtiva.arquivo, cat: "cognitivo", score: 2.5 });
     }
+  } else if (isDebug()) {
+    log.debug("[Selector] cognitivo suprimido", { emCrise, nivel, pedido_pratico, intensidade });
   }
 
   // 2) Filosófico/Estoico — envelope: abertura ≥2, sem pedido prático, não em crise; faixa por arquivo
@@ -239,6 +265,8 @@ export function selecionarExtras({
         push({ arquivo: e.arquivo, cat: "filosofico", score: 2.5 });
       }
     }
+  } else if (isDebug()) {
+    log.debug("[Selector] estoico/filosófico suprimido", { emCrise, nivel, pedido_pratico, intensidade });
   }
 
   // 3) Emocionais — por tags/emoções + intensidadeMin + gatilho textual
@@ -283,6 +311,19 @@ export function selecionarExtras({
   }
 
   mark(userId, final);
+
+  if (isDebug()) {
+    log.debug("[Selector] selecionarExtras resultado", {
+      intensidade,
+      nivel,
+      pedido_pratico,
+      emCrise,
+      candidatos: cands,
+      ranked,
+      escolhidos: final
+    });
+  }
+
   return final;
 }
 

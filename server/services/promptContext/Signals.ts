@@ -1,5 +1,8 @@
 // server/services/promptContext/Signals.ts
 
+// ---------------------- logger ----------------------
+import { log, isDebug } from "./logger";
+
 // ---------------------- Tipos leves ----------------------
 type PerfilSlim = {
   emocoes_frequentes?: Record<string, number>;
@@ -48,14 +51,25 @@ export function construirStateSummary(perfil: PerfilSlim | undefined, nivel: num
   const emocoes = Object.keys(perfil.emocoes_frequentes || {}).join(", ") || "nenhuma";
   const temas   = Object.keys(perfil.temas_recorrentes || {}).join(", ") || "nenhum";
   const abertura = nivel === 1 ? "superficial" : nivel === 2 ? "reflexiva" : "profunda";
-  const resumo  = perfil.resumo_geral_ia?.trim() || "sem resumo geral registrado";
+  const resumo  = (perfil.resumo_geral_ia?.trim() ?? "") || "sem resumo geral registrado";
   const ultima  = perfil.ultima_interacao_significativa ?? "nenhuma";
-  return `\n🗺️ Estado Emocional Consolidado:
+
+  const out = `\n🗺️ Estado Emocional Consolidado:
 - Emoções frequentes: ${emocoes}
 - Temas recorrentes: ${temas}
 - Nível de abertura estimado: ${abertura}
 - Última interação significativa: ${ultima}
 - Resumo geral: ${resumo}`.trim();
+
+  if (isDebug()) {
+    log.debug("[Signals] construirStateSummary", {
+      temPerfil: !!perfil,
+      emocoes_keys: Object.keys(perfil.emocoes_frequentes || []),
+      temas_keys: Object.keys(perfil.temas_recorrentes || []),
+      nivel, abertura
+    });
+  }
+  return out;
 }
 
 export function construirNarrativaMemorias(mems: MemResumo[]): string {
@@ -79,7 +93,17 @@ export function construirNarrativaMemorias(mems: MemResumo[]): string {
   const temasTxt = Array.from(temas).slice(0, 3).join(", ") || "—";
   const emocoesTxt = Array.from(emocoes).slice(0, 2).join(", ") || "—";
 
-  return `\n📜 Continuidade: temas (${temasTxt}) e emoções (${emocoesTxt}); use só se fizer sentido agora.`;
+  const out = `\n📜 Continuidade: temas (${temasTxt}) e emoções (${emocoesTxt}); use só se fizer sentido agora.`;
+
+  if (isDebug()) {
+    log.debug("[Signals] construirNarrativaMemorias", {
+      mems_in: mems.length,
+      considerados: ord.length,
+      temas: Array.from(temas),
+      emocoes: Array.from(emocoes)
+    });
+  }
+  return out;
 }
 
 function fmtData(d: string | number | Date | null | undefined): string | null {
@@ -91,10 +115,10 @@ function fmtData(d: string | number | Date | null | undefined): string | null {
 export function renderDerivados(der: DerivadosSlim | undefined, aberturaHibrida?: string | null) {
   if (!der) return "";
 
-  const temas: TemaDerivado[] = Array.isArray(der?.top_temas_30d) ? der!.top_temas_30d! : [];
-  const marcos: MarcoDerivado[] = Array.isArray(der?.marcos) ? der!.marcos! : [];
-  const dica: string | null = der?.dica_estilo ?? null;
-  const eff = der?.heuristica_interacao ?? null;
+  const temas: TemaDerivado[]  = Array.isArray(der.top_temas_30d) ? der.top_temas_30d : [];
+  const marcos: MarcoDerivado[] = Array.isArray(der.marcos) ? der.marcos : [];
+  const dica: string | null = der.dica_estilo ?? null;
+  const eff = der.heuristica_interacao ?? null;
 
   const topTemas = temas
     .slice(0, 3)
@@ -123,20 +147,33 @@ export function renderDerivados(der: DerivadosSlim | undefined, aberturaHibrida?
   const aberturaTxt = aberturaHibrida ? `\nSugestão de abertura leve: ${aberturaHibrida}` : "";
 
   const partes: string[] = [];
-  if (temas?.length)  partes.push(`🔁 Temas recorrentes (30d):\n${topTemas}`);
-  if (marcos?.length) partes.push(`⏱️ Marcos recentes:\n${marcosTxt}`);
-  if (efeitos)        partes.push(efeitos);
-  if (dicaTxt)        partes.push(dicaTxt);
-  if (aberturaTxt)    partes.push(aberturaTxt);
+  if (temas.length)  partes.push(`🔁 Temas recorrentes (30d):\n${topTemas}`);
+  if (marcos.length) partes.push(`⏱️ Marcos recentes:\n${marcosTxt}`);
+  if (efeitos)       partes.push(efeitos);
+  if (dicaTxt)       partes.push(dicaTxt);
+  if (aberturaTxt)   partes.push(aberturaTxt);
 
   if (!partes.length) return "";
-  return `\n🧩 Sinais de contexto (derivados):\n${partes.join("\n")}`;
+
+  const out = `\n🧩 Sinais de contexto (derivados):\n${partes.join("\n")}`;
+
+  if (isDebug()) {
+    log.debug("[Signals] renderDerivados", {
+      temas_qtd: temas.length,
+      marcos_qtd: marcos.length,
+      tem_dica: !!dica,
+      tem_eff: !!eff,
+      aberturaHibrida: !!aberturaHibrida
+    });
+  }
+  return out;
 }
 
 // ---------------------- guards estáticos (removidos) ----------------------
 
 export async function loadStaticGuards(_modulosDir: string) {
   // Sem leitura de arquivos — retornos vazios e silenciosos.
+  if (isDebug()) log.debug("[Signals] loadStaticGuards: sem guards estáticos");
   return {
     criterios: "",
     memoriaInstrucoes: "",
@@ -170,6 +207,18 @@ export function buildOverhead({
     .replace(/[ \t]+\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
+
+  if (isDebug()) {
+    // não contamos tokens aqui para não acoplar com tiktoken; apenas tamanho em chars
+    log.debug("[Signals] buildOverhead", {
+      criterios_len: (criterios ?? "").length,
+      memoriaInstrucoes_len: (memoriaInstrucoes ?? "").length,
+      responsePlan_len: responsePlanJson.length,
+      instrucoesFinais_len: instrucoesFinais.length,
+      antiSaudacao_len: antiSaudacaoGuard.length,
+      total_chars: blocks.length
+    });
+  }
 
   return blocks;
 }

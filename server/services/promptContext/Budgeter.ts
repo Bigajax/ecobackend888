@@ -1,5 +1,6 @@
 // server/services/promptContext/Budgeter.ts
 import { ModuleStore } from "./ModuleStore";
+import { log, isDebug } from "./logger"; // ⬅️ logger externo
 
 type StitchOpts = {
   /** Orçamento total de tokens disponível para os módulos. */
@@ -43,16 +44,22 @@ export class Budgeter {
   ): Promise<{ text: string; used: string[]; cut: string[]; tokens: number }> {
     const { budgetTokens = 0, priority, separator = "\n\n" } = opts;
 
-    // Guarda de orçamento/entrada
     const used: string[] = [];
     const cut: string[] = [];
+
     if (!names?.length || budgetTokens <= 0) {
+      if (isDebug()) log.debug("[Budgeter] entrada vazia ou orçamento zero", { names, budgetTokens });
       return { text: "", used, cut: names ?? [], tokens: 0 };
     }
 
     // 1) Dedupe estável + ordenação por prioridade unificada
     const dedup = this.uniqPreservingOrder(names);
     const ordered = this.sortByPriorityStable(dedup, priority);
+
+    if (isDebug()) {
+      log.debug("[Budgeter] orçamento", { budgetTokens });
+      log.debug("[Budgeter] nomes(dedup)->ordered", { dedup, ordered, priority });
+    }
 
     // 2) Loop de montagem respeitando o orçamento
     let total = 0;
@@ -65,6 +72,7 @@ export class Budgeter {
       let content = await this.store.read(n);
       if (!content) {
         cut.push(`${n} [vazio/ausente]`);
+        if (isDebug()) log.debug("[Budgeter] cortado (ausente)", { n });
         continue;
       }
 
@@ -77,6 +85,9 @@ export class Budgeter {
       // Se estourar orçamento, corta
       if (total + extra + t > budgetTokens) {
         cut.push(`${n} [sem orçamento: +${t} tokens]`);
+        if (isDebug()) log.debug("[Budgeter] cortado por orçamento", {
+          n, moduloTokens: t, sepTokens: extra, totalAntes: total, budgetTokens
+        });
         continue;
       }
 
@@ -84,9 +95,14 @@ export class Budgeter {
       blocks.push(content);
       used.push(n);
       total += extra + t;
+
+      if (isDebug()) log.trace?.("[Budgeter] incluído", { n, acumulado: total });
     }
 
     const text = blocks.join("").trim();
+
+    if (isDebug()) log.debug("[Budgeter] resultado", { used, cut, tokens: total });
+
     return { text, used, cut, tokens: total };
   }
 }

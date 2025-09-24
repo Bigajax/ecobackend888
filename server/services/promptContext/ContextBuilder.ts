@@ -20,9 +20,10 @@ import {
   selecionarExtras,
 } from "./Selector";
 import { MAX_PROMPT_TOKENS, NIVEL1_BUDGET, MARGIN_TOKENS } from "../../utils/config";
-
-// 🔽 importa a matriz com fallback p/ qualquer formato de export
+// 🔽 matriz com fallback
 import * as Matriz from "../../controllers/matrizPromptBase";
+// 🔽 logger local (server/services/promptContext/logger.ts ou ./logger/index.ts)
+import { log, isDebug } from "./logger";
 
 const ENC = get_encoding("cl100k_base");
 
@@ -40,9 +41,8 @@ function uniqPreservingOrder(arr: (string | undefined | null)[]) {
 
 /**
  * Prioridade unificada a ser passada ao Budgeter.
- * - Em V2: todos os módulos das camadas (core/emotional/advanced) VÊM PRIMEIRO,
- *   seguidos de limites.prioridade.
- * - Em legado: apenas limites.prioridade (quando houver).
+ * - Em V2: camadas base (core/emotional/advanced) VÊM PRIMEIRO, seguidas de limites.prioridade.
+ * - Em legado: apenas limites.prioridade.
  */
 function buildUnifiedPriority(matriz: any): string[] | undefined {
   const limites: string[] = (matriz?.limites?.prioridade ?? []) as string[];
@@ -66,111 +66,134 @@ export class ContextBuilder {
   private budgeter = new Budgeter();
 
   async build(input: any) {
-    const assetsDir = path.join(process.cwd(), "assets");
-    // Pastas alinhadas
-    const coreDir        = path.join(assetsDir, "modulos_core");
-    const extrasDir      = path.join(assetsDir, "modulos_extras");
-    const modCogDir      = path.join(assetsDir, "modulos_cognitivos");
-    const modFilosDir    = path.join(assetsDir, "modulos_filosoficos");
-    const modEstoicosDir = path.join(modFilosDir, "estoicos");
-    const modEmocDir     = path.join(assetsDir, "modulos_emocionais");
+    const t0 = Date.now();
+    try {
+      const assetsDir = path.join(process.cwd(), "assets");
+      // Pastas alinhadas
+      const coreDir        = path.join(assetsDir, "modulos_core");
+      const extrasDir      = path.join(assetsDir, "modulos_extras");
+      const modCogDir      = path.join(assetsDir, "modulos_cognitivos");
+      const modFilosDir    = path.join(assetsDir, "modulos_filosoficos");
+      const modEstoicosDir = path.join(modFilosDir, "estoicos");
+      const modEmocDir     = path.join(assetsDir, "modulos_emocionais");
 
-    // ordem: core → extras → opcionais
-    ModuleStore.I.configure([coreDir, extrasDir, modEmocDir, modEstoicosDir, modFilosDir, modCogDir]);
+      // ordem: core → extras → opcionais
+      ModuleStore.I.configure([coreDir, extrasDir, modEmocDir, modEstoicosDir, modFilosDir, modCogDir]);
+      if (isDebug()) log.debug("[ContextBuilder] roots configurados", {
+        coreDir, extrasDir, modEmocDir, modEstoicosDir, modFilosDir, modCogDir
+      });
 
-    // guards estáticos no core
-    const { criterios, memoriaInstrucoes } = await loadStaticGuards(coreDir);
+      // guards estáticos (placeholders)
+      const { criterios, memoriaInstrucoes } = await loadStaticGuards(coreDir);
 
-    const entrada = (input.texto ?? "").trim();
-    const saudacaoBreve = detectarSaudacaoBreve(entrada);
+      const entrada = (input.texto ?? "").trim();
+      const saudacaoBreve = detectarSaudacaoBreve(entrada);
+      if (isDebug()) {
+        log.info("[ContextBuilder] início build", {
+          userId: input?.userId ?? null,
+          lenEntrada: entrada.length,
+          saudacaoBreve
+        });
+      }
 
-    let contexto = "";
-    if (saudacaoBreve) {
-      contexto += `\n🔎 Detecção: saudação breve. Evite perguntas de abertura; acolha sem repetir a saudação.`;
-    }
+      let contexto = "";
+      if (saudacaoBreve) {
+        contexto += `\n🔎 Detecção: saudação breve. Evite perguntas de abertura; acolha sem repetir a saudação.`;
+      }
 
-    const nivel = derivarNivel(entrada, saudacaoBreve);
-    const desc = nivel === 1 ? "superficial" : nivel === 2 ? "reflexiva" : "profunda";
-    contexto += `\n📶 Abertura emocional sugerida (heurística): ${desc}`;
+      const nivel = derivarNivel(entrada, saudacaoBreve);
+      const desc = nivel === 1 ? "superficial" : nivel === 2 ? "reflexiva" : "profunda";
+      contexto += `\n📶 Abertura emocional sugerida (heurística): ${desc}`;
 
-    if (input.perfil) contexto += `\n\n${construirStateSummary(input.perfil, nivel)}`;
-    if (input.derivados) contexto += renderDerivados(input.derivados, input.aberturaHibrida);
+      if (input.perfil) contexto += `\n\n${construirStateSummary(input.perfil, nivel)}`;
+      if (input.derivados) contexto += renderDerivados(input.derivados, input.aberturaHibrida);
 
-    // ===== memórias =====
-    let memsUsadas: any[] = input.mems ?? [];
-    if (input.forcarMetodoViva && input.blocoTecnicoForcado) {
-      memsUsadas = [
-        {
-          resumo_eco: input.blocoTecnicoForcado.analise_resumo ?? entrada ?? "",
-          intensidade: Number(input.blocoTecnicoForcado.intensidade ?? 0),
-          emocao_principal: input.blocoTecnicoForcado.emocao_principal ?? "",
-          tags: input.blocoTecnicoForcado.tags ?? [],
-        },
-      ];
-    } else if (nivel === 1) {
-      memsUsadas = [];
-    }
-    if (entrada && input.perfil && nivel > 1) {
-      memsUsadas = [
-        ...(memsUsadas || []),
-        {
-          resumo_eco: entrada,
-          tags: input.perfil.temas_recorrentes ? Object.keys(input.perfil.temas_recorrentes) : [],
-          intensidade: 0,
-          emocao_principal: Object.keys(input.perfil.emocoes_frequentes || {})[0] || "",
-        },
-      ];
-    }
+      // ===== memórias =====
+      let memsUsadas: any[] = input.mems ?? [];
+      if (input.forcarMetodoViva && input.blocoTecnicoForcado) {
+        memsUsadas = [
+          {
+            resumo_eco: input.blocoTecnicoForcado.analise_resumo ?? entrada ?? "",
+            intensidade: Number(input.blocoTecnicoForcado.intensidade ?? 0),
+            emocao_principal: input.blocoTecnicoForcado.emocao_principal ?? "",
+            tags: input.blocoTecnicoForcado.tags ?? [],
+          },
+        ];
+      } else if (nivel === 1) {
+        memsUsadas = [];
+      }
+      if (entrada && input.perfil && nivel > 1) {
+        memsUsadas = [
+          ...(memsUsadas || []),
+          {
+            resumo_eco: entrada,
+            tags: input.perfil.temas_recorrentes ? Object.keys(input.perfil.temas_recorrentes) : [],
+            intensidade: 0,
+            emocao_principal: Object.keys(input.perfil.emocoes_frequentes || {})[0] || "",
+          },
+        ];
+      }
 
-    const intensidadeContexto = Math.max(0, ...(memsUsadas ?? []).map((m: any) => m.intensidade ?? 0));
-    if (memsUsadas?.length && nivel > 1) {
-      contexto += `\n\n${construirNarrativaMemorias(memsUsadas)}`;
-    }
+      const intensidadeContexto = Math.max(0, ...(memsUsadas ?? []).map((m: any) => m.intensidade ?? 0));
+      if (memsUsadas?.length && nivel > 1) {
+        contexto += `\n\n${construirNarrativaMemorias(memsUsadas)}`;
+      }
+      if (isDebug()) {
+        log.debug("[ContextBuilder] memórias agregadas", {
+          qtd: memsUsadas?.length ?? 0,
+          intensidadeContexto
+        });
+      }
 
-    // ===== matriz =====
-    const matriz =
-      (Matriz as any).matrizPromptBaseV2 ??
-      (Matriz as any).matrizPromptBase ??
-      (Matriz as any).MatrizPromptBase ??
-      (Matriz as any).default;
+      // ===== matriz =====
+      const matriz =
+        (Matriz as any).matrizPromptBaseV2 ??
+        (Matriz as any).matrizPromptBase ??
+        (Matriz as any).MatrizPromptBase ??
+        (Matriz as any).default;
 
-    const flags = derivarFlags(entrada);
-    const baseSel = selecionarModulosBase({ nivel, intensidade: intensidadeContexto, matriz, flags });
+      const flags = derivarFlags(entrada);
+      const baseSel = selecionarModulosBase({ nivel, intensidade: intensidadeContexto, matriz, flags });
+      if (isDebug()) {
+        log.debug("[ContextBuilder] seleção base (pós-gating)", {
+          nivel, flags, selecionados: baseSel.selecionados, debug: baseSel.debug
+        });
+      }
 
-    // ===== contexto / overhead =====
-    const contextoMin = contexto.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
-    const enc = ENC;
-    const tokensContexto = enc.encode(contextoMin).length;
+      // ===== contexto / overhead =====
+      const contextoMin = contexto.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+      const enc = ENC;
+      const tokensContexto = enc.encode(contextoMin).length;
 
-    const antiSaudacaoGuard = `
+      const antiSaudacaoGuard = `
 NÃO inicie a resposta com fórmulas como:
 - "como você chega", "como você está chegando", "como chega aqui hoje", "como você chega hoje".
 Se a mensagem do usuário for apenas uma saudação breve, não repita a saudação, não faça perguntas fenomenológicas de abertura; apenas acolha de forma simples quando apropriado.`.trim();
 
-    const permitirPerguntaViva =
-      nivel >= 2 && !saudacaoBreve && (flags.curiosidade === true || intensidadeContexto >= 5);
+      const permitirPerguntaViva =
+        nivel >= 2 && !saudacaoBreve && (flags.curiosidade === true || intensidadeContexto >= 5);
 
-    const responsePlan = {
-      allow_live_question: permitirPerguntaViva,
-      live_question: permitirPerguntaViva
-        ? {
-            text: flags.curiosidade
-              ? "O que fica mais vivo em você quando olha para isso agora — sem precisar explicar?"
-              : intensidadeContexto >= 6
-              ? "Se couber, o que seu corpo te conta sobre isso neste instante (uma palavra ou imagem)?"
-              : "Se fizer sentido, qual seria um próximo passo gentil a partir daqui?",
-            max_count: 1,
-          }
-        : null,
-      allow_micro_practice: false,
-      micro_practice: null as any,
-      guardrails: { no_new_topics_on_closure: true, max_new_prompts: 1 },
-    };
+      const responsePlan = {
+        allow_live_question: permitirPerguntaViva,
+        live_question: permitirPerguntaViva
+          ? {
+              text: flags.curiosidade
+                ? "O que fica mais vivo em você quando olha para isso agora — sem precisar explicar?"
+                : intensidadeContexto >= 6
+                ? "Se couber, o que seu corpo te conta sobre isso neste instante (uma palavra ou imagem)?"
+                : "Se fizer sentido, qual seria um próximo passo gentil a partir daqui?",
+              max_count: 1,
+            }
+          : null,
+        allow_micro_practice: false,
+        micro_practice: null as any,
+        guardrails: { no_new_topics_on_closure: true, max_new_prompts: 1 },
+      };
 
-    const followPlanGuard =
-      `- Siga o RESPONSE_PLAN: no máximo 1 pergunta viva (se allow_live_question=true) e no máximo 1 micro-prática (se allow_micro_practice=true). Slots são opcionais.`;
+      const followPlanGuard =
+        `- Siga o RESPONSE_PLAN: no máximo 1 pergunta viva (se allow_live_question=true) e no máximo 1 micro-prática (se allow_micro_practice=true). Slots são opcionais.`;
 
-    const instrucoesFinais = `
+      const instrucoesFinais = `
 ⚠️ INSTRUÇÃO AO MODELO:
 - Use memórias/contexto como suporte, não como script.
 - Ajuste a profundidade e o tom conforme o nível de abertura (superficial, reflexiva, profunda).
@@ -180,41 +203,104 @@ Se a mensagem do usuário for apenas uma saudação breve, não repita a saudaç
 - ${antiSaudacaoGuard}
 - ${followPlanGuard}`.trim();
 
-    const overhead = buildOverhead({
-      criterios,
-      memoriaInstrucoes,
-      responsePlanJson: JSON.stringify(responsePlan),
-      instrucoesFinais,
-      antiSaudacaoGuard,
-    });
-    const overheadTokens = enc.encode(overhead).length;
-
-    // ⚠️ Floor em 0 (evita exceder MAX_PROMPT_TOKENS)
-    const budgetRestante = Math.max(
-      0,
-      MAX_PROMPT_TOKENS - tokensContexto - overheadTokens - MARGIN_TOKENS
-    );
-
-    // ===== NV1 curto =====
-    if (nivel === 1) {
-      const nomesNv1 = isV2Matrix(matriz)
-        ? resolveModulesForLevelV2(1 as any, matriz)
-        : [...(matriz.alwaysInclude ?? [])];
-
-      const stitched = await this.budgeter.stitch(nomesNv1, {
-        budgetTokens: Math.min(budgetRestante, NIVEL1_BUDGET),
-        // prioridade não é crítica para NV1, mas já respeitamos a unificada
-        priority: buildUnifiedPriority(matriz),
+      const overhead = buildOverhead({
+        criterios,
+        memoriaInstrucoes,
+        responsePlanJson: JSON.stringify(responsePlan),
+        instrucoesFinais,
+        antiSaudacaoGuard,
       });
+      const overheadTokens = enc.encode(overhead).length;
 
-      const instrucoesNv1 = `
+      // ⚠️ Floor em 0 (evita exceder MAX_PROMPT_TOKENS)
+      const budgetRestante = Math.max(
+        0,
+        MAX_PROMPT_TOKENS - tokensContexto - overheadTokens - MARGIN_TOKENS
+      );
+
+      if (isDebug()) {
+        log.debug("[ContextBuilder] tokens & orçamento", {
+          tokensContexto,
+          overheadTokens,
+          MAX_PROMPT_TOKENS,
+          MARGIN_TOKENS,
+          budgetRestante
+        });
+      }
+
+      // ===== NV1 curto =====
+      if (nivel === 1) {
+        const nomesNv1 = isV2Matrix(matriz)
+          ? resolveModulesForLevelV2(1 as any, matriz)
+          : [...(matriz.alwaysInclude ?? [])];
+
+        const stitched = await this.budgeter.stitch(nomesNv1, {
+          budgetTokens: Math.min(budgetRestante, NIVEL1_BUDGET),
+          // prioridade não é crítica para NV1, mas já respeitamos a unificada
+          priority: buildUnifiedPriority(matriz),
+        });
+
+        if (isDebug()) log.debug("[ContextBuilder] NV1 stitch", stitched);
+
+        const instrucoesNv1 = `
 ⚠️ INSTRUÇÃO:
 - Responda breve (≤ 3 linhas), sem perguntas exploratórias.
 - Acolha e respeite silêncio. Não usar memórias neste nível.
 - Use a Estrutura Padrão de Resposta como planejamento interno, mas NÃO exiba títulos/numeração.
 - ${antiSaudacaoGuard}`.trim();
 
-      const prompt = [contextoMin, stitched.text, instrucoesNv1, overhead]
+        const prompt = [contextoMin, stitched.text, instrucoesNv1, overhead]
+          .filter(Boolean)
+          .join("\n\n")
+          .replace(/[ \t]+\n/g, "\n")
+          .replace(/\n{3,}/g, "\n\n")
+          .trim();
+
+        const total = enc.encode(prompt).length;
+
+        if (isDebug()) log.info("[ContextBuilder] NV1 pronto", { totalTokens: total });
+
+        return {
+          prompt,
+          meta: {
+            nivel,
+            tokens: { contexto: tokensContexto, overhead: overheadTokens, total, budgetRestante },
+            modulos: { incluidos: stitched.used, cortados: stitched.cut },
+            flags: { curiosidade: flags.curiosidade, pedido_pratico: flags.pedido_pratico, saudacaoBreve },
+          },
+        };
+      }
+
+      // ===== NV2 / NV3 =====
+      // Extras só fazem sentido aqui (evita custo no NV1)
+      const extras = selecionarExtras({
+        userId: input.userId,
+        entrada,
+        nivel,
+        intensidade: intensidadeContexto,
+        memsUsadas,
+        heuristicaAtiva: undefined,
+        heuristicasEmbedding: input.heuristicas,
+      });
+
+      const nomesPre = uniqPreservingOrder([...baseSel.selecionados, ...extras]);
+      const prioridade = buildUnifiedPriority(matriz);
+
+      if (isDebug()) {
+        log.debug("[ContextBuilder] candidatos NV2/3", {
+          base: baseSel.selecionados,
+          extras,
+          nomesPre,
+          prioridade
+        });
+      }
+
+      const stitched = await this.budgeter.stitch(nomesPre, {
+        budgetTokens: budgetRestante,
+        priority: prioridade,
+      });
+
+      const prompt = [contextoMin, stitched.text.trim(), overhead]
         .filter(Boolean)
         .join("\n\n")
         .replace(/[ \t]+\n/g, "\n")
@@ -222,6 +308,15 @@ Se a mensagem do usuário for apenas uma saudação breve, não repita a saudaç
         .trim();
 
       const total = enc.encode(prompt).length;
+
+      if (isDebug()) {
+        log.info("[ContextBuilder] NV2/3 pronto", {
+          totalTokens: total,
+          usados: stitched.used,
+          cortados: stitched.cut
+        });
+      }
+
       return {
         prompt,
         meta: {
@@ -231,46 +326,11 @@ Se a mensagem do usuário for apenas uma saudação breve, não repita a saudaç
           flags: { curiosidade: flags.curiosidade, pedido_pratico: flags.pedido_pratico, saudacaoBreve },
         },
       };
+    } catch (err: any) {
+      log.error?.("[ContextBuilder] erro ao montar contexto", { err: String(err?.stack || err) });
+      throw err;
+    } finally {
+      if (isDebug()) log.debug("[ContextBuilder] tempo total ms", { ms: Date.now() - t0 });
     }
-
-    // ===== NV2 / NV3 =====
-    // Extras só fazem sentido aqui (evita custo desnecessário no NV1)
-    const extras = selecionarExtras({
-      userId: input.userId,
-      entrada,
-      nivel,
-      intensidade: intensidadeContexto,
-      memsUsadas,
-      heuristicaAtiva: undefined,
-      heuristicasEmbedding: input.heuristicas,
-    });
-
-    const nomesPre = uniqPreservingOrder([...baseSel.selecionados, ...extras]);
-
-    // ✅ prioridade unificada (V2: baseModules primeiro, depois limites.prioridade)
-    const prioridade = buildUnifiedPriority(matriz);
-
-    const stitched = await this.budgeter.stitch(nomesPre, {
-      budgetTokens: budgetRestante,
-      priority: prioridade,
-    });
-
-    const prompt = [contextoMin, stitched.text.trim(), overhead]
-      .filter(Boolean)
-      .join("\n\n")
-      .replace(/[ \t]+\n/g, "\n")
-      .replace(/\n{3,}/g, "\n\n")
-      .trim();
-
-    const total = enc.encode(prompt).length;
-    return {
-      prompt,
-      meta: {
-        nivel,
-        tokens: { contexto: tokensContexto, overhead: overheadTokens, total, budgetRestante },
-        modulos: { incluidos: stitched.used, cortados: stitched.cut },
-        flags: { curiosidade: flags.curiosidade, pedido_pratico: flags.pedido_pratico, saudacaoBreve },
-      },
-    };
   }
 }
