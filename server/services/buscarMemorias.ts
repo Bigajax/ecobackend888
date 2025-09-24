@@ -1,6 +1,6 @@
 // services/buscarMemorias.ts
 import { embedTextoCompleto, unitNorm } from "./embeddingService";
-import { supabaseAdmin } from "../lib/supabaseAdmin";
+import supabaseAdmin from "../lib/supabaseAdmin";
 
 export interface MemoriaSimilar {
   id: string;

@@ -1,5 +1,6 @@
 import express from "express";
-import { supabaseAdmin } from "../lib/supabaseAdmin";
+import supabaseAdmin from "../lib/supabaseAdmin";
+
 import { getEcoResponse } from "../services/ConversationOrchestrator";
 import { embedTextoCompleto } from "../services/embeddingService";
 import { buscarMemoriasSemelhantes } from "../services/buscarMemorias";

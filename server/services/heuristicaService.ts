@@ -1,5 +1,5 @@
 // services/buscarHeuristicas.ts
-import { supabaseAdmin } from "../lib/supabaseAdmin";
+import supabaseAdmin from "../lib/supabaseAdmin";
 import { embedTextoCompleto, unitNorm } from "./embeddingService";
 
 /** Formato das heurísticas retornadas (sem o vetor de embedding). */

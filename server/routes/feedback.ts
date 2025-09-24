@@ -1,6 +1,6 @@
 import { Router, type Request, type Response } from "express";
 import { z } from "zod";
-import { supabaseAdmin } from "../lib/supabaseAdmin"; // confirme o path
+import supabaseAdmin from "../lib/supabaseAdmin";
 
 const router = Router();
 

@@ -1,6 +1,6 @@
 // src/routes/memorias.routes.ts
 import express from "express";
-import { supabaseAdmin } from "../lib/supabaseAdmin";
+import supabaseAdmin from "../lib/supabaseAdmin";
 import { embedTextoCompleto } from "../services/embeddingService";
 import { heuristicaNivelAbertura } from "../utils/heuristicaNivelAbertura";
 import { gerarTagsAutomaticasViaIA } from "../services/tagService";

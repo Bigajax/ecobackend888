@@ -1,5 +1,5 @@
 // services/buscarReferenciasSemelhantes.ts
-import { supabaseAdmin } from "../lib/supabaseAdmin";
+import supabaseAdmin from "../lib/supabaseAdmin";
 import { embedTextoCompleto, unitNorm } from "./embeddingService";
 
 export interface ReferenciaTemporaria {

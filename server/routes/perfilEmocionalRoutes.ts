@@ -1,5 +1,5 @@
 import { Router, Request, Response } from "express";
-import { supabaseAdmin } from "../lib/supabaseAdmin";
+import supabaseAdmin from "../lib/supabaseAdmin";
 import { updateEmotionalProfile } from "../services/updateEmotionalProfile";
 
 const router = Router();
