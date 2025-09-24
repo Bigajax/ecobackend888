@@ -1,4 +1,5 @@
 // server/services/promptContext/ContextBuilder.ts
+
 import crypto from "crypto";
 import { isDebug, log } from "./logger";
 import { Budgeter } from "./Budgeter";
@@ -91,10 +92,7 @@ export async function montarContextoEco(params: BuildParams): Promise<string> {
   const budgetTokens = Number(process.env.ECO_CONTEXT_BUDGET_TOKENS ?? 2500);
   const budgeter = new Budgeter({ budgetTokens });
 
-  const ordered =
-    nivel === 1
-      ? MIN_NV1
-      : [...new Set(modulesAfterGating)];
+  const ordered = nivel === 1 ? MIN_NV1 : [...new Set(modulesAfterGating)];
 
   const loaded: { name: string; text: string; tokens: number }[] = [];
   for (const n of ordered) {
@@ -109,10 +107,7 @@ export async function montarContextoEco(params: BuildParams): Promise<string> {
     // Em NV1, os módulos já são “mini”; não recortar.
     if (nivel === 1) return m;
 
-    // NV2/3 — compactações leves quando presentes
-    if (m.name === "PRINCIPIOS_CHAVE.txt") {
-      return { ...m, text: compactarPrincipios(m.text) };
-    }
+    // NV2/3 — compactar apenas IDENTIDADE se estiver grande
     if (m.name === "IDENTIDADE.txt") {
       const resumida = extrairIdentidadeResumida(m.text);
       return { ...m, text: resumida || resumirIdentidadeFallback(m.text) };
@@ -121,10 +116,7 @@ export async function montarContextoEco(params: BuildParams): Promise<string> {
   });
 
   /* ---------- Dedupe e ordenação final ---------- */
-  const stitched =
-    nivel === 1
-      ? stitchNV1(reduced)
-      : stitchNV(nivel, reduced);
+  const stitched = nivel === 1 ? stitchNV1(reduced) : stitchNV(reduced);
 
   const instrucional = overhead
     .map(([title, body]) => `### ${title}\n${body}`.trim())
@@ -237,25 +229,13 @@ function extrairIdentidadeResumida(text: string): string | "" {
   return "";
 }
 
-function resumirIdentidadeFallback(text: string): string {
+function resumirIdentidadeFallback(_text: string): string {
   return [
     "IDENTIDADE — ECO (resumo)",
     "Você é a Eco: presença empática, reflexiva e clara.",
     "Fale simples, em 1–3 linhas por parágrafo. Máx. 1 pergunta viva.",
     "Convide escolhas; evite jargões e diagnósticos.",
   ].join("\n");
-}
-
-function compactarPrincipios(text: string): string {
-  const bloco = text.replace(/\r/g, "").split("\n").slice(0, 40).join("\n");
-  const essenciais = bloco.match(/^(?:-|\*|\•)\s.*$/gim);
-  const head =
-    (text.match(/^[^\n]{5,120}$/m)?.[0] ?? "PRINCÍPIOS-CHAVE DE RESPOSTA — ECO") + "\n";
-  const corpo = (essenciais ?? [])
-    .slice(0, 6)
-    .map((l) => l.replace(/^[-*•]\s?/, "• "))
-    .join("\n");
-  return limparEspacos(head + corpo);
 }
 
 function limparEspacos(s: string) {
@@ -279,8 +259,9 @@ function stitchNV1(mods: Array<{ name: string; text: string }>): string {
   return dedupeBySection(joined);
 }
 
-function stitchNV(nivel: number, mods: Array<{ name: string; text: string }>): string {
-  const prio = ["PRINCIPIOS_CHAVE.txt", "IDENTIDADE.txt", "ESCALA_ABERTURA_1a3.txt"];
+function stitchNV(mods: Array<{ name: string; text: string }>): string {
+  // ✅ Nova prioridade NV2/NV3
+  const prio = ["IDENTIDADE.txt", "MODULACAO_TOM_REGISTRO.txt", "ENCERRAMENTO_SENSIVEL.txt"];
   const sorted = [
     ...mods.filter((m) => prio.includes(m.name)).sort((a, b) => prio.indexOf(a.name) - prio.indexOf(b.name)),
     ...mods.filter((m) => !prio.includes(m.name)),
@@ -298,9 +279,13 @@ function titleFromName(name: string) {
   if (/NV1_CORE/i.test(name)) return "NV1 — CORE";
   if (/IDENTIDADE_MINI/i.test(name)) return "IDENTIDADE — ECO (mini)";
   if (/ANTISALDO_MIN/i.test(name)) return "ANTISSALDO — Diretriz mínima";
-  if (/PRINCIPIOS/i.test(name)) return "PRINCÍPIOS-CHAVE DE RESPOSTA — ECO";
   if (/IDENTIDADE\.txt$/i.test(name)) return "IDENTIDADE — ECO (resumo)";
+  if (/MODULACAO_TOM_REGISTRO/i.test(name)) return "MODULAÇÃO DE TOM & REGISTRO";
+  if (/ENCERRAMENTO_SENSIVEL/i.test(name)) return "ENCERRAMENTO SENSÍVEL";
   if (/ESCALA_ABERTURA/i.test(name)) return "ESCALA DE ABERTURA (1–3)";
+  if (/ESCALA_INTENSIDADE/i.test(name)) return "ESCALA DE INTENSIDADE (0–10)";
+  if (/METODO_VIVA_ENXUTO/i.test(name)) return "MÉTODO VIVA — ENXUTO";
+  if (/BLOCO_TECNICO_MEMORIA/i.test(name)) return "BLOCO TÉCNICO — MEMÓRIA";
   return name.replace(/\.txt$/i, "").replace(/_/g, " ");
 }
 

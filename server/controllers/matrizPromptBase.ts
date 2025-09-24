@@ -1,5 +1,3 @@
-// server/controllers/matrizPromptBase.ts
-
 /* ======================== Tipos (Opção A) ======================== */
 type Nivel = 1 | 2 | 3;
 type Camada = "core" | "emotional" | "advanced";
@@ -27,11 +25,11 @@ export interface MatrizPromptBaseV2 extends MatrizPromptBase {
 export const matrizPromptBaseV2: MatrizPromptBaseV2 = {
   /* ================= base ================= */
   baseModules: {
-    // Core completo só para NV2/3
+    // Core completo só para NV2/3 (enxuto)
     core: [
-      "IDENTIDADE.txt",           // ✅ manter
-    "MODULACAO_TOM_REGISTRO.txt", // ✅ manter  
-    "ENCERRAMENTO_SENSIVEL.txt", 
+      "IDENTIDADE.txt",
+      "MODULACAO_TOM_REGISTRO.txt",
+      "ENCERRAMENTO_SENSIVEL.txt",
     ],
     emotional: [],
     advanced: [
@@ -44,7 +42,7 @@ export const matrizPromptBaseV2: MatrizPromptBaseV2 = {
 
   // NV1: não herda core pesado; usa específicos enxutos.
   byNivelV2: {
-    1: { specific: ["NV1_CORE.txt", "IDENTIDADE_MINI.txt"], inherits: ["advanced"] },
+    1: { specific: ["NV1_CORE.txt", "IDENTIDADE_MINI.txt", "ANTISALDO_MIN.txt"], inherits: ["advanced"] },
     2: { specific: [], inherits: ["core", "advanced"] },
     3: { specific: [], inherits: ["core", "advanced"] },
   },
@@ -102,10 +100,11 @@ export const matrizPromptBaseV2: MatrizPromptBaseV2 = {
       // NV1 enxuto
       "NV1_CORE.txt",
       "IDENTIDADE_MINI.txt",
+      "ANTISALDO_MIN.txt",
       // Mapas
       "ESCALA_ABERTURA_1a3.txt",
       "ESCALA_INTENSIDADE_0a10.txt",
-      // Core completo (para NV2/3)
+      // Core NV2/3 (legado se ainda existir no pipeline)
       "PRINCIPIOS_CHAVE.txt",
       "IDENTIDADE.txt",
       "ECO_ESTRUTURA_DE_RESPOSTA.txt",
