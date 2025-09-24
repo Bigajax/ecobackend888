@@ -5,13 +5,17 @@ import { getEcoResponse } from "../services/ConversationOrchestrator";
 import { embedTextoCompleto } from "../services/embeddingService";
 import { buscarMemoriasSemelhantes } from "../services/buscarMemorias";
 
+// montar contexto e log
+import { ContextBuilder } from "../services/promptContext/ContextBuilder";
+import { log, isDebug } from "../services/promptContext/logger";
+
 const router = express.Router();
 
-// log seguro de trechos (evita vazar texto completo em prod)
+// log seguro
 const safeLog = (s: string) =>
   process.env.NODE_ENV === "production" ? (s || "").slice(0, 60) + "…" : s || "";
 
-// normaliza array de mensagens da UI
+// normalizador
 function normalizarMensagens(body: any): Array<{ role: string; content: any }> | null {
   const { messages, mensagens, mensagem } = body || {};
   if (Array.isArray(messages)) return messages;
@@ -41,11 +45,10 @@ router.post("/ask-eco", async (req, res) => {
       return res.status(401).json({ error: "Token inválido ou usuário não encontrado." });
     }
 
-    // última mensagem
     const ultimaMsg = String(mensagensParaIA.at(-1)?.content ?? "");
-    console.log("🗣️ Última mensagem:", safeLog(ultimaMsg));
+    log.info("🗣️ Última mensagem:", safeLog(ultimaMsg));
 
-    // embedding só quando fizer sentido
+    // embedding opcional
     let queryEmbedding: number[] | undefined;
     if (ultimaMsg.trim().length >= 6) {
       try {
@@ -53,16 +56,16 @@ router.post("/ask-eco", async (req, res) => {
         queryEmbedding = Array.isArray(raw) ? raw : JSON.parse(String(raw));
         if (!Array.isArray(queryEmbedding)) queryEmbedding = undefined;
       } catch (e) {
-        console.warn("⚠️ Falha ao gerar embedding:", (e as Error)?.message);
+        log.warn("⚠️ Falha ao gerar embedding:", (e as Error)?.message);
       }
     }
 
-    // threshold adaptativo para recall melhor
+    // threshold adaptativo
     let threshold = 0.15;
     if (ultimaMsg.trim().length < 20) threshold = 0.10;
     if (/lembr|record|memó/i.test(ultimaMsg)) threshold = Math.min(threshold, 0.12);
 
-    // busca de memórias (helper unificado)
+    // memórias
     let memsSimilares: any[] = [];
     try {
       memsSimilares = await buscarMemoriasSemelhantes(usuario_id, {
@@ -71,30 +74,52 @@ router.post("/ask-eco", async (req, res) => {
         k: 5,
         threshold,
       });
-      console.log(
+      log.info(
         "🔎 Memórias similares:",
-        memsSimilares.map((m) => ({
-          id: m.id?.slice(0, 8),
-          sim: m.similaridade ?? m.similarity ?? 0,
-        }))
+        memsSimilares.map((m) => ({ id: m.id?.slice(0, 8), sim: m.similaridade ?? m.similarity ?? 0 }))
       );
     } catch (memErr) {
-      console.warn("⚠️ Falha na busca de memórias semelhantes:", (memErr as Error)?.message);
+      log.warn("⚠️ Falha na busca de memórias semelhantes:", (memErr as Error)?.message);
       memsSimilares = [];
     }
 
-    // orquestrador (única chamada)
+    // ===== monta contexto com ContextBuilder =====
+    const builder = new ContextBuilder();
+    const buildIn = {
+      userId: usuario_id,
+      texto: ultimaMsg,
+      perfil: req.body?.perfil ?? null,
+      heuristicas: req.body?.heuristicas ?? null,
+      mems: memsSimilares,
+      blocoTecnicoForcado: req.body?.blocoTecnicoForcado ?? null,
+      forcarMetodoViva: req.body?.forcarMetodoViva ?? false,
+      aberturaHibrida: req.body?.aberturaHibrida ?? null,
+    };
+    const { prompt, meta } = await builder.build(buildIn);
+
+    if (isDebug()) {
+      log.debug("[ask-eco] Contexto montado", {
+        tokens: meta?.tokens,
+        nivel: meta?.nivel,
+        usados: meta?.modulos?.incluidos,
+        cortados: meta?.modulos?.cortados,
+      });
+    }
+
+    // orquestrador (usa promptOverride)
     const resposta = await getEcoResponse({
       messages: mensagensParaIA,
       userId: usuario_id,
       userName: nome_usuario,
       accessToken: token,
       mems: memsSimilares,
-    });
+      // suporte no orchestrator já preparado
+      promptOverride: prompt,
+    } as any); // <- se GetEcoParams ainda não tipar promptOverride
 
     return res.status(200).json(resposta);
   } catch (err: any) {
-    console.error("❌ Erro no /ask-eco:", err);
+    log.error("❌ Erro no /ask-eco:", { message: err?.message, stack: err?.stack });
     return res.status(500).json({
       error: "Erro interno ao processar a requisição.",
       details: { message: err?.message, stack: err?.stack },

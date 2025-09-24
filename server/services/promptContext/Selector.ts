@@ -1,4 +1,3 @@
-// server/services/promptContext/Selector.ts
 import { evalRule } from "../../utils/ruleEval";
 import { heuristicasTriggerMap, tagsPorHeuristica } from "../../assets/config/heuristicasTriggers";
 // ⚠️ sem filosoficosTriggerMap: estoicos cobrem a camada filosófica via triggers próprios
@@ -7,15 +6,33 @@ import { emocionaisTriggerMap } from "../../assets/config/emocionaisTriggers";
 import { heuristicaNivelAbertura } from "../../utils/heuristicaNivelAbertura";
 import { GREET_RE, HARD_CAP_EXTRAS, MAX_LEN_FOR_GREETING } from "../../utils/config";
 import type { Memoria, Heuristica, NivelNum } from "../../utils/types";
-// logger local
 import { log, isDebug } from "./logger";
 
 const normalizar = (t: string) =>
   (t || "").toLowerCase().normalize("NFD").replace(/\p{Diacritic}/gu, "");
 
-/* -------------------------------------
- * Matriz V2 helpers
- * ----------------------------------- */
+/* --------------------- ALIAS DE NOMES DE ARQUIVO -------------------- */
+/** 
+ * Garante que nomes divergentes em triggers/embedding apontem para o arquivo real.
+ * Baseado nos nomes existentes em /assets/modulos_cognitivos:
+ * - eco_heuristica_ancoragem.txt
+ * - eco_heuristica_causas_superam_estatisticas.txt
+ * - eco_heuristica_certeza_emocional.txt
+ * - eco_heuristica_disponibilidade.txt
+ * - eco_heuristica_excesso_confianca.txt
+ * - eco_heuristica_ilusao_validade.txt
+ * - eco_heuristica_intuicao_especialista.txt
+ * - eco_heuristica_regressao_media.txt
+ * - heuristica_ilusao_compreensao.txt   (⚠️ sem prefixo "eco_")
+ */
+const FILENAME_ALIASES: Record<string, string> = {
+  // Variações históricas:
+  "eco_heuristica_ilusao_compreensao_passado.txt": "heuristica_ilusao_compreensao.txt",
+  "eco_heuristica_ilusao_compreensao.txt": "heuristica_ilusao_compreensao.txt",
+};
+const normFile = (arq?: string) => FILENAME_ALIASES[arq || ""] || arq || "";
+
+/* -------------------------- V2 helpers -------------------------- */
 export const isV2Matrix = (m: any) => !!m?.byNivelV2 && !!m?.baseModules;
 
 export const resolveModulesForLevelV2 = (nivel: NivelNum, m: any): string[] => {
@@ -25,9 +42,7 @@ export const resolveModulesForLevelV2 = (nivel: NivelNum, m: any): string[] => {
   return [...inherited, ...(cfg.specific ?? [])];
 };
 
-/* -------------------------------------
- * Ordenação por prioridade (limites.prioridade)
- * ----------------------------------- */
+/* ---------------- prioridade (limites.prioridade) --------------- */
 const orderByPrioridade = (nomes: string[], prioridade?: string[]) => {
   if (!prioridade?.length) return [...new Set(nomes)];
   const idx = new Map(prioridade.map((n, i) => [n, i]));
@@ -38,9 +53,7 @@ const orderByPrioridade = (nomes: string[], prioridade?: string[]) => {
   });
 };
 
-/* -------------------------------------
- * Seleção base com gating (intensidade / regra)
- * ----------------------------------- */
+/* --------------- seleção base com gating ---------------- */
 export function selecionarModulosBase({
   nivel,
   intensidade,
@@ -68,24 +81,24 @@ export function selecionarModulosBase({
   const cortados: string[] = [];
 
   const posGating = dedup.filter((arquivo) => {
-    if (!arquivo?.trim()) return false;
+    const arq = normFile(arquivo);
+    if (!arq?.trim()) return false;
 
-    const min = matriz.intensidadeMinima?.[arquivo];
+    const min = matriz.intensidadeMinima?.[arq];
     if (typeof min === "number" && intensidade < min) {
-      cortados.push(`${arquivo} [min=${min}]`);
+      cortados.push(`${arq} [min=${min}]`);
       return false;
     }
 
-    const cond = matriz.condicoesEspeciais?.[arquivo];
+    const cond = matriz.condicoesEspeciais?.[arq];
     if (!cond) return true;
 
     const ok = evalRule(cond.regra, { nivel, intensidade, ...flags });
-    if (!ok) cortados.push(`${arquivo} [regra=${cond.regra}]`);
+    if (!ok) cortados.push(`${arq} [regra=${cond.regra}]`);
     return ok;
   });
 
-  // ✅ aplica prioridade definida na matriz
-  const priorizado = orderByPrioridade(posGating, matriz?.limites?.prioridade);
+  const priorizado = orderByPrioridade(posGating.map(normFile), matriz?.limites?.prioridade?.map(normFile));
 
   if (isDebug()) {
     log.debug("[Selector] selecionarModulosBase", {
@@ -105,9 +118,7 @@ export function selecionarModulosBase({
   };
 }
 
-/* -------------------------------------
- * Sinais simples
- * ----------------------------------- */
+/* ------------------ sinais simples ------------------ */
 export function detectarSaudacaoBreve(t: string) {
   const s = normalizar(t);
   return s.length > 0 && s.length <= MAX_LEN_FOR_GREETING && GREET_RE.test(s);
@@ -138,10 +149,7 @@ export function derivarFlags(entrada: string) {
   return out;
 }
 
-/* -------------------------------------
- * Faixas por módulo (alinhadas à matriz)
- * ----------------------------------- */
-
+/* ------------------ faixas por módulo ----------------- */
 // Estoicos / filosóficos
 const faixaEstoicos: Record<string, [number, number]> = {
   "eco_corpo_emocao.txt": [3, 7],
@@ -151,7 +159,7 @@ const faixaEstoicos: Record<string, [number, number]> = {
   "eco_presenca_racional.txt": [3, 6],
 };
 
-// Cognitivos
+// Cognitivos — alinhar com os arquivos reais (print que você mandou)
 const faixaCognitivos: Record<string, [number, number]> = {
   "eco_heuristica_ancoragem.txt": [3, 6],
   "eco_heuristica_causas_superam_estatisticas.txt": [3, 6],
@@ -161,7 +169,7 @@ const faixaCognitivos: Record<string, [number, number]> = {
   "eco_heuristica_ilusao_validade.txt": [3, 6],
   "eco_heuristica_intuicao_especialista.txt": [3, 6],
   "eco_heuristica_regressao_media.txt": [2, 6],
-  "eco_heuristica_ilusao_compreensao_passado.txt": [3, 6],
+  "heuristica_ilusao_compreensao.txt": [3, 6], // ⚠️ sem prefixo eco_
 };
 const defaultFaixaCognitivo: [number, number] = [3, 6];
 
@@ -171,15 +179,12 @@ const dentroFaixa = (
   mapa: Record<string, [number, number]>,
   fallback?: [number, number]
 ) => {
-  const [minI, maxI] = mapa[arquivo] ?? fallback ?? [3, 6];
+  const arq = normFile(arquivo);
+  const [minI, maxI] = mapa[arq] ?? fallback ?? [3, 6];
   return intensidade >= minI && intensidade <= maxI;
 };
 
-/* -------------------------------------
- * Extras rankeados com cooldown (1 por resposta)
- * Prioridade: emocional > cognitivo > filosofico
- * Evitar opcionais em crise (≥8), exceto emocionais se houver
- * ----------------------------------- */
+/* ---------------- extras com cooldown ---------------- */
 type Cat = "emocional" | "cognitivo" | "filosofico";
 type ExtraCand = { arquivo: string; cat: Cat; score: number };
 
@@ -196,7 +201,7 @@ const mark = (uid?: string, arqs: string[] = []) => {
   if (!uid) return;
   const rec = lastTriggeredByUser.get(uid) ?? {};
   const now = Math.floor(Date.now() / 1000);
-  for (const a of arqs) rec[a] = now;
+  for (const a of arqs) rec[normFile(a)] = now;
   lastTriggeredByUser.set(uid, rec);
 };
 
@@ -218,21 +223,23 @@ export function selecionarExtras({
   heuristicasEmbedding?: any[];
 }) {
   const txt = normalizar(entrada);
-  const { pedido_pratico } = derivarFlags(entrada); // 👈 gating macro para cognitivo/estoico
+  const { pedido_pratico } = derivarFlags(entrada);
 
   const cands: ExtraCand[] = [];
   const push = (x: ExtraCand) => {
-    const i = cands.findIndex((c) => c.arquivo === x.arquivo);
+    const arq = normFile(x.arquivo);
+    const i = cands.findIndex((c) => normFile(c.arquivo) === arq);
+    const nx = { ...x, arquivo: arq };
     if (i >= 0) {
-      if (x.score > cands[i].score) cands[i] = x;
+      if (nx.score > cands[i].score) cands[i] = nx;
     } else {
-      cands.push(x);
+      cands.push(nx);
     }
   };
 
   const emCrise = intensidade >= 8;
 
-  // 1) Cognitivos — envelope: abertura ≥2, não em crise, sem pedido prático.
+  // 1) Cognitivos — abertura ≥2, não em crise, sem pedido prático
   if (!emCrise && nivel >= 2 && !pedido_pratico) {
     for (const h of heuristicasTriggerMap ?? []) {
       const gat = h.gatilhos?.some((g: string) => txt.includes(normalizar(g)));
@@ -240,7 +247,7 @@ export function selecionarExtras({
         push({ arquivo: h.arquivo, cat: "cognitivo", score: 2 });
       }
     }
-    // Embedding (se presente) — também respeita faixa
+    // Embedding
     for (const he of heuristicasEmbedding ?? []) {
       const s = Math.min(1, Math.max(0, he.similarity ?? he.similaridade ?? 0.6));
       const arq = he?.arquivo as string | undefined;
@@ -248,7 +255,7 @@ export function selecionarExtras({
         push({ arquivo: arq, cat: "cognitivo", score: 1 + 2 * s });
       }
     }
-    // Heurística ativa sugerida externamente
+    // Heurística ativa sugerida
     if (heuristicaAtiva?.arquivo && dentroFaixa(heuristicaAtiva.arquivo, intensidade, faixaCognitivos, defaultFaixaCognitivo)) {
       push({ arquivo: heuristicaAtiva.arquivo, cat: "cognitivo", score: 2.5 });
     }
@@ -256,7 +263,7 @@ export function selecionarExtras({
     log.debug("[Selector] cognitivo suprimido", { emCrise, nivel, pedido_pratico, intensidade });
   }
 
-  // 2) Filosófico/Estoico — envelope: abertura ≥2, sem pedido prático, não em crise; faixa por arquivo
+  // 2) Filosófico/Estoico
   if (!emCrise && nivel >= 2 && !pedido_pratico) {
     for (const e of estoicosTriggerMap ?? []) {
       const gat = e.gatilhos?.some((g: string) => txt.includes(normalizar(g)));
@@ -269,32 +276,26 @@ export function selecionarExtras({
     log.debug("[Selector] estoico/filosófico suprimido", { emCrise, nivel, pedido_pratico, intensidade });
   }
 
-  // 3) Emocionais — por tags/emoções + intensidadeMin + gatilho textual
+  // 3) Emocionais
   const tags = memsUsadas?.flatMap((m) => m.tags ?? []) ?? [];
   const emos = memsUsadas?.map((m) => m.emocao_principal).filter(Boolean) ?? [];
 
   for (const m of emocionaisTriggerMap ?? []) {
     if (!m?.arquivo) continue;
-
     const minOK = typeof m.intensidadeMinima === "number" ? intensidade >= m.intensidadeMinima : true;
-
-    // aceita tanto `tags` quanto `tags_gatilho` e `emocoes`/`emocoes_gatilho`
     const tagMatch = (m.tags ?? (m as any).tags_gatilho ?? []).some((t: string) => tags.includes(t));
     const emoMatch = ((m as any).emocoes ?? (m as any).emocoes_gatilho ?? []).some((e: string) => emos.includes(e));
     const gatMatch = (m.gatilhos ?? []).some((g: string) => txt.includes(normalizar(g)));
 
     if (minOK && (tagMatch || emoMatch || gatMatch)) {
-      // bônus se intensidade alta
       push({ arquivo: m.arquivo, cat: "emocional", score: 3 + (intensidade >= 7 ? 1 : 0) });
     }
   }
 
-  // ===== ranking + cooldown =====
   const ranked = cands
     .filter((c) => !inCooldown(userId, c.arquivo, 900))
     .sort((a, b) => b.score - a.score);
 
-  // ===== prioridade de categoria + HARD_CAP_EXTRAS =====
   const byCat: Record<Cat, ExtraCand[]> = { emocional: [], cognitivo: [], filosofico: [] };
   for (const c of ranked) byCat[c.cat].push(c);
 
@@ -327,6 +328,5 @@ export function selecionarExtras({
   return final;
 }
 
-/* util small */
 export const tagsDeHeuristica = (h?: Heuristica | null) =>
-  h ? (tagsPorHeuristica[h.arquivo] ?? []) : [];
+  h ? (tagsPorHeuristica[normFile(h.arquivo)] ?? []) : [];
