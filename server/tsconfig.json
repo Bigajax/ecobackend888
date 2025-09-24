@@ -2,8 +2,7 @@
   "compilerOptions": {
     "target": "es2021",
     "module": "commonjs",
-    "moduleResolution": "node",
-    "lib": ["es2021"],
+    "lib": ["es2021", "dom"],
     "rootDir": "./",
     "outDir": "./dist",
     "esModuleInterop": true,
@@ -13,16 +12,21 @@
     "resolveJsonModule": true,
     "sourceMap": true,
     "typeRoots": ["./node_modules/@types", "./types"],
-    "types": ["node"]
+    "types": []
   },
   "include": [
-    "server.ts",
-    "controllers/**/*.ts",
-    "routes/**/*.ts",
-    "services/**/*.ts",
-    "lib/**/*.ts",
-    "types/**/*.d.ts",
-    "listenMic.ts"
+    "server/**/*.ts",
+    "types/**/*.d.ts"
   ],
-  "exclude": ["node_modules", "**/*.spec.ts"]
+  "exclude": [
+    "node_modules",
+    "dist",
+    // exclui árvores legadas na raiz do repo
+    "core/**",
+    "services/**",
+    "controllers/**",
+    "routes/**",
+    "lib/**",
+    "listenMic.ts"
+  ]
 }
