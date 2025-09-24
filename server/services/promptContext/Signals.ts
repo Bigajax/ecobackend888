@@ -1,24 +1,64 @@
 // server/services/promptContext/Signals.ts
 
-// ❗ Não precisamos mais de fs/path/cache: todos os guards estáticos foram removidos.
+// ---------------------- Tipos leves ----------------------
+type PerfilSlim = {
+  emocoes_frequentes?: Record<string, number>;
+  temas_recorrentes?: Record<string, number>;
+  ultima_interacao_significativa?: string | null;
+  resumo_geral_ia?: string | null;
+};
+
+type MemResumo = {
+  intensidade?: number | null;
+  similaridade?: number | null;
+  tags?: string[] | null;
+  emocao_principal?: string | null;
+};
+
+type TemaDerivado = {
+  tema?: string;
+  tag?: string;
+  tema_nome?: string;
+  tendencia?: string | null;
+  freq_30d?: number | null;
+  freq30?: number | null;
+  freq_90d?: number | null;
+  freq90?: number | null;
+};
+
+type MarcoDerivado = {
+  tema?: string;
+  tag?: string;
+  resumo?: string;
+  resumo_evolucao?: string;
+  marco_at?: string | number | Date | null;
+};
+
+type DerivadosSlim = {
+  top_temas_30d?: TemaDerivado[];
+  marcos?: MarcoDerivado[];
+  dica_estilo?: string | null;
+  heuristica_interacao?: { abriu?: number; fechou?: number; neutro?: number } | null;
+};
 
 // ---------------------- helpers de texto/estado ----------------------
 
-export function construirStateSummary(perfil: any, nivel: number): string {
+export function construirStateSummary(perfil: PerfilSlim | undefined, nivel: number): string {
   if (!perfil) return "";
   const emocoes = Object.keys(perfil.emocoes_frequentes || {}).join(", ") || "nenhuma";
   const temas   = Object.keys(perfil.temas_recorrentes || {}).join(", ") || "nenhum";
   const abertura = nivel === 1 ? "superficial" : nivel === 2 ? "reflexiva" : "profunda";
-  const resumo  = perfil.resumo_geral_ia || "sem resumo geral registrado";
+  const resumo  = perfil.resumo_geral_ia?.trim() || "sem resumo geral registrado";
+  const ultima  = perfil.ultima_interacao_significativa ?? "nenhuma";
   return `\n🗺️ Estado Emocional Consolidado:
 - Emoções frequentes: ${emocoes}
 - Temas recorrentes: ${temas}
 - Nível de abertura estimado: ${abertura}
-- Última interação significativa: ${perfil.ultima_interacao_significativa ?? "nenhuma"}
+- Última interação significativa: ${ultima}
 - Resumo geral: ${resumo}`.trim();
 }
 
-export function construirNarrativaMemorias(mems: any[]): string {
+export function construirNarrativaMemorias(mems: MemResumo[]): string {
   if (!mems?.length) return "";
   const ord = [...mems]
     .sort(
@@ -32,8 +72,8 @@ export function construirNarrativaMemorias(mems: any[]): string {
   const emocoes = new Set<string>();
 
   for (const m of ord) {
-    (m.tags ?? []).slice(0, 3).forEach((t: string) => temas.add(t));
-    if (m.emocao_principal) emocoes.add(m.emocao_principal as string);
+    (m.tags ?? []).slice(0, 3).forEach((t) => t && temas.add(t));
+    if (m.emocao_principal) emocoes.add(m.emocao_principal);
   }
 
   const temasTxt = Array.from(temas).slice(0, 3).join(", ") || "—";
@@ -42,33 +82,38 @@ export function construirNarrativaMemorias(mems: any[]): string {
   return `\n📜 Continuidade: temas (${temasTxt}) e emoções (${emocoesTxt}); use só se fizer sentido agora.`;
 }
 
-export function renderDerivados(der: any, aberturaHibrida?: string | null) {
+function fmtData(d: string | number | Date | null | undefined): string | null {
+  if (d == null) return null;
+  const dt = new Date(d);
+  return isNaN(+dt) ? null : dt.toLocaleDateString();
+}
+
+export function renderDerivados(der: DerivadosSlim | undefined, aberturaHibrida?: string | null) {
   if (!der) return "";
-  const temas: any[] = Array.isArray(der?.top_temas_30d) ? der.top_temas_30d : [];
-  const marcos: any[] = Array.isArray(der?.marcos) ? der.marcos : [];
+
+  const temas: TemaDerivado[] = Array.isArray(der?.top_temas_30d) ? der!.top_temas_30d! : [];
+  const marcos: MarcoDerivado[] = Array.isArray(der?.marcos) ? der!.marcos! : [];
   const dica: string | null = der?.dica_estilo ?? null;
-  const eff   = der?.heuristica_interacao ?? null;
+  const eff = der?.heuristica_interacao ?? null;
 
   const topTemas = temas
     .slice(0, 3)
-    .map((t: any) => {
+    .map((t) => {
       const nome = t?.tema ?? t?.tag ?? t?.tema_nome ?? "tema";
       const tend = t?.tendencia ?? null;
       const f30  = t?.freq_30d ?? t?.freq30 ?? null;
       const f90  = t?.freq_90d ?? t?.freq90 ?? null;
-      return `• ${nome}${tend ? ` (${tend})` : ""}${
-        f30 != null ? ` — 30d:${f30}${f90 != null ? ` / 90d:${f90}` : ""}` : ""
-      }`;
+      return `• ${nome}${tend ? ` (${tend})` : ""}${f30 != null ? ` — 30d:${f30}${f90 != null ? ` / 90d:${f90}` : ""}` : ""}`;
     })
     .join("\n");
 
   const marcosTxt = marcos
     .slice(0, 3)
-    .map((m: any) => {
+    .map((m) => {
       const tm = m?.tema ?? m?.tag ?? "—";
       const r  = m?.resumo ?? m?.resumo_evolucao ?? "";
-      const at = m?.marco_at ?? null;
-      return `• ${tm}${at ? ` (${new Date(at).toLocaleDateString()})` : ""}: ${r}`;
+      const at = fmtData(m?.marco_at);
+      return `• ${tm}${at ? ` (${at})` : ""}: ${r}`;
     })
     .join("\n");
 
@@ -118,7 +163,7 @@ export function buildOverhead({
     memoriaInstrucoes ? `\n${memoriaInstrucoes}` : "",
     `\nRESPONSE_PLAN:${responsePlanJson}`,
     instrucoesFinais,
-    `\n${antiSaudacaoGuard}`.trim(),
+    `\n${antiSaudacaoGuard}`,
   ]
     .filter(Boolean)
     .join("\n\n")

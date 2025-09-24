@@ -1,13 +1,35 @@
 // server/services/promptContext/ModuleStore.ts
-import path from "path";
-import fs from "fs/promises";
-import { get_encoding } from "@dqbd/tiktoken";
+/// <reference types="node" />
 
-const enc = get_encoding("cl100k_base");
+import * as path from "path";
+import * as fs from "fs/promises";
+
+/**
+ * Encoder resiliente:
+ * - Tenta usar @dqbd/tiktoken (cl100k_base)
+ * - Se falhar (tipagem/ambiente), cai para um contador de bytes (TextEncoder)
+ */
+type Encoder = { encode: (s: string) => number[] };
+
+function makeEncoder(): Encoder {
+  try {
+    // usar require aqui evita alguns problemas de ESM/typings em builds CJS
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { get_encoding } = require("@dqbd/tiktoken");
+    return get_encoding("cl100k_base");
+  } catch {
+    const te = new TextEncoder();
+    return {
+      encode: (s: string) => Array.from(te.encode(s)), // conta por bytes como aproximação
+    };
+  }
+}
+
+const enc = makeEncoder();
 
 export class ModuleStore {
   private static _i: ModuleStore;
-  static get I() { return this._i ??= new ModuleStore(); }
+  static get I() { return (this._i ??= new ModuleStore()); }
 
   private roots: string[] = [];
   private fileIndexBuilt = false;
@@ -15,10 +37,7 @@ export class ModuleStore {
   private cacheModulos = new Map<string, string>();
   private tokenCountCache = new Map<string, number>();
 
-  /**
-   * Define as pastas onde os módulos vivem.
-   * Limpa índices e caches (evita conteúdo/tokenCount obsoletos).
-   */
+  /** Define as pastas onde os módulos vivem e limpa caches/índices. */
   configure(roots: string[]) {
     this.roots = (roots || []).filter(Boolean);
     this.fileIndexBuilt = false;
@@ -33,41 +52,37 @@ export class ModuleStore {
       try {
         const entries = await fs.readdir(base);
         for (const name of entries) {
-          // 1º diretório na ordem vence em caso de nomes duplicados
+          // primeiro root na lista vence em caso de nome duplicado
           if (!this.fileIndex.has(name)) {
             this.fileIndex.set(name, path.join(base, name));
           }
         }
       } catch {
-        // ignora diretórios ausentes
+        // diretório ausente → ignora
       }
     }
     this.fileIndexBuilt = true;
   }
 
-  /**
-   * Lê um módulo por nome (ex.: "PRINCIPIOS_CHAVE.txt").
-   * Retorna null se não encontrado em nenhum root.
-   */
+  /** Lê um módulo por nome (ex.: "PRINCIPIOS_CHAVE.txt"). */
   async read(name: string): Promise<string | null> {
     if (!name?.trim()) return null;
 
-    if (this.cacheModulos.has(name)) {
-      return this.cacheModulos.get(name)!;
-    }
+    const cached = this.cacheModulos.get(name);
+    if (cached != null) return cached;
 
     await this.buildFileIndexOnce();
 
-    // 1) caminho indexado
+    // 1) caminho já indexado
     const p = this.fileIndex.get(name);
     if (p) {
       const c = (await fs.readFile(p, "utf-8")).trim();
       this.cacheModulos.set(name, c);
-      this.tokenCountCache.set(name, enc.encode(c).length); // pré-cache tokens
+      this.tokenCountCache.set(name, enc.encode(c).length); // pré-cache dos tokens
       return c;
     }
 
-    // 2) fallback direto (caso arquivo novo não esteja no índice)
+    // 2) fallback direto (arquivo recém-criado pode não estar no índice)
     for (const base of this.roots) {
       try {
         const c = (await fs.readFile(path.join(base, name), "utf-8")).trim();
@@ -83,13 +98,11 @@ export class ModuleStore {
   }
 
   /**
-   * Conta tokens de um módulo por nome (usa cache), ou de um conteúdo inline.
-   * Quando `content` é fornecido (ex.: separador do Budgeter), a contagem é
-   * feita sobre o texto recebido e cacheada com uma chave interna separada.
+   * Conta tokens de um módulo (por nome) ou de um conteúdo inline.
+   * Para conteúdo inline (ex.: separador), a chave de cache é distinta.
    */
   tokenCountOf(name: string, content?: string): number {
     if (typeof content === "string") {
-      // chave separada para conteúdo inline (não conflita com nome de módulo)
       const key = `__INLINE__:${name}:${content.length}`;
       const cached = this.tokenCountCache.get(key);
       if (cached != null) return cached;
@@ -98,9 +111,8 @@ export class ModuleStore {
       return n;
     }
 
-    if (this.tokenCountCache.has(name)) {
-      return this.tokenCountCache.get(name)!;
-    }
+    const hit = this.tokenCountCache.get(name);
+    if (hit != null) return hit;
 
     const cachedContent = this.cacheModulos.get(name) ?? "";
     const n = enc.encode(cachedContent).length;
