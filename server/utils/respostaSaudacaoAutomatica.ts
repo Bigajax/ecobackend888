@@ -20,14 +20,14 @@ export type SaudacaoAutoResp = {
 const ECO_DEBUG = process.env.ECO_DEBUG === "true";
 
 // Aceita mensagens bem curtas (ex.: "olá eco", "oi", "oi eco", "oi, tudo bem?")
-const MAX_LEN_FOR_GREETING = 64;
+export const MAX_LEN_FOR_GREETING = 64;
 
 // Regex estendida (texto já vai normalizado sem acentos)
-const GREET_RE =
+export const GREET_RE =
   /^(?:(?:oi+|oie+|ola+|ol[aá]|alo+|opa+|salve)(?:[, ]*(?:tudo\s*bem|td\s*bem))?|tudo\s*(?:bem|bom|certo)|oi+[, ]*tudo\s*bem|ol[aá]\s*eco|oi\s*eco|oie\s*eco|ola\s*eco|alo\s*eco|bom\s*dia+|boa\s*tarde+|boa\s*noite+|boa\s*madrugada+|e\s*a[ei]|e\s*a[ií]\??|eai|eae|fala(?:\s*ai)?|falae|hey+|hi+|hello+|yo+|sup|beleza|blz|suave|de\s*boa|tranq(?:s)?|tranquilo(?:\s*ai)?|como\s*(?:vai|vc\s*esta|voce\s*esta|ce\s*ta|c[eu]\s*ta))(?:[\s,]*(@?eco|eco|bot|assistente|ai|chat))?\s*[!?.…]*$/i;
 
 // "boa noite" removido da despedida para não conflitar com saudação noturna
-const FAREWELL_RE =
+export const FAREWELL_RE =
   /^(?:tchau+|ate\s+mais|ate\s+logo|valeu+|vlw+|obrigad[oa]+|brigad[oa]+|falou+|fui+|bom\s*descanso|durma\s*bem|ate\s*amanha|ate\s*breve|ate)\s*[!?.…]*$/i;
 
 function normalizar(msg: string): string {
@@ -85,7 +85,6 @@ function isFirstUserTurn(messages: Msg[]): boolean {
 
 type Tpl = (sd: string, nome: string) => string;
 
-// Versão equilibrada escolhida
 const BASE_VARIANTES_PRIMEIRA: Tpl[] = [
   (sd, nome) => `${sd}${nome}. O que está mais presente em você agora — pensamento, sensação ou emoção?`,
   (sd, nome) => `${sd}${nome}. Se pudesse dar uma palavra simples para o agora, qual seria?`,
@@ -96,7 +95,6 @@ const BASE_VARIANTES_PRIMEIRA: Tpl[] = [
   (sd, nome) => `${sd}${nome}. Como está o ritmo interno que você percebe em si neste momento?`,
 ];
 
-// Por horário (versão equilibrada escolhida)
 const VARIANTES_POR_HORARIO: Record<"madrugada" | "manha" | "tarde" | "noite", Tpl[]> = {
   madrugada: [
     (sd, nome) => `${sd}${nome}. O que ainda ocupa sua mente antes do descanso?`,
@@ -150,7 +148,8 @@ export function respostaSaudacaoAutomatica({
 }): SaudacaoAutoResp | null {
   if (!messages?.length) return null;
 
-  const lastRaw = messages.at(-1)!.content || "";
+  // defensivo: sem non-null assertion
+  const lastRaw = messages[messages.length - 1]?.content ?? "";
   const last = normalizar(lastRaw);
   const isShort = last.length <= MAX_LEN_FOR_GREETING;
 
@@ -179,7 +178,7 @@ export function respostaSaudacaoAutomatica({
 
   if (isGreeting) {
     const sd = saudacaoDoDia({ clientHour, clientTz });
-    const nome = userName ? `, ${userName.split(" ")[0]}` : "";
+    const nome = userName?.trim() ? `, ${userName.trim().split(/\s+/)[0]}` : "";
     const firstTurn = isFirstUserTurn(messages);
     const h = horaLocalDoCliente({ clientHour, clientTz });
 
