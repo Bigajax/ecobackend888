@@ -1,6 +1,6 @@
 // services/buscarMemorias.ts
 import { embedTextoCompleto, unitNorm } from "./embeddingService";
-import getSupabaseAdmin from "../lib/supabaseAdmin";
+import { supabase } from "../lib/supabaseAdmin"; // ✅ usa a instância (não é função)
 
 export interface MemoriaSimilar {
   id: string;
@@ -69,7 +69,7 @@ export async function buscarMemoriasSemelhantes(
       queryEmbedding = unitNorm(userEmbedding);
     } else {
       const raw = await embedTextoCompleto(texto);
-      const asArr: number[] | null = safeJsonNumberArray(raw);
+      const asArr: number[] | null = forceNumberArray(raw);
       if (!asArr) return [];
       queryEmbedding = unitNorm(asArr);
     }
@@ -77,20 +77,17 @@ export async function buscarMemoriasSemelhantes(
     const match_count = Math.max(1, k);
     const match_threshold = Math.max(0, Math.min(1, Number(threshold) || 0.8));
 
-    // Supabase (lazy)
-    const supabase = getSupabaseAdmin();
-
     // Helper para chamar a RPC v2 com days_back variável
     const call = async (db: number | null) => {
       const { data, error } = await supabase.rpc(
         "buscar_memorias_semelhantes_v2",
         {
-          query_embedding: queryEmbedding,  // vector(1536)
+          query_embedding: queryEmbedding,  // float8[] / vector
           user_id_input: userId,            // uuid ou null (busca global se null)
           match_count,
           match_threshold,
           days_back: db,                    // inteiro (dias) ou null
-        }
+        } as any // <- se seu tipo gerado não estiver atualizado
       );
       if (error) {
         console.warn("⚠️ RPC buscar_memorias_semelhantes_v2 falhou:", {
@@ -151,12 +148,12 @@ export async function buscarMemoriasSemelhantes(
 
 /* --------------------------------- helpers -------------------------------- */
 
-/** Converte algo JSON-like em number[] seguro, ou null se inválido */
-function safeJsonNumberArray(v: unknown): number[] | null {
+/** Força um vetor em number[] seguro (aceita number[], unknown[], string JSON) */
+function forceNumberArray(v: unknown): number[] | null {
   try {
-    const parsed = Array.isArray(v) ? v : JSON.parse(String(v));
-    if (!Array.isArray(parsed)) return null;
-    const nums = parsed.map((x) => Number(x));
+    const arr = Array.isArray(v) ? v : JSON.parse(String(v));
+    if (!Array.isArray(arr)) return null;
+    const nums = (arr as unknown[]).map((x) => Number(x));
     if (nums.some((n) => !Number.isFinite(n))) return null;
     return nums;
   } catch {

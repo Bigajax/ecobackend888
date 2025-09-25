@@ -1,6 +1,6 @@
 // routes/openrouterRoutes.ts
 import express, { type Request, type Response } from "express";
-import getSupabaseAdmin from "../lib/supabaseAdmin";
+import { supabase } from "../lib/supabaseAdmin"; // ✅ usa a instância (não é função)
 
 import { getEcoResponse } from "../services/ConversationOrchestrator";
 import { embedTextoCompleto } from "../services/embeddingService";
@@ -33,7 +33,7 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
   const authHeader = req.headers.authorization;
   if (!authHeader?.startsWith("Bearer ")) {
     return res.status(401).json({ error: "Token de acesso ausente." });
-  }
+    }
   const token = authHeader.replace("Bearer ", "").trim();
 
   if (!usuario_id || !mensagensParaIA) {
@@ -41,8 +41,7 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
   }
 
   try {
-    // Supabase (lazy)
-    const supabase = getSupabaseAdmin();
+    // ✅ NÃO chamar como função: o cliente já é a instância
     const { data, error } = await supabase.auth.getUser(token);
     if (error || !data?.user) {
       return res.status(401).json({ error: "Token inválido ou usuário não encontrado." });
@@ -51,13 +50,18 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
     const ultimaMsg = String(mensagensParaIA.at(-1)?.content ?? "");
     log.info("🗣️ Última mensagem:", safeLog(ultimaMsg));
 
-    // embedding opcional
+    // embedding opcional (garante number[])
     let queryEmbedding: number[] | undefined;
     if (ultimaMsg.trim().length >= 6) {
       try {
         const raw = await embedTextoCompleto(ultimaMsg);
-        queryEmbedding = Array.isArray(raw) ? raw : JSON.parse(String(raw));
-        if (!Array.isArray(queryEmbedding)) queryEmbedding = undefined;
+        const arr = Array.isArray(raw) ? raw : JSON.parse(String(raw));
+        if (Array.isArray(arr)) {
+          const coerced = (arr as unknown[]).map((v) => Number(v));
+          if (!coerced.some((n) => Number.isNaN(n))) {
+            queryEmbedding = coerced;
+          }
+        }
       } catch (e) {
         log.warn("⚠️ Falha ao gerar embedding:", (e as Error)?.message);
       }
@@ -79,7 +83,10 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
       });
       log.info(
         "🔎 Memórias similares:",
-        memsSimilares.map((m) => ({ id: m.id?.slice(0, 8), sim: m.similaridade ?? m.similarity ?? 0 }))
+        memsSimilares.map((m) => ({
+          id: typeof m.id === "string" ? m.id.slice(0, 8) : m.id,
+          sim: m.similaridade ?? m.similarity ?? 0,
+        }))
       );
     } catch (memErr) {
       log.warn("⚠️ Falha na busca de memórias semelhantes:", (memErr as Error)?.message);
@@ -113,7 +120,7 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
       accessToken: token,
       mems: memsSimilares,
       promptOverride: prompt, // <- string
-    } as any); // se GetEcoParams não tipar promptOverride ainda
+    } as any); // se o tipo ainda não tiver promptOverride
 
     return res.status(200).json(resposta);
   } catch (err: any) {

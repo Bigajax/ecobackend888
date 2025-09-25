@@ -1,5 +1,5 @@
 // services/buscarReferenciasSemelhantes.ts
-import getSupabaseAdmin from "../lib/supabaseAdmin";
+import { supabase } from "../lib/supabaseAdmin"; // ✅ instância singleton
 import { embedTextoCompleto, unitNorm } from "./embeddingService";
 
 export interface ReferenciaTemporaria {
@@ -54,24 +54,26 @@ export async function buscarReferenciasSemelhantes(
       queryEmbedding = unitNorm(userEmbedding);
     } else {
       const raw = await embedTextoCompleto(texto, "refs");
-      const asArr = Array.isArray(raw) ? raw : safeJsonArray(raw);
-      if (!Array.isArray(asArr)) return [];
-      queryEmbedding = unitNorm(asArr);
+      const coerced = forceNumberArray(raw);
+      if (!coerced) return [];
+      queryEmbedding = unitNorm(coerced);
     }
 
     const match_count = Math.max(1, k);
     const match_threshold = Math.max(0, Math.min(1, Number(threshold) || 0.8));
 
     // ---------------------------
-    // RPC existente: buscar_referencias_similares (com Supabase lazy)
+    // RPC: buscar_referencias_similares
     // ---------------------------
-    const supabase = getSupabaseAdmin();
-    const { data, error } = await supabase.rpc("buscar_referencias_similares", {
-      filtro_usuario: userId,
-      query_embedding: queryEmbedding,
-      match_count,
-      match_threshold,
-    });
+    const { data, error } = await supabase.rpc(
+      "buscar_referencias_similares",
+      {
+        filtro_usuario: userId,
+        query_embedding: queryEmbedding, // float8[]/vector
+        match_count,
+        match_threshold,
+      } as any // caso os tipos gerados ainda não incluam a RPC
+    );
 
     if (error) {
       console.warn("⚠️ RPC buscar_referencias_similares falhou:", {
@@ -123,10 +125,14 @@ export async function buscarReferenciasSemelhantes(
 export const buscarReferenciasSemelhantesV2 = buscarReferenciasSemelhantes;
 
 /* --------------------------------- helpers -------------------------------- */
-function safeJsonArray(v: unknown): unknown[] | null {
+/** Força um vetor em number[] seguro (aceita number[], unknown[], string JSON) */
+function forceNumberArray(v: unknown): number[] | null {
   try {
-    const parsed = JSON.parse(String(v));
-    return Array.isArray(parsed) ? parsed : null;
+    const arr = Array.isArray(v) ? v : JSON.parse(String(v));
+    if (!Array.isArray(arr)) return null;
+    const nums = (arr as unknown[]).map((x) => Number(x));
+    if (nums.some((n) => !Number.isFinite(n))) return null;
+    return nums;
   } catch {
     return null;
   }

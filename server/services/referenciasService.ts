@@ -1,5 +1,5 @@
 // services/referenciasService.ts
-import getSupabaseAdmin from "../lib/supabaseAdmin";
+import { supabase } from "../lib/supabaseAdmin"; // ✅ instância singleton
 import { unitNorm } from "./embeddingService";
 
 interface BlocoTecnicoBase {
@@ -44,6 +44,20 @@ function orNull<T>(v: T | undefined | null): T | null {
   return v == null ? null : (v as T);
 }
 
+/** Converte unknown[]/string JSON em number[] seguro, ou null se inválido */
+function toNumberArray(arr: unknown): number[] | null {
+  if (arr == null) return null;
+  let raw: unknown;
+  try {
+    raw = Array.isArray(arr) ? arr : JSON.parse(String(arr));
+  } catch {
+    return null;
+  }
+  if (!Array.isArray(raw)) return null;
+  const nums = (raw as unknown[]).map((x) => Number(x)).filter((x) => Number.isFinite(x));
+  return nums.length > 0 ? nums : null;
+}
+
 /**
  * Salva referência temporária com campos técnicos completos.
  * - Não seta created_at no client (usa DEFAULT do banco).
@@ -75,17 +89,17 @@ export async function salvarReferenciaTemporaria(bloco: ReferenciaPayload) {
     };
 
     // embedding: normaliza se vier e tem conteúdo; remove se vazio
-    if (Array.isArray(bloco.embedding) && bloco.embedding.length > 0) {
-      payload.embedding = unitNorm(bloco.embedding);
+    if (bloco.embedding != null) {
+      const coerced = toNumberArray(bloco.embedding);
+      if (coerced && coerced.length > 0) {
+        payload.embedding = unitNorm(coerced); // number[] normalizado
+      }
     }
-
-    // ⚠️ pegue o client chamando o factory
-    const supabase = getSupabaseAdmin();
 
     const { data, error } = await supabase
       .from("referencias_temporarias")
       .insert([payload])
-      .select("id, created_at") // útil para confirmar
+      .select("id, created_at")
       .single();
 
     if (error) {

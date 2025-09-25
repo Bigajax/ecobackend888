@@ -1,7 +1,7 @@
-// routes/feedbackRoutes.ts (ou caminho equivalente)
+// routes/feedbackRoutes.ts
 import { Router, type Request, type Response } from "express";
 import { z } from "zod";
-import getSupabaseAdmin from "../lib/supabaseAdmin";
+import { supabase } from "../lib/supabaseAdmin"; // ✅ usa a instância
 
 const router = Router();
 
@@ -36,6 +36,7 @@ router.post("/", async (req: Request, res: Response): Promise<void> => {
     reason: payload.reason ?? null,
     source: payload.source,
     meta: payload.meta ?? {},
+    created_at: new Date().toISOString(), // (opcional) útil se a tabela não tiver default
   };
 
   // só define FK se vier (evita erro de chave estrangeira)
@@ -44,8 +45,9 @@ router.post("/", async (req: Request, res: Response): Promise<void> => {
   }
 
   try {
-    const supabase = getSupabaseAdmin();
-    const { error } = await supabase.from("feedback_interacoes").insert(insertBody);
+    const { error } = await supabase
+      .from("feedback_interacoes")
+      .insert(insertBody);
 
     if (error) {
       console.error("[feedback] insert error:", error);
@@ -68,4 +70,3 @@ router.post("/", async (req: Request, res: Response): Promise<void> => {
 });
 
 export default router;
-

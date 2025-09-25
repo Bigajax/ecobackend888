@@ -1,5 +1,5 @@
 // services/updateEmotionalProfile.ts
-import getSupabaseAdmin from "../lib/supabaseAdmin";
+import { supabase } from "../lib/supabaseAdmin";
 
 interface Memoria {
   emocao_principal?: string;
@@ -19,8 +19,6 @@ export async function updateEmotionalProfile(
   userId: string
 ): Promise<{ success: boolean; message: string }> {
   try {
-    const supabase = getSupabaseAdmin();
-
     const { data, error } = await supabase
       .from("memories")
       .select("emocao_principal, dominio_vida, intensidade, created_at")

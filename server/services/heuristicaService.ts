@@ -1,5 +1,5 @@
 // services/buscarHeuristicas.ts
-import getSupabaseAdmin from "../lib/supabaseAdmin";
+import { supabase } from "../lib/supabaseAdmin"; // ✅ instância singleton
 import { embedTextoCompleto, unitNorm } from "./embeddingService";
 
 /** Formato das heurísticas retornadas (sem o vetor de embedding). */
@@ -91,13 +91,15 @@ export async function buscarHeuristicasSemelhantes(
     //   input_usuario_id uuid, match_count int, match_threshold double precision, query_embedding vector
     // ) RETURNS TABLE(id uuid, similarity double precision)
     // ---------------------------
-    const supabase = getSupabaseAdmin();
-    const { data, error } = await supabase.rpc("buscar_heuristica_semelhante", {
-      input_usuario_id: uid,
-      match_count: k,
-      match_threshold: th,
-      query_embedding,
-    });
+    const { data, error } = await supabase.rpc(
+      "buscar_heuristica_semelhante",
+      {
+        input_usuario_id: uid,
+        match_count: k,
+        match_threshold: th,
+        query_embedding,
+      } as any // caso os tipos gerados ainda não incluam a RPC
+    );
 
     if (error) {
       console.error("❌ Erro RPC buscar_heuristica_semelhante:", {

@@ -2,7 +2,7 @@
 import fs from "fs/promises";
 import path from "path";
 import { embedTextoCompleto } from "./embeddingService";
-import getSupabaseAdmin from "../lib/supabaseAdmin";
+import { supabase } from "../lib/supabaseAdmin"; // ✅ instância singleton
 
 // Pasta onde estão os .txt/.md das heurísticas
 const heuristicasDir = path.join(__dirname, "../assets/modulos_cognitivos");
@@ -24,9 +24,6 @@ function isHeuristicaFile(name: string) {
 }
 
 export async function registrarTodasHeuristicas(): Promise<void> {
-  // lazy init do client (evita crash se env não estiver carregado no import)
-  const supabase = getSupabaseAdmin();
-
   try {
     const arquivos = await fs.readdir(heuristicasDir);
 
@@ -63,7 +60,7 @@ export async function registrarTodasHeuristicas(): Promise<void> {
         continue;
       }
 
-      // 3) Insere
+      // 3) Insere (sem o campo embedding na seleção pra não trafegar vetor grande)
       const { error: insercaoErro } = await supabase
         .from("heuristicas_embeddings")
         .insert([

@@ -1,6 +1,6 @@
-// routes/perfilEmocional.routes.ts (ou caminho equivalente)
+// routes/perfilEmocional.routes.ts
 import { Router, type Request, type Response } from "express";
-import getSupabaseAdmin from "../lib/supabaseAdmin";
+import { supabase } from "../lib/supabaseAdmin"; // ✅ instância singleton
 import { updateEmotionalProfile } from "../services/updateEmotionalProfile";
 
 const router = Router();
@@ -14,7 +14,7 @@ function getUserIdFromReq(req: Request): string | null {
     null;
   if (qs && typeof qs === "string" && qs.trim()) return qs.trim();
 
-  // 2) Authorization: Bearer <jwt>  → decodifica payload e pega sub/user_id
+  // 2) Authorization: Bearer <jwt> → decodifica payload e pega sub/user_id
   const auth = req.headers.authorization;
   if (auth?.startsWith("Bearer ")) {
     try {
@@ -27,7 +27,7 @@ function getUserIdFromReq(req: Request): string | null {
         return payload?.sub || payload?.user_id || payload?.uid || null;
       }
     } catch {
-      // silencioso: não conseguimos extrair do JWT
+      // silencioso
     }
   }
 
@@ -37,7 +37,6 @@ function getUserIdFromReq(req: Request): string | null {
 }
 
 async function carregarPerfil(userId: string) {
-  const supabase = getSupabaseAdmin();
   const { data, error } = await supabase
     .from("perfis_emocionais")
     .select(
