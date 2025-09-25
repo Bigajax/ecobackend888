@@ -1,34 +1,32 @@
 // services/buscarReferenciasSemelhantes.ts
-import { supabase } from "../lib/supabaseAdmin"; // ✅ instância singleton
+import { supabase } from "../lib/supabaseAdmin";
 import { embedTextoCompleto, unitNorm } from "./embeddingService";
 
 export interface ReferenciaTemporaria {
-  // ⚠️ Esta RPC não retorna id
   resumo_eco: string;
   tags?: string[];
   emocao_principal?: string;
   intensidade?: number;
   created_at?: string;
-  similarity?: number;  // [0..1] (vem como similaridade/similarity)
-  distancia?: number;   // 1 - similarity
+  similarity?: number;
+  distancia?: number;
 }
 
 type BuscarRefsOpts = {
   texto?: string;
-  userEmbedding?: number[]; // se vier, normaliza
-  k?: number;               // default 5
-  threshold?: number;       // default 0.80
-  // daysBack REMOVIDO: esta RPC não aceita filtro temporal
+  userEmbedding?: number[];
+  k?: number;          // default 5
+  threshold?: number;  // default 0.80 (0..1)
 };
+
+const EMB_DIM = 1536; // ✅ coloque aqui a dimensão real do seu embedding (ou deixe undefined se não fixou)
 
 export async function buscarReferenciasSemelhantes(
   userId: string,
   entradaOrOpts: string | BuscarRefsOpts
 ): Promise<ReferenciaTemporaria[]> {
   try {
-    // ---------------------------
-    // Normalização de parâmetros
-    // ---------------------------
+    // ---------------- Normalização de parâmetros ----------------
     let texto = "";
     let userEmbedding: number[] | undefined;
     let k = 5;
@@ -46,10 +44,8 @@ export async function buscarReferenciasSemelhantes(
     if (!userId) return [];
     if (!userEmbedding && (!texto || texto.trim().length < 6)) return [];
 
-    // ---------------------------
-    // Embedding (gera OU reaproveita) + normalização
-    // ---------------------------
-    let queryEmbedding: number[] | undefined;
+    // ---------------- Embedding (gera OU reaproveita) ----------------
+    let queryEmbedding: number[];
     if (userEmbedding?.length) {
       queryEmbedding = unitNorm(userEmbedding);
     } else {
@@ -59,21 +55,22 @@ export async function buscarReferenciasSemelhantes(
       queryEmbedding = unitNorm(coerced);
     }
 
-    const match_count = Math.max(1, k);
-    const match_threshold = Math.max(0, Math.min(1, Number(threshold) || 0.8));
+    // ✅ (opcional) validar dimensão do vetor para evitar 42883/42804 no Postgres
+    if (typeof EMB_DIM === "number" && queryEmbedding.length !== EMB_DIM) {
+      console.warn(`Embedding dimension mismatch: expected ${EMB_DIM}, got ${queryEmbedding.length}`);
+      return [];
+    }
 
-    // ---------------------------
-    // RPC: buscar_referencias_similares
-    // ---------------------------
-    const { data, error } = await supabase.rpc(
-      "buscar_referencias_similares",
-      {
-        filtro_usuario: userId,
-        query_embedding: queryEmbedding, // float8[]/vector
-        match_count,
-        match_threshold,
-      } as any // caso os tipos gerados ainda não incluam a RPC
-    );
+    const match_count = Math.max(1, k);
+    const match_threshold = Math.min(1, Math.max(0, Number(threshold) || 0.8));
+
+    // ---------------- RPC: buscar_referencias_similares ----------------
+    const { data, error } = await supabase.rpc("buscar_referencias_similares", {
+      filtro_usuario: userId,
+      query_embedding: queryEmbedding, // array<number> -> Postgres vector
+      match_count,
+      match_threshold,
+    });
 
     if (error) {
       console.warn("⚠️ RPC buscar_referencias_similares falhou:", {
@@ -86,9 +83,7 @@ export async function buscarReferenciasSemelhantes(
 
     const rows = (data ?? []) as any[];
 
-    // ---------------------------
-    // Normalização do retorno
-    // ---------------------------
+    // ---------------- Normalização do retorno ----------------
     return rows
       .map((d) => {
         const sim =
@@ -98,16 +93,18 @@ export async function buscarReferenciasSemelhantes(
             ? d.similaridade
             : undefined;
 
+        const intensidadeNum =
+          typeof d.intensidade === "number"
+            ? d.intensidade
+            : d.intensidade != null
+            ? Number(d.intensidade)
+            : undefined;
+
         return {
           resumo_eco: d.resumo_eco as string,
           tags: d.tags ?? undefined,
           emocao_principal: d.emocao_principal ?? undefined,
-          intensidade:
-            typeof d.intensidade === "number"
-              ? d.intensidade
-              : d.intensidade != null
-              ? Number(d.intensidade)
-              : undefined,
+          intensidade: Number.isFinite(intensidadeNum) ? intensidadeNum : undefined,
           created_at: d.created_at as string | undefined,
           similarity: sim,
           distancia: typeof sim === "number" ? 1 - sim : undefined,
@@ -121,11 +118,10 @@ export async function buscarReferenciasSemelhantes(
   }
 }
 
-// alias compat com seu código anterior V2 (se algum lugar importar V2)
+// alias compat
 export const buscarReferenciasSemelhantesV2 = buscarReferenciasSemelhantes;
 
-/* --------------------------------- helpers -------------------------------- */
-/** Força um vetor em number[] seguro (aceita number[], unknown[], string JSON) */
+/* ------------------------------- helpers ------------------------------- */
 function forceNumberArray(v: unknown): number[] | null {
   try {
     const arr = Array.isArray(v) ? v : JSON.parse(String(v));

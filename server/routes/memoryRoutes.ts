@@ -1,7 +1,7 @@
 // src/routes/memorias.routes.ts
 import express, { type Request, type Response } from "express";
-import { supabase } from "../lib/supabaseAdmin"; // ✅ usa instância única
-import { embedTextoCompleto } from "../services/embeddingService";
+import { supabase } from "../lib/supabaseAdmin"; // ✅ instância única
+import { embedTextoCompleto, unitNorm } from "../services/embeddingService";
 import { heuristicaNivelAbertura } from "../utils/heuristicaNivelAbertura";
 import { gerarTagsAutomaticasViaIA } from "../services/tagService";
 import { buscarMemoriasSemelhantes } from "../services/buscarMemorias";
@@ -17,7 +17,6 @@ async function getUsuarioAutenticado(req: Request) {
   const token = authHeader.slice("Bearer ".length).trim();
 
   try {
-    // Em supabase-js v2 com service-role, getUser(jwt) é suportado
     const { data, error } = await supabase.auth.getUser(token);
     if (error || !data?.user) {
       console.warn("[Auth] Falha ao obter usuário:", error?.message);
@@ -65,6 +64,19 @@ function gerarResumoEco(
   return linhas.join("\n");
 }
 
+/* --------------------------------- helpers -------------------------------- */
+function toNumArray(v: unknown): number[] | null {
+  try {
+    const arr = Array.isArray(v) ? v : JSON.parse(String(v));
+    if (!Array.isArray(arr)) return null;
+    const nums = (arr as unknown[]).map((x) => Number(x));
+    if (nums.some((n) => !Number.isFinite(n))) return null;
+    return nums;
+  } catch {
+    return null;
+  }
+}
+
 /* ────────────────────────────────────────────────
    ✅ POST /api/memorias/registrar → salva memória
 ────────────────────────────────────────────────── */
@@ -92,8 +104,11 @@ router.post("/registrar", async (req: Request, res: Response) => {
   }
 
   try {
+    // 🔒 clamp 0..10 para não violar o CHECK do banco
+    const intensidadeClamped = Math.max(0, Math.min(10, Number(intensidade) ?? 0));
+
     const salvar = toBool(salvar_memoria, true);
-    const destinoTabela = intensidade >= 7 && salvar ? "memories" : "referencias_temporarias";
+    const destinoTabela = intensidadeClamped >= 7 && salvar ? "memories" : "referencias_temporarias";
 
     // Normaliza tags (string ou array)
     let finalTags: string[] =
@@ -107,24 +122,17 @@ router.post("/registrar", async (req: Request, res: Response) => {
       finalTags = await gerarTagsAutomaticasViaIA(texto);
     }
 
-    // Embeddings (garante number[])
+    // Embedding principal (salvo em 'embedding')
     const rawSem = await embedTextoCompleto(texto);
-    const embedding_semantico: number[] = Array.isArray(rawSem)
-      ? (rawSem as unknown[]).map((v) => Number(v))
-      : JSON.parse(String(rawSem));
+    const semArr = toNumArray(rawSem);
+    if (!semArr) return res.status(500).json({ error: "Falha ao gerar embedding." });
+    const embedding = unitNorm(semArr);
 
-    if (!Array.isArray(embedding_semantico) || embedding_semantico.some((n) => Number.isNaN(n))) {
-      return res.status(500).json({ error: "Falha ao gerar embedding semântico." });
-    }
-
+    // Opcional: embedding emocional (mantido se você usa)
     const rawEmo = await embedTextoCompleto(analise_resumo ?? texto);
-    const embedding_emocional: number[] = Array.isArray(rawEmo)
-      ? (rawEmo as unknown[]).map((v) => Number(v))
-      : JSON.parse(String(rawEmo));
-
-    if (!Array.isArray(embedding_emocional) || embedding_emocional.some((n) => Number.isNaN(n))) {
-      return res.status(500).json({ error: "Falha ao gerar embedding emocional." });
-    }
+    const emoArr = toNumArray(rawEmo);
+    if (!emoArr) return res.status(500).json({ error: "Falha ao gerar embedding emocional." });
+    const embedding_emocional = unitNorm(emoArr);
 
     const nivelCalc =
       typeof nivel_abertura === "number" ? nivel_abertura : heuristicaNivelAbertura(texto);
@@ -135,9 +143,15 @@ router.post("/registrar", async (req: Request, res: Response) => {
         {
           usuario_id: user.id,
           mensagem_id: mensagem_id ?? null,
-          resumo_eco: gerarResumoEco(texto, finalTags, intensidade, emocao_principal, analise_resumo),
+          resumo_eco: gerarResumoEco(
+            texto,
+            finalTags,
+            intensidadeClamped,
+            emocao_principal,
+            analise_resumo
+          ),
           tags: finalTags,
-          intensidade,
+          intensidade: intensidadeClamped,
           emocao_principal: emocao_principal ?? null,
           contexto: contexto ?? null,
           dominio_vida: dominio_vida ?? null,
@@ -146,9 +160,9 @@ router.post("/registrar", async (req: Request, res: Response) => {
           nivel_abertura: nivelCalc,
           analise_resumo: analise_resumo ?? null,
           categoria,
-          created_at: new Date().toISOString(),
-          embedding_semantico,
-          embedding_emocional,
+          // ⚠️ não setamos created_at manualmente; usa DEFAULT do banco
+          embedding,               // ✅ coluna principal usada nas buscas
+          embedding_emocional,     // ✅ mantido (opcional) para futuras buscas emocionais
         },
       ])
       .select();
@@ -168,15 +182,11 @@ router.post("/registrar", async (req: Request, res: Response) => {
 
 /* ────────────────────────────────────────────────
    ✅ GET /api/memorias → lista memórias (com filtro opcional por tags)
-   Params:
-     - tags=tag1&tags=tag2  (ou tags="tag1,tag2")
-     - limite=5  (ou limit=5)
 ────────────────────────────────────────────────── */
 router.get("/", async (req: Request, res: Response) => {
   const user = await getUsuarioAutenticado(req);
   if (!user) return res.status(401).json({ error: "Usuário não autenticado." });
 
-  // aceita limite ou limit
   const limiteParam = (req.query.limite ?? req.query.limit) as string | undefined;
   const lim = Math.max(0, Number(limiteParam ?? 0)) || undefined;
 
@@ -201,7 +211,7 @@ router.get("/", async (req: Request, res: Response) => {
       .order("created_at", { ascending: false });
 
     if (tags.length) {
-      // Para array/text[]: usa overlaps (qualquer interseção)
+      // Para text[]/_text: retorna linhas onde há interseção com qualquer uma das tags
       query = query.overlaps("tags", tags);
     }
 
@@ -228,10 +238,6 @@ router.get("/", async (req: Request, res: Response) => {
 
 /* ────────────────────────────────────────────────
    ✅ POST /api/memorias/similares → delega ao service
-   Body:
-     - texto (ou query) : string
-     - limite (ou limit): number (1..5)
-     - threshold? : 0..1
 ────────────────────────────────────────────────── */
 router.post("/similares", async (req: Request, res: Response) => {
   const user = await getUsuarioAutenticado(req);

@@ -1,14 +1,14 @@
 // server/services/embeddingService.ts
 import OpenAI from "openai";
 
-/** Cache do client para evitar recriar */
 let _openai: OpenAI | null = null;
+const DEFAULT_MODEL = process.env.EMBEDDING_MODEL || "text-embedding-3-small";
+const EXPECTED_DIM = Number(process.env.EMBEDDING_DIM || (DEFAULT_MODEL === "text-embedding-3-small" ? 1536 : 3072));
+const MAX_CHARS = Number(process.env.EMBEDDING_MAX_CHARS || 8000); // simples proteção
 
-/** Pega o client OpenAI em lazy-init. Lança erro se a key não estiver configurada. */
 function getOpenAI(): OpenAI {
   if (_openai) return _openai;
 
-  // tente múltiplas variáveis comuns
   const apiKey =
     process.env.OPENAI_API_KEY ||
     process.env.OPENAI_KEY ||
@@ -16,21 +16,13 @@ function getOpenAI(): OpenAI {
     "";
 
   if (!apiKey) {
-    // Se quiser permitir fallback em dev, habilite ALLOW_FAKE_EMBEDDINGS=true
-    if (process.env.ALLOW_FAKE_EMBEDDINGS === "true") {
-      // Não criamos cliente — quem chamar embedTextoCompleto lidará com o fake
-      return (_openai as any) as OpenAI; // apenas para satisfazer o tipo; não será usado
-    }
-    throw new Error(
-      "OPENAI_API_KEY ausente. Defina OPENAI_API_KEY (ou OPENAI_KEY/OPENAI_TOKEN) nas variáveis de ambiente."
-    );
+    throw new Error("OPENAI_API_KEY ausente. Defina OPENAI_API_KEY (ou OPENAI_KEY/OPENAI_TOKEN).");
   }
-
-  _openai = new OpenAI({ apiKey });
+  _openai = new OpenAI({ apiKey, timeout: 20000, maxRetries: 2 });
   return _openai;
 }
 
-/** Normaliza vetor para norma-2 = 1 (evita NaN/divisão por zero) */
+/** Normaliza vetor para norma-2 = 1 */
 export function unitNorm(vec: number[] | Float32Array): number[] {
   let sum = 0;
   for (let i = 0; i < vec.length; i++) sum += vec[i] * vec[i];
@@ -40,43 +32,42 @@ export function unitNorm(vec: number[] | Float32Array): number[] {
   return out;
 }
 
-/** Fallback determinístico de “embedding” para dev/testes sem API key */
-function fakeEmbedding(text: string, dim = 256): number[] {
-  // hashing simples e estável por byte
+/** Embedding fake p/ dev sem API */
+function fakeEmbedding(text: string, dim = EXPECTED_DIM || 256): number[] {
   const te = new TextEncoder();
   const bytes = te.encode(text || "");
   const v = new Array(dim).fill(0);
-  for (let i = 0; i < bytes.length; i++) {
-    v[i % dim] += (bytes[i] - 127) / 127; // [-1,1] aprox
-  }
+  for (let i = 0; i < bytes.length; i++) v[i % dim] += (bytes[i] - 127) / 127;
   return unitNorm(v);
 }
 
-/**
- * Gera embedding para um texto completo.
- * @param texto Texto de entrada
- * @param _tag  (opcional) rótulo para logs/segmentação — ignorado pela API, mantido por compat
- * @returns Vetor de embedding (number[])
- */
+/** Gera embedding para um texto completo (com validações simples) */
 export async function embedTextoCompleto(texto: string, _tag?: string): Promise<number[]> {
-  // Fallback para dev/test
+  const t = (texto || "").trim().slice(0, MAX_CHARS);
+
+  // Fallback dev
   if (process.env.ALLOW_FAKE_EMBEDDINGS === "true" && !process.env.OPENAI_API_KEY) {
-    return fakeEmbedding(texto);
+    return fakeEmbedding(t);
   }
 
   const client = getOpenAI();
-  const model = process.env.EMBEDDING_MODEL || "text-embedding-3-small";
-
-  // A API do OpenAI aceita arrays de inputs; usamos um só
-  // (Se quiser truncar, pode limitar tamanho do texto aqui)
-  const resp = await client.embeddings.create({
-    model,
-    input: texto,
-  });
-
+  const resp = await client.embeddings.create({ model: DEFAULT_MODEL, input: t });
   const emb = resp.data?.[0]?.embedding;
+
   if (!emb || !Array.isArray(emb)) {
     throw new Error("Falha ao obter embedding da API OpenAI.");
   }
+
+  // (opcional) garantir dimensão esperada
+  if (EXPECTED_DIM && emb.length !== EXPECTED_DIM) {
+    // adapta (ou lança erro); aqui vou adaptar por segurança:
+    if (emb.length > EXPECTED_DIM) emb.length = EXPECTED_DIM;
+    else {
+      const filled = emb.slice();
+      while (filled.length < EXPECTED_DIM) filled.push(0);
+      return filled;
+    }
+  }
+
   return emb as number[];
 }

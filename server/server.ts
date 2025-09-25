@@ -2,7 +2,7 @@ import path from "path";
 import fs from "fs";
 import dotenv from "dotenv";
 
-/* ---------------- .env robusto (dist-friendly) ---------------- */
+/* ---------------- .env robusto (dist/dev) ---------------- */
 (function loadEnv() {
   const explicit = process.env.DOTENV_PATH;
   if (explicit && fs.existsSync(explicit)) {
@@ -10,8 +10,10 @@ import dotenv from "dotenv";
     return;
   }
   const tryPaths = [
+    // quando rodando via tsc (dist/server.js)
     path.resolve(__dirname, "../.env"),
     path.resolve(__dirname, "../../.env"),
+    // quando rodando via ts-node/nodemon no repo
     path.resolve(process.cwd(), ".env"),
   ];
   for (const p of tryPaths) {
@@ -26,7 +28,10 @@ import express, { Request, Response, NextFunction } from "express";
 import cors from "cors";
 
 /* ----------------------- Bootstrap módulos -------------------- */
+// importa o configurador criado em server/bootstrap/modules.ts
 import { configureModuleStore } from "./bootstrap/modules";
+// para usar as estatísticas públicas no /debug/modules
+import { ModuleStore } from "./services/promptContext";
 
 /* --------------------------- Rotas ---------------------------- */
 import promptRoutes from "./routes/promptRoutes";
@@ -111,12 +116,13 @@ app.get("/readyz", (_req, res) => res.status(200).json({ ready: true }));
 
 /* --------------------- Debug opcional módulos ----------------- */
 app.get("/debug/modules", (_req, res) => {
-  const I: any = (require("./services/promptContext/ModuleStore").default as any).I;
+  const stats = ModuleStore.stats();
   res.json({
-    roots: I?.roots ?? [],
-    indexedCount: I?.fileIndex?.size ?? 0,
-    sample: Array.from(I?.fileIndex?.keys?.() ?? []).slice(0, 50),
-    cacheCount: I?.cacheModulos?.size ?? 0,
+    roots: stats.roots,
+    indexedCount: stats.indexedCount,
+    cachedCount: stats.cachedCount,
+    built: stats.built,
+    sample: ModuleStore.listIndexed(50),
   });
 });
 
@@ -167,7 +173,7 @@ async function start() {
   // 1) carrega módulos antes das rotas atenderem tráfego
   await configureModuleStore();
 
-  // 2) inicia servidor na porta do Render
+  // 2) inicia servidor na porta (Render define PORT)
   const PORT = Number(process.env.PORT || 3001);
   app.listen(PORT, async () => {
     log.info(`Servidor Express rodando na porta ${PORT}`);
@@ -175,7 +181,7 @@ async function start() {
     log.info("Boot", {
       ECO_LOG_LEVEL: process.env.ECO_LOG_LEVEL ?? "(unset)",
       ECO_DEBUG: process.env.ECO_DEBUG ?? "(unset)",
-      NODE_ENV: process.env.NODE_ENV ?? "(unset)"
+      NODE_ENV: process.env.NODE_ENV ?? "(unset)",
     });
 
     try {
@@ -192,6 +198,15 @@ async function start() {
     }
   });
 }
+
+// harden boot
+process.on("unhandledRejection", (reason) => {
+  log.error("unhandledRejection", { reason });
+});
+process.on("uncaughtException", (err) => {
+  log.error("uncaughtException", { message: err.message, stack: err.stack });
+});
+
 start().catch((e) => {
   log.error("Falha no boot do servidor:", { message: e?.message, stack: e?.stack });
   process.exitCode = 1;
