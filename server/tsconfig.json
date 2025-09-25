@@ -2,7 +2,8 @@
   "compilerOptions": {
     "target": "ES2021",
     "module": "commonjs",
-    "lib": ["es2021", "dom"],
+    "moduleResolution": "node",
+    "lib": ["es2021"],
     "rootDir": "./",
     "outDir": "./dist",
     "esModuleInterop": true,
@@ -11,15 +12,11 @@
     "skipLibCheck": true,
     "resolveJsonModule": true,
     "sourceMap": true,
-    "typeRoots": ["./node_modules/@types", "./types"]
+    "incremental": true,
+    "noEmitOnError": true,
+    "typeRoots": ["./node_modules/@types", "./types"],
+    "types": ["node"]
   },
-  "include": [
-    "**/*.ts",
-    "types/**/*.d.ts"
-  ],
-  "exclude": [
-    "node_modules",
-    "dist",
-    "core/**"            // opcional: exclui os adapters antigos que davam erro
-  ]
+  "include": ["**/*.ts", "types/**/*.d.ts"],
+  "exclude": ["node_modules", "dist", "core/**"]
 }

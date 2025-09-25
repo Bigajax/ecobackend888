@@ -3,22 +3,13 @@
   "version": "1.0.0",
   "description": "Backend for ECO project (Render deploy)",
   "main": "server.ts",
-  "scripts": {
-    "start": "node dist/server.js",
-    "dev": "nodemon server.ts",
-    "build": "tsc"
-  },
-  "keywords": [
-    "render",
-    "server",
-    "backend",
-    "eco"
-  ],
-  "author": "Seu Nome Aqui",
-  "license": "ISC",
   "type": "commonjs",
-  "engines": {
-    "node": ">=14.0.0"
+  "engines": { "node": ">=18.17.0" },
+  "scripts": {
+    "dev": "nodemon",
+    "build": "tsc && npm run copy:assets",
+    "copy:assets": "cpx \"assets/**/*.{txt,md}\" dist/assets",
+    "start": "node dist/server.js"
   },
   "dependencies": {
     "@dqbd/tiktoken": "^1.0.21",
@@ -48,6 +39,7 @@
     "@types/multer": "^1.4.12",
     "@types/node": "^22.15.30",
     "@types/node-fetch": "^2.6.13",
+    "cpx": "^1.5.0",
     "nodemon": "^3.1.0",
     "ts-node": "^10.9.2",
     "typescript": "^5.8.3"
