@@ -31,6 +31,57 @@ function normKey(name: string) {
 /** Extensões suportadas para módulos. */
 const ALLOWED_EXT = new Set([".txt", ".md"]);
 
+/** -------------------------- Helpers de path -------------------------- */
+
+/** Retorna apenas diretórios que existem. */
+async function filterExistingDirs(paths: string[]): Promise<string[]> {
+  const out: string[] = [];
+  for (const p of paths) {
+    try {
+      const st = await fs.stat(p);
+      if (st.isDirectory()) out.push(p);
+    } catch {
+      // ignore
+    }
+  }
+  return out;
+}
+
+/** Tenta resolver roots a partir da env ou de candidatos padrão. */
+async function resolveDefaultRoots(): Promise<string[]> {
+  // 1) Via env CSV (prioridade)
+  const envRoots = (process.env.ECO_PROMPT_ROOTS || "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  if (envRoots.length) {
+    const existing = await filterExistingDirs(envRoots);
+    if (existing.length) {
+      if (isDebug()) log.debug("[ModuleStore] Using ECO_PROMPT_ROOTS", { roots: existing });
+      return existing;
+    }
+    if (isDebug()) log.debug("[ModuleStore] ECO_PROMPT_ROOTS provided but none exist", { envRoots });
+  }
+
+  // 2) Candidatos padrão (produção e dev)
+  // __dirname = dist/services/promptContext (neste módulo)
+  const candidates = [
+    path.resolve(__dirname, "../assets"),        // dist/services/assets
+    path.resolve(__dirname, "../../assets"),     // dist/assets
+    path.resolve(process.cwd(), "dist/assets"),  // dist/assets (fallback)
+    path.resolve(process.cwd(), "assets"),       // assets (dev)
+  ];
+
+  const existing = await filterExistingDirs(candidates);
+  if (existing.length && isDebug()) {
+    log.debug("[ModuleStore] Using default roots", { roots: existing });
+  }
+  return existing;
+}
+
+/** ----------------------------- Classe ----------------------------- */
+
 export class ModuleStore {
   private static _i: ModuleStore;
   static get I() { return (this._i ??= new ModuleStore()); }
@@ -41,6 +92,7 @@ export class ModuleStore {
   private cacheModulos = new Map<string, string>(); // key(norm) -> content
   private tokenCountCache = new Map<string, number>(); // key -> tokens
   private buildLock: Promise<void> | null = null;
+  private bootstrapped = false;
 
   /** --------------------- Configuração & util --------------------- */
 
@@ -51,7 +103,33 @@ export class ModuleStore {
     this.fileIndex.clear();
     this.cacheModulos.clear();
     this.tokenCountCache.clear();
+    this.bootstrapped = this.roots.length > 0;
     if (isDebug()) log.debug("[ModuleStore.configure]", { roots: this.roots });
+  }
+
+  /** Inicializa roots automaticamente se não houver configuração explícita. */
+  private async ensureBootstrapped() {
+    if (this.bootstrapped && this.roots.length > 0) return;
+
+    const defaults = await resolveDefaultRoots();
+    if (defaults.length === 0) {
+      // Ainda assim permita funcionar via registerInline(); mas avise.
+      if (isDebug())
+        log.debug("[ModuleStore.ensureBootstrapped] no roots found; relying on inline modules only");
+      this.bootstrapped = true;
+      return;
+    }
+
+    this.configure(defaults);
+    this.bootstrapped = true;
+    if (isDebug())
+      log.debug("[ModuleStore.bootstrap] configurado", { roots: this.roots });
+  }
+
+  /** Exposto para o servidor chamar no boot (recomendado). */
+  async bootstrap() {
+    await this.ensureBootstrapped();
+    await this.buildFileIndexOnce();
   }
 
   /** Estatísticas rápidas (para debug endpoints). */
@@ -94,6 +172,7 @@ export class ModuleStore {
 
   // ------- Wrappers estáticos (compat) -------
   static async buildFileIndexOnce(): Promise<void> { return this.I.buildFileIndexOnce(); }
+  static async bootstrap(): Promise<void> { return this.I.bootstrap(); }
   static configure(roots: string[]) { this.I.configure(roots); }
   static async read(name: string): Promise<string | null> { return this.I.read(name); }
   static tokenCountOf(name: string, content?: string): number { return this.I.tokenCountOf(name, content); }
@@ -133,10 +212,21 @@ export class ModuleStore {
   private async buildFileIndexOnce() {
     if (this.fileIndexBuilt) return;
 
+    await this.ensureBootstrapped();
+
     // lock para evitar corrida em ambientes com boot concorrente
     if (!this.buildLock) {
       this.buildLock = (async () => {
         let totalIndexed = 0;
+
+        if (this.roots.length === 0) {
+          // sem roots: funciona apenas com inline; não é erro.
+          if (isDebug())
+            log.debug("[ModuleStore.buildFileIndexOnce] no roots; inline-only mode");
+          this.fileIndexBuilt = true;
+          return;
+        }
+
         for (const base of this.roots) {
           const files = await this.walkDir(base);
           for (const f of files) {
@@ -248,4 +338,14 @@ export class ModuleStore {
   }
 }
 
+/** Export default + bootstrap helpers */
 export default ModuleStore;
+
+/**
+ * Sugerido no start do servidor (ex.: server.ts):
+ *   import ModuleStore from "services/promptContext/ModuleStore";
+ *   await ModuleStore.bootstrap();
+ *
+ * Ou defina ECO_PROMPT_ROOTS no Render:
+ *   ECO_PROMPT_ROOTS=/opt/render/project/src/dist/assets
+ */

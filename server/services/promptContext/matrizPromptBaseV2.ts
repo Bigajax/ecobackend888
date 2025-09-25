@@ -1,10 +1,13 @@
-/* ======================== Tipos (Opção A) ======================== */
-type Nivel = 1 | 2 | 3;
-type Camada = "core" | "emotional" | "advanced";
+// server/services/promptContext/matrizPromptBaseV2.ts
+
+/* ======================== Tipos ======================== */
+export type Nivel = 1 | 2 | 3;
+export type Camada = "core" | "emotional" | "advanced";
 
 export interface CondicaoEspecial {
   descricao: string;
-  regra: string; // usa: nivel, intensidade, curiosidade, pedido_pratico, duvida_classificacao
+  /** Usa as variáveis: nivel, intensidade, curiosidade, pedido_pratico, duvida_classificacao */
+  regra: string;
 }
 export interface Limites {
   prioridade?: string[];
@@ -22,7 +25,7 @@ export interface MatrizPromptBaseV2 extends MatrizPromptBase {
 }
 
 /* ======================== Matriz (V2) ======================== */
-export const matrizPromptBaseV2: MatrizPromptBaseV2 = {
+const matrizPromptBaseV2: MatrizPromptBaseV2 = {
   /* ================= base ================= */
   baseModules: {
     // Core completo só para NV2/3 (enxuto)
@@ -47,7 +50,7 @@ export const matrizPromptBaseV2: MatrizPromptBaseV2 = {
     3: { specific: [], inherits: ["core", "advanced"] },
   },
 
-  /* ============== compat legado (mantém, mas NV1 usa os novos) ============== */
+  /* ============== compat legado (mantido para fallback) ============== */
   alwaysInclude: [
     "PRINCIPIOS_CHAVE.txt",
     "IDENTIDADE.txt",
@@ -72,7 +75,7 @@ export const matrizPromptBaseV2: MatrizPromptBaseV2 = {
     "BLOCO_TECNICO_MEMORIA.txt": { descricao: "Gerar bloco técnico ao final quando emoção ≥7", regra: "intensidade>=7" },
     "ENCERRAMENTO_SENSIVEL.txt": { descricao: "Fechar suave quando houver assentimento/pausa ou queda de energia", regra: "nivel>=1" },
 
-    // — Filosóficos / Cognitivos / Emocionais (inalterados) —
+    // — Filosóficos / Cognitivos / Emocionais —
     "eco_observador_presente.txt": { descricao: "Marco Aurélio — foco no agora", regra: "nivel>=2 && intensidade>=3 && intensidade<=6 && !pedido_pratico" },
     "eco_presenca_racional.txt": { descricao: "Fatos vs. interpretações", regra: "nivel>=2 && intensidade>=3 && intensidade<=6 && !pedido_pratico" },
     "eco_corpo_emocao.txt": { descricao: "Voltar para sensação direta", regra: "nivel>=2 && intensidade>=3 && intensidade<=7 && !pedido_pratico" },
@@ -104,7 +107,7 @@ export const matrizPromptBaseV2: MatrizPromptBaseV2 = {
       // Mapas
       "ESCALA_ABERTURA_1a3.txt",
       "ESCALA_INTENSIDADE_0a10.txt",
-      // Core NV2/3 (legado se ainda existir no pipeline)
+      // Core NV2/3 (legado, se usados)
       "PRINCIPIOS_CHAVE.txt",
       "IDENTIDADE.txt",
       "ECO_ESTRUTURA_DE_RESPOSTA.txt",

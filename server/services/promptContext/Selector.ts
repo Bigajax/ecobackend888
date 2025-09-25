@@ -1,5 +1,7 @@
 // server/services/promptContext/Selector.ts
 
+import matrizPromptBaseV2 from "./matrizPromptBaseV2"; // ⬅️ ajuste o caminho se necessário
+
 export type Flags = {
   curiosidade: boolean;
   pedido_pratico: boolean;
@@ -15,30 +17,6 @@ export type BaseSelection = {
   priorizado: string[];
   cortados: string[];
 };
-
-/* ================= NV1 (mínimo) ================= */
-const NV1_MINIMAL: string[] = [
-  "NV1_CORE.txt",
-  "IDENTIDADE_MINI.txt",
-  "ANTISALDO_MIN.txt",
-];
-
-/* ========== Base NV2/NV3 (enxuta, sem módulos longos) ========== */
-const BASE_GENERAL: string[] = [
-  "IDENTIDADE.txt",
-  "MODULACAO_TOM_REGISTRO.txt",
-  "ENCERRAMENTO_SENSIVEL.txt",
-  "ESCALA_ABERTURA_1a3.txt",
-  "ESCALA_INTENSIDADE_0a10.txt",
-  // longos/avançados entram por gating:
-  // "METODO_VIVA_ENXUTO.txt",
-  // "BLOCO_TECNICO_MEMORIA.txt",
-];
-
-const LONG_FORM: string[] = [
-  "METODO_VIVA_ENXUTO.txt",
-  "BLOCO_TECNICO_MEMORIA.txt",
-];
 
 /* --------- Heurísticas simples --------- */
 
@@ -102,7 +80,100 @@ export function derivarFlags(texto: string): Flags {
   return { curiosidade, pedido_pratico, duvida_classificacao };
 }
 
-/* --------- Seleção base com gating --------- */
+/* --------- Mini avaliador seguro de regras ---------
+   Suporta expressões como:
+   - "nivel>=2 && intensidade>=7"
+   - "nivel>=2 && !pedido_pratico"
+   - "nivel>=2 && intensidade>=3 && intensidade<=6 && !pedido_pratico"
+------------------------------------------------------ */
+
+type Ctx = {
+  nivel: number;
+  intensidade: number;
+  curiosidade: boolean;
+  pedido_pratico: boolean;
+  duvida_classificacao: boolean;
+};
+
+function evalRule(rule: string, ctx: Ctx): boolean {
+  if (!rule || typeof rule !== "string") return true;
+  // OR de termos separados por "||"
+  const orTerms = rule.split("||").map((s) => s.trim()).filter(Boolean);
+  if (orTerms.length === 0) return true;
+
+  const evalAnd = (expr: string): boolean => {
+    const andTerms = expr.split("&&").map((s) => s.trim()).filter(Boolean);
+    for (const term of andTerms) {
+      // !flag
+      const notFlag = term.match(/^!\s*([a-z_]+)$/i);
+      if (notFlag) {
+        const v = readVarBool(notFlag[1], ctx);
+        if (v === null || v !== false) return false;
+        continue;
+      }
+      // flag
+      const flag = term.match(/^([a-z_]+)$/i);
+      if (flag) {
+        const v = readVarBool(flag[1], ctx);
+        if (v !== true) return false;
+        continue;
+      }
+      // comparações numéricas
+      const cmp = term.match(
+        /^([a-z_]+)\s*(>=|<=|==|!=|>|<)\s*([0-9]+)$/i
+      );
+      if (cmp) {
+        const left = readVarNum(cmp[1], ctx);
+        const op = cmp[2];
+        const right = Number(cmp[3]);
+        if (left === null) return false;
+        if (!compare(left, op, right)) return false;
+        continue;
+      }
+      // termo inválido
+      return false;
+    }
+    return true;
+  };
+
+  for (const andExpr of orTerms) {
+    if (evalAnd(andExpr)) return true;
+  }
+  return false;
+}
+
+function readVarBool(name: string, ctx: Ctx): boolean | null {
+  switch (name) {
+    case "curiosidade":
+    case "pedido_pratico":
+    case "duvida_classificacao":
+      return Boolean((ctx as any)[name]);
+    default:
+      return null;
+  }
+}
+function readVarNum(name: string, ctx: Ctx): number | null {
+  switch (name) {
+    case "nivel":
+    case "intensidade":
+      return Number((ctx as any)[name]);
+    default:
+      return null;
+  }
+}
+function compare(a: number, op: string, b: number): boolean {
+  switch (op) {
+    case ">=": return a >= b;
+    case "<=": return a <= b;
+    case ">":  return a > b;
+    case "<":  return a < b;
+    case "==": return a === b;
+    case "!=": return a !== b;
+    default:   return false;
+  }
+}
+
+/* --------- Seleção base com matriz V2 + gating --------- */
 
 export const Selector = {
   derivarFlags,
@@ -116,43 +187,67 @@ export const Selector = {
     intensidade: number;
     flags: Flags;
   }): BaseSelection {
-    // 1) Lista inicial
-    const raw = nivel === 1 ? NV1_MINIMAL.slice() : BASE_GENERAL.slice();
-
-    // 2) Gating por intensidade (longos só com intensidade >=7 e NV >=2)
-    const gated = raw.slice();
     const cortados: string[] = [];
 
-    const allowLong = intensidade >= 7 && nivel >= 2;
-    if (allowLong) {
-      for (const lf of LONG_FORM) gated.push(lf);
-    } else {
-      for (const lf of LONG_FORM) cortados.push(`${lf} [min=7]`);
+    // NV1: somente os três minis definidos na matriz (byNivelV2[1].specific)
+    if (nivel === 1) {
+      const minis = (matrizPromptBaseV2.byNivelV2[1]?.specific ?? [
+        "NV1_CORE.txt",
+        "IDENTIDADE_MINI.txt",
+        "ANTISALDO_MIN.txt",
+      ]).slice();
+
+      const priorizado = ordenarPorPrioridade(minis, matrizPromptBaseV2.limites?.prioridade, 1);
+      return {
+        nivel,
+        intensidade,
+        flags,
+        raw: minis,
+        posGating: priorizado,
+        priorizado,
+        cortados,
+      };
     }
 
-    // 3) Ajustes por flags (NV2/3)
-    if (nivel >= 2) {
-      // Curiosidade / dúvida → garantir modulação
-      if (
-        (flags.curiosidade || flags.duvida_classificacao) &&
-        !gated.includes("MODULACAO_TOM_REGISTRO.txt")
-      ) {
-        gated.push("MODULACAO_TOM_REGISTRO.txt");
+    // NV2/NV3: monta a lista a partir da matriz (specific + inherits -> baseModules)
+    const spec = matrizPromptBaseV2.byNivelV2[nivel]?.specific ?? [];
+    const inherits = matrizPromptBaseV2.byNivelV2[nivel]?.inherits ?? [];
+    const inheritedModules = inherits.flatMap((camada) => matrizPromptBaseV2.baseModules[camada] ?? []);
+    const rawSet = new Set<string>([...spec, ...inheritedModules]);
+    const raw = Array.from(rawSet);
+
+    // Gating 1: intensidade mínima
+    const gatedSet = new Set<string>(raw);
+    for (const [mod, minInt] of Object.entries(matrizPromptBaseV2.intensidadeMinima ?? {})) {
+      if (gatedSet.has(mod) && intensidade < Number(minInt)) {
+        gatedSet.delete(mod);
+        cortados.push(`${mod} [min=${minInt}]`);
       }
-      // Pedido prático → nenhum extra pesado; já cobrimos com modulação + mapas
     }
 
-    // 4) Dedupe + ordem estável por prioridade
-    const priorizado = ordenarPorPrioridade(gated);
-    const posGating = Array.from(new Set(priorizado));
+    // Gating 2: regras semânticas (ativação condicional)
+    // → se a regra bater, inclui; se não bater, não força remoção (exceto se já removido por intensidade).
+    const ctx: Ctx = { nivel, intensidade, ...flags };
+    for (const [mod, { regra }] of Object.entries(matrizPromptBaseV2.condicoesEspeciais ?? {})) {
+      try {
+        if (evalRule(regra, ctx)) {
+          gatedSet.add(mod);
+        }
+      } catch {
+        // regra malformada: ignorar silenciosamente
+      }
+    }
+
+    const posGating = Array.from(gatedSet);
+    const priorizado = ordenarPorPrioridade(posGating, matrizPromptBaseV2.limites?.prioridade, nivel);
 
     return {
       nivel,
       intensidade,
       flags,
       raw,
-      posGating,
-      priorizado: posGating,
+      posGating: priorizado,
+      priorizado,
       cortados,
     };
   },
@@ -160,28 +255,27 @@ export const Selector = {
 
 /* --------- Helpers --------- */
 
-function ordenarPorPrioridade(arr: string[]): string[] {
-  const priority = [
-    // NV1 enxuto
-    "NV1_CORE.txt",
-    "IDENTIDADE_MINI.txt",
-    "ANTISALDO_MIN.txt",
-    // Core NV2/3
-    "IDENTIDADE.txt",
-    "MODULACAO_TOM_REGISTRO.txt",
-    "ENCERRAMENTO_SENSIVEL.txt",
-    // Mapas
-    "ESCALA_ABERTURA_1a3.txt",
-    "ESCALA_INTENSIDADE_0a10.txt",
-    // Intervenções / técnico
-    "METODO_VIVA_ENXUTO.txt",
-    "BLOCO_TECNICO_MEMORIA.txt",
-  ];
+function ordenarPorPrioridade(
+  arr: string[],
+  priorityFromMatrix?: string[],
+  nivel?: 1 | 2 | 3
+): string[] {
+  // Prioridade vinda da matriz (se houver)
+  const priority = Array.isArray(priorityFromMatrix) ? priorityFromMatrix.slice() : [];
+
+  // Em NV1 garantimos que os minis ficam no topo (caso alguém os injete indevidamente)
+  if (nivel === 1) {
+    ["NV1_CORE.txt", "IDENTIDADE_MINI.txt", "ANTISALDO_MIN.txt"].forEach((m) => {
+      if (!priority.includes(m)) priority.unshift(m);
+    });
+  }
+
+  // Índices de prioridade
   const idx = new Map<string, number>();
   priority.forEach((n, i) => idx.set(n, i));
 
   const dedup = Array.from(new Set(arr));
-  dedup.sort((a, b) => (idx.get(a) ?? 999) - (idx.get(b) ?? 999));
+  dedup.sort((a, b) => (idx.get(a) ?? 999) - (idx.get(b) ?? 999) || a.localeCompare(b));
   return dedup;
 }
 

@@ -25,6 +25,34 @@ type BuildParams = {
   perfil?: any;
 };
 
+/* ------------------------------------------------------------------
+   Política de falta de módulos
+   - STRICT_MISSING: se "1", lança erro quando módulo não é encontrado.
+   - Caso contrário, só loga e retorna string vazia (Budgeter ignora).
+------------------------------------------------------------------- */
+const STRICT_MISSING = process.env.ECO_STRICT_MODULES === "1";
+
+// Garante índice pronto (compat com versões sem bootstrap()).
+async function ensureModuleIndexReady() {
+  const anyStore = ModuleStore as unknown as { bootstrap?: () => Promise<void> };
+  if (typeof anyStore.bootstrap === "function") {
+    await anyStore.bootstrap!();
+  } else {
+    await ModuleStore.buildFileIndexOnce();
+  }
+}
+
+/** Lê um módulo; se faltar, aplica a política acima. */
+async function requireModule(name: string): Promise<string> {
+  const found = await ModuleStore.read(name);
+  if (found && found.trim()) return found;
+
+  const msg = `[ContextBuilder] módulo ausente: ${name}`;
+  if (STRICT_MISSING) throw new Error(msg);
+  if (isDebug()) log.debug(msg + " — usando vazio (dev/relaxado)");
+  return "";
+}
+
 export async function montarContextoEco(params: BuildParams): Promise<string> {
   const {
     userId: _userId,
@@ -43,27 +71,34 @@ export async function montarContextoEco(params: BuildParams): Promise<string> {
 
   /* ---------- Sinais básicos ---------- */
   const saudacaoBreve = detectarSaudacaoBreve(texto);
-  const nivel = derivarNivel(texto, saudacaoBreve);
+  const nivel = derivarNivel(texto, saudacaoBreve) as 1 | 2 | 3;
 
   /* ---------- Memo/overhead ---------- */
   const memIntensity = Math.max(0, ...mems.map((m) => Number(m?.intensidade ?? 0)));
   const memCount = mems.length;
 
-  /* ---------- Roteamento base de módulos ---------- */
+  /* ---------- Bootstrap de módulos ---------- */
+  await ensureModuleIndexReady();
+
+  /* ---------- Seleção vinda só do Selector (matriz V2 + regras) ---------- */
   const baseSelection = Selector.selecionarModulosBase({
     nivel,
     intensidade: memIntensity,
     flags: Selector.derivarFlags(texto),
   });
 
-  /* ---------- Overhead instrucional ---------- */
+  // Conjunto base conforme Selector (sem union de "essentials" aqui!)
+  const modulesRaw = Array.from(new Set(baseSelection.raw ?? []));
+  const modulesAfterGating = Array.from(new Set(baseSelection.posGating ?? modulesRaw));
+
+  /* ---------- Overhead instrucional (curto) ---------- */
   const responsePlan =
-    "Fluxo: acolher (1 linha) • espelhar o núcleo (1 linha) • (opcional) pedir permissão para uma impressão curta • 0–1 pergunta viva • fechar leve. Máx. 1 pergunta viva; linguagem simples; parágrafos curtos (1–3 linhas).";
+    "Fluxo: acolher (1 linha) • espelhar o núcleo (1 linha) • (opcional) uma impressão curta com permissão • máx. 1 pergunta viva • fechar leve.";
 
   const instrucoesFinais =
-    "Ética: sem diagnósticos ou promessas de cura. Priorize autonomia, cuidado e ritmo. Se tema clínico/urgente, acolha e oriente a buscar apoio adequado, sem rótulos.";
+    "Ética: sem diagnósticos nem promessas de cura. Priorize autonomia, cuidado e ritmo. Se tema clínico/urgente, acolha e oriente apoio adequado.";
 
-  // Em NV1, o plano e a antisaudação já estão dentro dos módulos (NV1_CORE + ANTISALDO_MIN).
+  // NV1 já traz antisaudação/plano dentro dos módulos mini; manter só instruções finais
   const overhead: Array<[string, string]> =
     nivel === 1
       ? [["ECO_INSTRUCOES_FINAIS", instrucoesFinais]]
@@ -72,40 +107,32 @@ export async function montarContextoEco(params: BuildParams): Promise<string> {
           ["ECO_INSTRUCOES_FINAIS", instrucoesFinais],
         ];
 
-  /* ---------- Módulos candidatos ---------- */
-  const modulesRaw = baseSelection.raw ?? [];
-  const modulesAfterGating = baseSelection.posGating ?? modulesRaw;
-
-  // Política NV1: usar os módulos mínimos dedicados (sem IDENTIDADE.txt grande)
-  const MIN_NV1: string[] = [
-    "NV1_CORE.txt",        // regras concisas (princípios, forma, escala)
-    "IDENTIDADE_MINI.txt", // essência curta da Eco
-    "ANTISALDO_MIN.txt",   // guarda-corpo de saudação
-  ];
-
-  /* ---------- Index de arquivos ---------- */
-  await ModuleStore.buildFileIndexOnce();
+  /* ---------- Política por nível ---------- */
+  const MIN_NV1: string[] = ["NV1_CORE.txt", "IDENTIDADE_MINI.txt", "ANTISALDO_MIN.txt"];
+  const ordered: string[] = nivel === 1 ? MIN_NV1 : modulesAfterGating;
 
   /* ---------- Loader com contagem de tokens ---------- */
-  const loader = async (name: string) => {
-    const text = (await ModuleStore.read(name)) ?? "";
-    // contar tokens a partir do conteúdo (independe de cache prévio)
-    const tokens = ModuleStore.tokenCountOf(name, text);
-    return { name, text, tokens };
-  };
-
-  /* ---------- Orçamento ---------- */
-  const budgetTokens = Number(process.env.ECO_CONTEXT_BUDGET_TOKENS ?? 2500);
-  const ordered = nivel === 1 ? MIN_NV1 : [...new Set(modulesAfterGating)];
-
-  // Carrega candidatos (para obter tokens exatos)
   const candidates: { name: string; text: string; tokens: number }[] = [];
-  for (const n of ordered) {
-    const it = await loader(n);
-    candidates.push(it); // se vazio, tokens=0 e o budgeter decide
+  for (const name of ordered) {
+    const txt = await requireModule(name);
+    const tokens = ModuleStore.tokenCountOf(name, txt);
+    candidates.push({ name, text: txt, tokens });
   }
 
-  // Mapa de tokens para o Budgeter
+  /* ---------- Orçamento ---------- */
+  const DEFAULT_BUDGET = 2500;
+  const hardMin = 800;    // evita prompts anêmicos
+  const hardMax = 6000;   // deixa espaço para histórico + completion
+  const budgetTokens = Math.min(
+    hardMax,
+    Math.max(
+      hardMin,
+      Number.isFinite(Number(process.env.ECO_CONTEXT_BUDGET_TOKENS))
+        ? Number(process.env.ECO_CONTEXT_BUDGET_TOKENS)
+        : DEFAULT_BUDGET
+    )
+  );
+
   const tokenMap = Object.fromEntries(candidates.map((c) => [c.name, c.tokens]));
   const budgetResult = Budgeter.run({
     ordered,
@@ -116,14 +143,11 @@ export async function montarContextoEco(params: BuildParams): Promise<string> {
   });
 
   // Filtra os que cabem no orçamento preservando ordem
-  const loaded = candidates.filter((c) => budgetResult.used.includes(c.name));
+  const loaded = candidates.filter((c) => budgetResult.used.includes(c.name) && c.text.trim().length > 0);
 
   /* ---------- Reduções/recortes ---------- */
   const reduced = loaded.map((m) => {
-    // Em NV1, os módulos já são “mini”; não recortar.
-    if (nivel === 1) return m;
-
-    // NV2/3 — compactar apenas IDENTIDADE se estiver grande
+    if (nivel === 1) return m; // NV1 módulos já são mini
     if (m.name === "IDENTIDADE.txt") {
       const resumida = extrairIdentidadeResumida(m.text);
       return { ...m, text: resumida || resumirIdentidadeFallback(m.text) };
@@ -220,7 +244,9 @@ function dedupeBySection(text: string): string {
   };
 
   for (const ln of lines) {
-    const isTitle = /^#{1,6}\s+/.test(ln) || /^[A-ZÁÂÃÉÊÍÓÔÕÚÜÇ0-9][^\n]{0,80}$/.test(ln);
+    const isTitle =
+      /^#{1,6}\s+/.test(ln) ||
+      /^[A-ZÁÂÃÉÊÍÓÔÕÚÜÇ0-9][^\n]{0,80}$/.test(ln);
     if (isTitle) {
       flush();
       const normalizedTitle = ln.trim().toUpperCase().replace(/\s+/g, " ");
@@ -248,7 +274,7 @@ function extrairIdentidadeResumida(text: string): string | "" {
 function resumirIdentidadeFallback(_text: string): string {
   return [
     "IDENTIDADE — ECO (resumo)",
-    "Você é a Eco: coach de autoconhecimento empático, reflexivo e bem-humorado. Guie o usuário a refletir sobre si através de perguntas curiosas e insights gentis.",
+    "Você é a Eco: coach de autoconhecimento empático, reflexivo e bem-humorado.",
     "Fale simples, em 1–3 linhas por parágrafo. Máx. 1 pergunta viva.",
     "Convide escolhas; evite jargões e diagnósticos.",
   ].join("\n");
@@ -263,7 +289,9 @@ function limparEspacos(s: string) {
 function stitchNV1(mods: Array<{ name: string; text: string }>): string {
   const prio = ["NV1_CORE.txt", "IDENTIDADE_MINI.txt", "ANTISALDO_MIN.txt"];
   const sorted = [
-    ...mods.filter((m) => prio.includes(m.name)).sort((a, b) => prio.indexOf(a.name) - prio.indexOf(b.name)),
+    ...mods
+      .filter((m) => prio.includes(m.name))
+      .sort((a, b) => prio.indexOf(a.name) - prio.indexOf(b.name)),
     ...mods.filter((m) => !prio.includes(m.name)),
   ];
   const joined = sorted
@@ -276,10 +304,15 @@ function stitchNV1(mods: Array<{ name: string; text: string }>): string {
 }
 
 function stitchNV(mods: Array<{ name: string; text: string }>): string {
-  // ✅ Nova prioridade NV2/NV3
-  const prio = ["IDENTIDADE.txt", "MODULACAO_TOM_REGISTRO.txt", "ENCERRAMENTO_SENSIVEL.txt"];
+  const prio = [
+    "IDENTIDADE.txt",
+    "MODULACAO_TOM_REGISTRO.txt",
+    "ENCERRAMENTO_SENSIVEL.txt",
+  ];
   const sorted = [
-    ...mods.filter((m) => prio.includes(m.name)).sort((a, b) => prio.indexOf(a.name) - prio.indexOf(b.name)),
+    ...mods
+      .filter((m) => prio.includes(m.name))
+      .sort((a, b) => prio.indexOf(a.name) - prio.indexOf(b.name)),
     ...mods.filter((m) => !prio.includes(m.name)),
   ];
   const joined = sorted

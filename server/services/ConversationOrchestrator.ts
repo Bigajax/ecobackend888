@@ -199,12 +199,19 @@ async function fastLaneLLM({
       })),
     ];
 
-  const data = await claudeChatCompletion({
-    messages: slim,
-    model: process.env.ECO_FAST_MODEL || "anthropic/claude-3-5-haiku",
-    temperature: 0.5,
-    maxTokens: 220,
-  });
+  let data: any;
+  try {
+    data = await claudeChatCompletion({
+      messages: slim,
+      model: process.env.ECO_FAST_MODEL || "anthropic/claude-3-5-haiku",
+      temperature: 0.5,
+      maxTokens: 220,
+    });
+  } catch (e: any) {
+    log.warn(`[fastLaneLLM] falhou: ${e?.message}`);
+    const fallback = "Tô aqui com você. Quer me contar um pouco mais?";
+    return { cleaned: fallback, usage: undefined, model: "fastlane-fallback" };
+  }
 
   const raw: string = data?.content ?? "";
   let cleaned = formatarTextoEco(limparResposta(raw || "Posso te ajudar nisso!"));
@@ -273,20 +280,25 @@ export async function getEcoResponse(
   const vivaAtivo = forcarMetodoViva || heuristicaPreViva(ultimaMsg);
 
   // 🔁 IMPORTANTE: fast-lane reativada por padrão
-  // -> Só força rota completa se houver promptOverride.
-  const forceFull = !!promptOverride;
+  // -> Só força rota completa se houver promptOverride "de verdade".
+  const forceFull =
+    typeof promptOverride === "string" && promptOverride.trim().length > 0;
 
   if (isDebug())
-    log.debug("[Orchestrator] roteamento", {
+    log.debug("[Orchestrator] flags", {
+      hasPromptOverride: typeof promptOverride,
+      promptOverrideLen: (promptOverride || "").trim().length,
       low,
       vivaAtivo,
-      forceFull,
       nivelRoteador,
       ultimaLen: (ultimaMsg || "").length,
     });
 
   const podeFastLane =
-    !forceFull && low && !vivaAtivo && !promptOverride && nivelRoteador <= 1;
+    !forceFull &&
+    low &&
+    !vivaAtivo &&
+    (typeof nivelRoteador === "number" ? nivelRoteador <= 1 : true);
 
   if (podeFastLane) {
     const inicioFast = now();
@@ -304,7 +316,7 @@ export async function getEcoResponse(
           await saveMemoryOrReference({
             supabase,
             userId,
-            lastMessageId: (messages as any).at(-1)?.id ?? undefined, // ⬅️ was null
+            lastMessageId: (messages as any).at(-1)?.id ?? undefined,
             cleaned: fast.cleaned,
             bloco,
             ultimaMsg,
@@ -318,7 +330,7 @@ export async function getEcoResponse(
     trackMensagemEnviada({
       userId,
       tempoRespostaMs: now() - inicioFast,
-      tokensUsados: fast?.usage?.total_tokens ?? undefined, // ⬅️ was || null
+      tokensUsados: fast?.usage?.total_tokens ?? undefined,
       modelo: fast?.model,
     });
 
@@ -453,12 +465,36 @@ export async function getEcoResponse(
   const maxTokens =
     ultimaMsg.length < 140 ? 420 : ultimaMsg.length < 280 ? 560 : 700;
   const inicioEco = now();
-  const data = await claudeChatCompletion({
-    messages: msgs,
-    model: process.env.ECO_CLAUDE_MODEL || "anthropic/claude-3-5-sonnet",
-    temperature: 0.6,
-    maxTokens,
-  });
+
+  let data: any;
+  try {
+    data = await claudeChatCompletion({
+      messages: msgs,
+      model: process.env.ECO_CLAUDE_MODEL || "anthropic/claude-3-5-sonnet",
+      temperature: 0.6,
+      maxTokens,
+    });
+  } catch (e: any) {
+    log.warn(`[getEcoResponse] LLM rota completa falhou: ${e?.message}`);
+    const msg =
+      "Desculpa, tive um problema técnico agora. Topa tentar de novo?";
+    const cleaned = stripIdentityCorrection(
+      formatarTextoEco(limparResposta(msg)),
+      firstName(userName)
+    );
+    // Mesmo em falha, registrar latência para monitorar
+    const duracaoEcoErr = now() - inicioEco;
+    if (duracaoEcoErr > 2500)
+      trackEcoDemorou({ userId, duracaoMs: duracaoEcoErr, ultimaMsg });
+    trackMensagemEnviada({
+      userId,
+      tempoRespostaMs: duracaoEcoErr,
+      tokensUsados: undefined,
+      modelo: "full-fallback",
+    });
+    return { message: cleaned };
+  }
+
   const duracaoEco = now() - inicioEco;
   if (duracaoEco > 2500)
     trackEcoDemorou({ userId, duracaoMs: duracaoEco, ultimaMsg });
@@ -498,7 +534,7 @@ export async function getEcoResponse(
         await saveMemoryOrReference({
           supabase,
           userId,
-          lastMessageId: (messages as any).at(-1)?.id ?? undefined, // ⬅️ was null
+          lastMessageId: (messages as any).at(-1)?.id ?? undefined,
           cleaned,
           bloco,
           ultimaMsg,
@@ -512,7 +548,7 @@ export async function getEcoResponse(
   trackMensagemEnviada({
     userId,
     tempoRespostaMs: duracaoEco,
-    tokensUsados: data?.usage?.total_tokens ?? undefined, // ⬅️ was || null
+    tokensUsados: data?.usage?.total_tokens ?? undefined,
     modelo: data?.model,
   });
 
