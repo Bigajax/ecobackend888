@@ -1,5 +1,4 @@
 // server/services/ConversationOrchestrator.ts
-
 import {
   ensureEnvs,
   formatarTextoEco,
@@ -21,6 +20,7 @@ import { claudeChatCompletion } from "../core/ClaudeAdapter";
 import { GreetGuard } from "../policies/GreetGuard";
 import { getDerivados, insightAbertura } from "../services/derivadosService";
 import { buscarHeuristicasSemelhantes } from "../services/heuristicaService";
+import { buscarMemoriasSemelhantes } from "../services/buscarMemorias";
 
 // 👉 usa o builder exportado pelo barrel services/promptContext/index.ts
 import { ContextBuilder } from "../services/promptContext";
@@ -72,16 +72,23 @@ function isLowComplexity(texto: string) {
   );
 }
 
+/** ⬇️ tipo auxiliar: paralelas + memórias */
+type ParalelasResultPlus = ParalelasResult & {
+  memsSemelhantes: any[];
+};
+
 async function operacoesParalelas(
   ultimaMsg: string,
   userId?: string
-): Promise<ParalelasResult> {
+): Promise<ParalelasResultPlus> {
   let userEmbedding: number[] = [];
   if (ultimaMsg.trim().length > 0) {
     userEmbedding = await getEmbeddingCached(ultimaMsg, "entrada_usuario");
   }
 
   let heuristicas: any[] = [];
+  let memsSemelhantes: any[] = [];
+
   if (userEmbedding.length > 0) {
     try {
       heuristicas = await buscarHeuristicasSemelhantes({
@@ -92,8 +99,22 @@ async function operacoesParalelas(
     } catch {
       heuristicas = [];
     }
+
+    // 🔎 busca memórias similares (semânticas)
+    if (userId) {
+      try {
+        memsSemelhantes = await buscarMemoriasSemelhantes(userId, {
+          texto: ultimaMsg, // se seu service aceitar embedding, você pode trocar
+          k: 3,
+          threshold: 0.12,
+        });
+      } catch {
+        memsSemelhantes = [];
+      }
+    }
   }
-  return { heuristicas, userEmbedding };
+
+  return { heuristicas, userEmbedding, memsSemelhantes };
 }
 
 // Timeout que NÃO quebra o fluxo (retorna null em erro/timeout)
@@ -128,12 +149,18 @@ async function montarContextoOtimizado(params: any) {
     0,
     ...(params.mems ?? []).map((m: any) => Number(m?.intensidade ?? 0))
   );
+
+  // ✅ Ajuste de cache: considerar memórias semelhantes e evitar cache quando existirem
+  const msCount = Array.isArray(params.memoriasSemelhantes)
+    ? params.memoriasSemelhantes.length
+    : 0;
+
   const cacheKey = `ctx:${params.userId || "anon"}:${nivel}:${Math.round(
     intensidade
-  )}`;
+  )}:ms${msCount}`;
 
   const cached = PROMPT_CACHE.get(cacheKey);
-  if (cached) {
+  if (cached && msCount === 0) {
     if (isDebug()) log.debug("[Orchestrator] contexto via cache", { cacheKey });
     return cached; // ✅ já inclui "Mensagem atual: ..."
   }
@@ -143,8 +170,8 @@ async function montarContextoOtimizado(params: any) {
   if (isDebug())
     log.debug("[Orchestrator] contexto construído", { ms: Date.now() - t0 });
 
-  // NV1 tende a se repetir mais — cache curto ajuda
-  if (nivel <= 2) PROMPT_CACHE.set(cacheKey, contexto);
+  // NV1 tende a se repetir mais — cache curto ajuda (apenas quando msCount==0)
+  if (nivel <= 2 && msCount === 0) PROMPT_CACHE.set(cacheKey, contexto);
 
   return contexto;
 }
@@ -355,16 +382,19 @@ export async function getEcoResponse(
   // 3.1) paralelas — só se NÃO houver promptOverride
   let heuristicas: any[] = [];
   let userEmbedding: number[] = [];
+  let memsSemelhantes: any[] = [];
   if (!promptOverride) {
     const paralelas = await Promise.race([
       operacoesParalelas(ultimaMsg, userId),
       sleep(PARALELAS_TIMEOUT_MS).then(() => ({
         heuristicas: [],
         userEmbedding: [],
+        memsSemelhantes: [],
       })),
     ]);
     heuristicas = paralelas.heuristicas;
     userEmbedding = paralelas.userEmbedding;
+    memsSemelhantes = (paralelas as any).memsSemelhantes ?? [];
   }
 
   // 3.2) derivados — tolerante a timeout/erro; pula se promptOverride ou NV1
@@ -441,6 +471,8 @@ export async function getEcoResponse(
       userName,
       perfil: null,
       mems,
+      // ✅ nome padronizado que o ContextBuilder entende:
+      memoriasSemelhantes: memsSemelhantes,
       forcarMetodoViva: vivaAtivo,
       blocoTecnicoForcado,
       texto: ultimaMsg,
@@ -482,7 +514,6 @@ export async function getEcoResponse(
       formatarTextoEco(limparResposta(msg)),
       firstName(userName)
     );
-    // Mesmo em falha, registrar latência para monitorar
     const duracaoEcoErr = now() - inicioEco;
     if (duracaoEcoErr > 2500)
       trackEcoDemorou({ userId, duracaoMs: duracaoEcoErr, ultimaMsg });
@@ -500,7 +531,6 @@ export async function getEcoResponse(
     trackEcoDemorou({ userId, duracaoMs: duracaoEco, ultimaMsg });
 
   const raw: string = data?.content ?? "";
-  // 🔧 também limpamos identidade aqui para evitar repetições do tipo “sou a Eco…”
   const cleaned = stripIdentityCorrection(
     formatarTextoEco(
       limparResposta(

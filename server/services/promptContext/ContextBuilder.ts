@@ -23,6 +23,14 @@ type BuildParams = {
   derivados?: any;
   aberturaHibrida?: any;
   perfil?: any;
+
+  /** 🔥 NOVO: memórias semelhantes vindas do Orchestrator */
+  memoriasSemelhantes?: Array<{
+    resumo_eco: string;
+    similarity?: number;
+    created_at?: string;
+    tags?: string[] | null;
+  }>;
 };
 
 /* ------------------------------------------------------------------
@@ -53,6 +61,29 @@ async function requireModule(name: string): Promise<string> {
   return "";
 }
 
+/** 🔥 NOVO: bloco curto e seguro com memórias semelhantes */
+function formatMemRecall(
+  mems: BuildParams["memoriasSemelhantes"]
+): string {
+  if (!mems || !mems.length) return "";
+  const linhas = mems.slice(0, 3).map((m) => {
+    const pct =
+      typeof m?.similarity === "number"
+        ? ` ~${Math.round((m.similarity as number) * 100)}%`
+        : "";
+    const linha = String(m?.resumo_eco || "")
+      .replace(/\s+/g, " ")
+      .slice(0, 220);
+    return `- ${linha}${linha.length >= 220 ? "…" : ""}${pct}`;
+  });
+
+  return [
+    "CONTINUIDADE — SINAIS DO HISTÓRICO (use com leveza, sem afirmar que “lembra”):",
+    ...linhas,
+    "Se (e somente se) fizer sentido, pode contextualizar com: “uma coisa que você compartilhou foi…”.",
+  ].join("\n");
+}
+
 export async function montarContextoEco(params: BuildParams): Promise<string> {
   const {
     userId: _userId,
@@ -67,6 +98,7 @@ export async function montarContextoEco(params: BuildParams): Promise<string> {
     derivados = null,
     aberturaHibrida = null,
     perfil: _perfil = null,
+    memoriasSemelhantes = [], // 🔥 NOVO
   } = params;
 
   /* ---------- Sinais básicos ---------- */
@@ -179,6 +211,9 @@ export async function montarContextoEco(params: BuildParams): Promise<string> {
   }
   const dyn = extras.length ? `\n\n${extras.map((e) => `• ${e}`).join("\n")}` : "";
 
+  /* ---------- NOVO: bloco de memória viva ---------- */
+  const memRecallBlock = formatMemRecall(memoriasSemelhantes);
+
   /* ---------- Prompt final ---------- */
   const prompt =
     [
@@ -187,10 +222,13 @@ export async function montarContextoEco(params: BuildParams): Promise<string> {
       "",
       stitched,
       "",
+      memRecallBlock || "",           // 🔥 injetado aqui (fica vazio se não houver)
+      "",
       instrucional,
       "",
       `Mensagem atual: ${texto}`,
     ]
+      .filter(Boolean)
       .join("\n")
       .trim();
 
