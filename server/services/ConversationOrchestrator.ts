@@ -304,7 +304,7 @@ export async function getEcoResponse(
           await saveMemoryOrReference({
             supabase,
             userId,
-            lastMessageId: (messages as any).at(-1)?.id ?? null,
+            lastMessageId: (messages as any).at(-1)?.id ?? undefined, // ⬅️ was null
             cleaned: fast.cleaned,
             bloco,
             ultimaMsg,
@@ -318,7 +318,7 @@ export async function getEcoResponse(
     trackMensagemEnviada({
       userId,
       tempoRespostaMs: now() - inicioFast,
-      tokensUsados: fast?.usage?.total_tokens || null,
+      tokensUsados: fast?.usage?.total_tokens ?? undefined, // ⬅️ was || null
       modelo: fast?.model,
     });
 
@@ -498,7 +498,7 @@ export async function getEcoResponse(
         await saveMemoryOrReference({
           supabase,
           userId,
-          lastMessageId: (messages as any).at(-1)?.id ?? null,
+          lastMessageId: (messages as any).at(-1)?.id ?? undefined, // ⬅️ was null
           cleaned,
           bloco,
           ultimaMsg,
@@ -512,7 +512,7 @@ export async function getEcoResponse(
   trackMensagemEnviada({
     userId,
     tempoRespostaMs: duracaoEco,
-    tokensUsados: data?.usage?.total_tokens || null,
+    tokensUsados: data?.usage?.total_tokens ?? undefined, // ⬅️ was || null
     modelo: data?.model,
   });
 
