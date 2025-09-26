@@ -1,5 +1,5 @@
 import supabase from "../../lib/supabaseAdmin"; // ✅ default import
-import { embedTextoCompleto } from "../../services/embeddingService";
+import { embedTextoCompleto } from "../../adapters/embeddingService";
 
 export async function buscarHeuristicasSemelhantes(texto: string) {
   // gera embedding

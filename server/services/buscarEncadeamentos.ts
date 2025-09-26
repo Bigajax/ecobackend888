@@ -1,6 +1,6 @@
 // services/buscarEncadeamentos.ts
 import { createClient } from "@supabase/supabase-js";
-import { embedTextoCompleto, unitNorm } from "./embeddingService";
+import { embedTextoCompleto, unitNorm } from "../adapters/embeddingService";
 
 const supabase = createClient(
   process.env.SUPABASE_URL!,

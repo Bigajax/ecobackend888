@@ -17,7 +17,7 @@ import { getEmbeddingCached } from "../adapters/EmbeddingAdapter";
 import { gerarBlocoTecnicoComCache } from "../core/EmotionalAnalyzer";
 import { microReflexoLocal } from "../core/ResponseGenerator";
 import { claudeChatCompletion } from "../core/ClaudeAdapter";
-import { GreetGuard } from "../policies/GreetGuard";
+import { GreetGuard } from "../core/policies/GreetGuard";
 import { getDerivados, insightAbertura } from "../services/derivadosService";
 import { buscarHeuristicasSemelhantes } from "../services/heuristicaService";
 import { buscarMemoriasSemelhantes } from "../services/buscarMemorias";

@@ -1,5 +1,5 @@
 // services/buscarMemorias.ts
-import { embedTextoCompleto, unitNorm } from "./embeddingService";
+import { embedTextoCompleto, unitNorm } from "../adapters/embeddingService";
 import { supabase } from "../lib/supabaseAdmin"; // ✅ usa a instância (não é função)
 
 export interface MemoriaSimilar {

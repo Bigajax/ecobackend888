@@ -2,7 +2,7 @@
 import fs from "fs/promises";
 import path from "path";
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
-import { embedTextoCompleto } from "../services/embeddingService";
+import { embedTextoCompleto } from "../adapters/embeddingService";
 
 // Caminho correto da pasta
 const pastaModulos = path.join(process.cwd(), "assets/modulos_filosoficos");

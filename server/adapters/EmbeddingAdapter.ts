@@ -1,5 +1,5 @@
 import crypto from "crypto";
-import { embedTextoCompleto } from "../services/embeddingService"; // <- seu serviço existente
+import { embedTextoCompleto } from "./embeddingService"; // <- seu serviço existente
 import { embeddingCache } from "../services/CacheService";
 
 export function hashText(text: string): string {
