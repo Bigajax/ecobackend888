@@ -1,21 +1,67 @@
-import express from "express";
+import express, { type NextFunction, type Request, type Response } from "express";
 import multer from "multer";
 import { generateAudio } from "../services/elevenlabsService";
 import { getEcoResponse } from "../services/ConversationOrchestrator";
 import { transcribeWithWhisper } from "../scripts/transcribe";
 
 const router = express.Router();
-const upload = multer();
+
+const DEFAULT_MAX_AUDIO_BYTES = 6 * 1024 * 1024; // 6MB – suficiente para ~1min em 64kbps
+const parsedLimit = Number(process.env.VOICE_MAX_AUDIO_BYTES);
+const MAX_AUDIO_BYTES = Number.isFinite(parsedLimit) && parsedLimit > 0
+  ? parsedLimit
+  : DEFAULT_MAX_AUDIO_BYTES;
+
+type RequestWithAudio = Request & {
+  file?: {
+    buffer: Buffer;
+  };
+};
+
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: MAX_AUDIO_BYTES },
+});
 
 const VOICE_FIXED = (process.env.ELEVEN_VOICE_ID || "e5WNhrdI30aXpS2RSGm1").trim();
 
-router.post("/transcribe-and-respond", upload.single("audio"), async (req, res) => {
+const singleAudioUpload = upload.single("audio");
+
+function isFileSizeLimitError(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error as { code?: unknown }).code === "LIMIT_FILE_SIZE"
+  );
+}
+
+router.post("/transcribe-and-respond", (req: Request, res: Response, next: NextFunction) => {
+  singleAudioUpload(req, res, (err: unknown) => {
+    if (err) {
+      if (isFileSizeLimitError(err)) {
+        return res.status(413).json({ error: "Arquivo de áudio excede o tamanho máximo permitido." });
+      }
+      console.error("[/transcribe-and-respond] erro ao fazer upload:", err);
+      return res.status(400).json({ error: "Falha ao processar o áudio enviado." });
+    }
+    return next();
+  });
+}, async (req: Request, res: Response) => {
   try {
-    const audioFile = req.file;
+    const { file: audioFile } = req as RequestWithAudio;
     const { nome_usuario, usuario_id, mensagens, access_token } = req.body;
 
     if (!audioFile || !access_token) {
       return res.status(400).json({ error: "Áudio e token são obrigatórios." });
+    }
+
+    if (!Buffer.isBuffer(audioFile.buffer)) {
+      return res.status(400).json({ error: "Arquivo de áudio inválido." });
+    }
+
+    if (audioFile.buffer.length > MAX_AUDIO_BYTES) {
+      return res.status(413).json({ error: "Arquivo de áudio excede o tamanho máximo permitido." });
     }
 
     const userText = await transcribeWithWhisper(audioFile.buffer);
