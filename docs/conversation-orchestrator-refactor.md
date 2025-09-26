@@ -47,3 +47,23 @@
 - Consider moving feature toggles (e.g. greeting enablement) into a dedicated `FeatureFlags` service that can be toggled per test without mutating `process.env` globally.
 
 Implementing these steps incrementally—starting with extracting pure helpers and response finalization—will reduce the risk of regressions while making the codebase more testable and maintainable.
+
+## Suggested implementation roadmap
+
+| Iteration | Focus area | Deliverables | Notes |
+|-----------|------------|--------------|-------|
+| 1 | Extract pure utilities | Move `stripIdentityCorrection`, `stripRedundantGreeting`, `isLowComplexity`, `heuristicaPreViva` into dedicated modules with unit tests. 【F:server/services/ConversationOrchestrator.ts†L53-L217】 | Enables snapshotting current behavior before heavier refactors. |
+| 2 | Response finalizer | Implement `ResponseFinalizer` abstraction and update orchestrator to consume it. 【F:server/services/ConversationOrchestrator.ts†L262-L654】 | Centralizes cleanup, analytics hooks, and persistence triggers. |
+| 3 | Greeting pipeline | Introduce `greeting.ts` service and route first-message logic through it. 【F:server/services/ConversationOrchestrator.ts†L308-L437】 | Unlocks independent testing of salutation handling. |
+| 4 | Router module | Create `ConversationRouter` with fast/full decision logic and accompanying tests. 【F:server/services/ConversationOrchestrator.ts†L77-L440】 | Keeps complexity heuristics separated from orchestration. |
+| 5 | Parallel fetch service | Extract `operacoesParalelas` into `parallelFetch.ts` and wire via dependency injection. 【F:server/services/ConversationOrchestrator.ts†L92-L517】 | Simplifies async control flow and facilitates timeout simulations. |
+| 6 | Context cache service | Replace inline cache usage with `ContextCache` class and add coverage. 【F:server/services/ConversationOrchestrator.ts†L158-L197】 | Encapsulates cache key construction and logging. |
+| 7 | Dependency bundle & feature flags | Introduce `ConversationDependencies` and `FeatureFlags` modules. | Finalize seam creation for future changes and environment-specific toggles. |
+
+## Tracking refactor progress
+
+- Create a short-lived branch per iteration to keep pull requests reviewable.
+- For each extracted module, publish a README or JSDoc comment describing its contract and collaborators.
+- Maintain a checklist in the main refactor ticket mirroring the roadmap table above; mark tasks complete as modules migrate.
+- After iterations 3 and 4, run an integration smoke test (staging conversation) to ensure routing/greeting behavior remains intact.
+- Schedule a pairing or review session after iteration 5 to validate that parallel fetch error handling still meets product requirements.
