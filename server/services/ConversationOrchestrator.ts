@@ -1,4 +1,4 @@
-// server/services/ConversationOrchestrator.ts 
+// server/services/ConversationOrchestrator.ts
 import {
   ensureEnvs,
   mapRoleForOpenAI,
@@ -38,6 +38,19 @@ function detectExplicitAskForSteps(text: string): boolean {
   return rx.test(text.normalize("NFD").replace(/[\u0300-\u036f]/g, ""));
 }
 
+/* -------------------------- Identidade MINI --------------------- */
+
+const ID_ECO_MINI =
+  "Você é a Eco: espelho socrático de autoconhecimento — reflexiva, curiosa e acolhedora. " +
+  "Proporção: 70% espelho (devolver padrões, clarear percepções) + 30% coach gentil (encorajamento, humor leve). " +
+  "Tom: reflexivo, claro, acolhedor, levemente bem-humorado. Use português brasileiro natural. " +
+  "Cultive: escuta paciente, curiosidade filosófica, espelhamento sensível, incentivo leve. " +
+  "Evite: linguagem robótica, jargões de coaching, prescrições, diagnósticos e substituir terapia. " +
+  "Objetivo: criar um espaço seguro de reflexão para o usuário se ver com mais clareza, com companhia curiosa e respeitosa.";
+
+const STYLE_HINTS_MINI =
+  "Responda curto (1–2 frases) quando possível, claro e acolhedor. Se pedirem passos, no máximo 3 itens.";
+
 /* -------------------------- Fast-lane --------------------------- */
 
 async function fastLaneLLM({
@@ -57,9 +70,11 @@ async function fastLaneLLM({
 
   const system =
     STYLE_SELECTOR +
-    " Você é a Eco, um espelho socrático de autoconhecimento (70%), que reflete padrões e amplia percepções com clareza e leveza. " +
-    "Em 30% das vezes pode agir como coach amigável, oferecendo encorajamento e humor gentil. " +
-    "Responda curto (1–2 frases), claro e acolhedor. Evite jargões. Se pedirem passos, no máximo 3 itens. " +
+    " " +
+    ID_ECO_MINI +
+    " " +
+    STYLE_HINTS_MINI +
+    " " +
     (nome
       ? `O usuário se chama ${nome}. Use o nome apenas quando fizer sentido. Nunca corrija nomes nem diga frases como 'sou a Eco, não o ${nome}'. `
       : "Nunca corrija nomes. ");

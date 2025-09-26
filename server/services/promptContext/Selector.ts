@@ -1,6 +1,7 @@
 // server/services/promptContext/Selector.ts
 
-import matrizPromptBaseV2 from "./matrizPromptBaseV2"; // ⬅️ ajuste o caminho se necessário
+import matrizPromptBaseV2 from "./matrizPromptBaseV2"; // ajuste o caminho se necessário
+import { Camada, CondicaoEspecial } from "./types";
 
 /* ===================== Tipos & Interfaces ===================== */
 
@@ -291,7 +292,7 @@ export const Selector = {
     const spec = matrizPromptBaseV2.byNivelV2[nivel]?.specific ?? [];
     const inherits = matrizPromptBaseV2.byNivelV2[nivel]?.inherits ?? [];
     const inheritedModules = inherits.flatMap(
-      (camada) => matrizPromptBaseV2.baseModules[camada] ?? []
+      (camada: Camada) => matrizPromptBaseV2.baseModules[camada] ?? []
     );
     const rawSet = new Set<string>([...spec, ...inheritedModules]);
     const raw = Array.from(rawSet);
@@ -308,9 +309,13 @@ export const Selector = {
     // Gating 2: regras semânticas (ativação condicional)
     // → se a regra bater, inclui; se não bater, não força remoção (exceto se já removido por intensidade).
     const ctx: Ctx = { nivel, intensidade, ...flags };
-    for (const [mod, { regra }] of Object.entries(matrizPromptBaseV2.condicoesEspeciais ?? {})) {
+    const condicoes = Object.entries(
+      (matrizPromptBaseV2.condicoesEspeciais ?? {}) as Record<string, CondicaoEspecial>
+    );
+
+    for (const [mod, cond] of condicoes) {
       try {
-        if (evalRule(regra, ctx)) {
+        if (evalRule(cond.regra, ctx)) {
           gatedSet.add(mod);
         }
       } catch {

@@ -1,3 +1,11 @@
+// services/promptContext/matrizPromptBaseV2.ts
+import {
+  MatrizPromptBaseV2,
+  Camada,
+  CondicaoEspecial,
+  Nivel,
+} from "./types";
+
 /* ======================== Matriz (V2) ======================== */
 const matrizPromptBaseV2: MatrizPromptBaseV2 = {
   /* ============== base ============== */
@@ -26,10 +34,10 @@ const matrizPromptBaseV2: MatrizPromptBaseV2 = {
         "ANTISALDO_MIN.txt",
         "ESCALA_ABERTURA_1a3.txt",
       ],
-      inherits: [],
+      inherits: [] as Camada[],
     },
-    2: { specific: [], inherits: ["core", "advanced"] },
-    3: { specific: [], inherits: ["core", "advanced"] },
+    2: { specific: [], inherits: ["core", "advanced"] as Camada[] },
+    3: { specific: [], inherits: ["core", "advanced"] as Camada[] },
   },
 
   /* ============== compat legado ============== */
@@ -56,14 +64,15 @@ const matrizPromptBaseV2: MatrizPromptBaseV2 = {
       regra: "nivel>=1",
     },
     "ESCALA_INTENSIDADE_0a10.txt": {
-      descricao: "Mapa para calibrar tom/ritmo; usar quando houver emoção em cena",
+      descricao:
+        "Mapa para calibrar tom/ritmo; usar quando houver emoção em cena",
       regra: "nivel>=1",
     },
 
     // >>> VIVA conforme pipeline:
     // - Ativar: intensidade >= 7 AND abertura (nivel) >= 2
     // - Não ativar: saudação, factual, pedido prático, cansaço sem intensidade, desabafo (sem querer intervenção)
-    // OBS: 'saudacao', 'factual', 'cansaco', 'desabafo' assumem flags do Selector.derivarFlags(texto).
+    // OBS: flags assumem Selector.derivarFlags(texto)
     "METODO_VIVA_ENXUTO.txt": {
       descricao:
         "Ativar quando emoção clara (≥7) e abertura ≥2; máx. 3 movimentos; evitar em saudação/factual/pedido prático/cansaço/desabafo.",
@@ -84,23 +93,27 @@ const matrizPromptBaseV2: MatrizPromptBaseV2 = {
     /* ====== Heurísticas (inclui extremos) ====== */
     "eco_heuristica_disponibilidade.txt": {
       descricao: "Disponibilidade",
-      regra: "(intensidade<=2 || intensidade>=8) && nivel>=2 && !pedido_pratico",
+      regra:
+        "(intensidade<=2 || intensidade>=8) && nivel>=2 && !pedido_pratico",
     },
     "eco_heuristica_excesso_confianca.txt": {
       descricao: "Excesso de confiança",
-      regra: "((intensidade>=2 && intensidade<=6) || intensidade>=8) && nivel>=2 && !pedido_pratico",
+      regra:
+        "((intensidade>=2 && intensidade<=6) || intensidade>=8) && nivel>=2 && !pedido_pratico",
     },
     "eco_heuristica_ilusao_validade.txt": {
       descricao: "Ilusão de validade",
-      regra: "((intensidade>=2 && intensidade<=6) || intensidade>=8) && nivel>=2 && !pedido_pratico",
+      regra:
+        "((intensidade>=2 && intensidade<=6) || intensidade>=8) && nivel>=2 && !pedido_pratico",
     },
     "heuristica_ilusao_compreensao.txt": {
       descricao: "Ilusão de compreensão",
-      regra: "((intensidade>=2 && intensidade<=6) || intensidade>=8) && nivel>=2 && !pedido_pratico",
+      regra:
+        "((intensidade>=2 && intensidade<=6) || intensidade>=8) && nivel>=2 && !pedido_pratico",
     },
 
-    // … mantém as demais como já estavam …
-  },
+    // … adicione as demais, quando necessário, mantendo o mesmo padrão de tipo …
+  } as Record<string, CondicaoEspecial>,
 
   /* ============== prioridade (budget) ============== */
   limites: {
@@ -129,4 +142,5 @@ const matrizPromptBaseV2: MatrizPromptBaseV2 = {
   },
 };
 
+export { matrizPromptBaseV2 };
 export default matrizPromptBaseV2;
