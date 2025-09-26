@@ -1,7 +1,37 @@
 // server/services/embeddingService.ts
-import OpenAI from "openai";
+import type OpenAI from "openai";
 
 let _openai: OpenAI | null = null;
+type OpenAIConstructor = new (config: {
+  apiKey: string;
+  timeout?: number;
+  maxRetries?: number;
+}) => OpenAI;
+
+let OpenAIClass: OpenAIConstructor | null = null;
+
+function resolveOpenAIClass(): OpenAIConstructor {
+  if (OpenAIClass) return OpenAIClass;
+
+  let mod: any;
+  try {
+    mod = require("openai");
+  } catch {
+    throw new Error(
+      "Pacote 'openai' não encontrado. Instale-o como dependência para gerar embeddings reais."
+    );
+  }
+
+  const ctor = mod?.default ?? mod?.OpenAI ?? mod;
+  if (typeof ctor !== "function") {
+    throw new Error(
+      "Pacote 'openai' encontrado, mas não exporta um construtor válido."
+    );
+  }
+
+  OpenAIClass = ctor as OpenAIConstructor;
+  return OpenAIClass;
+}
 const DEFAULT_MODEL = process.env.EMBEDDING_MODEL || "text-embedding-3-small";
 const EXPECTED_DIM = Number(process.env.EMBEDDING_DIM || (DEFAULT_MODEL === "text-embedding-3-small" ? 1536 : 3072));
 const MAX_CHARS = Number(process.env.EMBEDDING_MAX_CHARS || 8000); // simples proteção
@@ -18,7 +48,8 @@ function getOpenAI(): OpenAI {
   if (!apiKey) {
     throw new Error("OPENAI_API_KEY ausente. Defina OPENAI_API_KEY (ou OPENAI_KEY/OPENAI_TOKEN).");
   }
-  _openai = new OpenAI({ apiKey, timeout: 20000, maxRetries: 2 });
+  const OpenAICtor = resolveOpenAIClass();
+  _openai = new OpenAICtor({ apiKey, timeout: 20000, maxRetries: 2 });
   return _openai;
 }
 
