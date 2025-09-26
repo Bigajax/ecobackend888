@@ -283,22 +283,52 @@ export async function getEcoResponse(
   const micro = microReflexoLocal(ultimaMsg);
   if (micro) return { message: micro };
 
-  // 1) saudação/despedida
+  /* ------------------------------------------------------------------
+     1) Saudação/Despedida — versão mais rígida para evitar falsos positivos
+     - Só cumprimenta se:
+        a) a última mensagem do usuário é uma saudação curtinha (detectarSaudacaoBreve)
+        b) estamos no início da conversa (<= 2 mensagens do usuário) OU não houve
+           mensagem da Eco nas últimas 3 trocas
+        c) não existe promptOverride
+  ------------------------------------------------------------------ */
   const saudaMsgs: SaudMsg[] = [];
-  for (const m of (messages as any[]).slice(-4)) {
+  for (const m of (messages as any[]).slice(-6)) {
     saudaMsgs.push({
       role: toSaudRole((m as any).role),
       content: (m as any).content || "",
     });
   }
-  const auto = respostaSaudacaoAutomatica({ messages: saudaMsgs, userName, clientHour });
-  if (auto?.meta?.isFarewell) return { message: auto.text };
-  if (auto?.meta?.isGreeting) {
+
+  const auto = respostaSaudacaoAutomatica({
+    messages: saudaMsgs,
+    userName,
+    clientHour,
+  });
+
+  const lastFew = (messages as any[]).slice(-3);
+  const houveEcoUltimas3 = lastFew.some(
+    (m) => mapRoleForOpenAI((m as any).role) === "assistant"
+  );
+  const soSaudacaoCurta = detectarSaudacaoBreve(ultimaMsg) && ultimaMsg.length <= 40;
+  const inicioConversa =
+    (messages as any[]).filter((m) => mapRoleForOpenAI((m as any).role) === "user").length <= 2;
+
+  if (auto?.meta?.isFarewell) {
+    return { message: auto.text };
+  }
+
+  if (
+    auto?.meta?.isGreeting &&
+    soSaudacaoCurta &&
+    (inicioConversa || !houveEcoUltimas3) &&
+    !promptOverride
+  ) {
     if (GreetGuard.can(userId)) {
       GreetGuard.mark(userId);
       return { message: auto.text };
     }
   }
+  /* ---------------------- fim do bloco de saudação ---------------------- */
 
   // 2) roteamento
   const saudacaoBreve = detectarSaudacaoBreve(ultimaMsg);

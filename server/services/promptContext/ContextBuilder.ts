@@ -1,5 +1,4 @@
 // server/services/promptContext/ContextBuilder.ts
-
 import crypto from "crypto";
 import { isDebug, log } from "./logger";
 import { Budgeter } from "./Budgeter";
@@ -24,9 +23,21 @@ type BuildParams = {
   aberturaHibrida?: any;
   perfil?: any;
 
-  /** 🔥 NOVO: memórias semelhantes vindas do Orchestrator */
+  /** Aceita os dois nomes para compat com o Orchestrator */
+  memsSemelhantes?: Array<{
+    resumo_eco?: string;
+    analise_resumo?: string;
+    texto?: string;
+    conteudo?: string;
+    similarity?: number;
+    created_at?: string;
+    tags?: string[] | null;
+  }>;
   memoriasSemelhantes?: Array<{
-    resumo_eco: string;
+    resumo_eco?: string;
+    analise_resumo?: string;
+    texto?: string;
+    conteudo?: string;
     similarity?: number;
     created_at?: string;
     tags?: string[] | null;
@@ -35,8 +46,6 @@ type BuildParams = {
 
 /* ------------------------------------------------------------------
    Política de falta de módulos
-   - STRICT_MISSING: se "1", lança erro quando módulo não é encontrado.
-   - Caso contrário, só loga e retorna string vazia (Budgeter ignora).
 ------------------------------------------------------------------- */
 const STRICT_MISSING = process.env.ECO_STRICT_MODULES === "1";
 
@@ -61,19 +70,23 @@ async function requireModule(name: string): Promise<string> {
   return "";
 }
 
-/** 🔥 NOVO: bloco curto e seguro com memórias semelhantes */
+/** Bloco curto e seguro com memórias semelhantes */
 function formatMemRecall(
-  mems: BuildParams["memoriasSemelhantes"]
+  mems:
+    | BuildParams["memsSemelhantes"]
+    | BuildParams["memoriasSemelhantes"]
+    | undefined
 ): string {
   if (!mems || !mems.length) return "";
+  const pickText = (m: any) =>
+    m?.resumo_eco || m?.analise_resumo || m?.texto || m?.conteudo || "";
+
   const linhas = mems.slice(0, 3).map((m) => {
     const pct =
       typeof m?.similarity === "number"
         ? ` ~${Math.round((m.similarity as number) * 100)}%`
         : "";
-    const linha = String(m?.resumo_eco || "")
-      .replace(/\s+/g, " ")
-      .slice(0, 220);
+    const linha = String(pickText(m)).replace(/\s+/g, " ").slice(0, 220);
     return `- ${linha}${linha.length >= 220 ? "…" : ""}${pct}`;
   });
 
@@ -98,15 +111,26 @@ export async function montarContextoEco(params: BuildParams): Promise<string> {
     derivados = null,
     aberturaHibrida = null,
     perfil: _perfil = null,
-    memoriasSemelhantes = [], // 🔥 NOVO
+    // compat: aceita os dois nomes
+    memsSemelhantes,
+    memoriasSemelhantes,
   } = params;
+
+  // Normaliza: usa o que vier
+  const memsSemelhantesNorm =
+    (memsSemelhantes && Array.isArray(memsSemelhantes) && memsSemelhantes.length
+      ? memsSemelhantes
+      : memoriasSemelhantes) || [];
 
   /* ---------- Sinais básicos ---------- */
   const saudacaoBreve = detectarSaudacaoBreve(texto);
   const nivel = derivarNivel(texto, saudacaoBreve) as 1 | 2 | 3;
 
   /* ---------- Memo/overhead ---------- */
-  const memIntensity = Math.max(0, ...mems.map((m) => Number(m?.intensidade ?? 0)));
+  const memIntensity = Math.max(
+    0,
+    ...mems.map((m) => Number(m?.intensidade ?? 0))
+  );
   const memCount = mems.length;
 
   /* ---------- Bootstrap de módulos ---------- */
@@ -121,7 +145,9 @@ export async function montarContextoEco(params: BuildParams): Promise<string> {
 
   // Conjunto base conforme Selector (sem union de "essentials" aqui!)
   const modulesRaw = Array.from(new Set(baseSelection.raw ?? []));
-  const modulesAfterGating = Array.from(new Set(baseSelection.posGating ?? modulesRaw));
+  const modulesAfterGating = Array.from(
+    new Set(baseSelection.posGating ?? modulesRaw)
+  );
 
   /* ---------- Overhead instrucional (curto) ---------- */
   const responsePlan =
@@ -140,7 +166,11 @@ export async function montarContextoEco(params: BuildParams): Promise<string> {
         ];
 
   /* ---------- Política por nível ---------- */
-  const MIN_NV1: string[] = ["NV1_CORE.txt", "IDENTIDADE_MINI.txt", "ANTISALDO_MIN.txt"];
+  const MIN_NV1: string[] = [
+    "NV1_CORE.txt",
+    "IDENTIDADE_MINI.txt",
+    "ANTISALDO_MIN.txt",
+  ];
   const ordered: string[] = nivel === 1 ? MIN_NV1 : modulesAfterGating;
 
   /* ---------- Loader com contagem de tokens ---------- */
@@ -153,8 +183,8 @@ export async function montarContextoEco(params: BuildParams): Promise<string> {
 
   /* ---------- Orçamento ---------- */
   const DEFAULT_BUDGET = 2500;
-  const hardMin = 800;    // evita prompts anêmicos
-  const hardMax = 6000;   // deixa espaço para histórico + completion
+  const hardMin = 800; // evita prompts anêmicos
+  const hardMax = 6000; // deixa espaço para histórico + completion
   const budgetTokens = Math.min(
     hardMax,
     Math.max(
@@ -175,7 +205,9 @@ export async function montarContextoEco(params: BuildParams): Promise<string> {
   });
 
   // Filtra os que cabem no orçamento preservando ordem
-  const loaded = candidates.filter((c) => budgetResult.used.includes(c.name) && c.text.trim().length > 0);
+  const loaded = candidates.filter(
+    (c) => budgetResult.used.includes(c.name) && c.text.trim().length > 0
+  );
 
   /* ---------- Reduções/recortes ---------- */
   const reduced = loaded.map((m) => {
@@ -203,34 +235,37 @@ export async function montarContextoEco(params: BuildParams): Promise<string> {
 
   const extras: string[] = [];
   if (aberturaHibrida?.sugestaoNivel != null) {
-    extras.push(`Ajuste dinâmico de abertura (sugerido): ${aberturaHibrida.sugestaoNivel}`);
+    extras.push(
+      `Ajuste dinâmico de abertura (sugerido): ${aberturaHibrida.sugestaoNivel}`
+    );
   }
   if (derivados?.resumoTopicos) {
     const top = String(derivados.resumoTopicos).slice(0, 220);
-    extras.push(`Observações de continuidade: ${top}${top.length >= 220 ? "…" : ""}`);
+    extras.push(
+      `Observações de continuidade: ${top}${top.length >= 220 ? "…" : ""}`
+    );
   }
   const dyn = extras.length ? `\n\n${extras.map((e) => `• ${e}`).join("\n")}` : "";
 
-  /* ---------- NOVO: bloco de memória viva ---------- */
-  const memRecallBlock = formatMemRecall(memoriasSemelhantes);
+  /* ---------- Bloco de memória viva ---------- */
+  const memRecallBlock = formatMemRecall(memsSemelhantesNorm);
 
   /* ---------- Prompt final ---------- */
-  const prompt =
-    [
-      `// CONTEXTO ECO — NV${nivel}`,
-      `// ${header}${dyn}`,
-      "",
-      stitched,
-      "",
-      memRecallBlock || "",           // 🔥 injetado aqui (fica vazio se não houver)
-      "",
-      instrucional,
-      "",
-      `Mensagem atual: ${texto}`,
-    ]
-      .filter(Boolean)
-      .join("\n")
-      .trim();
+  const prompt = [
+    `// CONTEXTO ECO — NV${nivel}`,
+    `// ${header}${dyn}`,
+    "",
+    stitched,
+    "",
+    memRecallBlock || "",
+    "",
+    instrucional,
+    "",
+    `Mensagem atual: ${texto}`,
+  ]
+    .filter(Boolean)
+    .join("\n")
+    .trim();
 
   /* ---------- Métricas & Debug ---------- */
   if (isDebug()) {
@@ -283,8 +318,7 @@ function dedupeBySection(text: string): string {
 
   for (const ln of lines) {
     const isTitle =
-      /^#{1,6}\s+/.test(ln) ||
-      /^[A-ZÁÂÃÉÊÍÓÔÕÚÜÇ0-9][^\n]{0,80}$/.test(ln);
+      /^#{1,6}\s+/.test(ln) || /^[A-ZÁÂÃÉÊÍÓÔÕÚÜÇ0-9][^\n]{0,80}$/.test(ln);
     if (isTitle) {
       flush();
       const normalizedTitle = ln.trim().toUpperCase().replace(/\s+/g, " ");
@@ -304,7 +338,9 @@ function dedupeBySection(text: string): string {
 function extrairIdentidadeResumida(text: string): string | "" {
   const m = text.match(/(IDENTIDADE\s+RESUMIDA[\s\S]*?)(?:\n#{1,6}\s+|$)/i);
   if (m) return limparEspacos(m[1]);
-  const n = text.match(/IDENTIDADE[\s\S]*?\n+([\s\S]{80,400}?)(?:\n{2,}|#{1,6}\s+)/i);
+  const n = text.match(
+    /IDENTIDADE[\s\S]*?\n+([\s\S]{80,400}?)(?:\n{2,}|#{1,6}\s+)/
+  );
   if (n) return "IDENTIDADE — RESUMO\n" + limparEspacos(n[1]);
   return "";
 }
