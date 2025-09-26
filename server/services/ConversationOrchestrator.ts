@@ -1,220 +1,32 @@
 // server/services/ConversationOrchestrator.ts
 import {
   ensureEnvs,
-  formatarTextoEco,
-  limparResposta,
   mapRoleForOpenAI,
   now,
   sleep,
   type GetEcoParams,
   type GetEcoResult,
-  type ParalelasResult,
 } from "../utils";
-
 import { supabaseWithBearer } from "../adapters/SupabaseAdapter";
-import { PROMPT_CACHE } from "../services/CacheService";
-import { getEmbeddingCached } from "../adapters/EmbeddingAdapter";
-import { gerarBlocoTecnicoComCache } from "../core/EmotionalAnalyzer";
 import { microReflexoLocal } from "../core/ResponseGenerator";
 import { claudeChatCompletion } from "../core/ClaudeAdapter";
-import { GreetGuard } from "../core/policies/GreetGuard";
 import { getDerivados, insightAbertura } from "../services/derivadosService";
-import { buscarHeuristicasSemelhantes } from "../services/heuristicaService";
-import { buscarMemoriasSemelhantes } from "../services/buscarMemorias";
-
-// 👉 usa o builder exportado pelo barrel services/promptContext/index.ts
-import { ContextBuilder } from "../services/promptContext";
-
-import {
-  respostaSaudacaoAutomatica,
-  type Msg as SaudMsg,
-} from "../utils/respostaSaudacaoAutomatica";
-import { saveMemoryOrReference } from "../services/MemoryService";
-import {
-  trackMensagemEnviada,
-  trackEcoDemorou,
-} from "../analytics/events/mixpanelEvents";
-
-// 🔽 logger
 import { log, isDebug } from "../services/promptContext/logger";
-// 🔽 helpers para cache key previsível
+
+import { defaultGreetingPipeline } from "./conversation/greeting";
+import { defaultConversationRouter } from "./conversation/router";
 import {
-  derivarNivel,
-  detectarSaudacaoBreve,
-} from "../services/promptContext/Selector";
+  defaultParallelFetchService,
+  withTimeoutOrNull,
+} from "./conversation/parallelFetch";
+import { defaultContextCache } from "./conversation/contextCache";
+import { defaultResponseFinalizer } from "./conversation/responseFinalizer";
+import { firstName } from "./conversation/helpers";
 
 /* ---------------------------- Consts ---------------------------- */
 
 const DERIVADOS_TIMEOUT_MS = Number(process.env.ECO_DERIVADOS_TIMEOUT_MS ?? 600);
 const PARALELAS_TIMEOUT_MS = Number(process.env.ECO_PARALELAS_TIMEOUT_MS ?? 180);
-
-/* ---------------------------- Helpers ---------------------------- */
-
-const firstName = (s?: string) => (s || "").trim().split(/\s+/)[0] || "";
-
-// Remove respostas do tipo “sou a Eco, não o {nome}”
-function stripIdentityCorrection(text: string, nome?: string) {
-  if (!nome) return text;
-  const re = new RegExp(
-    String.raw`(?:^|\n).*?(?:eu\s*)?sou\s*a?\s*eco[^.\n]*não\s+o?a?\s*${nome}\b.*`,
-    "i"
-  );
-  return text.replace(re, "").trim();
-}
-
-/** Remove “Oi/Olá/Bom dia…” redundante quando não é a 1ª resposta da Eco */
-function stripRedundantGreeting(text: string, hasAssistantBefore: boolean) {
-  if (!hasAssistantBefore) return text;
-  let out = text.replace(
-    /^\s*(?:oi|olá|ola|bom dia|boa tarde|boa noite)[,!\.\-\–—\s]+/i,
-    ""
-  );
-  // se sobrar vazio, volta original
-  out = out.trim();
-  return out.length ? out : text;
-}
-
-function isLowComplexity(texto: string) {
-  const t = (texto || "").trim();
-  if (t.length <= 140) return true;
-  const words = t.split(/\s+/).length;
-  if (words <= 22) return true;
-  return !/crise|p[aâ]nico|desesper|vontade de sumir|explod|insuport|plano detalhado|passo a passo/i.test(
-    t
-  );
-}
-
-/** ⬇️ tipo auxiliar: paralelas + memórias */
-type ParalelasResultPlus = ParalelasResult & {
-  memsSemelhantes: any[];
-};
-
-async function operacoesParalelas(
-  ultimaMsg: string,
-  userId?: string,
-  supabase?: any
-): Promise<ParalelasResultPlus> {
-  let userEmbedding: number[] = [];
-  if (ultimaMsg.trim().length > 0) {
-    userEmbedding = await getEmbeddingCached(ultimaMsg, "entrada_usuario");
-  }
-
-  let heuristicas: any[] = [];
-  let memsSemelhantes: any[] = [];
-
-  if (userEmbedding.length > 0) {
-    try {
-      heuristicas = await buscarHeuristicasSemelhantes({
-        usuarioId: userId ?? null,
-        userEmbedding,
-        matchCount: 5,
-      });
-    } catch {
-      heuristicas = [];
-    }
-
-    // 🔎 busca memórias similares (semânticas)
-    if (userId) {
-      try {
-        // se o serviço aceitar injeção do client, passamos; senão, ele ignora
-        memsSemelhantes = await buscarMemoriasSemelhantes(userId, {
-          texto: ultimaMsg,
-          k: 3,
-          threshold: 0.12,
-          supabaseClient: supabase,
-        });
-      } catch (e: any) {
-        if (isDebug())
-          log.warn(
-            `[operacoesParalelas] buscarMemoriasSemelhantes falhou: ${e?.message}`
-          );
-        memsSemelhantes = [];
-      }
-    }
-  }
-
-  return { heuristicas, userEmbedding, memsSemelhantes };
-}
-
-// Timeout que NÃO quebra o fluxo (retorna null em erro/timeout)
-async function withTimeoutOrNull<T>(
-  p: Promise<T>,
-  ms: number,
-  label = "tarefa"
-): Promise<T | null> {
-  try {
-    return (await Promise.race([
-      p,
-      new Promise<T>((_, rej) =>
-        setTimeout(() => rej(new Error(`${label} timeout ${ms}ms`)), ms)
-      ),
-    ])) as T;
-  } catch (e: any) {
-    log.warn(`[Orchestrator] ${label} falhou/timeout (${ms}ms): ${e?.message}`);
-    return null;
-  }
-}
-
-/**
- * ⚙️ Monta (ou recupera) o contexto com cache por (userId, nível, intensidade).
- * Observação: o ContextBuilder já inclui "Mensagem atual: ..." no prompt final.
- * Portanto, não concatenamos novamente ao ler do cache.
- */
-async function montarContextoOtimizado(params: any) {
-  const entrada = String(params.texto ?? "");
-  const saudacaoBreve = detectarSaudacaoBreve(entrada);
-  const nivel = derivarNivel(entrada, saudacaoBreve);
-  const intensidade = Math.max(
-    0,
-    ...(params.mems ?? []).map((m: any) => Number(m?.intensidade ?? 0))
-  );
-
-  // ✅ considerar memórias semelhantes e evitar cache quando existirem
-  const msCount = Array.isArray(params.memoriasSemelhantes)
-    ? params.memoriasSemelhantes.length
-    : 0;
-
-  const cacheKey = `ctx:${params.userId || "anon"}:${nivel}:${Math.round(
-    intensidade
-  )}:ms${msCount}`;
-
-  const cached = PROMPT_CACHE.get(cacheKey);
-  if (cached && msCount === 0) {
-    if (isDebug()) log.debug("[Orchestrator] contexto via cache", { cacheKey });
-    return cached; // ✅ já inclui "Mensagem atual: ..."
-  }
-
-  const t0 = Date.now();
-  const contexto = await ContextBuilder.build(params); // ✅ usa builder unificado
-  if (isDebug())
-    log.debug("[Orchestrator] contexto construído", { ms: Date.now() - t0 });
-
-  // NV1 tende a se repetir mais — cache curto ajuda (apenas quando msCount==0)
-  if (nivel <= 2 && msCount === 0) PROMPT_CACHE.set(cacheKey, contexto);
-
-  return contexto;
-}
-
-function heuristicaPreViva(m: string) {
-  const texto = (m || "").toLowerCase();
-  const len = texto.length;
-  const gat = [
-    /ang[uú]st/i,
-    /p[aâ]nico/i,
-    /desesper/i,
-    /crise/i,
-    /sofr/i,
-    /n[aã]o aguento/i,
-    /vontade de sumir/i,
-    /explod/i,
-    /impulsiv/i,
-    /medo/i,
-    /ansiedad/i,
-    /culpa/i,
-    /triste/i,
-  ];
-  return gat.some((r) => r.test(texto)) || len >= 180;
-}
 
 /* -------------------------- Fast-lane --------------------------- */
 
@@ -256,24 +68,14 @@ async function fastLaneLLM({
   } catch (e: any) {
     log.warn(`[fastLaneLLM] falhou: ${e?.message}`);
     const fallback = "Tô aqui com você. Quer me contar um pouco mais?";
-    return { cleaned: fallback, usage: undefined, model: "fastlane-fallback" };
+    return { raw: fallback, usage: undefined, model: "fastlane-fallback" };
   }
 
   const raw: string = data?.content ?? "";
-  let cleaned = formatarTextoEco(limparResposta(raw || "Posso te ajudar nisso!"));
-  cleaned = stripIdentityCorrection(cleaned, nome);
-  return { cleaned, usage: data?.usage, model: data?.model };
+  return { raw, usage: data?.usage, model: data?.model };
 }
 
 /* -------------------------- Orquestrador ------------------------ */
-
-type SaudRole = "user" | "assistant" | "system";
-function toSaudRole(r: any): SaudRole | undefined {
-  if (r === "user" || r === "assistant" || r === "system") return r;
-  const m = mapRoleForOpenAI(r);
-  if (m === "user" || m === "assistant" || m === "system") return m;
-  return undefined;
-}
 
 export async function getEcoResponse(
   {
@@ -285,169 +87,81 @@ export async function getEcoResponse(
     forcarMetodoViva = false,
     blocoTecnicoForcado = null,
     clientHour,
-    // ⬇️ novos
     promptOverride,
     metaFromBuilder,
   }: GetEcoParams & { promptOverride?: string; metaFromBuilder?: any }
 ): Promise<GetEcoResult> {
-  const t0 = now();
   ensureEnvs();
 
   if (!Array.isArray(messages) || messages.length === 0) {
     throw new Error('Parâmetro "messages" vazio ou inválido.');
   }
-  const ultimaMsg = (messages as any).at(-1)?.content || "";
 
-  // client supabase o quanto antes (para paralelas)
+  const ultimaMsg = (messages as any).at(-1)?.content || "";
   const supabase = supabaseWithBearer(accessToken);
 
-  // 0) micro-reflexo local
   const micro = microReflexoLocal(ultimaMsg);
-  if (micro) return { message: micro };
-
-  // 1) saudação/despedida — **versão robusta**
-  // ------------------------------------------------------------
-  // Dispara somente se: thread ainda não tem resposta da Eco
-  // e a última msg do usuário é uma saudação curta (ou está vazia)
-  // e não há conteúdo substantivo.
-  const greetingEnabled = process.env.ECO_GREETING_BACKEND_ENABLED !== "0";
-  if (greetingEnabled) {
-    const assistantCount = (messages as any[]).filter(
-      (m) => mapRoleForOpenAI((m as any).role) === "assistant"
-    ).length;
-    const threadVazia = assistantCount === 0;
-
-    const ultima = (ultimaMsg || "").trim();
-    const saudacaoCurta = /^\s*(oi|olá|ola|bom dia|boa tarde|boa noite)\s*[!.?]*$/i.test(
-      ultima
-    );
-    const conteudoSubstantivo =
-      /[?]|(\b(quero|preciso|como|por que|porque|ajuda|planejar|plano|passo|sinto|penso|lembro)\b)/i.test(
-        ultima
-      ) || ultima.split(/\s+/).length > 6;
-
-    const saudaMsgs: SaudMsg[] = [];
-    for (const m of (messages as any[]).slice(-4)) {
-      saudaMsgs.push({
-        role: toSaudRole((m as any).role),
-        content: (m as any).content || "",
-      });
-    }
-    const auto = respostaSaudacaoAutomatica({
-      messages: saudaMsgs,
-      userName,
-      clientHour,
-    });
-
-    if (auto?.meta?.isFarewell) return { message: auto.text };
-
-    if (
-      auto?.meta?.isGreeting &&
-      threadVazia &&
-      (saudacaoCurta || ultima.length === 0) &&
-      !conteudoSubstantivo &&
-      GreetGuard.can(userId)
-    ) {
-      GreetGuard.mark(userId);
-      return { message: auto.text };
-    }
-    // caso contrário, suprime saudação
+  if (micro) {
+    return { message: micro };
   }
-  // ------------------------------------------------------------
 
-  // 2) roteamento
-  const saudacaoBreve = detectarSaudacaoBreve(ultimaMsg);
-  const nivelRoteador = derivarNivel(ultimaMsg, saudacaoBreve);
-  const low = isLowComplexity(ultimaMsg);
-  const vivaAtivo = forcarMetodoViva || heuristicaPreViva(ultimaMsg);
+  const greetingResult = defaultGreetingPipeline.handle({
+    messages: messages as any,
+    ultimaMsg,
+    userId,
+    userName,
+    clientHour,
+    greetingEnabled: process.env.ECO_GREETING_BACKEND_ENABLED !== "0",
+  });
 
-  // 🔁 IMPORTANTE: fast-lane reativada por padrão
-  // -> Só força rota completa se houver promptOverride "de verdade".
-  const forceFull =
-    typeof promptOverride === "string" && promptOverride.trim().length > 0;
+  if (greetingResult.handled && greetingResult.response) {
+    return { message: greetingResult.response };
+  }
 
-  if (isDebug())
+  const decision = defaultConversationRouter.decide({
+    messages: messages as any,
+    ultimaMsg,
+    forcarMetodoViva,
+    promptOverride,
+  });
+
+  if (isDebug()) {
     log.debug("[Orchestrator] flags", {
-      hasPromptOverride: typeof promptOverride,
       promptOverrideLen: (promptOverride || "").trim().length,
-      low,
-      vivaAtivo,
-      nivelRoteador,
+      low: decision.lowComplexity,
+      vivaAtivo: decision.vivaAtivo,
+      nivelRoteador: decision.nivelRoteador,
       ultimaLen: (ultimaMsg || "").length,
+      mode: decision.mode,
     });
+  }
 
-  const podeFastLane =
-    !forceFull &&
-    low &&
-    !vivaAtivo &&
-    (typeof nivelRoteador === "number" ? nivelRoteador <= 1 : true);
-
-  // contabiliza se já houve mensagem da Eco antes (para anti-saudação)
-  const hasAssistantBefore =
-    (messages as any[]).filter(
-      (m) => mapRoleForOpenAI((m as any).role) === "assistant"
-    ).length > 0;
-
-  if (podeFastLane) {
+  if (decision.mode === "fast") {
     const inicioFast = now();
     const fast = await fastLaneLLM({ messages: messages as any, userName });
 
-    let bloco: any = null;
-    try {
-      bloco = await gerarBlocoTecnicoComCache(ultimaMsg, fast.cleaned);
-    } catch {}
-
-    (async () => {
-      try {
-        if (userId) {
-          await saveMemoryOrReference({
-            supabase,
-            userId,
-            lastMessageId: (messages as any).at(-1)?.id ?? undefined,
-            cleaned: fast.cleaned,
-            bloco,
-            ultimaMsg,
-          });
-        }
-      } catch (e) {
-        log.warn("⚠️ Pós-processo fastLane falhou:", (e as Error).message);
-      }
-    })();
-
-    trackMensagemEnviada({
+    return defaultResponseFinalizer.finalize({
+      raw: fast.raw,
+      ultimaMsg,
+      userName,
+      hasAssistantBefore: decision.hasAssistantBefore,
       userId,
-      tempoRespostaMs: now() - inicioFast,
-      tokensUsados: fast?.usage?.total_tokens ?? undefined,
+      supabase,
+      lastMessageId: (messages as any).at(-1)?.id ?? undefined,
+      mode: "fast",
+      startedAt: inicioFast,
+      usageTokens: fast?.usage?.total_tokens ?? undefined,
       modelo: fast?.model,
     });
-
-    let msgFinal = fast.cleaned;
-    msgFinal = stripRedundantGreeting(msgFinal, hasAssistantBefore);
-
-    const resp: GetEcoResult = { message: msgFinal };
-    if (bloco && typeof bloco.intensidade === "number") {
-      resp.intensidade = bloco.intensidade;
-      resp.resumo = bloco?.analise_resumo?.trim().length
-        ? bloco.analise_resumo.trim()
-        : msgFinal;
-      resp.emocao = bloco.emocao_principal || "indefinida";
-      resp.tags = Array.isArray(bloco.tags) ? bloco.tags : [];
-      resp.categoria = bloco.categoria ?? null;
-    } else if (bloco) {
-      resp.categoria = bloco.categoria ?? null;
-    }
-    return resp;
   }
 
-  // 3) rota completa
-
-  // 3.1) paralelas — só se NÃO houver promptOverride
   let heuristicas: any[] = [];
   let userEmbedding: number[] = [];
   let memsSemelhantes: any[] = [];
+
   if (!promptOverride) {
     const paralelas = await Promise.race([
-      operacoesParalelas(ultimaMsg, userId, supabase),
+      defaultParallelFetchService.run({ ultimaMsg, userId, supabase }),
       sleep(PARALELAS_TIMEOUT_MS).then(() => ({
         heuristicas: [],
         userEmbedding: [],
@@ -456,10 +170,9 @@ export async function getEcoResponse(
     ]);
     heuristicas = paralelas.heuristicas;
     userEmbedding = paralelas.userEmbedding;
-    memsSemelhantes = (paralelas as any).memsSemelhantes ?? [];
+    memsSemelhantes = paralelas.memsSemelhantes ?? [];
   }
 
-  // 3.2) derivados — tolerante a timeout/erro; pula se promptOverride ou NV1
   const shouldSkipDerivados =
     !!promptOverride ||
     (metaFromBuilder && Number(metaFromBuilder.nivel) === 1) ||
@@ -512,7 +225,8 @@ export async function getEcoResponse(
           }
         })(),
         DERIVADOS_TIMEOUT_MS,
-        "derivados"
+        "derivados",
+        { logger: log }
       );
 
   const aberturaHibrida = derivados
@@ -525,17 +239,15 @@ export async function getEcoResponse(
       })()
     : null;
 
-  // 3.3) system prompt (usa override se veio da rota)
   const systemPrompt =
     promptOverride ??
-    (await montarContextoOtimizado({
+    (await defaultContextCache.build({
       userId,
       userName,
       perfil: null,
       mems,
-      // ✅ nome padronizado que o ContextBuilder entende:
       memoriasSemelhantes: memsSemelhantes,
-      forcarMetodoViva: vivaAtivo,
+      forcarMetodoViva: decision.vivaAtivo,
       blocoTecnicoForcado,
       texto: ultimaMsg,
       heuristicas,
@@ -572,86 +284,42 @@ export async function getEcoResponse(
     log.warn(`[getEcoResponse] LLM rota completa falhou: ${e?.message}`);
     const msg =
       "Desculpa, tive um problema técnico agora. Topa tentar de novo?";
-    const cleaned = stripIdentityCorrection(
-      formatarTextoEco(limparResposta(msg)),
-      firstName(userName)
-    );
-    const duracaoEcoErr = now() - inicioEco;
-    if (duracaoEcoErr > 2500)
-      trackEcoDemorou({ userId, duracaoMs: duracaoEcoErr, ultimaMsg });
-    trackMensagemEnviada({
+    return defaultResponseFinalizer.finalize({
+      raw: msg,
+      ultimaMsg,
+      userName,
+      hasAssistantBefore: decision.hasAssistantBefore,
       userId,
-      tempoRespostaMs: duracaoEcoErr,
-      tokensUsados: undefined,
+      supabase,
+      lastMessageId: (messages as any).at(-1)?.id ?? undefined,
+      mode: "full",
+      startedAt: inicioEco,
+      usageTokens: undefined,
       modelo: "full-fallback",
+      skipBloco: true,
     });
-    return { message: cleaned };
   }
 
-  const duracaoEco = now() - inicioEco;
-  if (duracaoEco > 2500)
-    trackEcoDemorou({ userId, duracaoMs: duracaoEco, ultimaMsg });
-
-  const raw: string = data?.content ?? "";
-  let cleaned = stripIdentityCorrection(
-    formatarTextoEco(
-      limparResposta(
-        raw || "Desculpa, não consegui responder agora. Pode tentar de novo?"
-      )
-    ),
-    firstName(userName)
-  );
-  cleaned = stripRedundantGreeting(cleaned, hasAssistantBefore);
-
-  let bloco: any = null;
-  try {
-    bloco = await gerarBlocoTecnicoComCache(ultimaMsg, cleaned);
-  } catch {}
-
-  const response: GetEcoResult = { message: cleaned };
-  if (bloco && typeof bloco.intensidade === "number") {
-    response.intensidade = bloco.intensidade;
-    response.resumo = bloco?.analise_resumo?.trim().length
-      ? bloco.analise_resumo.trim()
-      : cleaned;
-    response.emocao = bloco.emocao_principal || "indefinida";
-    response.tags = Array.isArray(bloco.tags) ? bloco.tags : [];
-    response.categoria = bloco.categoria ?? null;
-  } else if (bloco) {
-    response.categoria = bloco.categoria ?? null;
+  if (isDebug()) {
+    log.debug("[Orchestrator] resposta pronta", {
+      duracaoEcoMs: now() - inicioEco,
+      lenMensagem: (data?.content || "").length,
+    });
   }
 
-  (async () => {
-    try {
-      if (userId) {
-        await saveMemoryOrReference({
-          supabase,
-          userId,
-          lastMessageId: (messages as any).at(-1)?.id ?? undefined,
-          cleaned,
-          bloco,
-          ultimaMsg,
-        });
-      }
-    } catch (e) {
-      log.warn("⚠️ Pós-processo falhou:", (e as Error).message);
-    }
-  })();
-
-  trackMensagemEnviada({
+  return defaultResponseFinalizer.finalize({
+    raw: data?.content ?? "",
+    ultimaMsg,
+    userName,
+    hasAssistantBefore: decision.hasAssistantBefore,
     userId,
-    tempoRespostaMs: duracaoEco,
-    tokensUsados: data?.usage?.total_tokens ?? undefined,
+    supabase,
+    lastMessageId: (messages as any).at(-1)?.id ?? undefined,
+    mode: "full",
+    startedAt: inicioEco,
+    usageTokens: data?.usage?.total_tokens ?? undefined,
     modelo: data?.model,
   });
-
-  if (isDebug())
-    log.debug("[Orchestrator] resposta pronta", {
-      duracaoEcoMs: duracaoEco,
-      lenMensagem: (cleaned || "").length,
-    });
-
-  return response;
 }
 
 export { getEcoResponse as getEcoResponseOtimizado };
