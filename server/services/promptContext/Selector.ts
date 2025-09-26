@@ -2,10 +2,20 @@
 
 import matrizPromptBaseV2 from "./matrizPromptBaseV2"; // ⬅️ ajuste o caminho se necessário
 
+/* ===================== Tipos & Interfaces ===================== */
+
 export type Flags = {
   curiosidade: boolean;
   pedido_pratico: boolean;
   duvida_classificacao: boolean;
+
+  // 🔥 Novas flags para o pipeline VIVA/roteamento:
+  saudacao: boolean;
+  factual: boolean;
+  cansaco: boolean;
+  desabafo: boolean;
+  urgencia: boolean;
+  emocao_alta_linguagem: boolean;
 };
 
 export type BaseSelection = {
@@ -18,7 +28,18 @@ export type BaseSelection = {
   cortados: string[];
 };
 
-/* --------- Heurísticas simples --------- */
+/* ===================== Utils ===================== */
+
+function normalize(t: string): string {
+  return (t || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/* ===================== Heurísticas simples ===================== */
 
 export function detectarSaudacaoBreve(texto?: string): boolean {
   const t = (texto || "").trim();
@@ -54,7 +75,7 @@ export function estimarIntensidade0a10(text: string): number {
   return Math.max(0, Math.min(10, base + extra));
 }
 
-/* --------- Nível de abertura --------- */
+/* ===================== Nível de abertura ===================== */
 
 export function derivarNivel(texto: string, saudacaoBreve: boolean): 1 | 2 | 3 {
   if (saudacaoBreve) return 1;
@@ -64,40 +85,83 @@ export function derivarNivel(texto: string, saudacaoBreve: boolean): 1 | 2 | 3 {
   return 3;
 }
 
-/* --------- Flags --------- */
+/* ===================== Flags ===================== */
 
 export function derivarFlags(texto: string): Flags {
-  const t = (texto || "").toLowerCase();
+  const raw = texto || "";
+  const t = normalize(raw);
+
+  // já existentes
   const curiosidade =
-    /\b(como|por que|porque|pra que|para que|e se|poderia|podes|pode)\b/.test(t) ||
-    /\?$/.test(t);
+    /\b(como|por que|porque|pra que|para que|e se|poderia|podes|pode)\b/.test(t) || /\?$/.test(raw);
   const pedido_pratico =
-    /\b(passos?|tutorial|guia|checklist|lista|exemplo|modelo|template|o que faço|o que fazer|me ajuda)\b/.test(
+    /\b(passos?|tutorial|guia|checklist|lista|exemplo|modelo|template|o que faco|o que fazer|me ajuda)\b/.test(t);
+  const duvida_classificacao =
+    /\b(nivel|abertura|intensidade|classificacao|classificar)\b/.test(t);
+
+  // novas
+  const saudacao =
+    /\b(oi+|oie+|ola+|ola|ol[aá]|alo+|opa+|salve|bom dia|boa tarde|boa noite|boa madrugada)\b/.test(t);
+  const factual =
+    /\b(que dia|que data|horario|endereco|onde fica|preco|valor|numero|cpf|rg|link|url|site|telefone|contato|confirmar|confirmacao|agenda|quando|que horas)\b/.test(
       t
     );
-  const duvida_classificacao =
-    /\b(n[ií]vel|abertura|intensidade|classifica[cç][aã]o|classificar)\b/.test(t);
-  return { curiosidade, pedido_pratico, duvida_classificacao };
+  const cansaco =
+    /\b(cansad[ao]|sem energia|esgotad[ao]|exaust[ao]|exausta|acabado|acabada|saturad[ao](?: mas (?:de boa|tranq|ok))?)\b/.test(
+      t
+    );
+  const desabafo =
+    /\b(so desabafando|queria desabafar|so queria falar|nao precisa responder|nao quero conselho|nao preciso de intervencao)\b/.test(
+      t
+    );
+  const urgencia =
+    /\b(preciso resolver ja|nao sei mais o que fazer|socorro|urgente|agora|pra ontem)\b/.test(t);
+  const emocao_alta_linguagem =
+    /\b(nao aguento|no limite|explodindo|desesperad[oa]|muito ansios[oa]|panico|crise|tremend[oa])\b/.test(
+      t
+    );
+
+  return {
+    curiosidade,
+    pedido_pratico,
+    duvida_classificacao,
+    saudacao,
+    factual,
+    cansaco,
+    desabafo,
+    urgencia,
+    emocao_alta_linguagem,
+  };
 }
 
-/* --------- Mini avaliador seguro de regras ---------
-   Suporta expressões como:
-   - "nivel>=2 && intensidade>=7"
-   - "nivel>=2 && !pedido_pratico"
-   - "nivel>=2 && intensidade>=3 && intensidade<=6 && !pedido_pratico"
------------------------------------------------------- */
+/* ===================== Mini avaliador de regras =====================
+
+Suporta expressões como:
+- "nivel>=2 && intensidade>=7"
+- "nivel>=2 && !pedido_pratico"
+- "nivel>=2 && intensidade>=3 && intensidade<=6 && !pedido_pratico"
+
+==================================================================== */
 
 type Ctx = {
   nivel: number;
   intensidade: number;
+
+  // boolean flags
   curiosidade: boolean;
   pedido_pratico: boolean;
   duvida_classificacao: boolean;
+  saudacao: boolean;
+  factual: boolean;
+  cansaco: boolean;
+  desabafo: boolean;
+  urgencia: boolean;
+  emocao_alta_linguagem: boolean;
 };
 
 function evalRule(rule: string, ctx: Ctx): boolean {
   if (!rule || typeof rule !== "string") return true;
-  // OR de termos separados por "||"
+
   const orTerms = rule.split("||").map((s) => s.trim()).filter(Boolean);
   if (orTerms.length === 0) return true;
 
@@ -119,9 +183,7 @@ function evalRule(rule: string, ctx: Ctx): boolean {
         continue;
       }
       // comparações numéricas
-      const cmp = term.match(
-        /^([a-z_]+)\s*(>=|<=|==|!=|>|<)\s*([0-9]+)$/i
-      );
+      const cmp = term.match(/^([a-z_]+)\s*(>=|<=|==|!=|>|<)\s*([0-9]+)$/i);
       if (cmp) {
         const left = readVarNum(cmp[1], ctx);
         const op = cmp[2];
@@ -147,11 +209,18 @@ function readVarBool(name: string, ctx: Ctx): boolean | null {
     case "curiosidade":
     case "pedido_pratico":
     case "duvida_classificacao":
+    case "saudacao":
+    case "factual":
+    case "cansaco":
+    case "desabafo":
+    case "urgencia":
+    case "emocao_alta_linguagem":
       return Boolean((ctx as any)[name]);
     default:
       return null;
   }
 }
+
 function readVarNum(name: string, ctx: Ctx): number | null {
   switch (name) {
     case "nivel":
@@ -161,19 +230,27 @@ function readVarNum(name: string, ctx: Ctx): number | null {
       return null;
   }
 }
+
 function compare(a: number, op: string, b: number): boolean {
   switch (op) {
-    case ">=": return a >= b;
-    case "<=": return a <= b;
-    case ">":  return a > b;
-    case "<":  return a < b;
-    case "==": return a === b;
-    case "!=": return a !== b;
-    default:   return false;
+    case ">=":
+      return a >= b;
+    case "<=":
+      return a <= b;
+    case ">":
+      return a > b;
+    case "<":
+      return a < b;
+    case "==":
+      return a === b;
+    case "!=":
+      return a !== b;
+    default:
+      return false;
   }
 }
 
-/* --------- Seleção base com matriz V2 + gating --------- */
+/* ===================== Seleção base (Matriz V2 + gating) ===================== */
 
 export const Selector = {
   derivarFlags,
@@ -191,11 +268,12 @@ export const Selector = {
 
     // NV1: somente os três minis definidos na matriz (byNivelV2[1].specific)
     if (nivel === 1) {
-      const minis = (matrizPromptBaseV2.byNivelV2[1]?.specific ?? [
-        "NV1_CORE.txt",
-        "IDENTIDADE_MINI.txt",
-        "ANTISALDO_MIN.txt",
-      ]).slice();
+      const minis =
+        matrizPromptBaseV2.byNivelV2[1]?.specific?.slice?.() ?? [
+          "NV1_CORE.txt",
+          "IDENTIDADE_MINI.txt",
+          "ANTISALDO_MIN.txt",
+        ];
 
       const priorizado = ordenarPorPrioridade(minis, matrizPromptBaseV2.limites?.prioridade, 1);
       return {
@@ -212,7 +290,9 @@ export const Selector = {
     // NV2/NV3: monta a lista a partir da matriz (specific + inherits -> baseModules)
     const spec = matrizPromptBaseV2.byNivelV2[nivel]?.specific ?? [];
     const inherits = matrizPromptBaseV2.byNivelV2[nivel]?.inherits ?? [];
-    const inheritedModules = inherits.flatMap((camada) => matrizPromptBaseV2.baseModules[camada] ?? []);
+    const inheritedModules = inherits.flatMap(
+      (camada) => matrizPromptBaseV2.baseModules[camada] ?? []
+    );
     const rawSet = new Set<string>([...spec, ...inheritedModules]);
     const raw = Array.from(rawSet);
 
@@ -239,7 +319,11 @@ export const Selector = {
     }
 
     const posGating = Array.from(gatedSet);
-    const priorizado = ordenarPorPrioridade(posGating, matrizPromptBaseV2.limites?.prioridade, nivel);
+    const priorizado = ordenarPorPrioridade(
+      posGating,
+      matrizPromptBaseV2.limites?.prioridade,
+      nivel
+    );
 
     return {
       nivel,
@@ -253,7 +337,7 @@ export const Selector = {
   },
 };
 
-/* --------- Helpers --------- */
+/* ===================== Helpers ===================== */
 
 function ordenarPorPrioridade(
   arr: string[],

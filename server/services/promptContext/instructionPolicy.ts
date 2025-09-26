@@ -1,7 +1,10 @@
 export type InstructionBlock = { title: string; body: string };
 
-const RESPONSE_PLAN =
-  "Fluxo: acolher (1 linha) • espelhar o núcleo (1 linha) • (opcional) uma impressão curta com permissão • máx. 1 pergunta viva • fechar leve.";
+const RESPONSE_PLAN_ESPELHO =
+  "Fluxo (espelho 70%): acolher (1 linha) • refletir padrões ou sentimentos (1 linha) • (opcional) nomear uma impressão curta • 1 pergunta aberta socrática • fechar leve e claro.";
+
+const RESPONSE_PLAN_COACH =
+  "Fluxo (coach 30%): acolher (1 linha) • encorajar com humor ou leveza (1 linha) • (opcional) até 3 passos práticos curtos • fechar com incentivo.";
 
 const FINAL_INSTRUCTIONS =
   "Ética: sem diagnósticos nem promessas de cura. Priorize autonomia, cuidado e ritmo. Se tema clínico/urgente, acolha e oriente apoio adequado.";
@@ -12,7 +15,8 @@ export function buildInstructionBlocks(nivel: 1 | 2 | 3): InstructionBlock[] {
   }
 
   return [
-    { title: "ECO_RESPONSE_PLAN", body: RESPONSE_PLAN },
+    { title: "ECO_RESPONSE_PLAN_ESPELHO", body: RESPONSE_PLAN_ESPELHO },
+    { title: "ECO_RESPONSE_PLAN_COACH", body: RESPONSE_PLAN_COACH },
     { title: "ECO_INSTRUCOES_FINAIS", body: FINAL_INSTRUCTIONS },
   ];
 }

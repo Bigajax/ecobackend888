@@ -9,6 +9,17 @@ import { buildInstructionBlocks, renderInstructionBlocks } from "./instructionPo
 import { composePrompt } from "./promptComposer";
 import { applyReductions, stitchModules } from "./stitcher";
 
+// 👇 Identidade MINI (70/30) + estilo curto
+const ID_ECO =
+  "Você é a Eco: espelho socrático de autoconhecimento — reflexiva, curiosa e acolhedora. " +
+  "Proporção: 70% espelho (devolver padrões, clarear percepções) + 30% coach gentil (encorajamento, humor leve). " +
+  "Objetivo: criar um espaço seguro de reflexão para o usuário se ver com mais clareza, com companhia curiosa e respeitosa. " +
+  "Evite linguagem robótica, jargões de coaching, prescrições, diagnósticos e substituir terapia.";
+
+const STYLE_HINTS =
+  "Tom: reflexivo, claro, acolhedor, levemente bem-humorado. Use português brasileiro natural. " +
+  "Responda curto (1–2 frases) quando possível. Se pedirem passos, no máximo 3 itens.";
+
 export async function montarContextoEco(params: BuildParams): Promise<string> {
   const {
     userId: _userId,
@@ -47,24 +58,20 @@ export async function montarContextoEco(params: BuildParams): Promise<string> {
   });
 
   const modulesRaw = Array.from(new Set(baseSelection.raw ?? []));
-  const modulesAfterGating = Array.from(
-    new Set(baseSelection.posGating ?? modulesRaw)
-  );
+  const modulesAfterGating = Array.from(new Set(baseSelection.posGating ?? modulesRaw));
 
   const MIN_NV1: string[] = [
     "NV1_CORE.txt",
-    "IDENTIDADE_MINI.txt",
+    "IDENTIDADE_MINI.txt", // manter alinhado à identidade 70/30
     "ANTISALDO_MIN.txt",
   ];
   const ordered: string[] = nivel === 1 ? MIN_NV1 : modulesAfterGating;
 
   const candidates = await ModuleCatalog.load(ordered);
-
   const budgetResult = planBudget({ ordered, candidates });
 
   const filtered = candidates.filter(
-    (candidate) =>
-      budgetResult.used.includes(candidate.name) && candidate.text.trim().length > 0
+    (candidate) => budgetResult.used.includes(candidate.name) && candidate.text.trim().length > 0
   );
 
   const reduced = applyReductions(filtered, nivel);
@@ -84,7 +91,7 @@ export async function montarContextoEco(params: BuildParams): Promise<string> {
 
   const memRecallBlock = formatMemRecall(memsSemelhantesNorm);
 
-  const prompt = composePrompt({
+  const promptCore = composePrompt({
     nivel,
     memCount,
     forcarMetodoViva,
@@ -98,7 +105,7 @@ export async function montarContextoEco(params: BuildParams): Promise<string> {
   if (isDebug()) {
     const tokensContexto = ModuleCatalog.tokenCountOf("__INLINE__:ctx", texto);
     const overheadTokens = ModuleCatalog.tokenCountOf("__INLINE__:ovh", instructionText);
-    const total = ModuleCatalog.tokenCountOf("__INLINE__:ALL", prompt);
+    const total = ModuleCatalog.tokenCountOf("__INLINE__:ALL", `${ID_ECO}\n${STYLE_HINTS}\n\n${promptCore}`);
     log.debug("[ContextBuilder] tokens & orçamento", {
       tokensContexto,
       overheadTokens,
@@ -114,7 +121,8 @@ export async function montarContextoEco(params: BuildParams): Promise<string> {
     log.info("[ContextBuilder] NV" + nivel + " pronto", { totalTokens: total });
   }
 
-  return prompt;
+  // Prepend da identidade + estilo (garante 70/30 também na rota “full”)
+  return `${ID_ECO}\n${STYLE_HINTS}\n\n${promptCore}`;
 }
 
 export const ContextBuilder = {

@@ -1,4 +1,4 @@
-// server/services/ConversationOrchestrator.ts
+// server/services/ConversationOrchestrator.ts 
 import {
   ensureEnvs,
   mapRoleForOpenAI,
@@ -28,6 +28,16 @@ import { firstName } from "./conversation/helpers";
 const DERIVADOS_TIMEOUT_MS = Number(process.env.ECO_DERIVADOS_TIMEOUT_MS ?? 600);
 const PARALELAS_TIMEOUT_MS = Number(process.env.ECO_PARALELAS_TIMEOUT_MS ?? 180);
 
+/* ----------------------- Utils de estilo ------------------------ */
+
+// Detecta se o usuário pediu explicitamente "passos", "como fazer", etc.
+function detectExplicitAskForSteps(text: string): boolean {
+  if (!text) return false;
+  const rx =
+    /\b(passos?|etapas?|como\s+fa(c|ç)o|como\s+fazer|checklist|guia|tutorial|roteiro|lista\s+de|me\s+mostra\s+como|o\s+que\s+fazer)\b/i;
+  return rx.test(text.normalize("NFD").replace(/[\u0300-\u036f]/g, ""));
+}
+
 /* -------------------------- Fast-lane --------------------------- */
 
 async function fastLaneLLM({
@@ -38,11 +48,20 @@ async function fastLaneLLM({
   userName?: string;
 }) {
   const nome = firstName(userName);
+  const ultima = messages?.length ? (messages as any).at(-1)?.content ?? "" : "";
+
+  const preferCoach = detectExplicitAskForSteps(ultima);
+  const STYLE_SELECTOR = preferCoach
+    ? "Preferir plano COACH (30%): acolher (1 linha) • encorajar com leveza • (opcional) até 3 passos curtos • fechar com incentivo."
+    : "Preferir plano ESPELHO (70%): acolher (1 linha) • refletir padrões/sentimento (1 linha) • 1 pergunta aberta • fechar leve.";
+
   const system =
-    "Você é a Eco, um coach de autoconhecimento empático e reflexivo, que guia o usuário a se perceber melhor com clareza e leveza. " +
-    "Responda curto (1–2 frases), claro e gentil. Evite jargões. Se pedirem passos, no máximo 3 itens. " +
+    STYLE_SELECTOR +
+    " Você é a Eco, um espelho socrático de autoconhecimento (70%), que reflete padrões e amplia percepções com clareza e leveza. " +
+    "Em 30% das vezes pode agir como coach amigável, oferecendo encorajamento e humor gentil. " +
+    "Responda curto (1–2 frases), claro e acolhedor. Evite jargões. Se pedirem passos, no máximo 3 itens. " +
     (nome
-      ? `O usuário se chama ${nome}. Use o nome apenas quando fizer sentido. Nunca corrija nomes nem diga frases como "sou a Eco, não o ${nome}". `
+      ? `O usuário se chama ${nome}. Use o nome apenas quando fizer sentido. Nunca corrija nomes nem diga frases como 'sou a Eco, não o ${nome}'. `
       : "Nunca corrija nomes. ");
 
   const slim: Array<{ role: "system" | "user" | "assistant"; content: string }> =
@@ -257,8 +276,18 @@ export async function getEcoResponse(
       aberturaHibrida,
     }));
 
+  // Seleciona estilo para a rota full
+  const explicitAskForSteps = detectExplicitAskForSteps(ultimaMsg);
+  const preferCoachFull =
+    !decision.vivaAtivo &&
+    (explicitAskForSteps || Number(decision.nivelRoteador) === 1);
+
+  const STYLE_SELECTOR_FULL = preferCoachFull
+    ? "Preferir plano COACH (30%): acolher (1 linha) • encorajar com leveza • (opcional) até 3 passos curtos • fechar com incentivo."
+    : "Preferir plano ESPELHO (70%): acolher (1 linha) • refletir padrões/sentimento (1 linha) • 1 pergunta aberta • fechar leve.";
+
   const msgs: { role: "system" | "user" | "assistant"; content: string }[] = [
-    { role: "system", content: systemPrompt },
+    { role: "system", content: `${STYLE_SELECTOR_FULL}\n${systemPrompt}` },
     ...(messages as any[]).slice(-5).map((m) => ({
       role: mapRoleForOpenAI((m as any).role) as
         | "system"
