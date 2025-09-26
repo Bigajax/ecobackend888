@@ -1,6 +1,6 @@
 // services/referenciasService.ts
 import { supabase } from "../lib/supabaseAdmin"; // ✅ instância singleton
-import { unitNorm } from "./embeddingService";
+import { unitNorm } from "../adapters/embeddingService";
 
 interface BlocoTecnicoBase {
   usuario_id: string;

@@ -1,6 +1,6 @@
 import { callOpenRouterChat } from "../adapters/OpenRouterAdapter";
 import { limparResposta, formatarTextoEco } from "../utils/text";
-import { hedge } from "../policies/hedge";
+import { hedge } from "./policies/hedge";
 
 const MODEL_MAIN     = process.env.ECO_MODEL_MAIN     || "openai/gpt-5-chat";
 const MODEL_TECH_ALT = process.env.ECO_MODEL_TECH_ALT || "openai/gpt-5-mini";

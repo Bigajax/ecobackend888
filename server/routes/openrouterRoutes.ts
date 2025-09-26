@@ -3,7 +3,7 @@ import express, { type Request, type Response } from "express";
 import { supabase } from "../lib/supabaseAdmin"; // ✅ usa a instância (não é função)
 
 import { getEcoResponse } from "../services/ConversationOrchestrator";
-import { embedTextoCompleto } from "../services/embeddingService";
+import { embedTextoCompleto } from "../adapters/embeddingService";
 import { buscarMemoriasSemelhantes } from "../services/buscarMemorias";
 
 // montar contexto e log

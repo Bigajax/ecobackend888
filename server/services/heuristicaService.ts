@@ -1,7 +1,7 @@
 // services/heuristicaService.ts
 import { supabase } from "../lib/supabaseAdmin";
 import supabaseAdmin from "../lib/supabaseAdmin"; // para o hydrate simples do segundo helper
-import { embedTextoCompleto, unitNorm } from "./embeddingService";
+import { embedTextoCompleto, unitNorm } from "../adapters/embeddingService";
 
 /** Resultado final (sem o vetor) */
 export interface Heuristica {

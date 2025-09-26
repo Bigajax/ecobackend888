@@ -1,6 +1,6 @@
 import path from "path";
 import fs from "fs";
-import { ModuleStore } from "../services/promptContext/ModuleStore";
+import { ModuleCatalog } from "../domains/prompts/ModuleCatalog";
 import { log } from "../services/promptContext/logger";
 
 function dirIfExists(p: string) {
@@ -58,13 +58,13 @@ export async function configureModuleStore() {
   // Prioridade: env → dist → dev(server) → dev(root)
   const roots = [...envRoots, ...distRoots, ...devRootsServer, ...devRootsRoot];
 
-  ModuleStore.configure(roots);
-  await ModuleStore.buildFileIndexOnce();
+  ModuleCatalog.configure(roots);
+  await ModuleCatalog.buildFileIndexOnce();
 
   log.info("[ModuleStore.bootstrap] configurado", {
     roots,
     // mostra até 10 itens só pra sinalizar que indexou
-    indexedPeek: ModuleStore.listIndexed(10),
+    indexedPeek: ModuleCatalog.listIndexed(10),
   });
 
   if (roots.length === 0) {
@@ -81,6 +81,6 @@ export async function bootstrap() {
 }
 
 // 🔁 Compatibilidade com chamadas existentes: ModuleStore.bootstrap()
-;(ModuleStore as any).bootstrap = configureModuleStore;
+;(ModuleCatalog as any).bootstrap = configureModuleStore;
 
 export default configureModuleStore;

@@ -1,6 +1,6 @@
 // services/buscarReferenciasSemelhantes.ts
 import { supabase } from "../lib/supabaseAdmin";
-import { embedTextoCompleto, unitNorm } from "./embeddingService";
+import { embedTextoCompleto, unitNorm } from "../adapters/embeddingService";
 
 export interface ReferenciaTemporaria {
   resumo_eco: string;

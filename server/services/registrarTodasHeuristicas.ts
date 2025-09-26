@@ -1,7 +1,7 @@
 // services/registrarTodasHeuristicas.ts
 import fs from "fs/promises";
 import path from "path";
-import { embedTextoCompleto } from "./embeddingService";
+import { embedTextoCompleto } from "../adapters/embeddingService";
 import { supabase } from "../lib/supabaseAdmin"; // ✅ instância singleton
 
 // Pasta onde estão os .txt/.md das heurísticas
