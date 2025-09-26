@@ -30,6 +30,7 @@ type BuildParams = {
     texto?: string;
     conteudo?: string;
     similarity?: number;
+    similaridade?: number; // 👈 novo alias
     created_at?: string;
     tags?: string[] | null;
   }>;
@@ -39,6 +40,7 @@ type BuildParams = {
     texto?: string;
     conteudo?: string;
     similarity?: number;
+    similaridade?: number; // 👈 novo alias
     created_at?: string;
     tags?: string[] | null;
   }>;
@@ -78,14 +80,19 @@ function formatMemRecall(
     | undefined
 ): string {
   if (!mems || !mems.length) return "";
+
   const pickText = (m: any) =>
     m?.resumo_eco || m?.analise_resumo || m?.texto || m?.conteudo || "";
 
   const linhas = mems.slice(0, 3).map((m) => {
-    const pct =
+    const sim =
       typeof m?.similarity === "number"
-        ? ` ~${Math.round((m.similarity as number) * 100)}%`
-        : "";
+        ? m.similarity
+        : typeof m?.similaridade === "number"
+        ? m.similaridade
+        : undefined; // 👈 aceita ambos
+
+    const pct = typeof sim === "number" ? ` ~${Math.round(sim * 100)}%` : "";
     const linha = String(pickText(m)).replace(/\s+/g, " ").slice(0, 220);
     return `- ${linha}${linha.length >= 220 ? "…" : ""}${pct}`;
   });
