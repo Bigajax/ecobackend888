@@ -33,7 +33,7 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
   const authHeader = req.headers.authorization;
   if (!authHeader?.startsWith("Bearer ")) {
     return res.status(401).json({ error: "Token de acesso ausente." });
-    }
+  }
   const token = authHeader.replace("Bearer ", "").trim();
 
   if (!usuario_id || !mensagensParaIA) {
