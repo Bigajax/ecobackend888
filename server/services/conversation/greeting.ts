@@ -48,15 +48,26 @@ export class GreetingPipeline {
         ultima
       ) || ultima.split(/\s+/).length > 6;
 
-    const saudaMsgs: SaudacaoMsg[] = messages.slice(-4).map((m) => ({
-      role: this.toSaudRole(m.role),
-      content: m.content || "",
-    }));
+    // Normaliza clientHour para number | undefined
+    const normalizedHour: number | undefined =
+      clientHour == null ? undefined : Number(clientHour);
+
+    // Mantém apenas mensagens com role válido para SaudacaoMsg
+    const saudaMsgs: SaudacaoMsg[] = [];
+    for (const m of messages.slice(-4)) {
+      const r = this.toSaudRole(m.role);
+      if (r) {
+        saudaMsgs.push({
+          role: r,
+          content: m.content || "",
+        });
+      }
+    }
 
     const auto = respostaSaudacaoAutomatica({
       messages: saudaMsgs,
       userName,
-      clientHour,
+      clientHour: normalizedHour,
     });
 
     if (auto?.meta?.isFarewell) {
@@ -77,7 +88,7 @@ export class GreetingPipeline {
     return { handled: false };
   }
 
-  private toSaudRole(role: any): SaudacaoMsg["role"] {
+  private toSaudRole(role: any): SaudacaoMsg["role"] | undefined {
     const mapped = mapRoleForOpenAI(role);
     if (mapped === "user" || mapped === "assistant" || mapped === "system") {
       return mapped;
