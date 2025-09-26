@@ -62,6 +62,18 @@ function stripIdentityCorrection(text: string, nome?: string) {
   return text.replace(re, "").trim();
 }
 
+/** Remove “Oi/Olá/Bom dia…” redundante quando não é a 1ª resposta da Eco */
+function stripRedundantGreeting(text: string, hasAssistantBefore: boolean) {
+  if (!hasAssistantBefore) return text;
+  let out = text.replace(
+    /^\s*(?:oi|olá|ola|bom dia|boa tarde|boa noite)[,!\.\-\–—\s]+/i,
+    ""
+  );
+  // se sobrar vazio, volta original
+  out = out.trim();
+  return out.length ? out : text;
+}
+
 function isLowComplexity(texto: string) {
   const t = (texto || "").trim();
   if (t.length <= 140) return true;
@@ -79,7 +91,8 @@ type ParalelasResultPlus = ParalelasResult & {
 
 async function operacoesParalelas(
   ultimaMsg: string,
-  userId?: string
+  userId?: string,
+  supabase?: any
 ): Promise<ParalelasResultPlus> {
   let userEmbedding: number[] = [];
   if (ultimaMsg.trim().length > 0) {
@@ -103,12 +116,18 @@ async function operacoesParalelas(
     // 🔎 busca memórias similares (semânticas)
     if (userId) {
       try {
+        // se o serviço aceitar injeção do client, passamos; senão, ele ignora
         memsSemelhantes = await buscarMemoriasSemelhantes(userId, {
-          texto: ultimaMsg, // se seu service aceitar embedding, você pode trocar
+          texto: ultimaMsg,
           k: 3,
           threshold: 0.12,
+          supabaseClient: supabase,
         });
-      } catch {
+      } catch (e: any) {
+        if (isDebug())
+          log.warn(
+            `[operacoesParalelas] buscarMemoriasSemelhantes falhou: ${e?.message}`
+          );
         memsSemelhantes = [];
       }
     }
@@ -150,7 +169,7 @@ async function montarContextoOtimizado(params: any) {
     ...(params.mems ?? []).map((m: any) => Number(m?.intensidade ?? 0))
   );
 
-  // ✅ Ajuste de cache: considerar memórias semelhantes e evitar cache quando existirem
+  // ✅ considerar memórias semelhantes e evitar cache quando existirem
   const msCount = Array.isArray(params.memoriasSemelhantes)
     ? params.memoriasSemelhantes.length
     : 0;
@@ -279,56 +298,62 @@ export async function getEcoResponse(
   }
   const ultimaMsg = (messages as any).at(-1)?.content || "";
 
+  // client supabase o quanto antes (para paralelas)
+  const supabase = supabaseWithBearer(accessToken);
+
   // 0) micro-reflexo local
   const micro = microReflexoLocal(ultimaMsg);
   if (micro) return { message: micro };
 
-  /* ------------------------------------------------------------------
-     1) Saudação/Despedida — versão mais rígida para evitar falsos positivos
-     - Só cumprimenta se:
-        a) a última mensagem do usuário é uma saudação curtinha (detectarSaudacaoBreve)
-        b) estamos no início da conversa (<= 2 mensagens do usuário) OU não houve
-           mensagem da Eco nas últimas 3 trocas
-        c) não existe promptOverride
-  ------------------------------------------------------------------ */
-  const saudaMsgs: SaudMsg[] = [];
-  for (const m of (messages as any[]).slice(-6)) {
-    saudaMsgs.push({
-      role: toSaudRole((m as any).role),
-      content: (m as any).content || "",
+  // 1) saudação/despedida — **versão robusta**
+  // ------------------------------------------------------------
+  // Dispara somente se: thread ainda não tem resposta da Eco
+  // e a última msg do usuário é uma saudação curta (ou está vazia)
+  // e não há conteúdo substantivo.
+  const greetingEnabled = process.env.ECO_GREETING_BACKEND_ENABLED !== "0";
+  if (greetingEnabled) {
+    const assistantCount = (messages as any[]).filter(
+      (m) => mapRoleForOpenAI((m as any).role) === "assistant"
+    ).length;
+    const threadVazia = assistantCount === 0;
+
+    const ultima = (ultimaMsg || "").trim();
+    const saudacaoCurta = /^\s*(oi|olá|ola|bom dia|boa tarde|boa noite)\s*[!.?]*$/i.test(
+      ultima
+    );
+    const conteudoSubstantivo =
+      /[?]|(\b(quero|preciso|como|por que|porque|ajuda|planejar|plano|passo|sinto|penso|lembro)\b)/i.test(
+        ultima
+      ) || ultima.split(/\s+/).length > 6;
+
+    const saudaMsgs: SaudMsg[] = [];
+    for (const m of (messages as any[]).slice(-4)) {
+      saudaMsgs.push({
+        role: toSaudRole((m as any).role),
+        content: (m as any).content || "",
+      });
+    }
+    const auto = respostaSaudacaoAutomatica({
+      messages: saudaMsgs,
+      userName,
+      clientHour,
     });
-  }
 
-  const auto = respostaSaudacaoAutomatica({
-    messages: saudaMsgs,
-    userName,
-    clientHour,
-  });
+    if (auto?.meta?.isFarewell) return { message: auto.text };
 
-  const lastFew = (messages as any[]).slice(-3);
-  const houveEcoUltimas3 = lastFew.some(
-    (m) => mapRoleForOpenAI((m as any).role) === "assistant"
-  );
-  const soSaudacaoCurta = detectarSaudacaoBreve(ultimaMsg) && ultimaMsg.length <= 40;
-  const inicioConversa =
-    (messages as any[]).filter((m) => mapRoleForOpenAI((m as any).role) === "user").length <= 2;
-
-  if (auto?.meta?.isFarewell) {
-    return { message: auto.text };
-  }
-
-  if (
-    auto?.meta?.isGreeting &&
-    soSaudacaoCurta &&
-    (inicioConversa || !houveEcoUltimas3) &&
-    !promptOverride
-  ) {
-    if (GreetGuard.can(userId)) {
+    if (
+      auto?.meta?.isGreeting &&
+      threadVazia &&
+      (saudacaoCurta || ultima.length === 0) &&
+      !conteudoSubstantivo &&
+      GreetGuard.can(userId)
+    ) {
       GreetGuard.mark(userId);
       return { message: auto.text };
     }
+    // caso contrário, suprime saudação
   }
-  /* ---------------------- fim do bloco de saudação ---------------------- */
+  // ------------------------------------------------------------
 
   // 2) roteamento
   const saudacaoBreve = detectarSaudacaoBreve(ultimaMsg);
@@ -357,6 +382,12 @@ export async function getEcoResponse(
     !vivaAtivo &&
     (typeof nivelRoteador === "number" ? nivelRoteador <= 1 : true);
 
+  // contabiliza se já houve mensagem da Eco antes (para anti-saudação)
+  const hasAssistantBefore =
+    (messages as any[]).filter(
+      (m) => mapRoleForOpenAI((m as any).role) === "assistant"
+    ).length > 0;
+
   if (podeFastLane) {
     const inicioFast = now();
     const fast = await fastLaneLLM({ messages: messages as any, userName });
@@ -369,7 +400,6 @@ export async function getEcoResponse(
     (async () => {
       try {
         if (userId) {
-          const supabase = supabaseWithBearer(accessToken);
           await saveMemoryOrReference({
             supabase,
             userId,
@@ -391,12 +421,15 @@ export async function getEcoResponse(
       modelo: fast?.model,
     });
 
-    const resp: GetEcoResult = { message: fast.cleaned };
+    let msgFinal = fast.cleaned;
+    msgFinal = stripRedundantGreeting(msgFinal, hasAssistantBefore);
+
+    const resp: GetEcoResult = { message: msgFinal };
     if (bloco && typeof bloco.intensidade === "number") {
       resp.intensidade = bloco.intensidade;
       resp.resumo = bloco?.analise_resumo?.trim().length
         ? bloco.analise_resumo.trim()
-        : fast.cleaned;
+        : msgFinal;
       resp.emocao = bloco.emocao_principal || "indefinida";
       resp.tags = Array.isArray(bloco.tags) ? bloco.tags : [];
       resp.categoria = bloco.categoria ?? null;
@@ -407,7 +440,6 @@ export async function getEcoResponse(
   }
 
   // 3) rota completa
-  const supabase = supabaseWithBearer(accessToken);
 
   // 3.1) paralelas — só se NÃO houver promptOverride
   let heuristicas: any[] = [];
@@ -415,7 +447,7 @@ export async function getEcoResponse(
   let memsSemelhantes: any[] = [];
   if (!promptOverride) {
     const paralelas = await Promise.race([
-      operacoesParalelas(ultimaMsg, userId),
+      operacoesParalelas(ultimaMsg, userId, supabase),
       sleep(PARALELAS_TIMEOUT_MS).then(() => ({
         heuristicas: [],
         userEmbedding: [],
@@ -561,7 +593,7 @@ export async function getEcoResponse(
     trackEcoDemorou({ userId, duracaoMs: duracaoEco, ultimaMsg });
 
   const raw: string = data?.content ?? "";
-  const cleaned = stripIdentityCorrection(
+  let cleaned = stripIdentityCorrection(
     formatarTextoEco(
       limparResposta(
         raw || "Desculpa, não consegui responder agora. Pode tentar de novo?"
@@ -569,6 +601,7 @@ export async function getEcoResponse(
     ),
     firstName(userName)
   );
+  cleaned = stripRedundantGreeting(cleaned, hasAssistantBefore);
 
   let bloco: any = null;
   try {
