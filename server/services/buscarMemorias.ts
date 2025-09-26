@@ -1,6 +1,7 @@
 // services/buscarMemorias.ts
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { embedTextoCompleto, unitNorm } from "../adapters/embeddingService";
-import { supabase } from "../lib/supabaseAdmin"; // ✅ usa a instância (não é função)
+import { supabase as supabaseDefault } from "../lib/supabaseAdmin"; // ✅ renomeado
 
 export interface MemoriaSimilar {
   id: string;
@@ -13,20 +14,21 @@ export interface MemoriaSimilar {
   distancia?: number;    // v2 (1 - similarity)
 }
 
-type BuscarMemsOpts = {
-  texto?: string;            // usado se não houver userEmbedding
-  userEmbedding?: number[];  // se vier, não recalcula (normaliza!)
-  k?: number;                // default 6
-  threshold?: number;        // default 0.80 (similaridade ∈ [0..1])
-  daysBack?: number | null;  // default 30; null = sem filtro; usamos fallback
-  userId?: string | null;    // se não vier, busca global (todas as memórias salvas)
+export type BuscarMemsOpts = {
+  texto?: string;                 // usado se não houver userEmbedding
+  userEmbedding?: number[];       // se vier, não recalcula (normaliza!)
+  k?: number;                     // default 6
+  threshold?: number;             // default 0.80 (similaridade ∈ [0..1])
+  daysBack?: number | null;       // default 30; null = sem filtro; usamos fallback
+  userId?: string | null;         // se não vier, busca global (todas as memórias salvas)
+  supabaseClient?: SupabaseClient; // ✅ novo: permite injeção de client
 };
 
 /**
  * Busca memórias semelhantes usando a RPC v2 com fallback de janela temporal.
  * Compatível com:
  *   buscarMemoriasSemelhantes(userId, "texto")
- *   buscarMemoriasSemelhantes(userId, { userEmbedding, k: 6, threshold: 0.8 })
+ *   buscarMemoriasSemelhantes(userId, { userEmbedding, k: 6, threshold: 0.8, supabaseClient })
  */
 export async function buscarMemoriasSemelhantes(
   userIdOrNull: string | null,
@@ -42,6 +44,7 @@ export async function buscarMemoriasSemelhantes(
     let threshold = 0.8;        // ✅ default mais útil
     let daysBack: number | null = 30;
     let userId: string | null = userIdOrNull;
+    let supabaseClient: SupabaseClient | undefined;
 
     if (typeof entradaOrOpts === "string") {
       texto = entradaOrOpts ?? "";
@@ -56,7 +59,11 @@ export async function buscarMemoriasSemelhantes(
           ? entradaOrOpts.daysBack
           : daysBack;
       if (typeof entradaOrOpts.userId === "string") userId = entradaOrOpts.userId;
+      supabaseClient = entradaOrOpts.supabaseClient; // ✅ injetado (se vier)
     }
+
+    // Client a usar
+    const sb = supabaseClient ?? supabaseDefault; // ✅ preferir injetado
 
     // Guarda: se não veio embedding e o texto é muito curto, evita custo
     if (!userEmbedding && (!texto || texto.trim().length < 6)) return [];
@@ -79,7 +86,7 @@ export async function buscarMemoriasSemelhantes(
 
     // Helper para chamar a RPC v2 com days_back variável
     const call = async (db: number | null) => {
-      const { data, error } = await supabase.rpc(
+      const { data, error } = await sb.rpc(
         "buscar_memorias_semelhantes_v2",
         {
           query_embedding: queryEmbedding,  // float8[] / vector
@@ -91,7 +98,7 @@ export async function buscarMemoriasSemelhantes(
       );
       if (error) {
         console.warn("⚠️ RPC buscar_memorias_semelhantes_v2 falhou:", {
-          message: error.message,
+          message: (error as any)?.message,
           details: (error as any)?.details,
           hint: (error as any)?.hint,
         });
