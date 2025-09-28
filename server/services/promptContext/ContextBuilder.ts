@@ -1,4 +1,5 @@
 // server/services/promptContext/ContextBuilder.ts
+import { firstName } from "../conversation/helpers";
 import { isDebug, log } from "./logger";
 import { Selector, derivarNivel, detectarSaudacaoBreve } from "./Selector";
 import type { BuildParams } from "./contextTypes";
@@ -82,6 +83,10 @@ export async function montarContextoEco(params: BuildParams): Promise<string> {
   const instructionText = renderInstructionBlocks(instructionBlocks);
 
   const extras: string[] = [];
+  const nomeUsuario = firstName(params.userName ?? undefined);
+  if (nomeUsuario) {
+    extras.push(`Usuário se chama ${nomeUsuario}; use o nome apenas quando fizer sentido.`);
+  }
   if (aberturaHibrida?.sugestaoNivel != null) {
     extras.push(`Ajuste dinâmico de abertura (sugerido): ${aberturaHibrida.sugestaoNivel}`);
   }
