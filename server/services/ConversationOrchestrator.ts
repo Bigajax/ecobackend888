@@ -3,31 +3,22 @@ import {
   ensureEnvs,
   mapRoleForOpenAI,
   now,
-  sleep,
   type GetEcoParams,
   type GetEcoResult,
 } from "../utils";
 import { supabaseWithBearer } from "../adapters/SupabaseAdapter";
 import { microReflexoLocal } from "../core/ResponseGenerator";
 import { claudeChatCompletion } from "../core/ClaudeAdapter";
-import { getDerivados, insightAbertura } from "../services/derivadosService";
 import { log, isDebug } from "../services/promptContext/logger";
-import { DERIVADOS_CACHE } from "./CacheService";
 
 import { defaultGreetingPipeline } from "./conversation/greeting";
 import { defaultConversationRouter } from "./conversation/router";
-import {
-  defaultParallelFetchService,
-  withTimeoutOrNull,
-} from "./conversation/parallelFetch";
 import { defaultContextCache } from "./conversation/contextCache";
 import { defaultResponseFinalizer } from "./conversation/responseFinalizer";
 import { firstName } from "./conversation/helpers";
+import { loadConversationContext } from "./conversation/derivadosLoader";
 
 /* ---------------------------- Consts ---------------------------- */
-
-const DERIVADOS_TIMEOUT_MS = Number(process.env.ECO_DERIVADOS_TIMEOUT_MS ?? 600);
-const PARALELAS_TIMEOUT_MS = Number(process.env.ECO_PARALELAS_TIMEOUT_MS ?? 180);
 
 /* ----------------------- Utils de estilo ------------------------ */
 
@@ -190,109 +181,17 @@ export async function getEcoResponse(
     });
   }
 
-  const shouldSkipDerivados =
-    !!promptOverride ||
-    (metaFromBuilder && Number(metaFromBuilder.nivel) === 1) ||
-    !userId;
-
-  const derivadosCacheKey =
-    !shouldSkipDerivados && userId ? `derivados:${userId}` : null;
-  const cachedDerivados = derivadosCacheKey
-    ? DERIVADOS_CACHE.get(derivadosCacheKey) ?? null
-    : null;
-
-  const paralelasPromise = promptOverride
-    ? Promise.resolve({
-        heuristicas: [],
-        userEmbedding: [],
-        memsSemelhantes: [],
-      })
-    : Promise.race([
-        defaultParallelFetchService.run({ ultimaMsg, userId, supabase }),
-        sleep(PARALELAS_TIMEOUT_MS).then(() => ({
-          heuristicas: [],
-          userEmbedding: [],
-          memsSemelhantes: [],
-        })),
-      ]);
-
-  const derivadosPromise = shouldSkipDerivados || cachedDerivados
-    ? Promise.resolve(cachedDerivados)
-    : withTimeoutOrNull(
-        (async () => {
-          try {
-            const [{ data: stats }, { data: marcos }, { data: efeitos }] =
-              await Promise.all([
-                supabase
-                  .from("user_theme_stats")
-                  .select("tema,freq_30d,int_media_30d")
-                  .eq("user_id", userId)
-                  .order("freq_30d", { ascending: false })
-                  .limit(5),
-                supabase
-                  .from("user_temporal_milestones")
-                  .select("tema,resumo_evolucao,marco_at")
-                  .eq("user_id", userId)
-                  .order("marco_at", { ascending: false })
-                  .limit(3),
-                supabase
-                  .from("interaction_effects")
-                  .select("efeito,score,created_at")
-                  .eq("user_id", userId)
-                  .order("created_at", { ascending: false })
-                  .limit(30),
-              ]);
-
-            const arr = (efeitos || []).map((r: any) => ({
-              x: { efeito: (r.efeito as any) ?? "neutro" },
-            }));
-            const scores = (efeitos || [])
-              .map((r: any) => Number(r?.score))
-              .filter((v: number) => Number.isFinite(v));
-            const media = scores.length
-              ? scores.reduce((a: number, b: number) => a + b, 0) / scores.length
-              : 0;
-
-            return getDerivados(
-              (stats || []) as any,
-              (marcos || []) as any,
-              arr as any,
-              media
-            );
-          } catch {
-            return null;
-          }
-        })(),
-        DERIVADOS_TIMEOUT_MS,
-        "derivados",
-        { logger: log }
-      );
-
-  const paralelas = await paralelasPromise;
-  const derivados = await derivadosPromise;
-
-  if (
-    derivadosCacheKey &&
-    !cachedDerivados &&
-    derivados &&
-    typeof derivados === "object"
-  ) {
-    DERIVADOS_CACHE.set(derivadosCacheKey, derivados);
-  }
-
-  const heuristicas: any[] = paralelas.heuristicas ?? [];
-  const userEmbedding: number[] = paralelas.userEmbedding ?? [];
-  const memsSemelhantes: any[] = paralelas.memsSemelhantes ?? [];
-
-  const aberturaHibrida = derivados
-    ? (() => {
-        try {
-          return insightAbertura(derivados);
-        } catch {
-          return null;
-        }
-      })()
-    : null;
+  const {
+    heuristicas,
+    userEmbedding,
+    memsSemelhantes,
+    derivados,
+    aberturaHibrida,
+  } = await loadConversationContext(userId, ultimaMsg, supabase, {
+    promptOverride,
+    metaFromBuilder,
+    logger: log,
+  });
 
   const systemPrompt =
     promptOverride ??
