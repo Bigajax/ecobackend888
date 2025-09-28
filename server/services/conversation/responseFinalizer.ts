@@ -46,6 +46,88 @@ export class ResponseFinalizer {
     }
   ) {}
 
+  private getBlocoTimeoutMs(): number {
+    const raw = process.env.ECO_BLOCO_TIMEOUT_MS;
+    const parsed = raw ? Number.parseInt(raw, 10) : Number.NaN;
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : 1000;
+  }
+
+  private gerarBlocoComTimeout(
+    ultimaMsg: string,
+    blocoTarget: string
+  ): Promise<any | null> {
+    const timeoutMs = this.getBlocoTimeoutMs();
+    if (timeoutMs === 0) {
+      return this.deps
+        .gerarBlocoTecnicoComCache(ultimaMsg, blocoTarget)
+        .catch(() => null);
+    }
+
+    let timeoutId: NodeJS.Timeout | undefined;
+    const timeoutPromise = new Promise<null>((resolve) => {
+      timeoutId = setTimeout(() => {
+        log.warn(
+          `⚠️ gerarBlocoTecnicoComCache demorou mais de ${timeoutMs}ms; respondendo sem bloco.`
+        );
+        resolve(null);
+      }, timeoutMs);
+    });
+
+    const blocoPromise = this.deps
+      .gerarBlocoTecnicoComCache(ultimaMsg, blocoTarget)
+      .then((value) => {
+        if (timeoutId) clearTimeout(timeoutId);
+        return value;
+      })
+      .catch(() => {
+        if (timeoutId) clearTimeout(timeoutId);
+        return null;
+      });
+
+    return Promise.race([blocoPromise, timeoutPromise]);
+  }
+
+  private async persistirMemoriaEmBackground(params: {
+    userId?: string;
+    supabase?: any;
+    lastMessageId?: string;
+    cleaned: string;
+    bloco: any;
+    blocoTarget: string;
+    ultimaMsg: string;
+    skipBloco: boolean;
+  }): Promise<void> {
+    const { userId, supabase, lastMessageId, cleaned, ultimaMsg, skipBloco } = params;
+    if (!userId) return;
+
+    let blocoParaSalvar = params.bloco;
+
+    if (!skipBloco) {
+      try {
+        blocoParaSalvar = await this.deps.gerarBlocoTecnicoComCache(
+          ultimaMsg,
+          params.blocoTarget
+        );
+      } catch (e) {
+        const mensagem = e instanceof Error ? e.message : String(e);
+        log.warn("⚠️ Pós-processo falhou ao gerar bloco completo:", mensagem);
+      }
+    }
+
+    try {
+      await this.deps.saveMemoryOrReference({
+        supabase,
+        userId,
+        lastMessageId,
+        cleaned,
+        bloco: blocoParaSalvar,
+        ultimaMsg,
+      });
+    } catch (e) {
+      log.warn("⚠️ Pós-processo falhou:", (e as Error).message);
+    }
+  }
+
   async finalize({
     raw,
     ultimaMsg,
@@ -73,9 +155,7 @@ export class ResponseFinalizer {
 
     let bloco: any = null;
     if (!skipBloco) {
-      try {
-        bloco = await this.deps.gerarBlocoTecnicoComCache(ultimaMsg, blocoTarget);
-      } catch {}
+      bloco = await this.gerarBlocoComTimeout(ultimaMsg, blocoTarget);
     }
 
     const response: GetEcoResult = { message: cleaned };
@@ -103,22 +183,16 @@ export class ResponseFinalizer {
       modelo,
     });
 
-    if (userId) {
-      (async () => {
-        try {
-          await this.deps.saveMemoryOrReference({
-            supabase,
-            userId,
-            lastMessageId,
-            cleaned,
-            bloco,
-            ultimaMsg,
-          });
-        } catch (e) {
-          log.warn("⚠️ Pós-processo falhou:", (e as Error).message);
-        }
-      })();
-    }
+    void this.persistirMemoriaEmBackground({
+      userId,
+      supabase,
+      lastMessageId,
+      cleaned,
+      bloco,
+      blocoTarget,
+      ultimaMsg,
+      skipBloco,
+    });
 
     return response;
   }

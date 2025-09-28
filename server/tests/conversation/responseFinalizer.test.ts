@@ -1,0 +1,112 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+
+process.env.SUPABASE_URL ??= "http://localhost";
+process.env.SUPABASE_SERVICE_ROLE_KEY ??= "service-role-key";
+
+const Module = require("node:module");
+const originalLoad = Module._load;
+Module._load = function patchedLoad(request: string, parent: any, isMain: boolean) {
+  if (request === "dotenv") {
+    return { config: () => ({ parsed: {} }) };
+  }
+  if (request === "mixpanel") {
+    return {
+      init: () => ({
+        track: () => {},
+        people: { set: () => {}, set_once: () => {}, increment: () => {} },
+      }),
+    };
+  }
+  return originalLoad(request, parent, isMain);
+};
+
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const responseFinalizerModule = require("../../services/conversation/responseFinalizer") as typeof import("../../services/conversation/responseFinalizer");
+const { ResponseFinalizer } = responseFinalizerModule;
+Module._load = originalLoad;
+
+const noop = () => {};
+
+test("finalize responde rápido mesmo com analisador lento", async (t) => {
+  const originalTimeout = process.env.ECO_BLOCO_TIMEOUT_MS;
+  process.env.ECO_BLOCO_TIMEOUT_MS = "50";
+
+  t.after(() => {
+    if (originalTimeout === undefined) {
+      delete process.env.ECO_BLOCO_TIMEOUT_MS;
+    } else {
+      process.env.ECO_BLOCO_TIMEOUT_MS = originalTimeout;
+    }
+  });
+
+  let saveCalls = 0;
+
+  const finalizer = new ResponseFinalizer({
+    gerarBlocoTecnicoComCache: () =>
+      new Promise((resolve) => {
+        setTimeout(() => resolve({ intensidade: 0.8 }), 200);
+      }),
+    saveMemoryOrReference: async () => {
+      saveCalls += 1;
+    },
+    trackMensagemEnviada: noop as any,
+    trackEcoDemorou: noop as any,
+  });
+
+  const start = Date.now();
+  const result = await finalizer.finalize({
+    raw: "Oi",
+    ultimaMsg: "Oi",
+    hasAssistantBefore: false,
+    mode: "fast",
+    startedAt: Date.now(),
+    userId: "user-123",
+  });
+  const duration = Date.now() - start;
+
+  assert.ok(
+    duration < 150,
+    `finalize deveria resolver rápido; levou ${duration}ms`
+  );
+  assert.strictEqual(result.intensidade, undefined);
+
+  await new Promise((resolve) => setTimeout(resolve, 250));
+  assert.ok(saveCalls >= 1, "saveMemoryOrReference deve ser disparado em background");
+});
+
+test("preenche intensidade e resumo quando bloco chega dentro do timeout", async (t) => {
+  const originalTimeout = process.env.ECO_BLOCO_TIMEOUT_MS;
+  process.env.ECO_BLOCO_TIMEOUT_MS = "1000";
+
+  t.after(() => {
+    if (originalTimeout === undefined) {
+      delete process.env.ECO_BLOCO_TIMEOUT_MS;
+    } else {
+      process.env.ECO_BLOCO_TIMEOUT_MS = originalTimeout;
+    }
+  });
+
+  const finalizer = new ResponseFinalizer({
+    gerarBlocoTecnicoComCache: async () => ({
+      intensidade: 0.42,
+      analise_resumo: "  resumo alinhado  ",
+      emocao_principal: "alegria",
+      tags: ["tag-a"],
+    }),
+    saveMemoryOrReference: async () => {},
+    trackMensagemEnviada: noop as any,
+    trackEcoDemorou: noop as any,
+  });
+
+  const result = await finalizer.finalize({
+    raw: "Olá!",
+    ultimaMsg: "Olá!",
+    hasAssistantBefore: false,
+    mode: "fast",
+    startedAt: Date.now(),
+  });
+
+  assert.strictEqual(result.intensidade, 0.42);
+  assert.strictEqual(result.resumo, "resumo alinhado");
+});
