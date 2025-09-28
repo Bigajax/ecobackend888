@@ -217,26 +217,27 @@ export async function getEcoResponse(
     : await withTimeoutOrNull(
         (async () => {
           try {
-            const { data: stats } = await supabase
-              .from("user_theme_stats")
-              .select("tema,freq_30d,int_media_30d")
-              .eq("user_id", userId)
-              .order("freq_30d", { ascending: false })
-              .limit(5);
-
-            const { data: marcos } = await supabase
-              .from("user_temporal_milestones")
-              .select("tema,resumo_evolucao,marco_at")
-              .eq("user_id", userId)
-              .order("marco_at", { ascending: false })
-              .limit(3);
-
-            const { data: efeitos } = await supabase
-              .from("interaction_effects")
-              .select("efeito,score,created_at")
-              .eq("user_id", userId)
-              .order("created_at", { ascending: false })
-              .limit(30);
+            const [{ data: stats }, { data: marcos }, { data: efeitos }] =
+              await Promise.all([
+                supabase
+                  .from("user_theme_stats")
+                  .select("tema,freq_30d,int_media_30d")
+                  .eq("user_id", userId)
+                  .order("freq_30d", { ascending: false })
+                  .limit(5),
+                supabase
+                  .from("user_temporal_milestones")
+                  .select("tema,resumo_evolucao,marco_at")
+                  .eq("user_id", userId)
+                  .order("marco_at", { ascending: false })
+                  .limit(3),
+                supabase
+                  .from("interaction_effects")
+                  .select("efeito,score,created_at")
+                  .eq("user_id", userId)
+                  .order("created_at", { ascending: false })
+                  .limit(30),
+              ]);
 
             const arr = (efeitos || []).map((r: any) => ({
               x: { efeito: (r.efeito as any) ?? "neutro" },
