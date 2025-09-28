@@ -57,15 +57,16 @@ export async function montarContextoEco(params: BuildParams): Promise<string> {
     flags: Selector.derivarFlags(texto),
   });
 
-  const modulesRaw = Array.from(new Set(baseSelection.raw ?? []));
-  const modulesAfterGating = Array.from(new Set(baseSelection.posGating ?? modulesRaw));
+  const toUnique = (list: string[] | undefined) =>
+    Array.from(new Set(Array.isArray(list) ? list : []));
 
-  const MIN_NV1: string[] = [
-    "NV1_CORE.txt",
-    "IDENTIDADE_MINI.txt", // manter alinhado à identidade 70/30
-    "ANTISALDO_MIN.txt",
-  ];
-  const ordered: string[] = nivel === 1 ? MIN_NV1 : modulesAfterGating;
+  const modulesRaw = toUnique(baseSelection.raw);
+  const modulesAfterGating = baseSelection.posGating
+    ? toUnique(baseSelection.posGating)
+    : modulesRaw;
+  const ordered = baseSelection.priorizado?.length
+    ? toUnique(baseSelection.priorizado)
+    : modulesAfterGating;
 
   const candidates = await ModuleCatalog.load(ordered);
   const budgetResult = planBudget({ ordered, candidates });
@@ -103,6 +104,11 @@ export async function montarContextoEco(params: BuildParams): Promise<string> {
   });
 
   if (isDebug()) {
+    log.debug("[ContextBuilder] módulos base", {
+      nivel,
+      ordered,
+      incluiEscala: ordered.includes("ESCALA_ABERTURA_1a3.txt"),
+    });
     const tokensContexto = ModuleCatalog.tokenCountOf("__INLINE__:ctx", texto);
     const overheadTokens = ModuleCatalog.tokenCountOf("__INLINE__:ovh", instructionText);
     const total = ModuleCatalog.tokenCountOf("__INLINE__:ALL", `${ID_ECO}\n${STYLE_HINTS}\n\n${promptCore}`);
