@@ -49,9 +49,27 @@ export class ContextCache {
       ? params.memoriasSemelhantes.length
       : 0;
 
+    const vivaFlag = params.forcarMetodoViva ? "1" : "0";
+    const derivadosFlag = params.derivados ? "1" : "0";
+    const aberturaFlag = params.aberturaHibrida ? "1" : "0";
+    const heuristicasFlag = Array.isArray(params.heuristicas)
+      ? params.heuristicas.length > 0
+        ? "1"
+        : "0"
+      : params.heuristicas
+      ? "1"
+      : "0";
+    const embeddingFlag = Array.isArray(params.userEmbedding)
+      ? params.userEmbedding.length > 0
+        ? "1"
+        : "0"
+      : params.userEmbedding
+      ? "1"
+      : "0";
+
     const cacheKey = `ctx:${params.userId || "anon"}:${nivel}:${Math.round(
       intensidade
-    )}:ms${msCount}`;
+    )}:ms${msCount}:v${vivaFlag}:d${derivadosFlag}:a${aberturaFlag}:h${heuristicasFlag}:e${embeddingFlag}`;
 
     const cached = this.deps.cache.get(cacheKey);
     if (cached && msCount === 0) {
