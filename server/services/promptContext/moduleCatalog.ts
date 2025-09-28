@@ -16,13 +16,24 @@ export class ModuleCatalog {
   }
 
   static async load(names: string[]): Promise<ModuleCandidate[]> {
-    const out: ModuleCandidate[] = [];
-    for (const name of names) {
-      const text = await this.require(name);
-      const tokens = ModuleStore.tokenCountOf(name, text);
-      out.push({ name, text, tokens });
-    }
-    return out;
+    const uniqueNames = Array.from(new Set(names));
+    const candidates = await Promise.all(
+      uniqueNames.map(async (name) => {
+        const text = await this.require(name);
+        const tokens = ModuleStore.tokenCountOf(name, text);
+        return { name, text, tokens } as ModuleCandidate;
+      })
+    );
+
+    const candidateMap = new Map(candidates.map((candidate) => [candidate.name, candidate]));
+
+    return names.map((name) => {
+      const candidate = candidateMap.get(name);
+      if (!candidate) {
+        throw new Error(`Unexpected missing module candidate for ${name}`);
+      }
+      return candidate;
+    });
   }
 
   static tokenCountOf(name: string, text: string): number {
