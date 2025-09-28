@@ -55,13 +55,13 @@ export async function getEcoResponse(
   const ultimaMsg = (messages as any).at(-1)?.content || "";
   const supabase = supabaseWithBearer(accessToken);
 
-  // Micro-respostas locais (curtíssimas)
+  // Micro-resposta local
   const micro = microReflexoLocal(ultimaMsg);
   if (micro) {
     return { message: micro };
   }
 
-  // Pipeline de saudação (curta) no backend
+  // Pipeline de saudação
   const greetingResult = defaultGreetingPipeline.handle({
     messages: messages as any,
     ultimaMsg,
@@ -74,7 +74,7 @@ export async function getEcoResponse(
     return { message: greetingResult.response };
   }
 
-  // Roteamento de conversa (fast/full/VIVA/etc.)
+  // Roteamento
   const decision = defaultConversationRouter.decide({
     messages: messages as any,
     ultimaMsg,
@@ -127,7 +127,7 @@ export async function getEcoResponse(
     ? DERIVADOS_CACHE.get(derivadosCacheKey) ?? null
     : null;
 
-  // Paralelos: heurísticas/embedding/mems semelhantes (com timeout de salvaguarda)
+  // Paralelos (heurísticas, embedding e memórias semelhantes) com guarda de timeout
   const paralelasPromise = promptOverride
     ? Promise.resolve({
         heuristicas: [],
@@ -143,7 +143,7 @@ export async function getEcoResponse(
         })),
       ]);
 
-  // Derivados (insights agregados) com cache + timeout
+  // Derivados com cache + timeout
   const derivadosPromise =
     shouldSkipDerivados || cachedDerivados
       ? Promise.resolve(cachedDerivados)
@@ -195,7 +195,7 @@ export async function getEcoResponse(
           })(),
           DERIVADOS_TIMEOUT_MS,
           "derivados",
-          { logger: log } // usa logger opcional
+          { logger: log }
         );
 
   const paralelas = await paralelasPromise;
@@ -210,7 +210,6 @@ export async function getEcoResponse(
     DERIVADOS_CACHE.set(derivadosCacheKey, derivados);
   }
 
-  // Variáveis usadas no ContextBuilder
   const heuristicas: any[] = paralelas?.heuristicas ?? [];
   const userEmbedding: number[] = paralelas?.userEmbedding ?? [];
   const memsSemelhantes: any[] = paralelas?.memsSemelhantes ?? [];
@@ -226,7 +225,7 @@ export async function getEcoResponse(
         })()
       : null;
 
-  // System prompt (contexto final) — pode vir de override
+  // System prompt final (ou override)
   const systemPrompt =
     promptOverride ??
     (await defaultContextCache.build({
@@ -245,8 +244,9 @@ export async function getEcoResponse(
       aberturaHibrida,
     }));
 
-  // Seleção de estilo e orçamento para rota full (promptPlan)
-  const { prompt, maxTokens, msgs } = buildFullPrompt({
+  // Planejamento de prompt (seleção de estilo e orçamento)
+  // No seu projeto, buildFullPrompt retorna { prompt: PromptMessage[], maxTokens }
+  const { prompt, maxTokens } = buildFullPrompt({
     decision,
     ultimaMsg,
     systemPrompt,
@@ -258,7 +258,8 @@ export async function getEcoResponse(
   let data: any;
   try {
     data = await claudeChatCompletion({
-      messages: [{ role: "system", content: prompt }, ...msgs],
+      // 'prompt' já é a lista de mensagens pronta (inclui system + histórico fatiado)
+      messages: prompt,
       model: process.env.ECO_CLAUDE_MODEL || "anthropic/claude-3-5-sonnet",
       temperature: 0.6,
       maxTokens,

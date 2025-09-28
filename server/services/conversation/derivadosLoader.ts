@@ -1,153 +1,114 @@
-// server/services/ConversationOrchestrator.ts
+// server/services/conversation/derivadosLoader.ts
+import { sleep } from "../../utils";
+import { DERIVADOS_CACHE } from "../CacheService";
 import {
-  ensureEnvs,
-  now,
-  sleep,
-  type GetEcoParams,
-  type GetEcoResult,
-} from "../utils";
-import { supabaseWithBearer } from "../adapters/SupabaseAdapter";
-import { microReflexoLocal } from "../core/ResponseGenerator";
-import { claudeChatCompletion } from "../core/ClaudeAdapter";
-import { log, isDebug } from "../services/promptContext/logger";
-import { getDerivados, insightAbertura } from "../services/derivadosService";
-import { DERIVADOS_CACHE } from "./CacheService";
-
-import { defaultGreetingPipeline } from "./conversation/greeting";
-import { defaultConversationRouter } from "./conversation/router";
+  getDerivados,
+  insightAbertura,
+  type Derivados,
+} from "../derivadosService";
 import {
   defaultParallelFetchService,
   withTimeoutOrNull,
-} from "./conversation/parallelFetch";
-import { defaultContextCache } from "./conversation/contextCache";
-import { defaultResponseFinalizer } from "./conversation/responseFinalizer";
-import { firstName } from "./conversation/helpers";
-import { runFastLaneLLM } from "./conversation/fastLane";
-import { buildFullPrompt } from "./conversation/promptPlan";
+} from "./parallelFetch";
+import { log as defaultLogger } from "../promptContext/logger";
 
-/* ---------------------------- Consts ---------------------------- */
+export interface ConversationContextResult {
+  heuristicas: any[];
+  userEmbedding: number[];
+  memsSemelhantes: any[];
+  derivados: Derivados | null;
+  aberturaHibrida: any | null; // pode variar conforme implementação de insightAbertura
+}
 
-const DERIVADOS_TIMEOUT_MS = Number(process.env.ECO_DERIVADOS_TIMEOUT_MS ?? 600);
-const PARALELAS_TIMEOUT_MS = Number(process.env.ECO_PARALELAS_TIMEOUT_MS ?? 180);
+interface CacheLike<T> {
+  get(key: string): T | undefined;
+  set(key: string, value: T): void;
+}
 
-/* -------------------------- Orquestrador ------------------------ */
+interface ParallelFetchLike {
+  run(params: {
+    ultimaMsg: string;
+    userId?: string;
+    supabase?: any;
+  }): Promise<{
+    heuristicas: any[];
+    userEmbedding: number[];
+    memsSemelhantes: any[];
+  }>;
+}
 
-export async function getEcoResponse(
-  {
-    messages,
-    userId,
-    userName,
-    accessToken,
-    mems = [],
-    forcarMetodoViva = false,
-    blocoTecnicoForcado = null,
-    clientHour,
+export interface LoadConversationContextOptions {
+  promptOverride?: string;
+  metaFromBuilder?: any;
+  // Logger mínimo exigido: apenas warn; usamos optional chaining ao invocar
+  logger?: { warn: (msg: string) => void } | undefined;
+  parallelFetchService?: ParallelFetchLike;
+  cache?: CacheLike<Derivados>;
+  getDerivadosFn?: typeof getDerivados;
+  insightAberturaFn?: typeof insightAbertura;
+  withTimeoutOrNullFn?: typeof withTimeoutOrNull;
+  sleepFn?: typeof sleep;
+  derivadosTimeoutMs?: number;
+  paralelasTimeoutMs?: number;
+}
+
+const DEFAULT_DERIVADOS_TIMEOUT_MS = Number(
+  process.env.ECO_DERIVADOS_TIMEOUT_MS ?? 600
+);
+const DEFAULT_PARALELAS_TIMEOUT_MS = Number(
+  process.env.ECO_PARALELAS_TIMEOUT_MS ?? 180
+);
+
+const EMPTY_PARALLEL_RESULT = {
+  heuristicas: [] as any[],
+  userEmbedding: [] as number[],
+  memsSemelhantes: [] as any[],
+};
+
+export async function loadConversationContext(
+  userId: string | undefined,
+  ultimaMsg: string,
+  supabase: any,
+  options: LoadConversationContextOptions = {}
+): Promise<ConversationContextResult> {
+  const {
     promptOverride,
     metaFromBuilder,
-  }: GetEcoParams & { promptOverride?: string; metaFromBuilder?: any }
-): Promise<GetEcoResult> {
-  ensureEnvs();
+    logger = defaultLogger as unknown as LoadConversationContextOptions["logger"],
+    parallelFetchService = defaultParallelFetchService,
+    cache = DERIVADOS_CACHE,
+    getDerivadosFn = getDerivados,
+    insightAberturaFn = insightAbertura,
+    withTimeoutOrNullFn = withTimeoutOrNull,
+    sleepFn = sleep,
+    derivadosTimeoutMs = DEFAULT_DERIVADOS_TIMEOUT_MS,
+    paralelasTimeoutMs = DEFAULT_PARALELAS_TIMEOUT_MS,
+  } = options;
 
-  if (!Array.isArray(messages) || messages.length === 0) {
-    throw new Error('Parâmetro "messages" vazio ou inválido.');
-  }
-
-  const ultimaMsg = (messages as any).at(-1)?.content || "";
-  const supabase = supabaseWithBearer(accessToken);
-
-  // Micro-resposta local
-  const micro = microReflexoLocal(ultimaMsg);
-  if (micro) {
-    return { message: micro };
-  }
-
-  // Pipeline de saudação
-  const greetingResult = defaultGreetingPipeline.handle({
-    messages: messages as any,
-    ultimaMsg,
-    userId,
-    userName,
-    clientHour,
-    greetingEnabled: process.env.ECO_GREETING_BACKEND_ENABLED !== "0",
-  });
-  if (greetingResult.handled && greetingResult.response) {
-    return { message: greetingResult.response };
-  }
-
-  // Roteamento
-  const decision = defaultConversationRouter.decide({
-    messages: messages as any,
-    ultimaMsg,
-    forcarMetodoViva,
-    promptOverride,
-  });
-
-  if (isDebug()) {
-    log.debug("[Orchestrator] flags", {
-      promptOverrideLen: (promptOverride || "").trim().length,
-      low: decision.lowComplexity,
-      vivaAtivo: decision.vivaAtivo,
-      nivelRoteador: decision.nivelRoteador,
-      ultimaLen: (ultimaMsg || "").length,
-      mode: decision.mode,
-    });
-  }
-
-  // --------------------------- FAST MODE ---------------------------
-  if (decision.mode === "fast") {
-    const inicioFast = now();
-    const fast = await runFastLaneLLM({
-      messages: messages as any,
-      userName,
-      ultimaMsg,
-      hasAssistantBefore: decision.hasAssistantBefore,
-      userId,
-      supabase,
-      lastMessageId: (messages as any).at(-1)?.id ?? undefined,
-      startedAt: inicioFast,
-      deps: {
-        claudeClient: claudeChatCompletion,
-        responseFinalizer: defaultResponseFinalizer,
-        firstName,
-      },
-    });
-
-    return fast.response;
-  }
-
-  // --------------------------- FULL MODE ---------------------------
   const shouldSkipDerivados =
     !!promptOverride ||
-    (metaFromBuilder && Number(metaFromBuilder.nivel) === 1) ||
-    !userId;
+    (metaFromBuilder && Number(metaFromBuilder?.nivel) === 1) ||
+    !userId ||
+    !supabase;
 
   const derivadosCacheKey =
     !shouldSkipDerivados && userId ? `derivados:${userId}` : null;
+
   const cachedDerivados = derivadosCacheKey
-    ? DERIVADOS_CACHE.get(derivadosCacheKey) ?? null
+    ? cache.get(derivadosCacheKey) ?? null
     : null;
 
-  // Paralelos (heurísticas, embedding e memórias semelhantes) com guarda de timeout
   const paralelasPromise = promptOverride
-    ? Promise.resolve({
-        heuristicas: [],
-        userEmbedding: [],
-        memsSemelhantes: [],
-      })
+    ? Promise.resolve(EMPTY_PARALLEL_RESULT)
     : Promise.race([
-        defaultParallelFetchService.run({ ultimaMsg, userId, supabase }),
-        sleep(PARALELAS_TIMEOUT_MS).then(() => ({
-          heuristicas: [],
-          userEmbedding: [],
-          memsSemelhantes: [],
-        })),
+        parallelFetchService.run({ ultimaMsg, userId, supabase }),
+        sleepFn(paralelasTimeoutMs).then(() => EMPTY_PARALLEL_RESULT),
       ]);
 
-  // Derivados com cache + timeout
   const derivadosPromise =
     shouldSkipDerivados || cachedDerivados
       ? Promise.resolve(cachedDerivados)
-      : withTimeoutOrNull(
+      : withTimeoutOrNullFn(
           (async () => {
             try {
               const [{ data: stats }, { data: marcos }, { data: efeitos }] =
@@ -173,29 +134,37 @@ export async function getEcoResponse(
                 ]);
 
               const arr = (efeitos || []).map((r: any) => ({
-                x: { efeito: (r.efeito as any) ?? "neutro" },
+                x: { efeito: (r?.efeito as any) ?? "neutro" },
               }));
+
               const scores = (efeitos || [])
                 .map((r: any) => Number(r?.score))
                 .filter((v: number) => Number.isFinite(v));
+
               const media = scores.length
                 ? scores.reduce((a: number, b: number) => a + b, 0) /
                   scores.length
                 : 0;
 
-              return getDerivados(
+              return getDerivadosFn(
                 (stats || []) as any,
                 (marcos || []) as any,
                 arr as any,
                 media
               );
-            } catch {
+            } catch (e) {
+              logger?.warn?.(
+                `[derivadosLoader] falha ao buscar derivados: ${
+                  (e as Error)?.message
+                }`
+              );
               return null;
             }
           })(),
-          DERIVADOS_TIMEOUT_MS,
+          derivadosTimeoutMs,
           "derivados",
-          { logger: log }
+          // Cast para evitar conflitos de tipo caso withTimeoutOrNull espere LogAPI completo
+          { logger: logger as any }
         );
 
   const paralelas = await paralelasPromise;
@@ -207,101 +176,33 @@ export async function getEcoResponse(
     derivados &&
     typeof derivados === "object"
   ) {
-    DERIVADOS_CACHE.set(derivadosCacheKey, derivados);
+    cache.set(derivadosCacheKey, derivados);
   }
 
   const heuristicas: any[] = paralelas?.heuristicas ?? [];
   const userEmbedding: number[] = paralelas?.userEmbedding ?? [];
   const memsSemelhantes: any[] = paralelas?.memsSemelhantes ?? [];
 
-  const aberturaHibrida =
-    derivados
-      ? (() => {
-          try {
-            return insightAbertura(derivados);
-          } catch {
-            return null;
-          }
-        })()
-      : null;
+  const aberturaHibrida = derivados
+    ? (() => {
+        try {
+          return insightAberturaFn(derivados);
+        } catch (e) {
+          logger?.warn?.(
+            `[derivadosLoader] insightAbertura falhou: ${
+              (e as Error)?.message
+            }`
+          );
+          return null;
+        }
+      })()
+    : null;
 
-  // System prompt final (ou override)
-  const systemPrompt =
-    promptOverride ??
-    (await defaultContextCache.build({
-      userId,
-      userName,
-      perfil: null,
-      mems,
-      memoriasSemelhantes: memsSemelhantes,
-      forcarMetodoViva: decision.vivaAtivo,
-      blocoTecnicoForcado,
-      texto: ultimaMsg,
-      heuristicas,
-      userEmbedding,
-      skipSaudacao: true,
-      derivados,
-      aberturaHibrida,
-    }));
-
-  // Planejamento de prompt (seleção de estilo e orçamento)
-  const { prompt, maxTokens, msgs } = buildFullPrompt({
-    decision,
-    ultimaMsg,
-    systemPrompt,
-    messages: messages as any,
-  });
-
-  const inicioEco = now();
-
-  let data: any;
-  try {
-    data = await claudeChatCompletion({
-      messages: [{ role: "system", content: prompt }, ...msgs],
-      model: process.env.ECO_CLAUDE_MODEL || "anthropic/claude-3-5-sonnet",
-      temperature: 0.6,
-      maxTokens,
-    });
-  } catch (e: any) {
-    log.warn(`[getEcoResponse] LLM rota completa falhou: ${e?.message}`);
-    const msg =
-      "Desculpa, tive um problema técnico agora. Topa tentar de novo?";
-    return defaultResponseFinalizer.finalize({
-      raw: msg,
-      ultimaMsg,
-      userName,
-      hasAssistantBefore: decision.hasAssistantBefore,
-      userId,
-      supabase,
-      lastMessageId: (messages as any).at(-1)?.id ?? undefined,
-      mode: "full",
-      startedAt: inicioEco,
-      usageTokens: undefined,
-      modelo: "full-fallback",
-      skipBloco: true,
-    });
-  }
-
-  if (isDebug()) {
-    log.debug("[Orchestrator] resposta pronta", {
-      duracaoEcoMs: now() - inicioEco,
-      lenMensagem: (data?.content || "").length,
-    });
-  }
-
-  return defaultResponseFinalizer.finalize({
-    raw: data?.content ?? "",
-    ultimaMsg,
-    userName,
-    hasAssistantBefore: decision.hasAssistantBefore,
-    userId,
-    supabase,
-    lastMessageId: (messages as any).at(-1)?.id ?? undefined,
-    mode: "full",
-    startedAt: inicioEco,
-    usageTokens: data?.usage?.total_tokens ?? undefined,
-    modelo: data?.model,
-  });
+  return {
+    heuristicas,
+    userEmbedding,
+    memsSemelhantes,
+    derivados: (derivados ?? null) as Derivados | null,
+    aberturaHibrida,
+  };
 }
-
-export { getEcoResponse as getEcoResponseOtimizado };
