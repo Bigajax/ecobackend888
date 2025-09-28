@@ -2,8 +2,8 @@ import axios from "axios";
 import http from "http";
 import https from "https";
 
-const httpAgent = new http.Agent({ keepAlive: true });
-const httpsAgent = new https.Agent({ keepAlive: true });
+export const httpAgent = new http.Agent({ keepAlive: true });
+export const httpsAgent = new https.Agent({ keepAlive: true });
 
 const MODEL_FALLBACK_MAIN = "openai/gpt-5-chat";
 
