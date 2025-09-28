@@ -23,6 +23,10 @@ import {
 import { defaultContextCache } from "./conversation/contextCache";
 import { defaultResponseFinalizer } from "./conversation/responseFinalizer";
 import { firstName } from "./conversation/helpers";
+import {
+  buildFullPrompt,
+  detectExplicitAskForSteps,
+} from "./conversation/promptPlan";
 
 /* ---------------------------- Consts ---------------------------- */
 
@@ -30,14 +34,6 @@ const DERIVADOS_TIMEOUT_MS = Number(process.env.ECO_DERIVADOS_TIMEOUT_MS ?? 600)
 const PARALELAS_TIMEOUT_MS = Number(process.env.ECO_PARALELAS_TIMEOUT_MS ?? 180);
 
 /* ----------------------- Utils de estilo ------------------------ */
-
-// Detecta se o usuário pediu explicitamente "passos", "como fazer", etc.
-function detectExplicitAskForSteps(text: string): boolean {
-  if (!text) return false;
-  const rx =
-    /\b(passos?|etapas?|como\s+fa(c|ç)o|como\s+fazer|checklist|guia|tutorial|roteiro|lista\s+de|me\s+mostra\s+como|o\s+que\s+fazer)\b/i;
-  return rx.test(text.normalize("NFD").replace(/[\u0300-\u036f]/g, ""));
-}
 
 /* -------------------------- Identidade MINI --------------------- */
 
@@ -313,34 +309,18 @@ export async function getEcoResponse(
     }));
 
   // Seleciona estilo para a rota full
-  const explicitAskForSteps = detectExplicitAskForSteps(ultimaMsg);
-  const preferCoachFull =
-    !decision.vivaAtivo &&
-    (explicitAskForSteps || Number(decision.nivelRoteador) === 1);
-
-  const STYLE_SELECTOR_FULL = preferCoachFull
-    ? "Preferir plano COACH (30%): acolher (1 linha) • encorajar com leveza • (opcional) até 3 passos curtos • fechar com incentivo."
-    : "Preferir plano ESPELHO (70%): acolher (1 linha) • refletir padrões/sentimento (1 linha) • 1 pergunta aberta • fechar leve.";
-
-  const msgs: { role: "system" | "user" | "assistant"; content: string }[] = [
-    { role: "system", content: `${STYLE_SELECTOR_FULL}\n${systemPrompt}` },
-    ...(messages as any[]).slice(-5).map((m) => ({
-      role: mapRoleForOpenAI((m as any).role) as
-        | "system"
-        | "user"
-        | "assistant",
-      content: (m as any).content,
-    })),
-  ];
-
-  const maxTokens =
-    ultimaMsg.length < 140 ? 420 : ultimaMsg.length < 280 ? 560 : 700;
+  const { prompt, maxTokens } = buildFullPrompt({
+    decision,
+    ultimaMsg,
+    systemPrompt,
+    messages: messages as any,
+  });
   const inicioEco = now();
 
   let data: any;
   try {
     data = await claudeChatCompletion({
-      messages: msgs,
+      messages: prompt,
       model: process.env.ECO_CLAUDE_MODEL || "anthropic/claude-3-5-sonnet",
       temperature: 0.6,
       maxTokens,
