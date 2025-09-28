@@ -2,6 +2,7 @@ import { mapRoleForOpenAI } from "../../utils";
 import { GreetGuard } from "../../core/policies/GreetGuard";
 import {
   respostaSaudacaoAutomatica,
+  MAX_LEN_FOR_GREETING,
   type Msg as SaudacaoMsg,
 } from "../../utils/respostaSaudacaoAutomatica";
 
@@ -40,9 +41,7 @@ export class GreetingPipeline {
     const threadVazia = assistantCount === 0;
 
     const ultima = (ultimaMsg || "").trim();
-    const saudacaoCurta = /^\s*(oi|olá|ola|bom dia|boa tarde|boa noite)\s*[!.?]*$/i.test(
-      ultima
-    );
+    const dentroDoLimite = ultima.length <= MAX_LEN_FOR_GREETING;
     const conteudoSubstantivo =
       /[?]|(\b(quero|preciso|como|por que|porque|ajuda|planejar|plano|passo|sinto|penso|lembro)\b)/i.test(
         ultima
@@ -74,10 +73,14 @@ export class GreetingPipeline {
       return { handled: true, response: auto.text };
     }
 
+    const isGreetingMeta = Boolean(
+      auto?.meta?.isGreeting || auto?.meta?.contextualCue === "greeting"
+    );
+
     if (
-      auto?.meta?.isGreeting &&
+      isGreetingMeta &&
       threadVazia &&
-      (saudacaoCurta || ultima.length === 0) &&
+      dentroDoLimite &&
       !conteudoSubstantivo &&
       this.guard.can(userId)
     ) {
