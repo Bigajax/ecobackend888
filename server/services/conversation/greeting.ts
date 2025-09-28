@@ -69,12 +69,15 @@ export class GreetingPipeline {
       clientHour: normalizedHour,
     });
 
-    if (auto?.meta?.isFarewell) {
+    // 👇 Early return: se não há auto, não tem o que saudar/despedir
+    if (!auto) return { handled: false };
+
+    if (auto.meta?.isFarewell) {
       return { handled: true, response: auto.text };
     }
 
     const isGreetingMeta = Boolean(
-      auto?.meta?.isGreeting || auto?.meta?.contextualCue === "greeting"
+      auto.meta?.isGreeting || auto.meta?.contextualCue === "greeting"
     );
 
     if (
