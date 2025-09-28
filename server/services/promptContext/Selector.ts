@@ -2,6 +2,7 @@
 
 import matrizPromptBaseV2 from "./matrizPromptBaseV2"; // ajuste o caminho se necessário
 import { Camada, CondicaoEspecial } from "./types";
+import type { HeuristicaFlagRecord } from "./heuristicaFlags";
 
 /* ===================== Tipos & Interfaces ===================== */
 
@@ -17,6 +18,13 @@ export type Flags = {
   desabafo: boolean;
   urgencia: boolean;
   emocao_alta_linguagem: boolean;
+
+  // 🔥 Heurísticas cognitivas (eco_heuristica_*.txt)
+  ancoragem: boolean;
+  causas_superam_estatisticas: boolean;
+  certeza_emocional: boolean;
+  excesso_intuicao_especialista: boolean;
+  ignora_regressao_media: boolean;
 };
 
 export type BaseSelection = {
@@ -88,7 +96,7 @@ export function derivarNivel(texto: string, saudacaoBreve: boolean): 1 | 2 | 3 {
 
 /* ===================== Flags ===================== */
 
-export function derivarFlags(texto: string): Flags {
+export function derivarFlags(texto: string, heuristicaFlags: HeuristicaFlagRecord = {}): Flags {
   const raw = texto || "";
   const t = normalize(raw);
 
@@ -132,6 +140,11 @@ export function derivarFlags(texto: string): Flags {
     desabafo,
     urgencia,
     emocao_alta_linguagem,
+    ancoragem: Boolean(heuristicaFlags.ancoragem),
+    causas_superam_estatisticas: Boolean(heuristicaFlags.causas_superam_estatisticas),
+    certeza_emocional: Boolean(heuristicaFlags.certeza_emocional),
+    excesso_intuicao_especialista: Boolean(heuristicaFlags.excesso_intuicao_especialista),
+    ignora_regressao_media: Boolean(heuristicaFlags.ignora_regressao_media),
   };
 }
 
@@ -158,6 +171,11 @@ type Ctx = {
   desabafo: boolean;
   urgencia: boolean;
   emocao_alta_linguagem: boolean;
+  ancoragem: boolean;
+  causas_superam_estatisticas: boolean;
+  certeza_emocional: boolean;
+  excesso_intuicao_especialista: boolean;
+  ignora_regressao_media: boolean;
 };
 
 function evalRule(rule: string, ctx: Ctx): boolean {
@@ -216,6 +234,11 @@ function readVarBool(name: string, ctx: Ctx): boolean | null {
     case "desabafo":
     case "urgencia":
     case "emocao_alta_linguagem":
+    case "ancoragem":
+    case "causas_superam_estatisticas":
+    case "certeza_emocional":
+    case "excesso_intuicao_especialista":
+    case "ignora_regressao_media":
       return Boolean((ctx as any)[name]);
     default:
       return null;
