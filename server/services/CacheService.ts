@@ -1,5 +1,7 @@
 // server/services/CacheService.ts
 
+import type { Derivados } from "./derivadosService";
+
 /**
  * CacheService — cache em memória com TTL e política LRU simples.
  * - Chaves string estáveis (prefira prefixos por domínio: ex. "ctx:user:nv1").
@@ -187,6 +189,12 @@ export const RESPONSE_CACHE = new TinyCache<string>({
   defaultTTLms: 3 * 60_000, // 3 min
 });
 
+export const DERIVADOS_CACHE = new TinyCache<Derivados>({
+  name: "derivados",
+  maxItems: 600,
+  defaultTTLms: 55 * 1000, // ~55s
+});
+
 /* ------------------------------------------------------------------ */
 /*  HELPERS DE ALTO NÍVEL (conveniências)                              */
 /* ------------------------------------------------------------------ */
@@ -197,6 +205,11 @@ export function rememberPrompt(
   ttlMs?: number
 ): void {
   PROMPT_CACHE.set(key, text, ttlMs);
+}
+
+export function invalidateDerivadosForUser(userId?: string) {
+  if (!userId) return;
+  DERIVADOS_CACHE.delete(`derivados:${userId}`);
 }
 
 export function recallPrompt(key: string): string | undefined {

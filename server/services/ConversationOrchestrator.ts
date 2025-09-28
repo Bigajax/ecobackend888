@@ -12,6 +12,7 @@ import { microReflexoLocal } from "../core/ResponseGenerator";
 import { claudeChatCompletion } from "../core/ClaudeAdapter";
 import { getDerivados, insightAbertura } from "../services/derivadosService";
 import { log, isDebug } from "../services/promptContext/logger";
+import { DERIVADOS_CACHE } from "./CacheService";
 
 import { defaultGreetingPipeline } from "./conversation/greeting";
 import { defaultConversationRouter } from "./conversation/router";
@@ -194,6 +195,12 @@ export async function getEcoResponse(
     (metaFromBuilder && Number(metaFromBuilder.nivel) === 1) ||
     !userId;
 
+  const derivadosCacheKey =
+    !shouldSkipDerivados && userId ? `derivados:${userId}` : null;
+  const cachedDerivados = derivadosCacheKey
+    ? DERIVADOS_CACHE.get(derivadosCacheKey) ?? null
+    : null;
+
   const paralelasPromise = promptOverride
     ? Promise.resolve({
         heuristicas: [],
@@ -209,8 +216,8 @@ export async function getEcoResponse(
         })),
       ]);
 
-  const derivadosPromise = shouldSkipDerivados
-    ? Promise.resolve(null)
+  const derivadosPromise = shouldSkipDerivados || cachedDerivados
+    ? Promise.resolve(cachedDerivados)
     : withTimeoutOrNull(
         (async () => {
           try {
@@ -263,6 +270,15 @@ export async function getEcoResponse(
 
   const paralelas = await paralelasPromise;
   const derivados = await derivadosPromise;
+
+  if (
+    derivadosCacheKey &&
+    !cachedDerivados &&
+    derivados &&
+    typeof derivados === "object"
+  ) {
+    DERIVADOS_CACHE.set(derivadosCacheKey, derivados);
+  }
 
   const heuristicas: any[] = paralelas.heuristicas ?? [];
   const userEmbedding: number[] = paralelas.userEmbedding ?? [];
