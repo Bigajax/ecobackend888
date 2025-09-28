@@ -45,33 +45,39 @@ export class ParallelFetchService {
     let memsSemelhantes: any[] = [];
 
     if (userEmbedding.length > 0) {
-      try {
-        heuristicas = await this.deps.getHeuristicas({
+      const heuristicasPromise = this.deps
+        .getHeuristicas({
           usuarioId: userId ?? null,
           userEmbedding,
           matchCount: 5,
-        });
-      } catch {
-        heuristicas = [];
-      }
+        })
+        .catch(() => []);
 
-      if (userId) {
-        try {
-          memsSemelhantes = await this.deps.getMemorias(userId, {
-            texto: trimmed,
-            k: 3,
-            threshold: 0.12,
-            supabaseClient: supabase,
-          });
-        } catch (e: any) {
-          if (this.deps.debug()) {
-            this.deps.logger.warn(
-              `[ParallelFetch] buscarMemoriasSemelhantes falhou: ${e?.message}`
-            );
-          }
-          memsSemelhantes = [];
-        }
-      }
+      const memsPromise = userId
+        ? this.deps
+            .getMemorias(userId, {
+              texto: trimmed,
+              k: 3,
+              threshold: 0.12,
+              supabaseClient: supabase,
+            })
+            .catch((e: any) => {
+              if (this.deps.debug()) {
+                this.deps.logger.warn(
+                  `[ParallelFetch] buscarMemoriasSemelhantes falhou: ${e?.message}`
+                );
+              }
+              return [];
+            })
+        : Promise.resolve([]);
+
+      const [heuristicasResult, memsResult] = await Promise.all([
+        heuristicasPromise,
+        memsPromise,
+      ]);
+
+      heuristicas = heuristicasResult ?? [];
+      memsSemelhantes = userId ? memsResult ?? [] : [];
     }
 
     return { heuristicas, userEmbedding, memsSemelhantes };
