@@ -1,14 +1,60 @@
-ESCALA DE ABERTURA (1–3)
+# ESCALA DE ABERTURA (1–3) — Refinada
 
-Propósito
-Orientar tom/ritmo de resposta e limite de profundidade.
+## Propósito
+Orientar tom/ritmo de resposta e limite de profundidade baseado na abertura da pessoa.
 
-Níveis
-1 — Superficial: respostas curtas; sem perguntas exploratórias; acolhimento simples.
-2 — Reflexiva: espelhamento + 0–1 pergunta aberta; ritmo leve.
-3 — Profunda: presença mais lenta; 0–1 pergunta viva (se houver espaço); cuidado com interpretações.
+## Níveis com Linguagem Natural
 
-Regras
-- Nunca ir mais fundo do que o usuário sinaliza.
-- Humor leve somente com rapport.
-- Se houver queda de energia ou silêncio, caminhar para Encerramento Sensível.
+### **NÍVEL 1 — SUPERFICIAL**
+**Comportamento**: Respostas curtas; sem perguntas exploratórias; acolhimento simples
+**Linguagem**: Sempre natural, sem fórmulas automáticas
+**Estrutura**: Acolher (natural) + espelho leve + fecho disponível
+
+**❌ Evitar**: "Te ouço", "Percebo", perguntas reflexivas
+**✅ Usar**: "Imagino que seja pesado. Se quiser, seguimos daqui."
+
+### **NÍVEL 2 — REFLEXIVA**
+**Comportamento**: Espelhamento + 0–1 pergunta aberta; ritmo leve
+**Linguagem**: Contextualização ou descrição direta
+**Estrutura**: [Contextualização] → espelhamento → pergunta leve (opcional)
+
+**Exemplo**: "Domingo costuma abrir essas comportas da reflexão. Parece que o futuro está ocupando bastante espaço. O que mais chama sua atenção?"
+
+### **NÍVEL 3 — PROFUNDA**
+**Comportamento**: Presença mais lenta; 0–1 pergunta viva (se houver espaço); cuidado com interpretações
+**Linguagem**: Empatia específica + espelhamento em camadas
+**Estrutura**: [Empatia específica] → espelhamento profundo → pergunta viva (se apropriado)
+
+**Exemplo**: "Imagino como é carregar tantas reflexões sobre o futuro. Vejo você oscilando entre ansiedade e uma busca genuína por direção. O que fica mais vivo neste momento?"
+
+## Sinais para Identificar Cada Nível
+
+### **NÍVEL 1 - Indicadores**
+- Respostas muito curtas
+- Linguagem formal ou distante
+- Ausência de detalhes emocionais
+- "Tô bem", "Tranquilo", "Só passando"
+
+### **NÍVEL 2 - Indicadores**
+- Compartilha situação sem muita profundidade emocional
+- Linguagem casual, alguma abertura
+- Busca orientação prática
+- Reflexões sobre eventos específicos
+
+### **NÍVEL 3 - Indicadores**
+- Compartilha emoções e vulnerabilidades
+- Linguagem pessoal, íntima
+- Busca autoconhecimento
+- Reflexões existenciais ou padrões de vida
+
+## Regras Fundamentais
+- **Nunca ir mais fundo** do que o usuário sinaliza
+- **Sempre linguagem natural** - eliminar fórmulas automáticas em todos os níveis
+- **Humor leve** somente com rapport estabelecido
+- **Se houver queda de energia** ou silêncio → Encerramento Sensível
+
+## Transições Entre Níveis
+- **1→2**: Pessoa se abre mais, oferece detalhes
+- **2→3**: Traz emoções, vulnerabilidade, busca significado
+- **3→2**: Energia diminui, volta ao factual
+- **2→1**: Fecha-se, respostas ficam secas

@@ -13,6 +13,7 @@ const matrizPromptBaseV2: MatrizPromptBaseV2 = {
     core: [
       "IDENTIDADE.txt",
       "MODULACAO_TOM_REGISTRO.txt",
+      "LINGUAGEM_NATURAL.txt", // guia de linguagem natural
       "ENCERRAMENTO_SENSIVEL.txt",
     ],
     emotional: [],
@@ -26,7 +27,6 @@ const matrizPromptBaseV2: MatrizPromptBaseV2 = {
 
   /* ============== NV por camada ============== */
   byNivelV2: {
-    // NV1 enxuto: sem advanced; só escala mínima manual p/ calibrar tom
     1: {
       specific: [
         "NV1_CORE.txt",
@@ -46,6 +46,7 @@ const matrizPromptBaseV2: MatrizPromptBaseV2 = {
     "IDENTIDADE.txt",
     "ECO_ESTRUTURA_DE_RESPOSTA.txt",
     "MODULACAO_TOM_REGISTRO.txt",
+    "LINGUAGEM_NATURAL.txt",
     "MEMORIAS_CONTEXTO.txt",
     "ENCERRAMENTO_SENSIVEL.txt",
   ],
@@ -54,7 +55,7 @@ const matrizPromptBaseV2: MatrizPromptBaseV2 = {
   /* ============== gates mínimos ============== */
   intensidadeMinima: {
     "BLOCO_TECNICO_MEMORIA.txt": 7,
-    "METODO_VIVA_ENXUTO.txt": 7, // VIVA só considera intensidade alta
+    "METODO_VIVA_ENXUTO.txt": 7,
   },
 
   /* ============== regras semânticas ============== */
@@ -69,10 +70,7 @@ const matrizPromptBaseV2: MatrizPromptBaseV2 = {
       regra: "nivel>=1",
     },
 
-    // >>> VIVA conforme pipeline:
-    // - Ativar: intensidade >= 7 AND abertura (nivel) >= 2
-    // - Não ativar: saudação, factual, pedido prático, cansaço sem intensidade, desabafo (sem querer intervenção)
-    // OBS: flags assumem Selector.derivarFlags(texto)
+    // >>> VIVA conforme pipeline
     "METODO_VIVA_ENXUTO.txt": {
       descricao:
         "Ativar quando emoção clara (≥7) e abertura ≥2; máx. 3 movimentos; evitar em saudação/factual/pedido prático/cansaço/desabafo.",
@@ -90,11 +88,11 @@ const matrizPromptBaseV2: MatrizPromptBaseV2 = {
       regra: "nivel>=1",
     },
 
-    /* ====== Heurísticas (inclui extremos) ====== */
+    /* ====== Heurísticas cognitivas ====== */
     "eco_heuristica_disponibilidade.txt": {
       descricao: "Disponibilidade",
       regra:
-        "(intensidade<=2 || intensidade>=8) && nivel>=2 && !pedido_pratico",
+        "((intensidade>=2 && intensidade<=6) || intensidade>=8) && nivel>=2 && !pedido_pratico",
     },
     "eco_heuristica_excesso_confianca.txt": {
       descricao: "Excesso de confiança",
@@ -112,7 +110,86 @@ const matrizPromptBaseV2: MatrizPromptBaseV2 = {
         "((intensidade>=2 && intensidade<=6) || intensidade>=8) && nivel>=2 && !pedido_pratico",
     },
 
-    // … adicione as demais, quando necessário, mantendo o mesmo padrão de tipo …
+    // novos cognitivos
+    "eco_heuristica_ancoragem.txt": {
+      descricao: "Efeito de ancoragem (primeiras referências dominam)",
+      regra: "ancoragem && nivel>=2 && !pedido_pratico",
+    },
+    "eco_heuristica_causas_superam_estatisticas.txt": {
+      descricao:
+        "Narrativas causais sedutoras superando evidências estatísticas",
+      regra:
+        "causas_superam_estatisticas && nivel>=2 && !pedido_pratico",
+    },
+    "eco_heuristica_certeza_emocional.txt": {
+      descricao:
+        "Certeza emocional/convicção afetiva confundida com evidência",
+      regra: "certeza_emocional && nivel>=2 && !pedido_pratico",
+    },
+    "eco_heuristica_intuicao_especialista.txt": {
+      descricao: "Excesso de confiança na própria ‘intuição de especialista’",
+      regra: "excesso_intuicao_especialista && nivel>=2 && !pedido_pratico",
+    },
+    "eco_heuristica_regressao_media.txt": {
+      descricao: "Ignorar regressão à média (resultados extremos tendem a cair)",
+      regra: "ignora_regressao_media && nivel>=2 && !pedido_pratico",
+    },
+
+    /* ====== Emocionais / vulnerabilidade & vergonha ====== */
+    "eco_emo_vergonha_combate.txt": {
+      descricao: "Quando vergonha ativa mecanismos de combate/defesa",
+      regra: "vergonha && (defesas_ativas || combate) && intensidade>=5 && nivel>=2",
+    },
+    "eco_vulnerabilidade_defesas.txt": {
+      descricao: "Defesas comuns contra vulnerabilidade (racionalizar, evitar…)",
+      regra: "vulnerabilidade && defesas_ativas && nivel>=2",
+    },
+    "eco_vulnerabilidade_mitos.txt": {
+      descricao: "Mitos sobre vulnerabilidade (fraqueza, exposição total…)",
+      regra: "vulnerabilidade && nivel>=2",
+    },
+
+    /* ====== Filosóficos / estoicos e somáticos ====== */
+    "eco_observador_presente.txt": {
+      descricao:
+        "Postura do observador presente; separar estímulo de reação; reduzir ruminação",
+      regra: "ruminacao && nivel>=2",
+    },
+    "eco_presenca_racional.txt": {
+      descricao:
+        "Trazer razão serena quando há confusão emocional moderada",
+      regra: "confusao_emocional && intensidade>=3 && intensidade<=7 && nivel>=2",
+    },
+    "eco_corpo_emocao.txt": {
+      descricao:
+        "Ponte corpo–emoção: percepção somática para destravar identificação mental",
+      regra:
+        "(mencao_corporal || excesso_racionalizacao) && intensidade>=5 && nivel>=2",
+    },
+    "eco_fim_do_sofrimento.txt": {
+      descricao:
+        "Redução do sofrimento por avaliação/aversão; aceitar o que é (estoico)",
+      regra: "sofrimento_avaliativo && intensidade>=6 && nivel>=2",
+    },
+    "eco_identificacao_mente.txt": {
+      descricao:
+        "Desidentificação de pensamentos (‘não sou meus pensamentos’)",
+      regra: "identificacao_pensamentos && nivel>=2",
+    },
+
+    // (opcional) se você criou este arquivo
+    "eco_corpo_sensacao.txt": {
+      descricao: "Consciência corporal e escuta somática",
+      regra:
+        "(mencao_corporal || confusao_emocional || excesso_racionalizacao) && nivel>=2 && intensidade>=5",
+    },
+
+    // guia de linguagem natural — sempre que houver conversa real
+    "LINGUAGEM_NATURAL.txt": {
+      descricao:
+        "Guia de linguagem natural da Eco: substituições sem clichê, aberturas contextuais/descritas e validações diretas.",
+      regra: "nivel>=1",
+    },
   } as Record<string, CondicaoEspecial>,
 
   /* ============== prioridade (budget) ============== */
@@ -132,8 +209,34 @@ const matrizPromptBaseV2: MatrizPromptBaseV2 = {
       "IDENTIDADE.txt",
       "ECO_ESTRUTURA_DE_RESPOSTA.txt",
       "MODULACAO_TOM_REGISTRO.txt",
+      "LINGUAGEM_NATURAL.txt",
       "MEMORIAS_CONTEXTO.txt",
       "ENCERRAMENTO_SENSIVEL.txt",
+
+      // ===== Filosóficos / somáticos =====
+      "eco_observador_presente.txt",
+      "eco_presenca_racional.txt",
+      "eco_corpo_emocao.txt",
+      "eco_fim_do_sofrimento.txt",
+      "eco_identificacao_mente.txt",
+      // se existir
+      "eco_corpo_sensacao.txt",
+
+      // ===== Cognitivos (heurísticas) =====
+      "eco_heuristica_ancoragem.txt",
+      "eco_heuristica_causas_superam_estatisticas.txt",
+      "eco_heuristica_certeza_emocional.txt",
+      "eco_heuristica_disponibilidade.txt",
+      "eco_heuristica_excesso_confianca.txt",
+      "eco_heuristica_ilusao_validade.txt",
+      "eco_heuristica_intuicao_especialista.txt",
+      "eco_heuristica_regressao_media.txt",
+      "heuristica_ilusao_compreensao.txt",
+
+      // ===== Emocionais / vulnerabilidade & vergonha =====
+      "eco_emo_vergonha_combate.txt",
+      "eco_vulnerabilidade_defesas.txt",
+      "eco_vulnerabilidade_mitos.txt",
 
       // Intervenções / técnico
       "METODO_VIVA_ENXUTO.txt",

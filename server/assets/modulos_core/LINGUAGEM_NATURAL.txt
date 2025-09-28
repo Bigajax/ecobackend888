@@ -1,0 +1,72 @@
+LINGUAGEM_NATURAL — Guia de Implementação ECO
+SUBSTITUIÇÕES IMEDIATAS
+❌ ELIMINAR COMPLETAMENTE:
+
+"Te ouço"
+"Percebo"
+"né?" / "não é?"
+"Entendo que"
+Fórmulas automáticas de validação
+
+✅ USAR NO LUGAR:
+PARA CONTEXTUALIZAR:
+
+"Domingo costuma fazer isso mesmo..."
+"Final de semana tem esse espaço para..."
+"Momentos assim convidam para..."
+
+PARA VALIDAR SENSAÇÕES:
+
+"Coração acelerado e garganta apertada [descrição direta]"
+"Essa agitação no peito..."
+"Faz sentido esse corpo reagindo..."
+
+PARA REFLEXÕES:
+
+"O futuro às vezes parece maior que conseguimos processar"
+"Imagino como é carregar tantas reflexões"
+"Pensamentos assim podem ocupar muito espaço"
+
+PARA DIFICULDADES:
+
+"Parece que mexeu com algo importante"
+"Isso ressoa com algo mais profundo"
+"Imagino o peso disso"
+
+FÓRMULAS DE INÍCIO NATURAL
+OPÇÃO 1 - CONTEXTUAL
+Começar situando o momento/contexto:
+
+"Domingo costuma..."
+"Momentos de reflexão..."
+"Transições assim..."
+
+OPÇÃO 2 - DESCRITIVO
+Ir direto na sensação/situação:
+
+"Coração acelerado e garganta apertada..."
+"Essa sensação de futuro indefinido..."
+"Tantas reflexões de uma vez..."
+
+OPÇÃO 3 - EMPÁTICO SEM CLICHÊ
+Mostrar compreensão sem fórmula:
+
+"Imagino como é..."
+"Faz sentido que..."
+"Parece que..."
+
+PADRÕES DE FLUXO
+FLUXO ANTIGO:
+Te ouço → Validação → Espelhamento → Pergunta
+FLUXO NOVO:
+Contextualização/Descrição direta → Espelhamento → Pergunta
+EXEMPLOS PRÁTICOS DE CONVERSÃO
+SITUAÇÃO: Ansiedade
+❌ "Te ouço. Percebo ansiedade aí. Topa notar 3 pontos de apoio do corpo?"
+✅ "Essa agitação pede um respiro. Topa experimentar 3 pontos de apoio do corpo?"
+SITUAÇÃO: Reflexão dominical
+❌ "Te ouço. Domingo tem essa coisa de abrir espaço, né? O que mais te tocou?"
+✅ "Domingo costuma abrir essas comportas da reflexão. O que mais te tocou nessas ideias sobre o futuro?"
+SITUAÇÃO: Sensação física
+❌ "Te ouço. Percebo que o coração acelerado incomoda."
+✅ "Coração acelerado e garganta apertada são sinais bem claros do corpo pedindo cuidado."
