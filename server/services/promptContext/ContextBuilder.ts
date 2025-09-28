@@ -2,6 +2,7 @@
 import { firstName } from "../conversation/helpers";
 import { isDebug, log } from "./logger";
 import { Selector, derivarNivel, detectarSaudacaoBreve } from "./Selector";
+import { mapHeuristicasToFlags } from "./heuristicaFlags";
 import type { BuildParams } from "./contextTypes";
 import { ModuleCatalog } from "./moduleCatalog";
 import { planBudget } from "./budget";
@@ -52,10 +53,12 @@ export async function montarContextoEco(params: BuildParams): Promise<string> {
 
   await ModuleCatalog.ensureReady();
 
+  const heuristicaFlags = mapHeuristicasToFlags(_heuristicas);
+
   const baseSelection = Selector.selecionarModulosBase({
     nivel,
     intensidade: memIntensity,
-    flags: Selector.derivarFlags(texto),
+    flags: Selector.derivarFlags(texto, heuristicaFlags),
   });
 
   const toUnique = (list: string[] | undefined) =>
