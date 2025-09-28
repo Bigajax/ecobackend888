@@ -189,32 +189,29 @@ export async function getEcoResponse(
     });
   }
 
-  let heuristicas: any[] = [];
-  let userEmbedding: number[] = [];
-  let memsSemelhantes: any[] = [];
-
-  if (!promptOverride) {
-    const paralelas = await Promise.race([
-      defaultParallelFetchService.run({ ultimaMsg, userId, supabase }),
-      sleep(PARALELAS_TIMEOUT_MS).then(() => ({
-        heuristicas: [],
-        userEmbedding: [],
-        memsSemelhantes: [],
-      })),
-    ]);
-    heuristicas = paralelas.heuristicas;
-    userEmbedding = paralelas.userEmbedding;
-    memsSemelhantes = paralelas.memsSemelhantes ?? [];
-  }
-
   const shouldSkipDerivados =
     !!promptOverride ||
     (metaFromBuilder && Number(metaFromBuilder.nivel) === 1) ||
     !userId;
 
-  const derivados = shouldSkipDerivados
-    ? null
-    : await withTimeoutOrNull(
+  const paralelasPromise = promptOverride
+    ? Promise.resolve({
+        heuristicas: [],
+        userEmbedding: [],
+        memsSemelhantes: [],
+      })
+    : Promise.race([
+        defaultParallelFetchService.run({ ultimaMsg, userId, supabase }),
+        sleep(PARALELAS_TIMEOUT_MS).then(() => ({
+          heuristicas: [],
+          userEmbedding: [],
+          memsSemelhantes: [],
+        })),
+      ]);
+
+  const derivadosPromise = shouldSkipDerivados
+    ? Promise.resolve(null)
+    : withTimeoutOrNull(
         (async () => {
           try {
             const [{ data: stats }, { data: marcos }, { data: efeitos }] =
@@ -263,6 +260,13 @@ export async function getEcoResponse(
         "derivados",
         { logger: log }
       );
+
+  const paralelas = await paralelasPromise;
+  const derivados = await derivadosPromise;
+
+  const heuristicas: any[] = paralelas.heuristicas ?? [];
+  const userEmbedding: number[] = paralelas.userEmbedding ?? [];
+  const memsSemelhantes: any[] = paralelas.memsSemelhantes ?? [];
 
   const aberturaHibrida = derivados
     ? (() => {
