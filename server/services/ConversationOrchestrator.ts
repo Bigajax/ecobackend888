@@ -23,7 +23,8 @@ import {
 import { defaultContextCache } from "./conversation/contextCache";
 import { defaultResponseFinalizer } from "./conversation/responseFinalizer";
 import { firstName } from "./conversation/helpers";
-import { detectExplicitAskForSteps, runFastLaneLLM } from "./conversation/fastLane";
+import { runFastLaneLLM } from "./conversation/fastLane";
+import { buildFullPrompt } from "./conversation/promptPlan";
 
 /* ---------------------------- Consts ---------------------------- */
 
@@ -91,6 +92,7 @@ export async function getEcoResponse(
     });
   }
 
+  // --------------------------- FAST MODE ---------------------------
   if (decision.mode === "fast") {
     const inicioFast = now();
     const fast = await runFastLaneLLM({
@@ -112,6 +114,7 @@ export async function getEcoResponse(
     return fast.response;
   }
 
+  // --------------------------- FULL MODE ---------------------------
   const shouldSkipDerivados =
     !!promptOverride ||
     (metaFromBuilder && Number(metaFromBuilder.nivel) === 1) ||
@@ -138,57 +141,59 @@ export async function getEcoResponse(
         })),
       ]);
 
-  const derivadosPromise = shouldSkipDerivados || cachedDerivados
-    ? Promise.resolve(cachedDerivados)
-    : withTimeoutOrNull(
-        (async () => {
-          try {
-            const [{ data: stats }, { data: marcos }, { data: efeitos }] =
-              await Promise.all([
-                supabase
-                  .from("user_theme_stats")
-                  .select("tema,freq_30d,int_media_30d")
-                  .eq("user_id", userId)
-                  .order("freq_30d", { ascending: false })
-                  .limit(5),
-                supabase
-                  .from("user_temporal_milestones")
-                  .select("tema,resumo_evolucao,marco_at")
-                  .eq("user_id", userId)
-                  .order("marco_at", { ascending: false })
-                  .limit(3),
-                supabase
-                  .from("interaction_effects")
-                  .select("efeito,score,created_at")
-                  .eq("user_id", userId)
-                  .order("created_at", { ascending: false })
-                  .limit(30),
-              ]);
+  const derivadosPromise =
+    shouldSkipDerivados || cachedDerivados
+      ? Promise.resolve(cachedDerivados)
+      : withTimeoutOrNull(
+          (async () => {
+            try {
+              const [{ data: stats }, { data: marcos }, { data: efeitos }] =
+                await Promise.all([
+                  supabase
+                    .from("user_theme_stats")
+                    .select("tema,freq_30d,int_media_30d")
+                    .eq("user_id", userId)
+                    .order("freq_30d", { ascending: false })
+                    .limit(5),
+                  supabase
+                    .from("user_temporal_milestones")
+                    .select("tema,resumo_evolucao,marco_at")
+                    .eq("user_id", userId)
+                    .order("marco_at", { ascending: false })
+                    .limit(3),
+                  supabase
+                    .from("interaction_effects")
+                    .select("efeito,score,created_at")
+                    .eq("user_id", userId)
+                    .order("created_at", { ascending: false })
+                    .limit(30),
+                ]);
 
-            const arr = (efeitos || []).map((r: any) => ({
-              x: { efeito: (r.efeito as any) ?? "neutro" },
-            }));
-            const scores = (efeitos || [])
-              .map((r: any) => Number(r?.score))
-              .filter((v: number) => Number.isFinite(v));
-            const media = scores.length
-              ? scores.reduce((a: number, b: number) => a + b, 0) / scores.length
-              : 0;
+              const arr = (efeitos || []).map((r: any) => ({
+                x: { efeito: (r.efeito as any) ?? "neutro" },
+              }));
+              const scores = (efeitos || [])
+                .map((r: any) => Number(r?.score))
+                .filter((v: number) => Number.isFinite(v));
+              const media = scores.length
+                ? scores.reduce((a: number, b: number) => a + b, 0) /
+                  scores.length
+                : 0;
 
-            return getDerivados(
-              (stats || []) as any,
-              (marcos || []) as any,
-              arr as any,
-              media
-            );
-          } catch {
-            return null;
-          }
-        })(),
-        DERIVADOS_TIMEOUT_MS,
-        "derivados",
-        { logger: log }
-      );
+              return getDerivados(
+                (stats || []) as any,
+                (marcos || []) as any,
+                arr as any,
+                media
+              );
+            } catch {
+              return null;
+            }
+          })(),
+          DERIVADOS_TIMEOUT_MS,
+          "derivados",
+          { logger: log }
+        );
 
   const paralelas = await paralelasPromise;
   const derivados = await derivadosPromise;
@@ -234,35 +239,20 @@ export async function getEcoResponse(
       aberturaHibrida,
     }));
 
-  // Seleciona estilo para a rota full
-  const explicitAskForSteps = detectExplicitAskForSteps(ultimaMsg);
-  const preferCoachFull =
-    !decision.vivaAtivo &&
-    (explicitAskForSteps || Number(decision.nivelRoteador) === 1);
+  // Seleciona estilo e orçamento para a rota full
+  const { prompt, maxTokens, msgs } = buildFullPrompt({
+    decision,
+    ultimaMsg,
+    systemPrompt,
+    messages: messages as any,
+  });
 
-  const STYLE_SELECTOR_FULL = preferCoachFull
-    ? "Preferir plano COACH (30%): acolher (1 linha) • encorajar com leveza • (opcional) até 3 passos curtos • fechar com incentivo."
-    : "Preferir plano ESPELHO (70%): acolher (1 linha) • refletir padrões/sentimento (1 linha) • 1 pergunta aberta • fechar leve.";
-
-  const msgs: { role: "system" | "user" | "assistant"; content: string }[] = [
-    { role: "system", content: `${STYLE_SELECTOR_FULL}\n${systemPrompt}` },
-    ...(messages as any[]).slice(-5).map((m) => ({
-      role: mapRoleForOpenAI((m as any).role) as
-        | "system"
-        | "user"
-        | "assistant",
-      content: (m as any).content,
-    })),
-  ];
-
-  const maxTokens =
-    ultimaMsg.length < 140 ? 420 : ultimaMsg.length < 280 ? 560 : 700;
   const inicioEco = now();
 
   let data: any;
   try {
     data = await claudeChatCompletion({
-      messages: msgs,
+      messages: [{ role: "system", content: prompt }, ...msgs],
       model: process.env.ECO_CLAUDE_MODEL || "anthropic/claude-3-5-sonnet",
       temperature: 0.6,
       maxTokens,
