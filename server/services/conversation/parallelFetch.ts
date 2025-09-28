@@ -56,7 +56,9 @@ export class ParallelFetchService {
       const memsPromise = userId
         ? this.deps
             .getMemorias(userId, {
+              // Reuse the embedding computed above to avoid duplicate embedding API calls.
               texto: trimmed,
+              userEmbedding,
               k: 3,
               threshold: 0.12,
               supabaseClient: supabase,
