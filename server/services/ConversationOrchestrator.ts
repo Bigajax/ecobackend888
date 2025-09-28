@@ -53,7 +53,6 @@ export async function getEcoResponse(
   }
 
   const ultimaMsg = (messages as any).at(-1)?.content || "";
-  const supabase = supabaseWithBearer(accessToken);
 
   // Micro-resposta local
   const micro = microReflexoLocal(ultimaMsg);
@@ -92,6 +91,8 @@ export async function getEcoResponse(
       mode: decision.mode,
     });
   }
+
+  const supabase = supabaseWithBearer(accessToken);
 
   // --------------------------- FAST MODE ---------------------------
   if (decision.mode === "fast") {
