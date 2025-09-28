@@ -1,5 +1,7 @@
 // core/ClaudeAdapter.ts
 
+import { httpAgent, httpsAgent } from "../adapters/OpenRouterAdapter";
+
 type Msg = { role: "system" | "user" | "assistant"; content: string };
 
 /** Tipos mínimos do retorno da OpenRouter (compatível com strict) */
@@ -15,6 +17,20 @@ interface ORChatCompletion {
   usage?: ORUsage;
   error?: ORError;
   [k: string]: unknown;
+}
+
+const DEFAULT_TIMEOUT_MS = 12_000;
+
+class ClaudeTimeoutError extends Error {
+  constructor(timeoutMs: number) {
+    super(`Claude request timed out after ${timeoutMs}ms`);
+    this.name = "ClaudeTimeoutError";
+  }
+}
+
+function resolveTimeoutMs() {
+  const raw = Number(process.env.ECO_CLAUDE_TIMEOUT_MS);
+  return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_TIMEOUT_MS;
 }
 
 export async function claudeChatCompletion({
@@ -58,42 +74,63 @@ export async function claudeChatCompletion({
       ],
     };
 
-    const resp = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-      method: "POST",
-      headers,
-      body: JSON.stringify(payload),
-    });
+    const timeoutMs = resolveTimeoutMs();
+    const controller = new AbortController();
+    const timeoutHandle: NodeJS.Timeout = setTimeout(() => controller.abort(), timeoutMs);
 
-    if (!resp.ok) {
-      throw new Error(`OpenRouter error: ${resp.status} ${resp.statusText}`);
+    try {
+      const resp = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+        method: "POST",
+        headers,
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+        agent: (parsedURL: URL) =>
+          parsedURL.protocol === "http:" ? httpAgent : httpsAgent,
+      } as any);
+
+      if (!resp.ok) {
+        throw new Error(`OpenRouter error: ${resp.status} ${resp.statusText}`);
+      }
+
+      const data = (await resp.json()) as unknown as ORChatCompletion;
+
+      if (data.error?.message) {
+        throw new Error(`OpenRouter API error: ${data.error.message}`);
+      }
+
+      const text =
+        data.choices?.[0]?.message?.content ??
+        ""; // segura contra undefined
+
+      return {
+        content: text,
+        model: data.model ?? modelToUse,
+        usage: {
+          total_tokens: data.usage?.total_tokens,
+          prompt_tokens: data.usage?.prompt_tokens,
+          completion_tokens: data.usage?.completion_tokens,
+        },
+        raw: data,
+      };
+    } catch (err) {
+      if ((err as Error)?.name === "AbortError") {
+        throw new ClaudeTimeoutError(timeoutMs);
+      }
+      throw err;
+    } finally {
+      clearTimeout(timeoutHandle);
     }
-
-    const data = (await resp.json()) as unknown as ORChatCompletion;
-
-    if (data.error?.message) {
-      throw new Error(`OpenRouter API error: ${data.error.message}`);
-    }
-
-    const text =
-      data.choices?.[0]?.message?.content ??
-      ""; // segura contra undefined
-
-    return {
-      content: text,
-      model: data.model ?? modelToUse,
-      usage: {
-        total_tokens: data.usage?.total_tokens,
-        prompt_tokens: data.usage?.prompt_tokens,
-        completion_tokens: data.usage?.completion_tokens,
-      },
-      raw: data,
-    };
   }
 
   try {
     return await call(model);
   } catch (err) {
-    console.warn(`⚠️ Claude ${model} falhou, tentando fallback ${fallbackModel}`, err);
+    const isTimeout = err instanceof ClaudeTimeoutError;
+    const label = isTimeout ? "⏱️" : "⚠️";
+    const message = isTimeout
+      ? `Claude ${model} excedeu o tempo limite (${(err as Error).message}). Tentando fallback ${fallbackModel}`
+      : `Claude ${model} falhou, tentando fallback ${fallbackModel}`;
+    console.warn(`${label} ${message}`, err);
     return await call(fallbackModel!);
   }
 }
