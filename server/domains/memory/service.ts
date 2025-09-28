@@ -68,15 +68,26 @@ export class MemoryService {
     const destinoTabela =
       intensidadeClamped >= 7 && salvar ? "memories" : "referencias_temporarias";
 
-    let finalTags = normalizeTags(input.tags);
-    if (!finalTags.length) {
-      finalTags = await gerarTagsAutomaticasViaIA(input.texto);
-    }
+    const normalizedTags = normalizeTags(input.tags);
+    const shouldAutoTag = normalizedTags.length === 0;
+    const resumoAnalitico = input.analise_resumo?.trim();
+    const textoBase = input.texto;
+    const reuseMainEmbedding = !resumoAnalitico || resumoAnalitico === textoBase;
 
-    const embedding = unitNorm(await embedTextoCompleto(input.texto));
-    const embeddingEmocional = unitNorm(
-      await embedTextoCompleto(input.analise_resumo ?? input.texto)
-    );
+    const tagsPromise: Promise<string[]> = shouldAutoTag
+      ? gerarTagsAutomaticasViaIA(textoBase)
+      : Promise.resolve(normalizedTags);
+
+    const [finalTags, embeddingPrincipal, embeddingEmocionalRaw] = await Promise.all([
+      tagsPromise,
+      embedTextoCompleto(textoBase),
+      reuseMainEmbedding
+        ? Promise.resolve<number[] | null>(null)
+        : embedTextoCompleto(resumoAnalitico!),
+    ]);
+
+    const embedding = unitNorm(embeddingPrincipal);
+    const embeddingEmocional = unitNorm(embeddingEmocionalRaw ?? embeddingPrincipal);
 
     const nivelAbertura =
       typeof input.nivel_abertura === "number"
