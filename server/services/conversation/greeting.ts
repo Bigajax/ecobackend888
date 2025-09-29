@@ -1,4 +1,4 @@
-import { mapRoleForOpenAI } from "../../utils";
+import { mapRoleForOpenAI, type ChatMessage } from "../../utils";
 import { GreetGuard } from "../../core/policies/GreetGuard";
 import {
   respostaSaudacaoAutomatica,
@@ -7,7 +7,7 @@ import {
 } from "../../utils/respostaSaudacaoAutomatica";
 
 export interface GreetingPipelineParams {
-  messages: Array<{ role: any; content: string }>;
+  messages: ChatMessage[];
   ultimaMsg: string;
   userId?: string;
   userName?: string;

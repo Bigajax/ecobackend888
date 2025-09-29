@@ -1,4 +1,4 @@
-import { mapRoleForOpenAI, type GetEcoResult } from "../../utils";
+import { mapRoleForOpenAI, type ChatMessage, type GetEcoResult } from "../../utils";
 import { log } from "../promptContext/logger";
 import type { FinalizeParams } from "./responseFinalizer";
 
@@ -24,7 +24,7 @@ export interface RunFastLaneLLMDeps {
 }
 
 export interface RunFastLaneLLMParams {
-  messages: Array<{ role: string; content: string; id?: string }>;
+  messages: ChatMessage[];
   userName?: string;
   ultimaMsg: string;
   hasAssistantBefore: boolean;

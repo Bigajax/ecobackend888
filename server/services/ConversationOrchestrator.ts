@@ -5,6 +5,7 @@ import {
   sleep,
   type GetEcoParams,
   type GetEcoResult,
+  type ChatMessage,
 } from "../utils";
 import { supabaseWithBearer } from "../adapters/SupabaseAdapter";
 import { microReflexoLocal } from "../core/ResponseGenerator";
@@ -52,7 +53,10 @@ export async function getEcoResponse(
     throw new Error('Parâmetro "messages" vazio ou inválido.');
   }
 
-  const ultimaMsg = (messages as any).at(-1)?.content || "";
+  const thread: ChatMessage[] = messages;
+  const lastMessage = thread.at(-1);
+  const lastMessageId = lastMessage?.id;
+  const ultimaMsg = lastMessage?.content ?? "";
 
   // Micro-resposta local
   const micro = microReflexoLocal(ultimaMsg);
@@ -62,7 +66,7 @@ export async function getEcoResponse(
 
   // Pipeline de saudação
   const greetingResult = defaultGreetingPipeline.handle({
-    messages: messages as any,
+    messages: thread,
     ultimaMsg,
     userId,
     userName,
@@ -75,7 +79,7 @@ export async function getEcoResponse(
 
   // Roteamento
   const decision = defaultConversationRouter.decide({
-    messages: messages as any,
+    messages: thread,
     ultimaMsg,
     forcarMetodoViva,
     promptOverride,
@@ -98,13 +102,13 @@ export async function getEcoResponse(
   if (decision.mode === "fast") {
     const inicioFast = now();
     const fast = await runFastLaneLLM({
-      messages: messages as any,
+      messages: thread,
       userName,
       ultimaMsg,
       hasAssistantBefore: decision.hasAssistantBefore,
       userId,
       supabase,
-      lastMessageId: (messages as any).at(-1)?.id ?? undefined,
+      lastMessageId: lastMessageId ?? undefined,
       startedAt: inicioFast,
       deps: {
         claudeClient: claudeChatCompletion,
@@ -251,7 +255,7 @@ export async function getEcoResponse(
     decision,
     ultimaMsg,
     systemPrompt,
-    messages: messages as any,
+    messages: thread,
   });
 
   const inicioEco = now();
@@ -276,7 +280,7 @@ export async function getEcoResponse(
       hasAssistantBefore: decision.hasAssistantBefore,
       userId,
       supabase,
-      lastMessageId: (messages as any).at(-1)?.id ?? undefined,
+      lastMessageId: lastMessageId ?? undefined,
       mode: "full",
       startedAt: inicioEco,
       usageTokens: undefined,
@@ -299,7 +303,7 @@ export async function getEcoResponse(
     hasAssistantBefore: decision.hasAssistantBefore,
     userId,
     supabase,
-    lastMessageId: (messages as any).at(-1)?.id ?? undefined,
+    lastMessageId: lastMessageId ?? undefined,
     mode: "full",
     startedAt: inicioEco,
     usageTokens: data?.usage?.total_tokens ?? undefined,
