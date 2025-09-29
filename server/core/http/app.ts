@@ -42,6 +42,7 @@ export function createApp(): Express {
 
   app.use("/api", promptRoutes);
   app.use("/api/memorias", memoryRoutes);
+  app.use("/api/memories", memoryRoutes);
   app.use("/api/perfil-emocional", profileRoutes);
   app.use("/api/voice", voiceTTSRoutes);
   app.use("/api/voice", voiceFullRoutes);
@@ -50,6 +51,7 @@ export function createApp(): Express {
   app.use("/api/feedback", feedbackRoutes);
 
   app.use("/memorias", memoryRoutes);
+  app.use("/memories", memoryRoutes);
   app.use("/perfil-emocional", profileRoutes);
   app.use("/relatorio-emocional", relatorioRoutes);
 
