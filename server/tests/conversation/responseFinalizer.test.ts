@@ -23,7 +23,9 @@ Module._load = function patchedLoad(request: string, parent: any, isMain: boolea
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const responseFinalizerModule = require("../../services/conversation/responseFinalizer") as typeof import("../../services/conversation/responseFinalizer");
+const helpersModule = require("../../services/conversation/helpers") as typeof import("../../services/conversation/helpers");
 const { ResponseFinalizer } = responseFinalizerModule;
+const { stripRedundantGreeting } = helpersModule;
 Module._load = originalLoad;
 
 const noop = () => {};
@@ -109,4 +111,19 @@ test("preenche intensidade e resumo quando bloco chega dentro do timeout", async
 
   assert.strictEqual(result.intensidade, 0.42);
   assert.strictEqual(result.resumo, "resumo alinhado");
+});
+
+test("stripRedundantGreeting remove saudação quando assistente já respondeu", () => {
+  const casos: Array<[string, string]> = [
+    ["Oi, tudo bem?", "tudo bem?"],
+    ["Boa noite! Como posso ajudar?", "Como posso ajudar?"],
+  ];
+
+  for (const [input, esperado] of casos) {
+    const resultado = stripRedundantGreeting(input, true);
+    assert.strictEqual(resultado, esperado);
+  }
+
+  const semAssistente = stripRedundantGreeting("Oi, tudo bem?", false);
+  assert.strictEqual(semAssistente, "Oi, tudo bem?");
 });
