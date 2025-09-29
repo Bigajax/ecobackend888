@@ -1,9 +1,9 @@
-import { mapRoleForOpenAI } from "../../utils";
+import { mapRoleForOpenAI, type ChatMessage } from "../../utils";
 import { derivarNivel, detectarSaudacaoBreve } from "../promptContext/Selector";
 import { heuristicaPreViva, isLowComplexity } from "./helpers";
 
 export interface RouteDecisionParams {
-  messages: Array<{ role: any; content: string }>;
+  messages: ChatMessage[];
   ultimaMsg: string;
   forcarMetodoViva?: boolean;
   promptOverride?: string | null;

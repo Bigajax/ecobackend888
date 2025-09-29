@@ -1,4 +1,4 @@
-import { mapRoleForOpenAI } from "../../utils";
+import { mapRoleForOpenAI, type ChatMessage } from "../../utils";
 import type { RouteDecision } from "./router";
 
 type PromptMessage = { role: "system" | "user" | "assistant"; content: string };
@@ -21,7 +21,7 @@ export interface BuildFullPromptParams {
   decision: RouteDecision;
   ultimaMsg: string;
   systemPrompt: string;
-  messages: Array<{ role: any; content: string }>;
+  messages: ChatMessage[];
   historyLimit?: number;
 }
 
