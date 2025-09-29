@@ -38,7 +38,14 @@ export class ParallelFetchService {
     let userEmbedding: number[] = [];
     const trimmed = (ultimaMsg || "").trim();
     if (trimmed.length > 0) {
-      userEmbedding = await this.deps.getEmbedding(trimmed, "entrada_usuario");
+      try {
+        userEmbedding = await this.deps.getEmbedding(trimmed, "entrada_usuario");
+      } catch (e: any) {
+        userEmbedding = [];
+        this.deps.logger.warn(
+          `[ParallelFetch] getEmbedding falhou: ${e?.message ?? "erro desconhecido"}`
+        );
+      }
     }
 
     let heuristicas: any[] = [];
