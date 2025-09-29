@@ -1,7 +1,7 @@
 // services/buscarMemorias.ts
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { embedTextoCompleto, unitNorm } from "../adapters/embeddingService";
 import { supabase as supabaseDefault } from "../lib/supabaseAdmin"; // ✅ renomeado
+import { prepareQueryEmbedding } from "./prepareQueryEmbedding";
 
 export interface MemoriaSimilar {
   id: string;
@@ -71,15 +71,8 @@ export async function buscarMemoriasSemelhantes(
     // ---------------------------
     // Gera OU reaproveita o embedding (e normaliza)
     // ---------------------------
-    let queryEmbedding: number[] | undefined;
-    if (userEmbedding?.length) {
-      queryEmbedding = unitNorm(userEmbedding);
-    } else {
-      const raw = await embedTextoCompleto(texto);
-      const asArr: number[] | null = forceNumberArray(raw);
-      if (!asArr) return [];
-      queryEmbedding = unitNorm(asArr);
-    }
+    const queryEmbedding = await prepareQueryEmbedding({ texto, userEmbedding });
+    if (!queryEmbedding) return [];
 
     const match_count = Math.max(1, k);
     const match_threshold = Math.max(0, Math.min(1, Number(threshold) || 0.8));
@@ -153,17 +146,3 @@ export async function buscarMemoriasSemelhantes(
   }
 }
 
-/* --------------------------------- helpers -------------------------------- */
-
-/** Força um vetor em number[] seguro (aceita number[], unknown[], string JSON) */
-function forceNumberArray(v: unknown): number[] | null {
-  try {
-    const arr = Array.isArray(v) ? v : JSON.parse(String(v));
-    if (!Array.isArray(arr)) return null;
-    const nums = (arr as unknown[]).map((x) => Number(x));
-    if (nums.some((n) => !Number.isFinite(n))) return null;
-    return nums;
-  } catch {
-    return null;
-  }
-}

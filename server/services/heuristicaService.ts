@@ -2,6 +2,7 @@
 import { supabase } from "../lib/supabaseAdmin";
 import supabaseAdmin from "../lib/supabaseAdmin"; // para o hydrate simples do segundo helper
 import { embedTextoCompleto, unitNorm } from "../adapters/embeddingService";
+import { prepareQueryEmbedding } from "./prepareQueryEmbedding";
 
 /** Resultado final (sem o vetor) */
 export interface Heuristica {
@@ -24,12 +25,6 @@ export type BuscarHeuristicasInput = {
 };
 
 function clamp01(x: number) { return Math.max(0, Math.min(1, x)); }
-function toNumberArray(arr: unknown): number[] | null {
-  if (!Array.isArray(arr)) return null;
-  const nums = arr.map((x) => Number(x)).filter((x) => Number.isFinite(x));
-  return nums.length >= 2 ? nums : null;
-}
-
 /** Implementação core: recebe já o embedding normalizado e executa a RPC + hydrate opcional */
 async function _buscarHeuristicasCore(params: {
   queryEmbedding: number[];
@@ -100,15 +95,12 @@ export async function buscarHeuristicasSemelhantes(
   if (!userEmbedding && (!texto || texto.trim().length < 6)) return [];
 
   // gera ou reaproveita embedding
-  let queryEmbedding: number[];
-  if (userEmbedding?.length) {
-    const ue = toNumberArray(userEmbedding);
-    if (!ue) return [];
-    queryEmbedding = unitNorm(ue);
-  } else {
-    const emb = await embedTextoCompleto(texto, "🔍 heuristica");
-    queryEmbedding = unitNorm(emb);
-  }
+  const queryEmbedding = await prepareQueryEmbedding({
+    texto,
+    userEmbedding,
+    tag: "🔍 heuristica",
+  });
+  if (!queryEmbedding) return [];
 
   return _buscarHeuristicasCore({
     queryEmbedding,
