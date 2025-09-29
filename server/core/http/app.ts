@@ -44,10 +44,12 @@ export function createApp(): Express {
   app.use("/api/memorias", memoryRoutes);
   app.use("/api/memories", memoryRoutes);
   app.use("/api/perfil-emocional", profileRoutes);
+  app.use("/api/v1/perfil-emocional", profileRoutes);
   app.use("/api/voice", voiceTTSRoutes);
   app.use("/api/voice", voiceFullRoutes);
   app.use("/api", openrouterRoutes);
   app.use("/api/relatorio-emocional", relatorioRoutes);
+  app.use("/api/v1/relatorio-emocional", relatorioRoutes);
   app.use("/api/feedback", feedbackRoutes);
 
   app.use("/memorias", memoryRoutes);
