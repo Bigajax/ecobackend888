@@ -1,6 +1,6 @@
 // services/buscarReferenciasSemelhantes.ts
 import { supabase } from "../lib/supabaseAdmin";
-import { embedTextoCompleto, unitNorm } from "../adapters/embeddingService";
+import { prepareQueryEmbedding } from "./prepareQueryEmbedding";
 
 export interface ReferenciaTemporaria {
   resumo_eco: string;
@@ -45,15 +45,12 @@ export async function buscarReferenciasSemelhantes(
     if (!userEmbedding && (!texto || texto.trim().length < 6)) return [];
 
     // ---------------- Embedding (gera OU reaproveita) ----------------
-    let queryEmbedding: number[];
-    if (userEmbedding?.length) {
-      queryEmbedding = unitNorm(userEmbedding);
-    } else {
-      const raw = await embedTextoCompleto(texto, "refs");
-      const coerced = forceNumberArray(raw);
-      if (!coerced) return [];
-      queryEmbedding = unitNorm(coerced);
-    }
+    const queryEmbedding = await prepareQueryEmbedding({
+      texto,
+      userEmbedding,
+      tag: "refs",
+    });
+    if (!queryEmbedding) return [];
 
     // ✅ (opcional) validar dimensão do vetor para evitar 42883/42804 no Postgres
     if (typeof EMB_DIM === "number" && queryEmbedding.length !== EMB_DIM) {
@@ -121,15 +118,3 @@ export async function buscarReferenciasSemelhantes(
 // alias compat
 export const buscarReferenciasSemelhantesV2 = buscarReferenciasSemelhantes;
 
-/* ------------------------------- helpers ------------------------------- */
-function forceNumberArray(v: unknown): number[] | null {
-  try {
-    const arr = Array.isArray(v) ? v : JSON.parse(String(v));
-    if (!Array.isArray(arr)) return null;
-    const nums = (arr as unknown[]).map((x) => Number(x));
-    if (nums.some((n) => !Number.isFinite(n))) return null;
-    return nums;
-  } catch {
-    return null;
-  }
-}

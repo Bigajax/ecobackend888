@@ -1,6 +1,6 @@
 // services/buscarEncadeamentos.ts
 import { createClient } from "@supabase/supabase-js";
-import { embedTextoCompleto, unitNorm } from "../adapters/embeddingService";
+import { prepareQueryEmbedding } from "./prepareQueryEmbedding";
 
 const supabase = createClient(
   process.env.SUPABASE_URL!,
@@ -60,9 +60,12 @@ export async function buscarEncadeamentosPassados(
     // ---------------------------
     // Gera OU reaproveita o embedding (e normaliza)
     // ---------------------------
-    const consulta_embedding = userEmbedding?.length
-      ? unitNorm(userEmbedding)
-      : unitNorm(await embedTextoCompleto(texto, "🔗 encadeamento"));
+    const consulta_embedding = await prepareQueryEmbedding({
+      texto,
+      userEmbedding,
+      tag: "🔗 encadeamento",
+    });
+    if (!consulta_embedding) return [];
 
     // ---------------------------
     // 1) Busca memória base mais similar do usuário (RPC v2)
