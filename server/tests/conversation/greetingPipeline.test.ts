@@ -59,3 +59,22 @@ test("não envia saudação quando há conteúdo substantivo", () => {
   assert.deepStrictEqual(result, { handled: false });
   assert.deepStrictEqual(marks, []);
 });
+
+test("não repete saudação automática quando assistente já respondeu", () => {
+  const { pipeline, marks } = createPipeline();
+
+  const history = [
+    { role: "assistant", content: "Olá! Como posso ajudar hoje?" },
+    { role: "user", content: "Oi" },
+  ];
+
+  const result = pipeline.handle({
+    messages: history,
+    ultimaMsg: "Oi",
+    greetingEnabled: true,
+    userId: "user-789",
+  });
+
+  assert.deepStrictEqual(result, { handled: false });
+  assert.deepStrictEqual(marks, []);
+});

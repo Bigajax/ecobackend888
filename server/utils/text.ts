@@ -17,8 +17,15 @@ export function ensureEnvs() {
 // -----------------------------
 export const mapRoleForOpenAI = (
   role: string,
-): "user" | "assistant" | "system" =>
-  role === "model" ? "assistant" : role === "system" ? "system" : "user";
+): "user" | "assistant" | "system" => {
+  if (role === "assistant" || role === "model") {
+    return "assistant";
+  }
+  if (role === "system") {
+    return "system";
+  }
+  return "user";
+};
 
 // -----------------------------
 // Sanitização & formatação
