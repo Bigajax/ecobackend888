@@ -22,6 +22,65 @@ const STYLE_HINTS =
   "Tom: reflexivo, claro, acolhedor, levemente bem-humorado. Use português brasileiro natural. " +
   "Responda curto (1–2 frases) quando possível. Se pedirem passos, no máximo 3 itens.";
 
+/* -------------------------------------------------------------------------- */
+/*  INTENT RESOLVER — mapeia texto de entrada -> módulos extras               */
+/*  Mantém o front agnóstico; funciona com as QuickSuggestions definidas      */
+/* -------------------------------------------------------------------------- */
+function inferIntentModules(texto: string): string[] {
+  const t = (texto || "").toLowerCase();
+
+  // 🔄 / 🌊 Revisitar memórias marcantes
+  const wantsRevisit =
+    /revisitar/.test(t) ||
+    /momento marcante/.test(t) ||
+    /emo[cç]?[aã]o forte do passado/.test(t) ||
+    /lembran[çc]a/.test(t) ||
+    /🔄|🌊/.test(texto);
+
+  if (wantsRevisit) {
+    return [
+      "eco_memoria_revisitar_passado",
+      // pequenos apoios somáticos/presença para ancorar a recordação
+      "eco_observador_presente",
+      "eco_corpo_emocao",
+    ];
+  }
+
+  // 🧩 Checar vieses / “Onde posso estar me enganando hoje?”
+  const wantsBiasCheck =
+    /vi[eé]s|vieses|atalho mental|me enganando|heur[ií]stic/.test(t) || /🧩/.test(texto);
+
+  if (wantsBiasCheck) {
+    return [
+      "eco_heuristica_ancoragem",
+      "eco_heuristica_disponibilidade",
+      "eco_heuristica_excesso_confianca",
+      "eco_heuristica_regressao_media",
+      "eco_heuristica_ilusao_validade",
+    ];
+  }
+
+  // 🪞/🏛️ Reflexo estoico agora
+  const wantsStoic =
+    /reflexo estoico|estoic/.test(t) ||
+    /sob meu controle|no seu controle/.test(t) ||
+    /🪞|🏛️/.test(texto);
+
+  if (wantsStoic) {
+    return ["eco_presenca_racional", "eco_identificacao_mente", "eco_fim_do_sofrimento"];
+  }
+
+  // 💬 Coragem para se expor mais (vulnerabilidade & defesas)
+  const wantsCourage =
+    /coragem.*expor|me expor mais|vulnerabil/.test(t) || /💬/.test(texto);
+
+  if (wantsCourage) {
+    return ["eco_vulnerabilidade_defesas", "eco_vulnerabilidade_mitos", "eco_emo_vergonha_combate"];
+  }
+
+  return [];
+}
+
 export async function montarContextoEco(params: BuildParams): Promise<string> {
   const {
     userId: _userId,
@@ -64,12 +123,18 @@ export async function montarContextoEco(params: BuildParams): Promise<string> {
   const toUnique = (list: string[] | undefined) =>
     Array.from(new Set(Array.isArray(list) ? list : []));
 
-  const modulesRaw = toUnique(baseSelection.raw);
+  // 🔎 módulos inferidos pelas intents dos QuickSuggestions
+  const intentModules = inferIntentModules(texto);
+
+  // Ordem: seleção base -> +intents (sem duplicar)
+  const modulesRaw = toUnique([...toUnique(baseSelection.raw), ...intentModules]);
+
   const modulesAfterGating = baseSelection.posGating
-    ? toUnique(baseSelection.posGating)
+    ? toUnique([...toUnique(baseSelection.posGating), ...intentModules])
     : modulesRaw;
+
   const ordered = baseSelection.priorizado?.length
-    ? toUnique(baseSelection.priorizado)
+    ? toUnique([...toUnique(baseSelection.priorizado), ...intentModules])
     : modulesAfterGating;
 
   const candidates = await ModuleCatalog.load(ordered);
@@ -116,6 +181,7 @@ export async function montarContextoEco(params: BuildParams): Promise<string> {
       nivel,
       ordered,
       incluiEscala: ordered.includes("ESCALA_ABERTURA_1a3.txt"),
+      addByIntent: intentModules,
     });
     const tokensContexto = ModuleCatalog.tokenCountOf("__INLINE__:ctx", texto);
     const overheadTokens = ModuleCatalog.tokenCountOf("__INLINE__:ovh", instructionText);
