@@ -145,3 +145,35 @@ export const trackReferenciaEmocional = ({
     withDistinctId({ distinctId, userId, intensidade, emocao, tags, categoria })
   );
 };
+
+export const trackBlocoTecnico = ({
+  distinctId,
+  userId,
+  status,
+  mode,
+  skipBloco,
+  duracaoMs,
+  intensidade,
+  erro,
+}: TrackParams<{
+  status: 'success' | 'failure' | 'timeout';
+  mode: 'fast' | 'full';
+  skipBloco: boolean;
+  duracaoMs?: number;
+  intensidade?: number | null;
+  erro?: string;
+}>) => {
+  mixpanel.track(
+    'Bloco técnico',
+    withDistinctId({
+      distinctId,
+      userId,
+      status,
+      mode,
+      skipBloco,
+      ...(duracaoMs !== undefined ? { duracaoMs } : {}),
+      ...(intensidade !== undefined ? { intensidade } : {}),
+      ...(erro ? { erro } : {}),
+    })
+  );
+};
