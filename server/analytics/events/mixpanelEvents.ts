@@ -197,3 +197,34 @@ export const trackRelatorioEmocionalAcessado = ({
     })
   );
 };
+
+export const trackSessaoEntrouChat = ({
+  distinctId,
+  userId,
+  mode,
+  origem,
+  sessaoId,
+  versaoApp,
+  device,
+  ambiente,
+}: TrackParams<{
+  mode: "fast" | "full";
+  origem?: string | null;
+  sessaoId?: string | null;
+  versaoApp?: string | null;
+  device?: string | null;
+  ambiente?: string | null;
+}>) => {
+  const payload = withDistinctId({
+    distinctId,
+    userId,
+    mode,
+    ...(sessaoId ? { sessaoId } : {}),
+    ...(origem ? { origem } : {}),
+    ...(versaoApp !== undefined ? { versaoApp } : {}),
+    ...(device !== undefined ? { device } : {}),
+    ...(ambiente !== undefined ? { ambiente } : {}),
+  });
+
+  mixpanel.track("Sessão entrou no chat", payload);
+};

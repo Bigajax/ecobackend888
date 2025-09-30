@@ -68,4 +68,6 @@ export type SessionMetadata = {
   versaoApp?: string | null;
   device?: string | null;
   ambiente?: string | null;
+  sessaoId?: string | null;
+  origem?: string | null;
 };

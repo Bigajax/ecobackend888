@@ -45,6 +45,7 @@ test("finalize responde rápido mesmo com analisador lento", async (t) => {
   let saveCalls = 0;
   const trackMensagemCalls: any[] = [];
   const identifyCalls: any[] = [];
+  const sessaoEntrouCalls: any[] = [];
 
   const finalizer = new ResponseFinalizer({
     gerarBlocoTecnicoComCache: () =>
@@ -58,8 +59,12 @@ test("finalize responde rápido mesmo com analisador lento", async (t) => {
       trackMensagemCalls.push(props);
     }) as any,
     trackEcoDemorou: noop as any,
+    trackBlocoTecnico: noop as any,
     identifyUsuario: ((payload: any) => {
       identifyCalls.push(payload);
+    }) as any,
+    trackSessaoEntrouChat: ((payload: any) => {
+      sessaoEntrouCalls.push(payload);
     }) as any,
   });
 
@@ -76,6 +81,8 @@ test("finalize responde rápido mesmo com analisador lento", async (t) => {
       versaoApp: "1.0.0",
       device: "ios",
       ambiente: "produção",
+      sessaoId: "sessao-abc",
+      origem: "app-mobile",
     },
   });
   const duration = Date.now() - start;
@@ -94,7 +101,59 @@ test("finalize responde rápido mesmo com analisador lento", async (t) => {
     "distinct-123",
     "trackMensagemEnviada deve receber distinctId"
   );
+  assert.strictEqual(
+    sessaoEntrouCalls.length,
+    1,
+    "trackSessaoEntrouChat deve ser chamado na primeira interação"
+  );
+  assert.deepStrictEqual(sessaoEntrouCalls[0], {
+    distinctId: "distinct-123",
+    userId: "user-123",
+    mode: "fast",
+    sessaoId: "sessao-abc",
+    origem: "app-mobile",
+    versaoApp: "1.0.0",
+    device: "ios",
+    ambiente: "produção",
+  });
   assert.strictEqual(identifyCalls.length, 1, "identifyUsuario deve ser chamado no primeiro contato");
+});
+
+test("trackSessaoEntrouChat só dispara quando não houve assistente antes", async () => {
+  const sessaoEntrouCalls: any[] = [];
+
+  const finalizer = new ResponseFinalizer({
+    gerarBlocoTecnicoComCache: async () => null,
+    saveMemoryOrReference: async () => {},
+    trackMensagemEnviada: noop as any,
+    trackEcoDemorou: noop as any,
+    trackBlocoTecnico: noop as any,
+    identifyUsuario: noop as any,
+    trackSessaoEntrouChat: ((payload: any) => {
+      sessaoEntrouCalls.push(payload);
+    }) as any,
+  });
+
+  await finalizer.finalize({
+    raw: "Olá",
+    ultimaMsg: "Olá",
+    hasAssistantBefore: false,
+    mode: "full",
+    startedAt: Date.now(),
+    sessionMeta: { distinctId: "d-1" },
+  });
+
+  await finalizer.finalize({
+    raw: "Oi de novo",
+    ultimaMsg: "Oi de novo",
+    hasAssistantBefore: true,
+    mode: "fast",
+    startedAt: Date.now(),
+    sessionMeta: { distinctId: "d-1" },
+  });
+
+  assert.strictEqual(sessaoEntrouCalls.length, 1);
+  assert.strictEqual(sessaoEntrouCalls[0].mode, "full");
 });
 
 test("preenche intensidade e resumo quando bloco chega dentro do timeout", async (t) => {
@@ -119,7 +178,9 @@ test("preenche intensidade e resumo quando bloco chega dentro do timeout", async
     saveMemoryOrReference: async () => {},
     trackMensagemEnviada: noop as any,
     trackEcoDemorou: noop as any,
+    trackBlocoTecnico: noop as any,
     identifyUsuario: noop as any,
+    trackSessaoEntrouChat: noop as any,
   });
 
   const result = await finalizer.finalize({

@@ -68,8 +68,24 @@ export function extractSessionMeta(payload: AnyRecord | null | undefined): Sessi
     (source as AnyRecord).environment,
     (source as AnyRecord).env
   );
+  const sessaoId = pickNullableString(
+    (source as AnyRecord).sessaoId,
+    (source as AnyRecord).sessionId,
+    (source as AnyRecord).sessao_id,
+    (source as AnyRecord).session_id,
+    (payload as AnyRecord).sessaoId,
+    (payload as AnyRecord).sessao_id
+  );
+  const origem = pickNullableString(
+    (source as AnyRecord).origem,
+    (source as AnyRecord).origin,
+    (source as AnyRecord).source,
+    (payload as AnyRecord).origem,
+    (payload as AnyRecord).origin,
+    (payload as AnyRecord).source
+  );
 
-  const hasAny = distinctId || versaoApp || device || ambiente;
+  const hasAny = distinctId || versaoApp || device || ambiente || sessaoId || origem;
   if (!hasAny) return undefined;
 
   return {
@@ -77,5 +93,7 @@ export function extractSessionMeta(payload: AnyRecord | null | undefined): Sessi
     versaoApp: versaoApp ?? null,
     device: device ?? null,
     ambiente: ambiente ?? null,
+    ...(sessaoId !== undefined ? { sessaoId } : {}),
+    ...(origem !== undefined ? { origem } : {}),
   } as SessionMetadata;
 }
