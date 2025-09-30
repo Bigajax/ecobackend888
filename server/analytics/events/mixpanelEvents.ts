@@ -177,3 +177,23 @@ export const trackBlocoTecnico = ({
     })
   );
 };
+
+export const trackRelatorioEmocionalAcessado = ({
+  distinctId,
+  userId,
+  origem,
+  view,
+}: TrackParams<{
+  origem: string;
+  view?: string | null;
+}>) => {
+  mixpanel.track(
+    'Relatório emocional acessado',
+    withDistinctId({
+      distinctId,
+      userId,
+      origem,
+      ...(view ? { view } : {}),
+    })
+  );
+};
