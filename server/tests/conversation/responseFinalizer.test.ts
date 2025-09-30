@@ -48,6 +48,7 @@ test("finalize responde rápido mesmo com analisador lento", async (t) => {
   const trackMensagemCalls: any[] = [];
   const identifyCalls: any[] = [];
   const sessaoEntrouCalls: any[] = [];
+  const trackBlocoCalls: any[] = [];
 
   const finalizer = new ResponseFinalizer({
     gerarBlocoTecnicoComCache: () =>
@@ -61,7 +62,9 @@ test("finalize responde rápido mesmo com analisador lento", async (t) => {
       trackMensagemCalls.push(props);
     }) as any,
     trackEcoDemorou: noop as any,
-    trackBlocoTecnico: noop as any,
+    trackBlocoTecnico: ((payload: any) => {
+      trackBlocoCalls.push(payload);
+    }) as any,
     identifyUsuario: ((payload: any) => {
       identifyCalls.push(payload);
     }) as any,
@@ -102,6 +105,23 @@ test("finalize responde rápido mesmo com analisador lento", async (t) => {
     trackMensagemCalls[0].distinctId,
     "distinct-123",
     "trackMensagemEnviada deve receber distinctId"
+  );
+  assert.strictEqual(
+    trackMensagemCalls[0].blocoStatus,
+    "pending",
+    "trackMensagemEnviada deve registrar bloco pendente no modo fast"
+  );
+  assert.ok(
+    trackBlocoCalls.some((c) => c.status === "pending"),
+    "trackBlocoTecnico deve registrar status pendente"
+  );
+  assert.ok(
+    trackBlocoCalls.some((c) => c.status === "timeout"),
+    "trackBlocoTecnico deve registrar timeout quando houver"
+  );
+  assert.ok(
+    trackBlocoCalls.some((c) => c.status === "success"),
+    "trackBlocoTecnico deve registrar sucesso quando bloco concluir em background"
   );
   assert.strictEqual(
     sessaoEntrouCalls.length,
@@ -235,7 +255,7 @@ test("preenche intensidade e resumo quando bloco chega dentro do timeout", async
     raw: "Olá!",
     ultimaMsg: "Olá!",
     hasAssistantBefore: false,
-    mode: "fast",
+    mode: "full",
     startedAt: Date.now(),
   });
 
