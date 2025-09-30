@@ -307,9 +307,9 @@ export class ResponseFinalizer {
     }
 
     const duracao = now() - startedAt;
-    if (!hasAssistantBefore && sessionMeta?.distinctId) {
+    if (sessionMeta) {
       this.deps.identifyUsuario({
-        distinctId: sessionMeta.distinctId,
+        distinctId,
         userId,
         versaoApp: sessionMeta.versaoApp ?? null,
         device: sessionMeta.device ?? null,

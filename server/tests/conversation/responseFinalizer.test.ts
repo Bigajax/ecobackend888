@@ -14,6 +14,8 @@ Module._load = function patchedLoad(request: string, parent: any, isMain: boolea
     return {
       init: () => ({
         track: () => {},
+        register: () => {},
+        register_once: () => {},
         people: { set: () => {}, set_once: () => {}, increment: () => {} },
       }),
     };
@@ -117,6 +119,13 @@ test("finalize responde rápido mesmo com analisador lento", async (t) => {
     ambiente: "produção",
   });
   assert.strictEqual(identifyCalls.length, 1, "identifyUsuario deve ser chamado no primeiro contato");
+  assert.deepStrictEqual(identifyCalls[0], {
+    distinctId: "distinct-123",
+    userId: "user-123",
+    versaoApp: "1.0.0",
+    device: "ios",
+    ambiente: "produção",
+  });
 });
 
 test("trackSessaoEntrouChat só dispara quando não houve assistente antes", async () => {
@@ -154,6 +163,45 @@ test("trackSessaoEntrouChat só dispara quando não houve assistente antes", asy
 
   assert.strictEqual(sessaoEntrouCalls.length, 1);
   assert.strictEqual(sessaoEntrouCalls[0].mode, "full");
+});
+
+test("identifyUsuario é chamado mesmo quando já houve assistente se houver sessionMeta", async () => {
+  const identifyCalls: any[] = [];
+
+  const finalizer = new ResponseFinalizer({
+    gerarBlocoTecnicoComCache: async () => null,
+    saveMemoryOrReference: async () => {},
+    trackMensagemEnviada: noop as any,
+    trackEcoDemorou: noop as any,
+    trackBlocoTecnico: noop as any,
+    identifyUsuario: ((payload: any) => {
+      identifyCalls.push(payload);
+    }) as any,
+    trackSessaoEntrouChat: noop as any,
+  });
+
+  await finalizer.finalize({
+    raw: "Olá novamente",
+    ultimaMsg: "Olá novamente",
+    hasAssistantBefore: true,
+    mode: "fast",
+    startedAt: Date.now(),
+    sessionMeta: {
+      distinctId: "distinct-xyz",
+      versaoApp: "2.0.0",
+      device: "android",
+      ambiente: "staging",
+    },
+  });
+
+  assert.strictEqual(identifyCalls.length, 1);
+  assert.deepStrictEqual(identifyCalls[0], {
+    distinctId: "distinct-xyz",
+    userId: undefined,
+    versaoApp: "2.0.0",
+    device: "android",
+    ambiente: "staging",
+  });
 });
 
 test("preenche intensidade e resumo quando bloco chega dentro do timeout", async (t) => {

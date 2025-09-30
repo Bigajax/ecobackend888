@@ -40,6 +40,7 @@ export const identifyUsuario = ({
 
   if (Object.keys(props).length === 0) return;
 
+  mixpanel.register_once(props);
   mixpanel.people.set_once(distinctId, props);
 };
 
