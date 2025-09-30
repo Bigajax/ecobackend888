@@ -45,6 +45,7 @@ export async function getEcoResponse(
     clientHour,
     promptOverride,
     metaFromBuilder,
+    sessionMeta,
   }: GetEcoParams & { promptOverride?: string; metaFromBuilder?: any }
 ): Promise<GetEcoResult> {
   ensureEnvs();
@@ -115,6 +116,7 @@ export async function getEcoResponse(
         responseFinalizer: defaultResponseFinalizer,
         firstName,
       },
+      sessionMeta,
     });
 
     return fast.response;
@@ -286,6 +288,7 @@ export async function getEcoResponse(
       usageTokens: undefined,
       modelo: "full-fallback",
       skipBloco: true,
+      sessionMeta,
     });
   }
 
@@ -308,6 +311,7 @@ export async function getEcoResponse(
     startedAt: inicioEco,
     usageTokens: data?.usage?.total_tokens ?? undefined,
     modelo: data?.model,
+    sessionMeta,
   });
 }
 

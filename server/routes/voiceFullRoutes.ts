@@ -3,6 +3,7 @@ import multer from "multer";
 import { generateAudio } from "../services/elevenlabsService";
 import { getEcoResponse } from "../services/ConversationOrchestrator";
 import { transcribeWithWhisper } from "../scripts/transcribe";
+import { extractSessionMeta } from "./sessionMeta";
 
 const router = express.Router();
 
@@ -77,10 +78,13 @@ router.post("/transcribe-and-respond", (req: Request, res: Response, next: NextF
       msgs = [{ role: "user", content: userText }];
     }
 
+    const sessionMeta = extractSessionMeta(req.body);
+
     const eco = await getEcoResponse({
       messages: msgs,
       userId: usuario_id || "anon",
       accessToken: access_token,
+      sessionMeta,
     });
 
     const ecoText = (eco?.message || "").trim();

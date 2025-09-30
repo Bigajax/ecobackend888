@@ -5,6 +5,7 @@ import { supabase } from "../lib/supabaseAdmin"; // ✅ usa a instância (não �
 import { getEcoResponse } from "../services/ConversationOrchestrator";
 import { embedTextoCompleto } from "../adapters/embeddingService";
 import { buscarMemoriasSemelhantes } from "../services/buscarMemorias";
+import { extractSessionMeta } from "./sessionMeta";
 
 // montar contexto e log
 import { ContextBuilder } from "../services/promptContext";
@@ -113,6 +114,8 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
     }
 
     // orquestrador (usa promptOverride)
+    const sessionMeta = extractSessionMeta(req.body);
+
     const resposta = await getEcoResponse({
       messages: mensagensParaIA,
       userId: usuario_id,
@@ -120,6 +123,7 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
       accessToken: token,
       mems: memsSimilares,
       promptOverride: prompt, // <- string
+      sessionMeta,
     } as any); // se o tipo ainda não tiver promptOverride
 
     return res.status(200).json(resposta);
