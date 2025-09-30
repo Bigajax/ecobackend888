@@ -1,9 +1,10 @@
-import { formatarTextoEco, limparResposta, now } from "../../utils";
+import { formatarTextoEco, limparResposta, now, type SessionMetadata } from "../../utils";
 import { gerarBlocoTecnicoComCache } from "../../core/EmotionalAnalyzer";
 import { saveMemoryOrReference } from "../../services/MemoryService";
 import {
   trackEcoDemorou,
   trackMensagemEnviada,
+  identifyUsuario,
 } from "../../analytics/events/mixpanelEvents";
 import { log } from "../promptContext/logger";
 import {
@@ -18,6 +19,7 @@ interface ResponseFinalizerDeps {
   saveMemoryOrReference: typeof saveMemoryOrReference;
   trackMensagemEnviada: typeof trackMensagemEnviada;
   trackEcoDemorou: typeof trackEcoDemorou;
+  identifyUsuario: typeof identifyUsuario;
 }
 
 export interface FinalizeParams {
@@ -34,6 +36,7 @@ export interface FinalizeParams {
   modelo?: string;
   trackDelayThresholdMs?: number;
   skipBloco?: boolean;
+  sessionMeta?: SessionMetadata;
 }
 
 export class ResponseFinalizer {
@@ -43,6 +46,7 @@ export class ResponseFinalizer {
       saveMemoryOrReference,
       trackMensagemEnviada,
       trackEcoDemorou,
+      identifyUsuario,
     }
   ) {}
 
@@ -142,6 +146,7 @@ export class ResponseFinalizer {
     modelo,
     trackDelayThresholdMs = 2500,
     skipBloco = false,
+    sessionMeta,
   }: FinalizeParams): Promise<GetEcoResult> {
     const base = formatarTextoEco(
       limparResposta(
@@ -172,12 +177,29 @@ export class ResponseFinalizer {
     }
 
     const duracao = now() - startedAt;
+    const distinctId = sessionMeta?.distinctId || userId;
+    if (!hasAssistantBefore && sessionMeta?.distinctId) {
+      this.deps.identifyUsuario({
+        distinctId: sessionMeta.distinctId,
+        userId,
+        versaoApp: sessionMeta.versaoApp ?? null,
+        device: sessionMeta.device ?? null,
+        ambiente: sessionMeta.ambiente ?? null,
+      });
+    }
+
     if (mode === "full" && duracao > trackDelayThresholdMs) {
-      this.deps.trackEcoDemorou({ userId, duracaoMs: duracao, ultimaMsg });
+      this.deps.trackEcoDemorou({
+        userId,
+        distinctId,
+        duracaoMs: duracao,
+        ultimaMsg,
+      });
     }
 
     this.deps.trackMensagemEnviada({
       userId,
+      distinctId,
       tempoRespostaMs: duracao,
       tokensUsados: usageTokens,
       modelo,

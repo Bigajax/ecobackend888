@@ -1,4 +1,9 @@
-import { mapRoleForOpenAI, type ChatMessage, type GetEcoResult } from "../../utils";
+import {
+  mapRoleForOpenAI,
+  type ChatMessage,
+  type GetEcoResult,
+  type SessionMetadata,
+} from "../../utils";
 import { log } from "../promptContext/logger";
 import type { FinalizeParams } from "./responseFinalizer";
 
@@ -33,6 +38,7 @@ export interface RunFastLaneLLMParams {
   lastMessageId?: string;
   startedAt: number;
   deps: RunFastLaneLLMDeps;
+  sessionMeta?: SessionMetadata;
 }
 
 export interface RunFastLaneLLMResult {
@@ -103,6 +109,7 @@ export async function runFastLaneLLM({
   lastMessageId,
   startedAt,
   deps,
+  sessionMeta,
 }: RunFastLaneLLMParams): Promise<RunFastLaneLLMResult> {
   const nome = deps.firstName?.(userName);
   const preferCoach = detectExplicitAskForSteps(ultimaMsg);
@@ -134,6 +141,7 @@ export async function runFastLaneLLM({
       startedAt,
       usageTokens: undefined,
       modelo: "fastlane-fallback",
+      sessionMeta,
     });
 
     return { raw: fallback, usage: null, model: "fastlane-fallback", response };
@@ -155,6 +163,7 @@ export async function runFastLaneLLM({
     startedAt,
     usageTokens: usage?.total_tokens ?? undefined,
     modelo: model,
+    sessionMeta,
   });
 
   return { raw, usage, model, response };

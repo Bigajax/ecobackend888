@@ -43,6 +43,8 @@ test("finalize responde rápido mesmo com analisador lento", async (t) => {
   });
 
   let saveCalls = 0;
+  const trackMensagemCalls: any[] = [];
+  const identifyCalls: any[] = [];
 
   const finalizer = new ResponseFinalizer({
     gerarBlocoTecnicoComCache: () =>
@@ -52,8 +54,13 @@ test("finalize responde rápido mesmo com analisador lento", async (t) => {
     saveMemoryOrReference: async () => {
       saveCalls += 1;
     },
-    trackMensagemEnviada: noop as any,
+    trackMensagemEnviada: ((props: any) => {
+      trackMensagemCalls.push(props);
+    }) as any,
     trackEcoDemorou: noop as any,
+    identifyUsuario: ((payload: any) => {
+      identifyCalls.push(payload);
+    }) as any,
   });
 
   const start = Date.now();
@@ -64,6 +71,12 @@ test("finalize responde rápido mesmo com analisador lento", async (t) => {
     mode: "fast",
     startedAt: Date.now(),
     userId: "user-123",
+    sessionMeta: {
+      distinctId: "distinct-123",
+      versaoApp: "1.0.0",
+      device: "ios",
+      ambiente: "produção",
+    },
   });
   const duration = Date.now() - start;
 
@@ -75,6 +88,13 @@ test("finalize responde rápido mesmo com analisador lento", async (t) => {
 
   await new Promise((resolve) => setTimeout(resolve, 250));
   assert.ok(saveCalls >= 1, "saveMemoryOrReference deve ser disparado em background");
+  assert.strictEqual(trackMensagemCalls.length, 1, "trackMensagemEnviada deve ser chamado");
+  assert.strictEqual(
+    trackMensagemCalls[0].distinctId,
+    "distinct-123",
+    "trackMensagemEnviada deve receber distinctId"
+  );
+  assert.strictEqual(identifyCalls.length, 1, "identifyUsuario deve ser chamado no primeiro contato");
 });
 
 test("preenche intensidade e resumo quando bloco chega dentro do timeout", async (t) => {
@@ -99,6 +119,7 @@ test("preenche intensidade e resumo quando bloco chega dentro do timeout", async
     saveMemoryOrReference: async () => {},
     trackMensagemEnviada: noop as any,
     trackEcoDemorou: noop as any,
+    identifyUsuario: noop as any,
   });
 
   const result = await finalizer.finalize({
