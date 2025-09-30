@@ -9,7 +9,11 @@ export type PromptComposerInput = {
   texto: string;
 };
 
-export function composePrompt({
+export type PromptComposerBaseInput = Omit<PromptComposerInput, "texto">;
+
+export const CURRENT_MESSAGE_PLACEHOLDER = "__ECO_MENSAGEM_ATUAL__";
+
+export function composePromptBase({
   nivel,
   memCount,
   forcarMetodoViva,
@@ -17,8 +21,7 @@ export function composePrompt({
   stitched,
   memRecallBlock = "",
   instructionText,
-  texto,
-}: PromptComposerInput): string {
+}: PromptComposerBaseInput): string {
   const header = [
     `Nível de abertura: ${nivel}`,
     memCount > 0 ? `Memórias (internas): ${memCount} itens` : `Memórias: none`,
@@ -39,9 +42,18 @@ export function composePrompt({
     "",
     instructionText,
     "",
-    `Mensagem atual: ${texto}`,
+    `Mensagem atual: ${CURRENT_MESSAGE_PLACEHOLDER}`,
   ]
     .filter(Boolean)
     .join("\n")
     .trim();
+}
+
+export function applyCurrentMessage(base: string, texto: string): string {
+  return base.replace(CURRENT_MESSAGE_PLACEHOLDER, texto);
+}
+
+export function composePrompt(input: PromptComposerInput): string {
+  const base = composePromptBase(input);
+  return applyCurrentMessage(base, input.texto);
 }

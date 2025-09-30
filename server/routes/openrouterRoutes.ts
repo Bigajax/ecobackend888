@@ -135,7 +135,8 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
       forcarMetodoViva: req.body?.forcarMetodoViva ?? false,
       aberturaHibrida: req.body?.aberturaHibrida ?? null,
     };
-    const prompt = await ContextBuilder.build(buildIn);
+    const contexto = await ContextBuilder.build(buildIn);
+    const prompt = contexto.montarMensagemAtual(ultimaMsg);
 
     if (isDebug()) {
       log.debug("[ask-eco] Contexto montado", {
