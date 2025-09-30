@@ -61,6 +61,67 @@ export const trackMensagemEnviada = ({
   );
 };
 
+const toIsoTimestamp = (value: Date | string | number | undefined): string | undefined => {
+  if (value instanceof Date) {
+    const ms = value.getTime();
+    return Number.isNaN(ms) ? undefined : value.toISOString();
+  }
+
+  if (typeof value === 'string') {
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? undefined : parsed.toISOString();
+  }
+
+  if (typeof value === 'number') {
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? undefined : parsed.toISOString();
+  }
+
+  return undefined;
+};
+
+export const trackMensagemRecebida = ({
+  distinctId,
+  userId,
+  origem,
+  tipo,
+  tamanhoCaracteres,
+  tamanhoBytes,
+  duracaoMs,
+  timestamp,
+  sessaoId,
+  origemSessao,
+}: TrackParams<{
+  origem: 'texto' | 'voz';
+  tipo?: 'inicial' | 'continuacao';
+  tamanhoCaracteres?: number;
+  tamanhoBytes?: number;
+  duracaoMs?: number;
+  timestamp: Date | string | number;
+  sessaoId?: string | null;
+  origemSessao?: string | null;
+}>) => {
+  const isoTimestamp = toIsoTimestamp(timestamp);
+
+  mixpanel.track(
+    'Mensagem recebida',
+    withDistinctId({
+      distinctId,
+      userId,
+      origem,
+      tipo,
+      ...(typeof tamanhoCaracteres === 'number'
+        ? { tamanhoCaracteres }
+        : {}),
+      ...(typeof tamanhoBytes === 'number' ? { tamanhoBytes } : {}),
+      ...(typeof duracaoMs === 'number' ? { duracaoMs } : {}),
+      ...(isoTimestamp ? { timestamp: isoTimestamp } : {}),
+      ...(sessaoId !== undefined ? { sessaoId } : {}),
+      ...(origemSessao !== undefined ? { origemSessao } : {}),
+    })
+  );
+};
+
 export const trackEcoDemorou = ({
   distinctId,
   userId,
