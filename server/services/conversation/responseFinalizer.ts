@@ -79,63 +79,12 @@ export class ResponseFinalizer {
     skipBloco: boolean;
     distinctId?: string;
     userId?: string;
-  }): Promise<any | null> {
+  }): { race: Promise<any | null>; full: Promise<any | null> } {
     const startedAt = now();
     const timeoutMs = this.getBlocoTimeoutMs();
-    if (timeoutMs === 0) {
-      return this.deps
-        .gerarBlocoTecnicoComCache(ultimaMsg, blocoTarget)
-        .then((value) => {
-          const duracao = now() - startedAt;
-          this.deps.trackBlocoTecnico({
-            distinctId,
-            userId,
-            status: "success",
-            mode,
-            skipBloco,
-            duracaoMs: duracao,
-            intensidade:
-              value && typeof value.intensidade === "number"
-                ? value.intensidade
-                : undefined,
-          });
-          return value;
-        })
-        .catch((error) => {
-          const duracao = now() - startedAt;
-          this.deps.trackBlocoTecnico({
-            distinctId,
-            userId,
-            status: "failure",
-            mode,
-            skipBloco,
-            duracaoMs: duracao,
-            erro: error instanceof Error ? error.message : String(error),
-          });
-          return null;
-        });
-    }
-
     let timeoutId: NodeJS.Timeout | undefined;
-    const timeoutPromise = new Promise<null>((resolve) => {
-      timeoutId = setTimeout(() => {
-        log.warn(
-          `⚠️ gerarBlocoTecnicoComCache demorou mais de ${timeoutMs}ms; respondendo sem bloco.`
-        );
-        const duracao = now() - startedAt;
-        this.deps.trackBlocoTecnico({
-          distinctId,
-          userId,
-          status: "timeout",
-          mode,
-          skipBloco,
-          duracaoMs: duracao,
-        });
-        resolve(null);
-      }, timeoutMs);
-    });
 
-    const blocoPromise = this.deps
+    const fullPromise = this.deps
       .gerarBlocoTecnicoComCache(ultimaMsg, blocoTarget)
       .then((value) => {
         if (timeoutId) clearTimeout(timeoutId);
@@ -169,7 +118,31 @@ export class ResponseFinalizer {
         return null;
       });
 
-    return Promise.race([blocoPromise, timeoutPromise]);
+    if (timeoutMs === 0) {
+      return { race: fullPromise, full: fullPromise };
+    }
+
+    const timeoutPromise = new Promise<null>((resolve) => {
+      timeoutId = setTimeout(() => {
+        log.warn(
+          `⚠️ gerarBlocoTecnicoComCache demorou mais de ${timeoutMs}ms; respondendo sem bloco.`
+        );
+        const duracao = now() - startedAt;
+        this.deps.trackBlocoTecnico({
+          distinctId,
+          userId,
+          status: "timeout",
+          mode,
+          skipBloco,
+          duracaoMs: duracao,
+        });
+        resolve(null);
+      }, timeoutMs);
+    });
+
+    const racePromise = Promise.race([fullPromise, timeoutPromise]);
+
+    return { race: racePromise, full: fullPromise };
   }
 
   private async persistirMemoriaEmBackground(params: {
@@ -178,6 +151,7 @@ export class ResponseFinalizer {
     lastMessageId?: string;
     cleaned: string;
     bloco: any;
+    blocoPromise?: Promise<any | null>;
     blocoTarget: string;
     ultimaMsg: string;
     skipBloco: boolean;
@@ -198,13 +172,39 @@ export class ResponseFinalizer {
 
     let blocoParaSalvar = params.bloco;
 
+    if (!blocoParaSalvar && params.blocoPromise) {
+      try {
+        blocoParaSalvar = await params.blocoPromise;
+      } catch (e) {
+        const mensagem = e instanceof Error ? e.message : String(e);
+        log.warn("⚠️ Pós-processo falhou ao aguardar bloco em background:", mensagem);
+      }
+    }
+
     if (!skipBloco) {
       const reprocessStartedAt = now();
       try {
-        blocoParaSalvar = await this.deps.gerarBlocoTecnicoComCache(
-          ultimaMsg,
-          params.blocoTarget
-        );
+        if (!blocoParaSalvar) {
+          blocoParaSalvar = await this.deps.gerarBlocoTecnicoComCache(
+            ultimaMsg,
+            params.blocoTarget
+          );
+          const duracao = now() - reprocessStartedAt;
+          if (blocoParaSalvar) {
+            this.deps.trackBlocoTecnico({
+              distinctId,
+              userId,
+              status: "success",
+              mode,
+              skipBloco,
+              duracaoMs: duracao,
+              intensidade:
+                typeof blocoParaSalvar?.intensidade === "number"
+                  ? blocoParaSalvar.intensidade
+                  : undefined,
+            });
+          }
+        }
       } catch (e) {
         const mensagem = e instanceof Error ? e.message : String(e);
         log.warn("⚠️ Pós-processo falhou ao gerar bloco completo:", mensagem);
@@ -282,8 +282,9 @@ export class ResponseFinalizer {
     const blocoTarget = mode === "fast" ? identityCleaned : cleaned;
 
     let bloco: any = null;
+    let blocoPromise: Promise<any | null> | undefined;
     if (!skipBloco) {
-      bloco = await this.gerarBlocoComTimeout({
+      const blocoTimeout = this.gerarBlocoComTimeout({
         ultimaMsg,
         blocoTarget,
         mode,
@@ -291,6 +292,18 @@ export class ResponseFinalizer {
         distinctId: providedDistinctId ?? sessionMeta?.distinctId ?? userId,
         userId,
       });
+      blocoPromise = blocoTimeout.full;
+      if (mode === "fast") {
+        this.deps.trackBlocoTecnico({
+          distinctId: providedDistinctId ?? sessionMeta?.distinctId ?? userId,
+          userId,
+          status: "pending",
+          mode,
+          skipBloco,
+        });
+      } else {
+        bloco = await blocoTimeout.race;
+      }
     }
 
     const response: GetEcoResult = { message: cleaned };
@@ -326,12 +339,21 @@ export class ResponseFinalizer {
       });
     }
 
+    const blocoStatus = skipBloco
+      ? "skipped"
+      : mode === "fast"
+      ? "pending"
+      : bloco
+      ? "ready"
+      : "missing";
+
     this.deps.trackMensagemEnviada({
       userId,
       distinctId,
       tempoRespostaMs: duracao,
       tokensUsados: usageTokens,
       modelo,
+      blocoStatus,
     });
 
     void this.persistirMemoriaEmBackground({
@@ -340,6 +362,7 @@ export class ResponseFinalizer {
       lastMessageId,
       cleaned,
       bloco,
+      blocoPromise,
       blocoTarget,
       ultimaMsg,
       skipBloco,

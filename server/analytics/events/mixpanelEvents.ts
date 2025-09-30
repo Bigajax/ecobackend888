@@ -50,14 +50,23 @@ export const trackMensagemEnviada = ({
   tempoRespostaMs,
   tokensUsados,
   modelo,
+  blocoStatus,
 }: TrackParams<{
   tempoRespostaMs?: number;
   tokensUsados?: number;
   modelo?: string;
+  blocoStatus: "pending" | "ready" | "missing" | "skipped";
 }>) => {
   mixpanel.track(
     'Mensagem enviada',
-    withDistinctId({ distinctId, userId, tempoRespostaMs, tokensUsados, modelo })
+    withDistinctId({
+      distinctId,
+      userId,
+      tempoRespostaMs,
+      tokensUsados,
+      modelo,
+      blocoStatus,
+    })
   );
 };
 
@@ -218,7 +227,7 @@ export const trackBlocoTecnico = ({
   intensidade,
   erro,
 }: TrackParams<{
-  status: 'success' | 'failure' | 'timeout';
+  status: 'success' | 'failure' | 'timeout' | 'pending';
   mode: 'fast' | 'full';
   skipBloco: boolean;
   duracaoMs?: number;
