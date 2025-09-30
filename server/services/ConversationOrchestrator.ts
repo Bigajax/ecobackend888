@@ -289,6 +289,8 @@ export async function getEcoResponse(
       modelo: "full-fallback",
       skipBloco: true,
       sessionMeta,
+      sessaoId: sessionMeta?.sessaoId ?? undefined,
+      origemSessao: sessionMeta?.origem ?? undefined,
     });
   }
 
@@ -312,6 +314,8 @@ export async function getEcoResponse(
     usageTokens: data?.usage?.total_tokens ?? undefined,
     modelo: data?.model,
     sessionMeta,
+    sessaoId: sessionMeta?.sessaoId ?? undefined,
+    origemSessao: sessionMeta?.origem ?? undefined,
   });
 }
 

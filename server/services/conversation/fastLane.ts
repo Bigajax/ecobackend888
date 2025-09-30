@@ -142,6 +142,8 @@ export async function runFastLaneLLM({
       usageTokens: undefined,
       modelo: "fastlane-fallback",
       sessionMeta,
+      sessaoId: sessionMeta?.sessaoId ?? undefined,
+      origemSessao: sessionMeta?.origem ?? undefined,
     });
 
     return { raw: fallback, usage: null, model: "fastlane-fallback", response };
@@ -164,6 +166,8 @@ export async function runFastLaneLLM({
     usageTokens: usage?.total_tokens ?? undefined,
     modelo: model,
     sessionMeta,
+    sessaoId: sessionMeta?.sessaoId ?? undefined,
+    origemSessao: sessionMeta?.origem ?? undefined,
   });
 
   return { raw, usage, model, response };

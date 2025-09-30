@@ -5,6 +5,7 @@ import {
   trackEcoDemorou,
   trackMensagemEnviada,
   trackBlocoTecnico,
+  trackSessaoEntrouChat,
   identifyUsuario,
 } from "../../analytics/events/mixpanelEvents";
 import { log } from "../promptContext/logger";
@@ -21,6 +22,7 @@ interface ResponseFinalizerDeps {
   trackMensagemEnviada: typeof trackMensagemEnviada;
   trackEcoDemorou: typeof trackEcoDemorou;
   trackBlocoTecnico: typeof trackBlocoTecnico;
+  trackSessaoEntrouChat: typeof trackSessaoEntrouChat;
   identifyUsuario: typeof identifyUsuario;
 }
 
@@ -40,6 +42,8 @@ export interface FinalizeParams {
   skipBloco?: boolean;
   sessionMeta?: SessionMetadata;
   distinctId?: string;
+  sessaoId?: string | null;
+  origemSessao?: string | null;
 }
 
 export class ResponseFinalizer {
@@ -50,6 +54,7 @@ export class ResponseFinalizer {
       trackMensagemEnviada,
       trackEcoDemorou,
       trackBlocoTecnico,
+      trackSessaoEntrouChat,
       identifyUsuario,
     }
   ) {}
@@ -245,7 +250,27 @@ export class ResponseFinalizer {
     skipBloco = false,
     sessionMeta,
     distinctId: providedDistinctId,
+    sessaoId: providedSessaoId,
+    origemSessao,
   }: FinalizeParams): Promise<GetEcoResult> {
+    const distinctId = providedDistinctId ?? sessionMeta?.distinctId ?? userId;
+
+    if (!hasAssistantBefore) {
+      const sessaoId = providedSessaoId ?? sessionMeta?.sessaoId ?? undefined;
+      const origem = origemSessao ?? sessionMeta?.origem ?? undefined;
+
+      this.deps.trackSessaoEntrouChat({
+        distinctId,
+        userId,
+        mode,
+        sessaoId,
+        origem,
+        versaoApp: sessionMeta?.versaoApp,
+        device: sessionMeta?.device,
+        ambiente: sessionMeta?.ambiente,
+      });
+    }
+
     const base = formatarTextoEco(
       limparResposta(
         raw || "Desculpa, não consegui responder agora. Pode tentar de novo?"
@@ -282,8 +307,6 @@ export class ResponseFinalizer {
     }
 
     const duracao = now() - startedAt;
-    const distinctId =
-      providedDistinctId ?? sessionMeta?.distinctId ?? userId;
     if (!hasAssistantBefore && sessionMeta?.distinctId) {
       this.deps.identifyUsuario({
         distinctId: sessionMeta.distinctId,
