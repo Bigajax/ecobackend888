@@ -6,6 +6,7 @@ import { getEcoResponse } from "../services/ConversationOrchestrator";
 import { embedTextoCompleto } from "../adapters/embeddingService";
 import { buscarMemoriasSemelhantes } from "../services/buscarMemorias";
 import { extractSessionMeta } from "./sessionMeta";
+import { trackMensagemRecebida } from "../analytics/events/mixpanelEvents";
 
 // montar contexto e log
 import { ContextBuilder } from "../services/promptContext";
@@ -16,6 +17,22 @@ const router = express.Router();
 // log seguro
 const safeLog = (s: string) =>
   process.env.NODE_ENV === "production" ? (s || "").slice(0, 60) + "…" : s || "";
+
+const getMensagemTipo = (
+  mensagens: Array<{ role?: string }> | null | undefined
+): "inicial" | "continuacao" => {
+  if (!Array.isArray(mensagens) || mensagens.length === 0) return "inicial";
+  if (mensagens.length === 1) return mensagens[0]?.role === "assistant" ? "continuacao" : "inicial";
+
+  let previousUserMessages = 0;
+  for (let i = 0; i < mensagens.length - 1; i += 1) {
+    const role = mensagens[i]?.role;
+    if (role === "assistant") return "continuacao";
+    if (role === "user") previousUserMessages += 1;
+  }
+
+  return previousUserMessages > 0 ? "continuacao" : "inicial";
+};
 
 // normalizador
 function normalizarMensagens(body: any): Array<{ role: string; content: any }> | null {
@@ -48,8 +65,21 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
       return res.status(401).json({ error: "Token inválido ou usuário não encontrado." });
     }
 
+    const sessionMeta = extractSessionMeta(req.body);
+
     const ultimaMsg = String(mensagensParaIA.at(-1)?.content ?? "");
     log.info("🗣️ Última mensagem:", safeLog(ultimaMsg));
+
+    trackMensagemRecebida({
+      distinctId: sessionMeta?.distinctId,
+      userId: usuario_id,
+      origem: "texto",
+      tipo: getMensagemTipo(mensagensParaIA),
+      tamanhoCaracteres: ultimaMsg.length,
+      timestamp: new Date().toISOString(),
+      sessaoId: sessionMeta?.sessaoId ?? null,
+      origemSessao: sessionMeta?.origem ?? null,
+    });
 
     // embedding opcional (garante number[])
     let queryEmbedding: number[] | undefined;
@@ -114,8 +144,6 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
     }
 
     // orquestrador (usa promptOverride)
-    const sessionMeta = extractSessionMeta(req.body);
-
     const resposta = await getEcoResponse({
       messages: mensagensParaIA,
       userId: usuario_id,

@@ -4,6 +4,7 @@ import { generateAudio } from "../services/elevenlabsService";
 import { getEcoResponse } from "../services/ConversationOrchestrator";
 import { transcribeWithWhisper } from "../scripts/transcribe";
 import { extractSessionMeta } from "./sessionMeta";
+import { trackMensagemRecebida } from "../analytics/events/mixpanelEvents";
 
 const router = express.Router();
 
@@ -37,6 +38,77 @@ function isFileSizeLimitError(error: unknown): boolean {
   );
 }
 
+const getMensagemTipo = (
+  mensagens: Array<{ role?: string }> | null | undefined
+): "inicial" | "continuacao" => {
+  if (!Array.isArray(mensagens) || mensagens.length === 0) return "inicial";
+  if (mensagens.length === 1) return mensagens[0]?.role === "assistant" ? "continuacao" : "inicial";
+
+  let previousUserMessages = 0;
+  for (let i = 0; i < mensagens.length - 1; i += 1) {
+    const role = mensagens[i]?.role;
+    if (role === "assistant") return "continuacao";
+    if (role === "user") previousUserMessages += 1;
+  }
+
+  return previousUserMessages > 0 ? "continuacao" : "inicial";
+};
+
+const coerceNumber = (value: unknown): number | undefined => {
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : undefined;
+  }
+  if (typeof value === "string" && value.trim().length > 0) {
+    const parsed = Number.parseFloat(value.trim());
+    return Number.isNaN(parsed) ? undefined : parsed;
+  }
+  return undefined;
+};
+
+const extractAudioDurationMs = (payload: unknown): number | undefined => {
+  if (!payload || typeof payload !== "object") return undefined;
+
+  const source = payload as Record<string, unknown>;
+  const candidates: Array<[unknown, number]> = [
+    [source.audioDurationMs, 1],
+    [source.audio_duration_ms, 1],
+    [source.duracaoAudioMs, 1],
+    [source.duracao_audio_ms, 1],
+    [source.duracaoMs, 1],
+    [source.duracao_ms, 1],
+    [source.durationMs, 1],
+    [source.duration_ms, 1],
+    [source.audioDurationSeconds, 1000],
+    [source.audio_duration_seconds, 1000],
+    [source.audioDurationSec, 1000],
+    [source.audio_duration_sec, 1000],
+    [source.audioDuration, 1000],
+    [source.durationSec, 1000],
+  ];
+
+  for (const [value, multiplier] of candidates) {
+    const parsed = coerceNumber(value);
+    if (parsed !== undefined) {
+      return parsed * multiplier;
+    }
+  }
+
+  return undefined;
+};
+
+const parseMensagens = (mensagens: unknown): any[] | undefined => {
+  if (Array.isArray(mensagens)) return mensagens;
+  if (typeof mensagens === "string" && mensagens.trim().length > 0) {
+    try {
+      const parsed = JSON.parse(mensagens);
+      if (Array.isArray(parsed)) return parsed;
+    } catch {
+      return undefined;
+    }
+  }
+  return undefined;
+};
+
 router.post("/transcribe-and-respond", (req: Request, res: Response, next: NextFunction) => {
   singleAudioUpload(req, res, (err: unknown) => {
     if (err) {
@@ -65,20 +137,35 @@ router.post("/transcribe-and-respond", (req: Request, res: Response, next: NextF
       return res.status(413).json({ error: "Arquivo de áudio excede o tamanho máximo permitido." });
     }
 
+    const sessionMeta = extractSessionMeta(req.body);
+    const mensagensParsed = parseMensagens(mensagens);
+    const audioDurationMs = extractAudioDurationMs(req.body);
+    const audioBytes = audioFile.buffer.length;
+
     const userText = await transcribeWithWhisper(audioFile.buffer);
-    if (!userText?.trim()) {
+    const normalizedUserText = userText ?? "";
+
+    trackMensagemRecebida({
+      distinctId: sessionMeta?.distinctId,
+      userId: usuario_id,
+      origem: "voz",
+      tipo: getMensagemTipo(mensagensParsed),
+      tamanhoBytes: audioBytes,
+      duracaoMs: audioDurationMs,
+      tamanhoCaracteres: normalizedUserText.length,
+      timestamp: new Date().toISOString(),
+      sessaoId: sessionMeta?.sessaoId ?? null,
+      origemSessao: sessionMeta?.origem ?? null,
+    });
+
+    if (!normalizedUserText.trim()) {
       return res.status(422).json({ error: "Transcrição vazia. Tente novamente." });
     }
 
-    let msgs: any[] = [];
-    try {
-      const parsed = mensagens ? JSON.parse(mensagens) : [];
-      msgs = Array.isArray(parsed) && parsed.length ? parsed : [{ role: "user", content: userText }];
-    } catch {
-      msgs = [{ role: "user", content: userText }];
-    }
-
-    const sessionMeta = extractSessionMeta(req.body);
+    const msgs =
+      Array.isArray(mensagensParsed) && mensagensParsed.length
+        ? mensagensParsed
+        : [{ role: "user", content: normalizedUserText }];
 
     const eco = await getEcoResponse({
       messages: msgs,
