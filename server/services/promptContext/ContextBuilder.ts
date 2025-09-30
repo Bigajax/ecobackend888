@@ -8,7 +8,7 @@ import { ModuleCatalog } from "./moduleCatalog";
 import { planBudget } from "./budget";
 import { formatMemRecall } from "./memoryRecall";
 import { buildInstructionBlocks, renderInstructionBlocks } from "./instructionPolicy";
-import { composePrompt } from "./promptComposer";
+import { applyCurrentMessage, composePromptBase } from "./promptComposer";
 import { applyReductions, stitchModules } from "./stitcher";
 
 // 👇 Identidade MINI (70/30) + estilo curto
@@ -81,7 +81,12 @@ function inferIntentModules(texto: string): string[] {
   return [];
 }
 
-export async function montarContextoEco(params: BuildParams): Promise<string> {
+export interface ContextBuildResult {
+  base: string;
+  montarMensagemAtual: (textoAtual: string) => string;
+}
+
+export async function montarContextoEco(params: BuildParams): Promise<ContextBuildResult> {
   const {
     userId: _userId,
     userName: _userName,
@@ -165,7 +170,7 @@ export async function montarContextoEco(params: BuildParams): Promise<string> {
 
   const memRecallBlock = formatMemRecall(memsSemelhantesNorm);
 
-  const promptCore = composePrompt({
+  const promptCoreBase = composePromptBase({
     nivel,
     memCount,
     forcarMetodoViva,
@@ -173,8 +178,13 @@ export async function montarContextoEco(params: BuildParams): Promise<string> {
     stitched,
     memRecallBlock,
     instructionText,
-    texto,
   });
+
+  const base = `${ID_ECO}\n${STYLE_HINTS}\n\n${promptCoreBase}`;
+  const montarMensagemAtual = (textoAtual: string) =>
+    applyCurrentMessage(base, textoAtual);
+
+  const promptComTexto = montarMensagemAtual(texto);
 
   if (isDebug()) {
     log.debug("[ContextBuilder] módulos base", {
@@ -185,7 +195,7 @@ export async function montarContextoEco(params: BuildParams): Promise<string> {
     });
     const tokensContexto = ModuleCatalog.tokenCountOf("__INLINE__:ctx", texto);
     const overheadTokens = ModuleCatalog.tokenCountOf("__INLINE__:ovh", instructionText);
-    const total = ModuleCatalog.tokenCountOf("__INLINE__:ALL", `${ID_ECO}\n${STYLE_HINTS}\n\n${promptCore}`);
+    const total = ModuleCatalog.tokenCountOf("__INLINE__:ALL", promptComTexto);
     log.debug("[ContextBuilder] tokens & orçamento", {
       tokensContexto,
       overheadTokens,
@@ -202,12 +212,15 @@ export async function montarContextoEco(params: BuildParams): Promise<string> {
   }
 
   // Prepend da identidade + estilo (garante 70/30 também na rota “full”)
-  return `${ID_ECO}\n${STYLE_HINTS}\n\n${promptCore}`;
+  return { base, montarMensagemAtual };
 }
 
 export const ContextBuilder = {
-  async build(params: BuildParams) {
+  async build(params: BuildParams): Promise<ContextBuildResult> {
     return montarContextoEco(params);
+  },
+  montarMensagemAtual(base: string, textoAtual: string): string {
+    return applyCurrentMessage(base, textoAtual);
   },
 };
 

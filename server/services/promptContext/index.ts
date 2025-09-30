@@ -24,7 +24,9 @@ export async function buildContextWithMeta(input: any): Promise<{ prompt: string
     });
   }
 
-  const prompt = await ContextBuilder.build(input);
+  const contexto = await ContextBuilder.build(input);
+  const textoAtual = typeof input?.texto === "string" ? input.texto : "";
+  const prompt = contexto.montarMensagemAtual(textoAtual);
 
   if (isDebug()) {
     log.debug("[montarContextoEco] concluído", {

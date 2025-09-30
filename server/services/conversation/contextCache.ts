@@ -71,16 +71,17 @@ export class ContextCache {
       intensidade
     )}:ms${msCount}:v${vivaFlag}:d${derivadosFlag}:a${aberturaFlag}:h${heuristicasFlag}:e${embeddingFlag}`;
 
-    const cached = this.deps.cache.get(cacheKey);
-    if (cached && msCount === 0) {
+    const cachedBase = this.deps.cache.get(cacheKey);
+    if (cachedBase && msCount === 0) {
       if (this.deps.debug()) {
         this.deps.logger.debug("[Orchestrator] contexto via cache", { cacheKey });
       }
-      return cached;
+      return this.deps.builder.montarMensagemAtual(cachedBase, entrada);
     }
 
     const t0 = Date.now();
     const contexto = await this.deps.builder.build(params as any);
+    const prompt = contexto.montarMensagemAtual(entrada);
     if (this.deps.debug()) {
       this.deps.logger.debug("[Orchestrator] contexto construído", {
         ms: Date.now() - t0,
@@ -88,10 +89,10 @@ export class ContextCache {
     }
 
     if (nivel <= 2 && msCount === 0) {
-      this.deps.cache.set(cacheKey, contexto);
+      this.deps.cache.set(cacheKey, contexto.base);
     }
 
-    return contexto;
+    return prompt;
   }
 }
 

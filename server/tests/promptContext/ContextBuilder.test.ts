@@ -23,7 +23,8 @@ const params = {
 };
 
 test("ContextBuilder inclui lembrete com o nome do usuário", async () => {
-  const prompt = await montarContextoEco(params);
+  const resultado = await montarContextoEco(params);
+  const prompt = resultado.montarMensagemAtual(params.texto);
   assert.match(
     prompt,
     /Usuário se chama Maria; use o nome apenas quando fizer sentido\./
