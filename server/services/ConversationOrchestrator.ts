@@ -33,14 +33,33 @@ import { runFastLaneLLM } from "./conversation/fastLane";
 import { buildFullPrompt } from "./conversation/promptPlan";
 
 export function buildFinalizedStreamText(result: GetEcoResult): string {
+  const intensidade = typeof result.intensidade === "number" ? result.intensidade : null;
+  const resumo = typeof result.resumo === "string" ? result.resumo : null;
+  const emocao = typeof result.emocao === "string" ? result.emocao : null;
+  const tags = Array.isArray(result.tags) ? result.tags : [];
+  const categoria = typeof result.categoria === "string" ? result.categoria : null;
+  const proactive = result.proactive ?? null;
+
   const payload: Record<string, unknown> = {
-    intensidade: result.intensidade ?? null,
-    resumo: result.resumo ?? null,
-    emocao: result.emocao ?? null,
-    tags: Array.isArray(result.tags) ? result.tags : [],
-    categoria: result.categoria ?? null,
-    proactive: result.proactive ?? null,
+    intensidade,
+    resumo,
+    emocao,
+    tags,
+    categoria,
+    proactive,
   };
+
+  const hasMeta =
+    intensidade !== null ||
+    (typeof resumo === "string" && resumo.trim() !== "") ||
+    (typeof emocao === "string" && emocao.trim() !== "") ||
+    (Array.isArray(tags) && tags.length > 0) ||
+    (typeof categoria === "string" && categoria.trim() !== "") ||
+    proactive !== null;
+
+  if (!hasMeta) {
+    return result.message ?? "";
+  }
 
   return `${result.message ?? ""}\n\n\`\`\`json\n${JSON.stringify(payload, null, 2)}\n\`\`\``;
 }
