@@ -1,7 +1,9 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = require("express");
+const mixpanelEvents_1 = require("../analytics/events/mixpanelEvents");
 const relatorioEmocionalUtils_1 = require("../utils/relatorioEmocionalUtils");
+const relatorioEmocionalView_1 = require("./relatorioEmocionalView");
 const router = (0, express_1.Router)();
 /* -------------------------------- helpers ------------------------------- */
 function getUserIdFromReq(req) {
@@ -38,6 +40,14 @@ router.get("/", async (req, res) => {
                 .json({ success: false, error: "userId ausente. Envie ?usuario_id= ou use Bearer JWT." });
         }
         const relatorio = await (0, relatorioEmocionalUtils_1.gerarRelatorioEmocional)(userId);
+        const view = (0, relatorioEmocionalView_1.extractRelatorioView)(req);
+        const originPath = req.originalUrl ? req.originalUrl.split("?")[0] : req.path;
+        (0, mixpanelEvents_1.trackRelatorioEmocionalAcessado)({
+            distinctId: (0, relatorioEmocionalView_1.extractDistinctId)(req),
+            userId,
+            origem: `GET ${originPath}`,
+            view,
+        });
         return res.status(200).json({
             success: true,
             relatorio,
@@ -60,6 +70,14 @@ router.get("/:usuario_id", async (req, res) => {
                 .json({ success: false, error: "Parâmetro usuario_id ausente ou inválido." });
         }
         const relatorio = await (0, relatorioEmocionalUtils_1.gerarRelatorioEmocional)(usuario_id);
+        const view = (0, relatorioEmocionalView_1.extractRelatorioView)(req);
+        const originPath = req.originalUrl ? req.originalUrl.split("?")[0] : req.path;
+        (0, mixpanelEvents_1.trackRelatorioEmocionalAcessado)({
+            distinctId: (0, relatorioEmocionalView_1.extractDistinctId)(req),
+            userId: usuario_id,
+            origem: `GET ${originPath}`,
+            view,
+        });
         return res.status(200).json({
             success: true,
             relatorio,

@@ -2,32 +2,42 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.getPromptEcoPreview = void 0;
 exports.montarContextoEco = montarContextoEco;
-const ContextBuilder_1 = require("../services/promptContext/ContextBuilder");
-const builder = new ContextBuilder_1.ContextBuilder();
+// Pode importar pelo barrel (index)…
+const promptContext_1 = require("../services/promptContext");
+// …ou direto do módulo:
+// import montarContextoEco, { ContextBuilder } from "../services/promptContext/ContextBuilder";
+/**
+ * Monta o contexto ECO a partir do input do orquestrador.
+ * Retorna apenas a string do prompt (o builder atual não retorna meta).
+ */
 async function montarContextoEco(input) {
-    // compat: aceita o mesmo objeto que você já passa do orchestrator
     const safe = {
         texto: input?.texto ?? input?.ultimaMsg ?? "",
-        userId: input?.userId,
-        userName: input?.userName,
+        userId: input?.userId ?? null,
+        userName: input?.userName ?? null,
         perfil: input?.perfil ?? null,
-        mems: input?.mems ?? [],
-        heuristicas: input?.heuristicas ?? [],
-        userEmbedding: input?.userEmbedding ?? [],
+        mems: Array.isArray(input?.mems) ? input.mems : [],
+        heuristicas: Array.isArray(input?.heuristicas) ? input.heuristicas : [],
+        userEmbedding: Array.isArray(input?.userEmbedding) ? input.userEmbedding : [],
         forcarMetodoViva: !!input?.forcarMetodoViva,
         blocoTecnicoForcado: input?.blocoTecnicoForcado ?? null,
-        derivados: input?.derivados,
+        derivados: input?.derivados ?? null,
         aberturaHibrida: input?.aberturaHibrida ?? null,
-        skipSaudacao: input?.skipSaudacao !== false,
+        // no comportamento anterior você queria "pular saudação" por padrão?
+        // Aqui mantemos a semântica original: se não vier nada, vira false (não pular).
+        skipSaudacao: !!input?.skipSaudacao,
     };
-    const out = await builder.build(safe);
-    return out.prompt;
+    const contexto = await promptContext_1.ContextBuilder.build(safe);
+    return contexto.montarMensagemAtual(safe.texto);
 }
-// opcional: preview com meta
+/**
+ * Endpoint opcional de preview.
+ * Devolve apenas { prompt } porque o builder não calcula meta.
+ */
 const getPromptEcoPreview = async (_req, res) => {
     try {
-        const out = await builder.build({ texto: "" });
-        res.json({ prompt: out.prompt, meta: out.meta });
+        const contexto = await promptContext_1.ContextBuilder.build({ texto: "" });
+        res.json({ prompt: contexto.montarMensagemAtual("") });
     }
     catch (err) {
         console.warn("❌ Erro ao montar o prompt:", err);

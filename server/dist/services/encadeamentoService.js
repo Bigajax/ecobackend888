@@ -1,17 +1,21 @@
 "use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.buscarUltimaReferenciaOuMemoria = buscarUltimaReferenciaOuMemoria;
 exports.salvarMemoriaComEncadeamento = salvarMemoriaComEncadeamento;
 exports.salvarReferenciaComEncadeamento = salvarReferenciaComEncadeamento;
 // services/encadeamentoService.ts
-const supabaseAdmin_1 = require("../lib/supabaseAdmin");
+const supabaseAdmin_1 = __importDefault(require("../lib/supabaseAdmin"));
+const CacheService_1 = require("./CacheService");
 /**
  * Retorna a última memória OU referência do usuário.
  * Usa RPC: public.buscar_ultima_memoria_ou_referencia(usuario_id_input uuid)
  */
 async function buscarUltimaReferenciaOuMemoria(usuario_id) {
     try {
-        const { data, error } = await supabaseAdmin_1.supabaseAdmin
+        const { data, error } = await supabaseAdmin_1.default
             .rpc('buscar_ultima_memoria_ou_referencia', { usuario_id_input: usuario_id })
             .single();
         if (error) {
@@ -83,7 +87,7 @@ async function buildPayloadComEncadeamento(mem) {
 async function salvarComEncadeamentoGenerico(tabela, mem) {
     try {
         const payload = await buildPayloadComEncadeamento(mem);
-        const { data, error } = await supabaseAdmin_1.supabaseAdmin
+        const { data, error } = await supabaseAdmin_1.default
             .from(tabela)
             .insert(payload)
             .select('id') // retorna o id criado
@@ -100,6 +104,7 @@ async function salvarComEncadeamentoGenerico(tabela, mem) {
             id: data?.id,
             referencia_anterior_id: payload.referencia_anterior_id,
         });
+        (0, CacheService_1.invalidateResponseCacheForUser)(mem.usuario_id);
         return { ok: true, id: data?.id };
     }
     catch (err) {

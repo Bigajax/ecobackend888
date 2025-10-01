@@ -3,7 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.buscarEncadeamentosPassados = buscarEncadeamentosPassados;
 // services/buscarEncadeamentos.ts
 const supabase_js_1 = require("@supabase/supabase-js");
-const embeddingService_1 = require("./embeddingService");
+const prepareQueryEmbedding_1 = require("./prepareQueryEmbedding");
 const supabase = (0, supabase_js_1.createClient)(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY);
 async function buscarEncadeamentosPassados(userId, entradaOrOpts) {
     try {
@@ -38,9 +38,13 @@ async function buscarEncadeamentosPassados(userId, entradaOrOpts) {
         // ---------------------------
         // Gera OU reaproveita o embedding (e normaliza)
         // ---------------------------
-        const consulta_embedding = userEmbedding?.length
-            ? (0, embeddingService_1.unitNorm)(userEmbedding)
-            : (0, embeddingService_1.unitNorm)(await (0, embeddingService_1.embedTextoCompleto)(texto, "🔗 encadeamento"));
+        const consulta_embedding = await (0, prepareQueryEmbedding_1.prepareQueryEmbedding)({
+            texto,
+            userEmbedding,
+            tag: "🔗 encadeamento",
+        });
+        if (!consulta_embedding)
+            return [];
         // ---------------------------
         // 1) Busca memória base mais similar do usuário (RPC v2)
         // ---------------------------

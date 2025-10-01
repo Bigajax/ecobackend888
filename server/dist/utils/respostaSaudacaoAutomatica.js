@@ -67,6 +67,8 @@ const BASE_VARIANTES_PRIMEIRA = [
     (sd, nome) => `${sd}${nome}. O que faria diferença para esta conversa ser útil para você hoje?`,
     (sd, nome) => `${sd}${nome}. Se tivesse que escolher um foco pequeno agora, qual seria?`,
     (sd, nome) => `${sd}${nome}. Como está o ritmo interno que você percebe em si neste momento?`,
+    // 👇 coach amigável (30%)
+    (sd, nome) => `${sd}${nome}. Que bom ter você aqui — um passo de cada vez já faz diferença.`,
 ];
 const VARIANTES_POR_HORARIO = {
     madrugada: [
@@ -111,7 +113,6 @@ function escolherSaudacaoPrimeira(sd, nome, h) {
 function respostaSaudacaoAutomatica({ messages, userName, clientHour, clientTz, }) {
     if (!messages?.length)
         return null;
-    // defensivo: sem non-null assertion
     const lastRaw = messages[messages.length - 1]?.content ?? "";
     const last = normalizar(lastRaw);
     const isShort = last.length <= exports.MAX_LEN_FOR_GREETING;
@@ -159,6 +160,8 @@ function respostaSaudacaoAutomatica({ messages, userName, clientHour, clientTz, 
                 `Olá${nome}. Tem algo pedindo sua atenção hoje?`,
                 `Ei${nome}. Prefere começar pelo que pesa ou pelo que está mais claro?`,
                 `De volta${nome}. Como você se encontra hoje?`,
+                // 👇 coach amigável (30%)
+                `Bom te ver${nome}. Vamos com calma, sem pressa — por onde quer começar?`,
             ];
             return {
                 text: pick(variantesRetorno),
