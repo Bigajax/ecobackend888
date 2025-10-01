@@ -1,4 +1,9 @@
-import { formatarTextoEco, limparResposta, now, type SessionMetadata } from "../../utils";
+import {
+  formatarTextoEco,
+  limparResposta,
+  now,
+  type SessionMetadata,
+} from "../../utils";
 import { gerarBlocoTecnicoComCache } from "../../core/EmotionalAnalyzer";
 import { saveMemoryOrReference } from "../../services/MemoryService";
 import {
@@ -44,6 +49,20 @@ export interface FinalizeParams {
   distinctId?: string;
   sessaoId?: string | null;
   origemSessao?: string | null;
+  precomputed?: PrecomputedFinalizeArtifacts;
+}
+
+export interface NormalizedEcoResponse {
+  base: string;
+  identityCleaned: string;
+  cleaned: string;
+  blocoTarget: string;
+}
+
+export interface PrecomputedFinalizeArtifacts {
+  normalized: NormalizedEcoResponse;
+  blocoPromise?: Promise<any | null>;
+  blocoRacePromise?: Promise<any | null>;
 }
 
 export class ResponseFinalizer {
@@ -65,7 +84,7 @@ export class ResponseFinalizer {
     return Number.isFinite(parsed) && parsed >= 0 ? parsed : 1000;
   }
 
-  private gerarBlocoComTimeout({
+  public gerarBlocoComTimeout({
     ultimaMsg,
     blocoTarget,
     mode,
@@ -234,6 +253,30 @@ export class ResponseFinalizer {
     }
   }
 
+  public normalizeRawResponse({
+    raw,
+    userName,
+    hasAssistantBefore,
+    mode,
+  }: {
+    raw: string;
+    userName?: string;
+    hasAssistantBefore: boolean;
+    mode: "fast" | "full";
+  }): NormalizedEcoResponse {
+    const base = formatarTextoEco(
+      limparResposta(
+        raw || "Desculpa, não consegui responder agora. Pode tentar de novo?"
+      )
+    );
+    const nome = firstName(userName);
+    const identityCleaned = stripIdentityCorrection(base, nome);
+    const cleaned = stripRedundantGreeting(identityCleaned, hasAssistantBefore);
+    const blocoTarget = mode === "fast" ? identityCleaned : cleaned;
+
+    return { base, identityCleaned, cleaned, blocoTarget };
+  }
+
   async finalize({
     raw,
     ultimaMsg,
@@ -252,6 +295,7 @@ export class ResponseFinalizer {
     distinctId: providedDistinctId,
     sessaoId: providedSessaoId,
     origemSessao,
+    precomputed,
   }: FinalizeParams): Promise<GetEcoResult> {
     const distinctId = providedDistinctId ?? sessionMeta?.distinctId ?? userId;
 
@@ -271,28 +315,32 @@ export class ResponseFinalizer {
       });
     }
 
-    const base = formatarTextoEco(
-      limparResposta(
-        raw || "Desculpa, não consegui responder agora. Pode tentar de novo?"
-      )
-    );
-    const nome = firstName(userName);
-    const identityCleaned = stripIdentityCorrection(base, nome);
-    const cleaned = stripRedundantGreeting(identityCleaned, hasAssistantBefore);
-    const blocoTarget = mode === "fast" ? identityCleaned : cleaned;
+    const normalized =
+      precomputed?.normalized ??
+      this.normalizeRawResponse({ raw, userName, hasAssistantBefore, mode });
+
+    const { cleaned, blocoTarget } = normalized;
 
     let bloco: any = null;
     let blocoPromise: Promise<any | null> | undefined;
+    let blocoRacePromise: Promise<any | null> | undefined;
     if (!skipBloco) {
-      const blocoTimeout = this.gerarBlocoComTimeout({
-        ultimaMsg,
-        blocoTarget,
-        mode,
-        skipBloco,
-        distinctId: providedDistinctId ?? sessionMeta?.distinctId ?? userId,
-        userId,
-      });
-      blocoPromise = blocoTimeout.full;
+      blocoPromise = precomputed?.blocoPromise;
+      blocoRacePromise = precomputed?.blocoRacePromise ?? blocoPromise;
+
+      if (!blocoPromise || !blocoRacePromise) {
+        const blocoTimeout = this.gerarBlocoComTimeout({
+          ultimaMsg,
+          blocoTarget,
+          mode,
+          skipBloco,
+          distinctId: providedDistinctId ?? sessionMeta?.distinctId ?? userId,
+          userId,
+        });
+        blocoPromise = blocoTimeout.full;
+        blocoRacePromise = blocoTimeout.race;
+      }
+
       if (mode === "fast") {
         this.deps.trackBlocoTecnico({
           distinctId: providedDistinctId ?? sessionMeta?.distinctId ?? userId,
@@ -302,7 +350,7 @@ export class ResponseFinalizer {
           skipBloco,
         });
       } else {
-        bloco = await blocoTimeout.race;
+        bloco = await blocoRacePromise;
       }
     }
 
