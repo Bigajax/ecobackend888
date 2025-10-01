@@ -17,7 +17,7 @@ export interface MemoriaSimilar {
 export type BuscarMemsOpts = {
   texto?: string;                 // usado se não houver userEmbedding
   userEmbedding?: number[];       // se vier, não recalcula (normaliza!)
-  k?: number;                     // default 6
+  k?: number;                     // default 4
   threshold?: number;             // default 0.80 (similaridade ∈ [0..1])
   daysBack?: number | null;       // default 30; null = sem filtro; usamos fallback
   userId?: string | null;         // se não vier, busca global (todas as memórias salvas)
@@ -28,7 +28,7 @@ export type BuscarMemsOpts = {
  * Busca memórias semelhantes usando a RPC v2 com fallback de janela temporal.
  * Compatível com:
  *   buscarMemoriasSemelhantes(userId, "texto")
- *   buscarMemoriasSemelhantes(userId, { userEmbedding, k: 6, threshold: 0.8, supabaseClient })
+ *   buscarMemoriasSemelhantes(userId, { userEmbedding, k: 4, threshold: 0.8, supabaseClient })
  */
 export async function buscarMemoriasSemelhantes(
   userIdOrNull: string | null,
@@ -40,7 +40,7 @@ export async function buscarMemoriasSemelhantes(
     // ---------------------------
     let texto = "";
     let userEmbedding: number[] | undefined;
-    let k = 6;
+    let k = 4;
     let threshold = 0.8;        // ✅ default mais útil
     let daysBack: number | null = 30;
     let userId: string | null = userIdOrNull;
@@ -51,7 +51,9 @@ export async function buscarMemoriasSemelhantes(
     } else {
       texto = entradaOrOpts.texto ?? "";
       userEmbedding = entradaOrOpts.userEmbedding;
-      k = typeof entradaOrOpts.k === "number" ? entradaOrOpts.k : k;
+      const requestedK =
+        typeof entradaOrOpts.k === "number" ? Math.max(1, entradaOrOpts.k) : 4;
+      k = Math.min(requestedK, 4); // LATENCY: top_k
       threshold =
         typeof entradaOrOpts.threshold === "number" ? entradaOrOpts.threshold : threshold;
       daysBack =
@@ -61,6 +63,7 @@ export async function buscarMemoriasSemelhantes(
       if (typeof entradaOrOpts.userId === "string") userId = entradaOrOpts.userId;
       supabaseClient = entradaOrOpts.supabaseClient; // ✅ injetado (se vier)
     }
+    k = Math.min(Math.max(1, k), 4); // LATENCY: top_k
 
     // Client a usar
     const sb = supabaseClient ?? supabaseDefault; // ✅ preferir injetado
@@ -74,7 +77,7 @@ export async function buscarMemoriasSemelhantes(
     const queryEmbedding = await prepareQueryEmbedding({ texto, userEmbedding });
     if (!queryEmbedding) return [];
 
-    const match_count = Math.max(1, k);
+    const match_count = Math.max(1, k); // LATENCY: top_k
     const match_threshold = Math.max(0, Math.min(1, Number(threshold) || 0.8));
 
     // Helper para chamar a RPC v2 com days_back variável

@@ -167,7 +167,7 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
       memsSimilares = await buscarMemoriasSemelhantes(usuario_id, {
         userEmbedding: queryEmbedding,
         texto: queryEmbedding ? undefined : ultimaMsg,
-        k: 5,
+        k: 4, // LATENCY: top_k
         threshold,
       });
       log.info(
