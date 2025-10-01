@@ -27,7 +27,7 @@ Module._load = function patchedLoad(request: string, parent: any, isMain: boolea
 const responseFinalizerModule = require("../../services/conversation/responseFinalizer") as typeof import("../../services/conversation/responseFinalizer");
 const helpersModule = require("../../services/conversation/helpers") as typeof import("../../services/conversation/helpers");
 const { ResponseFinalizer } = responseFinalizerModule;
-const { stripRedundantGreeting } = helpersModule;
+const { stripRedundantGreeting, stripIdentityCorrection } = helpersModule;
 Module._load = originalLoad;
 
 const noop = () => {};
@@ -276,4 +276,40 @@ test("stripRedundantGreeting remove saudação quando assistente já respondeu",
 
   const semAssistente = stripRedundantGreeting("Oi, tudo bem?", false);
   assert.strictEqual(semAssistente, "Oi, tudo bem?");
+});
+
+test("stripIdentityCorrection lida com nomes contendo metacaracteres de regex", () => {
+  const casos: Array<[string, string, string]> = [
+    ["Oi!\nEu sou a Eco, não a C++.", "C++", "Oi!"],
+    ["Bem-vinda!\nEu sou a Eco, não a Ana(.", "Ana(", "Bem-vinda!"],
+  ];
+
+  for (const [input, nome, esperado] of casos) {
+    const resultado = stripIdentityCorrection(input, nome);
+    assert.strictEqual(resultado, esperado);
+  }
+});
+
+test("finalize remove correção de identidade com nome que contém parênteses", async () => {
+  const finalizer = new ResponseFinalizer({
+    gerarBlocoTecnicoComCache: async () => null,
+    saveMemoryOrReference: async () => {},
+    trackMensagemEnviada: noop as any,
+    trackEcoDemorou: noop as any,
+    trackBlocoTecnico: noop as any,
+    identifyUsuario: noop as any,
+    trackSessaoEntrouChat: noop as any,
+  });
+
+  const entrada = "Oi!\nEu sou a Eco, não a Ana(.";
+  const resultado = await finalizer.finalize({
+    raw: entrada,
+    ultimaMsg: entrada,
+    userName: "Ana(",
+    hasAssistantBefore: false,
+    mode: "fast",
+    startedAt: Date.now(),
+  });
+
+  assert.strictEqual(resultado.message, "Oi!");
 });
