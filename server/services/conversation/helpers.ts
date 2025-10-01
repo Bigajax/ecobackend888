@@ -4,8 +4,11 @@ export function firstName(name?: string): string {
 
 export function stripIdentityCorrection(text: string, nome?: string): string {
   if (!nome) return text;
+  const escapedNome = nome.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const needsWordBoundary = /[A-Za-z0-9_]$/.test(nome);
+  const suffix = needsWordBoundary ? "\\b" : "(?!\\w)";
   const re = new RegExp(
-    String.raw`(?:^|\n).*?(?:eu\s*)?sou\s*a?\s*eco[^.\n]*não\s+o?a?\s*${nome}\b.*`,
+    String.raw`(?:^|\n).*?(?:eu\s*)?sou\s*a?\s*eco[^.\n]*não\s+o?a?\s*${escapedNome}${suffix}.*`,
     "i"
   );
   return text.replace(re, "").trim();
