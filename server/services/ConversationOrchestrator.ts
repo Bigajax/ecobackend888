@@ -3,6 +3,7 @@ import {
   ensureEnvs,
   now,
   sleep,
+  mapRoleForOpenAI,
   type GetEcoParams,
   type GetEcoResult,
   type ChatMessage,
@@ -30,6 +31,19 @@ import { defaultResponseFinalizer } from "./conversation/responseFinalizer";
 import { firstName } from "./conversation/helpers";
 import { runFastLaneLLM } from "./conversation/fastLane";
 import { buildFullPrompt } from "./conversation/promptPlan";
+
+function buildFinalizedStreamText(result: GetEcoResult): string {
+  const payload: Record<string, unknown> = {
+    intensidade: result.intensidade ?? null,
+    resumo: result.resumo ?? null,
+    emocao: result.emocao ?? null,
+    tags: Array.isArray(result.tags) ? result.tags : [],
+    categoria: result.categoria ?? null,
+    proactive: result.proactive ?? null,
+  };
+
+  return `${result.message ?? ""}\n\n\`\`\`json\n${JSON.stringify(payload, null, 2)}\n\`\`\``;
+}
 
 /* ---------------------------- Consts ---------------------------- */
 
@@ -119,22 +133,52 @@ export async function getEcoResponse(
     await streamHandler.onEvent(event);
   };
 
+  const supabase = supabaseWithBearer(accessToken);
+  const hasAssistantBeforeInThread = thread
+    .slice(0, -1)
+    .some((msg) => mapRoleForOpenAI(msg.role) === "assistant");
+
   // Micro-resposta local
   const micro = microReflexoLocal(ultimaMsg);
   if (micro) {
+    const startedAt = now();
+    const finalized = await defaultResponseFinalizer.finalize({
+      raw: micro,
+      ultimaMsg,
+      userName,
+      hasAssistantBefore: hasAssistantBeforeInThread,
+      userId,
+      supabase,
+      lastMessageId: lastMessageId ?? undefined,
+      mode: "fast",
+      startedAt,
+      usageTokens: undefined,
+      modelo: "micro-reflexo",
+      sessionMeta,
+      sessaoId: sessionMeta?.sessaoId ?? undefined,
+      origemSessao: sessionMeta?.origem ?? undefined,
+    });
+    const finalText = buildFinalizedStreamText(finalized);
+
     if (streamHandler) {
       await emitStream({ type: "control", name: "prompt_ready" });
       await emitStream({ type: "control", name: "first_token" });
-      await emitStream({ type: "chunk", content: micro, index: 0 });
+      await emitStream({ type: "chunk", content: finalText, index: 0 });
       await emitStream({
         type: "control",
         name: "done",
-        meta: { length: micro.length, modelo: "micro-reflexo" },
+        meta: { length: finalText.length, modelo: "micro-reflexo" },
       });
-      const finalize = async () => ({ message: micro });
-      return { raw: micro, modelo: "micro-reflexo", usage: undefined, finalize, timings: {} };
+      const finalize = async () => finalized;
+      return {
+        raw: finalText,
+        modelo: "micro-reflexo",
+        usage: undefined,
+        finalize,
+        timings: {},
+      };
     }
-    return { message: micro };
+    return finalized;
   }
 
   // Pipeline de saudação
@@ -147,20 +191,44 @@ export async function getEcoResponse(
     greetingEnabled: process.env.ECO_GREETING_BACKEND_ENABLED !== "0",
   });
   if (greetingResult.handled && greetingResult.response) {
+    const startedAt = now();
+    const finalized = await defaultResponseFinalizer.finalize({
+      raw: greetingResult.response,
+      ultimaMsg,
+      userName,
+      hasAssistantBefore: hasAssistantBeforeInThread,
+      userId,
+      supabase,
+      lastMessageId: lastMessageId ?? undefined,
+      mode: "fast",
+      startedAt,
+      usageTokens: undefined,
+      modelo: "greeting",
+      sessionMeta,
+      sessaoId: sessionMeta?.sessaoId ?? undefined,
+      origemSessao: sessionMeta?.origem ?? undefined,
+    });
+    const finalText = buildFinalizedStreamText(finalized);
+
     if (streamHandler) {
-      const resposta = greetingResult.response;
       await emitStream({ type: "control", name: "prompt_ready" });
       await emitStream({ type: "control", name: "first_token" });
-      await emitStream({ type: "chunk", content: resposta, index: 0 });
+      await emitStream({ type: "chunk", content: finalText, index: 0 });
       await emitStream({
         type: "control",
         name: "done",
-        meta: { length: resposta.length, modelo: "greeting" },
+        meta: { length: finalText.length, modelo: "greeting" },
       });
-      const finalize = async () => ({ message: resposta });
-      return { raw: resposta, modelo: "greeting", usage: undefined, finalize, timings: {} };
+      const finalize = async () => finalized;
+      return {
+        raw: finalText,
+        modelo: "greeting",
+        usage: undefined,
+        finalize,
+        timings: {},
+      };
     }
-    return { message: greetingResult.response };
+    return finalized;
   }
 
   // Roteamento
@@ -181,8 +249,6 @@ export async function getEcoResponse(
       mode: decision.mode,
     });
   }
-
-  const supabase = supabaseWithBearer(accessToken);
 
   // --------------------------- FAST MODE ---------------------------
   if (decision.mode === "fast" && !streamHandler) {
