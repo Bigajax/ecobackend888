@@ -5,6 +5,7 @@ import { supabase } from "../lib/supabaseAdmin"; // ✅ usa a instância (não �
 import {
   getEcoResponse,
   type EcoStreamHandler,
+  type EcoLatencyMarks,
 } from "../services/ConversationOrchestrator";
 import { embedTextoCompleto } from "../adapters/embeddingService";
 import { buscarMemoriasSemelhantes } from "../services/buscarMemorias";
@@ -14,6 +15,7 @@ import { trackMensagemRecebida } from "../analytics/events/mixpanelEvents";
 // montar contexto e log
 import { ContextBuilder } from "../services/promptContext";
 import { log, isDebug } from "../services/promptContext/logger";
+import { now } from "../utils";
 
 const router = express.Router();
 
@@ -47,6 +49,7 @@ function normalizarMensagens(body: any): Array<{ role: string; content: any }> |
 }
 
 router.post("/ask-eco", async (req: Request, res: Response) => {
+  const t0 = now();
   const { usuario_id, nome_usuario } = req.body;
   const mensagensParaIA = normalizarMensagens(req.body);
 
@@ -73,6 +76,8 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
     const streamingRes = res as Response & { flush?: () => void; flushHeaders?: () => void };
     let sseStarted = false;
     let streamClosed = false;
+    let latestTimings: EcoLatencyMarks | undefined;
+    let firstChunkLogged = false;
 
     const startSse = () => {
       if (sseStarted) return;
@@ -90,6 +95,20 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
       startSse();
       streamingRes.write(`data: ${JSON.stringify(payload)}\n\n`); // LATENCY: chunk incremental da resposta.
       streamingRes.flush?.(); // LATENCY: garante entrega sem buffering adicional.
+    };
+
+    const emitLatency = (
+      stage: "prompt_ready" | "ttfb" | "ttlc",
+      at: number,
+      timings?: EcoLatencyMarks
+    ) => {
+      const sinceStartMs = at - t0;
+      log.info(`// LATENCY: ${stage}`, {
+        at,
+        sinceStartMs,
+        timings,
+      });
+      sendSse({ type: "latency", stage, at, sinceStartMs, timings });
     };
 
     startSse();
@@ -187,6 +206,11 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
     const streamHandler: EcoStreamHandler = {
       async onEvent(event) {
         if (event.type === "chunk") {
+          if (!firstChunkLogged) {
+            firstChunkLogged = true;
+            const at = now();
+            emitLatency("ttfb", at, latestTimings);
+          }
           sendSse({ type: "chunk", delta: event.content, index: event.index });
           return;
         }
@@ -198,7 +222,15 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
 
         if (event.type === "control") {
           if (event.name === "prompt_ready") {
-            sendSse({ type: "prompt_ready" });
+            latestTimings = event.timings ?? latestTimings;
+            const at = now();
+            emitLatency("prompt_ready", at, latestTimings);
+            sendSse({
+              type: "prompt_ready",
+              at,
+              sinceStartMs: at - t0,
+              timings: latestTimings,
+            });
             return;
           }
           if (event.name === "first_token") {
@@ -211,7 +243,16 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
           }
           if (event.name === "done") {
             doneNotified = true;
-            sendSse({ type: "done", meta: event.meta ?? {} });
+            latestTimings = event.timings ?? latestTimings;
+            const at = now();
+            emitLatency("ttlc", at, latestTimings);
+            sendSse({
+              type: "done",
+              meta: event.meta ?? {},
+              at,
+              sinceStartMs: at - t0,
+              timings: latestTimings,
+            });
             if (!streamClosed) {
               streamClosed = true;
               streamingRes.end(); // LATENCY: encerra o SSE logo após o sinal de conclusão.
@@ -247,7 +288,17 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
     });
 
     if (!doneNotified && !streamClosed) {
-      sendSse({ type: "done", meta: resposta?.usage ? { usage: resposta.usage } : {} });
+      const at = now();
+      const fallbackTimings = (resposta as { timings?: EcoLatencyMarks })?.timings ?? latestTimings;
+      latestTimings = fallbackTimings ?? latestTimings;
+      emitLatency("ttlc", at, latestTimings);
+      sendSse({
+        type: "done",
+        meta: resposta?.usage ? { usage: resposta.usage } : {},
+        at,
+        sinceStartMs: at - t0,
+        timings: latestTimings,
+      });
       streamClosed = true;
       streamingRes.end();
     }

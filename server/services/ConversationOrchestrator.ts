@@ -36,12 +36,25 @@ import { buildFullPrompt } from "./conversation/promptPlan";
 const DERIVADOS_TIMEOUT_MS = Number(process.env.ECO_DERIVADOS_TIMEOUT_MS ?? 600);
 const PARALELAS_TIMEOUT_MS = Number(process.env.ECO_PARALELAS_TIMEOUT_MS ?? 180);
 
+export interface EcoLatencyMarks {
+  contextBuildStart?: number;
+  contextBuildEnd?: number;
+  llmStart?: number;
+  llmEnd?: number;
+}
+
 export type EcoStreamEvent =
-  | { type: "control"; name: "prompt_ready" | "first_token" | "reconnect"; attempt?: number }
+  | {
+      type: "control";
+      name: "prompt_ready" | "first_token" | "reconnect";
+      attempt?: number;
+      timings?: EcoLatencyMarks;
+    }
   | {
       type: "control";
       name: "done";
       meta?: { finishReason?: string | null; usage?: ORUsage; modelo?: string | null; length?: number };
+      timings?: EcoLatencyMarks;
     }
   | { type: "chunk"; content: string; index: number }
   | { type: "error"; error: Error };
@@ -55,6 +68,7 @@ export interface EcoStreamingResult {
   modelo?: string | null;
   usage?: ORUsage;
   finalize: () => Promise<GetEcoResult>;
+  timings: EcoLatencyMarks;
 }
 
 export function getEcoResponse(
@@ -98,6 +112,7 @@ export async function getEcoResponse(
   const ultimaMsg = lastMessage?.content ?? "";
 
   const streamHandler = stream ?? null;
+  const timings: EcoLatencyMarks = {};
   const emitStream = async (event: EcoStreamEvent) => {
     if (!streamHandler) return;
     // LATENCY: propaga eventos de streaming imediatamente para a camada HTTP.
@@ -117,7 +132,7 @@ export async function getEcoResponse(
         meta: { length: micro.length, modelo: "micro-reflexo" },
       });
       const finalize = async () => ({ message: micro });
-      return { raw: micro, modelo: "micro-reflexo", usage: undefined, finalize };
+      return { raw: micro, modelo: "micro-reflexo", usage: undefined, finalize, timings: {} };
     }
     return { message: micro };
   }
@@ -143,7 +158,7 @@ export async function getEcoResponse(
         meta: { length: resposta.length, modelo: "greeting" },
       });
       const finalize = async () => ({ message: resposta });
-      return { raw: resposta, modelo: "greeting", usage: undefined, finalize };
+      return { raw: resposta, modelo: "greeting", usage: undefined, finalize, timings: {} };
     }
     return { message: greetingResult.response };
   }
@@ -193,6 +208,8 @@ export async function getEcoResponse(
   }
 
   // --------------------------- FULL MODE ---------------------------
+  timings.contextBuildStart = now();
+  log.info("// LATENCY: context_build_start", { at: timings.contextBuildStart });
   const shouldSkipDerivados =
     !!promptOverride ||
     (metaFromBuilder && Number(metaFromBuilder.nivel) === 1) ||
@@ -330,11 +347,21 @@ export async function getEcoResponse(
     messages: thread,
   });
 
-  const inicioEco = now();
+  timings.contextBuildEnd = now();
+  log.info("// LATENCY: context_build_end", {
+    at: timings.contextBuildEnd,
+    durationMs:
+      timings.contextBuildStart && timings.contextBuildEnd
+        ? timings.contextBuildEnd - timings.contextBuildStart
+        : undefined,
+  });
+
+  let inicioEco = now();
   const principalModel = process.env.ECO_CLAUDE_MODEL || "anthropic/claude-3-5-sonnet";
 
   if (streamHandler) {
-    await emitStream({ type: "control", name: "prompt_ready" });
+    const promptReadySnapshot = { ...timings };
+    await emitStream({ type: "control", name: "prompt_ready", timings: promptReadySnapshot });
 
     const streamedChunks: string[] = [];
     let chunkIndex = 0;
@@ -343,6 +370,16 @@ export async function getEcoResponse(
     let finishReason: string | null | undefined;
     let modelFromStream: string | null | undefined;
     let streamFailure: Error | null = null;
+
+    timings.llmStart = now();
+    inicioEco = timings.llmStart;
+    log.info("// LATENCY: llm_request_start", {
+      at: timings.llmStart,
+      sincePromptReadyMs:
+        timings.contextBuildEnd && timings.llmStart
+          ? timings.llmStart - timings.contextBuildEnd
+          : undefined,
+    });
 
     try {
       await streamClaudeChatCompletion(
@@ -389,6 +426,15 @@ export async function getEcoResponse(
     } catch (error: any) {
       const err = error instanceof Error ? error : new Error(String(error));
       streamFailure = err;
+    } finally {
+      timings.llmEnd = now();
+      log.info("// LATENCY: llm_request_end", {
+        at: timings.llmEnd,
+        durationMs:
+          timings.llmStart && timings.llmEnd
+            ? timings.llmEnd - timings.llmStart
+            : undefined,
+      });
     }
 
     if (streamFailure) {
@@ -419,6 +465,7 @@ export async function getEcoResponse(
       return finalizePromise;
     };
 
+    const doneSnapshot = { ...timings };
     await emitStream({
       type: "control",
       name: "done",
@@ -428,6 +475,7 @@ export async function getEcoResponse(
         modelo: modelFromStream ?? principalModel,
         length: raw.length,
       },
+      timings: doneSnapshot,
     });
 
     return {
@@ -435,10 +483,20 @@ export async function getEcoResponse(
       modelo: modelFromStream ?? principalModel,
       usage: usageFromStream,
       finalize,
+      timings: doneSnapshot,
     };
   }
 
   let data: any;
+  timings.llmStart = now();
+  inicioEco = timings.llmStart;
+  log.info("// LATENCY: llm_request_start", {
+    at: timings.llmStart,
+    sincePromptReadyMs:
+      timings.contextBuildEnd && timings.llmStart
+        ? timings.llmStart - timings.contextBuildEnd
+        : undefined,
+  });
   try {
     data = await claudeChatCompletion({
       // 'prompt' já é a lista de mensagens pronta (inclui system + histórico fatiado)
@@ -469,6 +527,13 @@ export async function getEcoResponse(
       origemSessao: sessionMeta?.origem ?? undefined,
     });
   }
+
+  timings.llmEnd = now();
+  log.info("// LATENCY: llm_request_end", {
+    at: timings.llmEnd,
+    durationMs:
+      timings.llmStart && timings.llmEnd ? timings.llmEnd - timings.llmStart : undefined,
+  });
 
   if (isDebug()) {
     log.debug("[Orchestrator] resposta pronta", {
