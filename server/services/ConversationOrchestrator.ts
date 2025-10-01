@@ -32,7 +32,7 @@ import { firstName } from "./conversation/helpers";
 import { runFastLaneLLM } from "./conversation/fastLane";
 import { buildFullPrompt } from "./conversation/promptPlan";
 
-function buildFinalizedStreamText(result: GetEcoResult): string {
+export function buildFinalizedStreamText(result: GetEcoResult): string {
   const payload: Record<string, unknown> = {
     intensidade: result.intensidade ?? null,
     resumo: result.resumo ?? null,
