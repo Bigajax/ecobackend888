@@ -1,4 +1,3 @@
-// server/services/ConversationOrchestrator.ts
 import {
   ensureEnvs,
   now,
@@ -117,6 +116,13 @@ const DERIVADOS_TIMEOUT_MS = Number(process.env.ECO_DERIVADOS_TIMEOUT_MS ?? 600)
 const PARALELAS_TIMEOUT_MS = Number(process.env.ECO_PARALELAS_TIMEOUT_MS ?? 180);
 const BLOCO_DEADLINE_MS = Number(process.env.ECO_BLOCO_DEADLINE_MS ?? 5000);
 const BLOCO_PENDING_MS = Number(process.env.ECO_BLOCO_PENDING_MS ?? 1000);
+
+// ⚠️ Guard rail mínimo para quando houver promptOverride (não muda lógica do fluxo)
+const MIN_MEMORY_GUARD =
+  "Memória & histórico:\n" +
+  "- Use as memórias fornecidas neste contexto para dar continuidade.\n" +
+  "- Nunca diga 'não tenho acesso a conversas anteriores' ou variações.\n" +
+  "- Se não houver memórias relevantes, diga: 'Não encontrei memórias diretamente relacionadas agora. Se fizer sentido, me conte em 1 frase o essencial e eu registro.'";
 
 interface EcoStreamMetaPayload {
   intensidade: number;
@@ -459,6 +465,19 @@ export async function getEcoResponse(
   const userEmbedding: number[] = paralelas?.userEmbedding ?? [];
   const memsSemelhantes: any[] = paralelas?.memsSemelhantes ?? [];
 
+  // 🔎 Telemetria de memória (não altera lógica)
+  if (isDebug()) {
+    log.info("[Orchestrator] memoria_lookup", {
+      n_hits: memsSemelhantes.length,
+      top_score:
+        typeof memsSemelhantes?.[0]?.similarity === "number"
+          ? memsSemelhantes[0].similarity
+          : (typeof memsSemelhantes?.[0]?.distancia === "number"
+              ? 1 - memsSemelhantes[0].distancia
+              : null),
+    });
+  }
+
   const aberturaHibrida =
     derivados
       ? (() => {
@@ -470,24 +489,25 @@ export async function getEcoResponse(
         })()
       : null;
 
-  // System prompt final (ou override)
+  // System prompt final (ou override) — acrescenta guard mínima de memória se houver override
   const systemPrompt =
-    promptOverride ??
-    (await defaultContextCache.build({
-      userId,
-      userName,
-      perfil: null,
-      mems,
-      memoriasSemelhantes: memsSemelhantes,
-      forcarMetodoViva: decision.vivaAtivo,
-      blocoTecnicoForcado,
-      texto: ultimaMsg,
-      heuristicas,
-      userEmbedding,
-      skipSaudacao: true,
-      derivados,
-      aberturaHibrida,
-    }));
+    promptOverride
+      ? `${promptOverride}\n\n${MIN_MEMORY_GUARD}\n\nMEMORIAS_RELEVANTES:\n(nenhuma encontrada desta vez)`
+      : await defaultContextCache.build({
+          userId,
+          userName,
+          perfil: null,
+          mems,
+          memoriasSemelhantes: memsSemelhantes,
+          forcarMetodoViva: decision.vivaAtivo,
+          blocoTecnicoForcado,
+          texto: ultimaMsg,
+          heuristicas,
+          userEmbedding,
+          skipSaudacao: true,
+          derivados,
+          aberturaHibrida,
+        });
 
   // Planejamento de prompt (seleção de estilo e orçamento)
   // No seu projeto, buildFullPrompt retorna { prompt: PromptMessage[], maxTokens }
