@@ -1,12 +1,30 @@
 import { decodeSseChunk } from "../utils/decodeSse";
 
+export type EcoLatencyStage = "prompt_ready" | "ttfb" | "ttlc" | "abort";
+
+export interface EcoLatencyTimings {
+  contextBuildStart?: number;
+  contextBuildEnd?: number;
+  llmStart?: number;
+  llmEnd?: number;
+}
+
+export interface EcoLatencyEvent {
+  type: "latency";
+  stage: EcoLatencyStage;
+  at: number;
+  sinceStartMs: number;
+  timings?: EcoLatencyTimings;
+}
+
 export type EcoClientEvent =
-  | { type: "prompt_ready" }
+  | { type: "prompt_ready"; at?: number; sinceStartMs?: number; timings?: EcoLatencyTimings }
   | { type: "first_token" }
   | { type: "chunk"; delta: string; index: number }
   | { type: "reconnect"; attempt?: number }
-  | { type: "done"; meta?: Record<string, unknown> }
-  | { type: "error"; message: string };
+  | { type: "done"; meta?: Record<string, unknown>; at?: number; sinceStartMs?: number; timings?: EcoLatencyTimings }
+  | { type: "error"; message: string }
+  | EcoLatencyEvent;
 
 export interface StartEcoStreamParams {
   body: unknown;
