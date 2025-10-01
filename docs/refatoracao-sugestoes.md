@@ -32,3 +32,8 @@
 - Adotar `zod` ou `class-validator` para validar payloads em controllers, tornando as rotas mais magras e conferindo contratos auto-documentados.
 
 Esses passos criam uma base incremental: primeiro extraia pontos de criação/configuração, depois module por domínio e, por fim, introduza testes que sirvam de rede de segurança para futuras iterações.
+
+## Monitoramento de Latência
+- Consulte o relatório `docs/latency_audit_report.md` para acompanhar a evolução de TTFB, TTLC, tokens e volume RAG em cada ciclo.
+- Siga o `docs/latency_checklist.md` antes de grandes refatorações ou sempre que uma regressão de TTFB > 1.0s ou TTLC > 4.0s for detectada em produção.
+- Atualize o relatório sempre que um PR impactar `server/services/promptContext`, rotas de chat ou o pipeline de embeddings, garantindo que a equipe tenha visibilidade do antes/depois.
