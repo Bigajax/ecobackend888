@@ -1,7 +1,8 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+// routes/perfilEmocional.routes.ts
 const express_1 = require("express");
-const supabaseAdmin_1 = require("../lib/supabaseAdmin");
+const supabaseAdmin_1 = require("../lib/supabaseAdmin"); // ✅ instância singleton
 const updateEmotionalProfile_1 = require("../services/updateEmotionalProfile");
 const router = (0, express_1.Router)();
 /* --------------------------------- utils --------------------------------- */
@@ -12,7 +13,7 @@ function getUserIdFromReq(req) {
         null;
     if (qs && typeof qs === "string" && qs.trim())
         return qs.trim();
-    // 2) Authorization: Bearer <jwt>  → decodifica payload e pega sub/user_id
+    // 2) Authorization: Bearer <jwt> → decodifica payload e pega sub/user_id
     const auth = req.headers.authorization;
     if (auth?.startsWith("Bearer ")) {
         try {
@@ -24,7 +25,7 @@ function getUserIdFromReq(req) {
             }
         }
         catch {
-            // silencioso: não conseguimos extrair do JWT
+            // silencioso
         }
     }
     // 3) se tiver sido injetado por algum middleware
@@ -32,7 +33,7 @@ function getUserIdFromReq(req) {
     return injected || null;
 }
 async function carregarPerfil(userId) {
-    const { data, error } = await supabaseAdmin_1.supabaseAdmin
+    const { data, error } = await supabaseAdmin_1.supabase
         .from("perfis_emocionais")
         .select(`
       id,

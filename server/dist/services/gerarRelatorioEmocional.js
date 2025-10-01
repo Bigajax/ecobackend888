@@ -1,8 +1,11 @@
 "use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.DOMINIO_ALIASES = exports.EMOTION_COLORS = exports.EMOTION_ALIASES = void 0;
 exports.gerarRelatorioEmocional = gerarRelatorioEmocional;
-const supabaseAdmin_1 = require("../lib/supabaseAdmin");
+const supabaseAdmin_1 = __importDefault(require("../lib/supabaseAdmin"));
 const emotionMapStore_1 = require("../utils/emotionMapStore");
 // 🎯 Mapeamento de aliases
 exports.EMOTION_ALIASES = {
@@ -87,7 +90,7 @@ function normalizar(valor, min, max) {
 }
 async function gerarRelatorioEmocional(userId) {
     const emotionStore = await (0, emotionMapStore_1.loadEmotionStore)();
-    const { data: memorias, error } = await supabaseAdmin_1.supabaseAdmin
+    const { data: memorias, error } = await supabaseAdmin_1.default
         .from('memories')
         .select('emocao_principal, dominio_vida, intensidade, created_at, salvar_memoria, tags')
         .eq('usuario_id', userId)

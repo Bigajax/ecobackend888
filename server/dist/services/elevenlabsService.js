@@ -36,20 +36,42 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.isElevenEnabled = isElevenEnabled;
 exports.generateAudio = generateAudio;
 // server/src/services/elevenlabsService.ts
 const dotenv_1 = __importDefault(require("dotenv"));
 const node_fetch_1 = __importStar(require("node-fetch"));
 dotenv_1.default.config();
-const ELEVEN_API_KEY = process.env.ELEVEN_API_KEY;
-const DEFAULT_VOICE_ID = (process.env.ELEVEN_VOICE_ID || "e5WNhrdI30aXpS2RSGm1").trim(); // sua voz padrão (PT-BR)
-if (!ELEVEN_API_KEY) {
-    throw new Error("❌ ELEVEN_API_KEY não está definida.");
+/* ───────────────────────── helpers de env (lazy) ───────────────────────── */
+function getApiKey() {
+    const key = process.env.ELEVEN_API_KEY ||
+        process.env.ELEVENLABS_API_KEY ||
+        process.env.ELEVEN_TOKEN ||
+        "";
+    if (!key) {
+        throw new Error("ELEVEN_API_KEY não configurada. Defina ELEVEN_API_KEY (ou ELEVENLABS_API_KEY/ELEVEN_TOKEN) nas variáveis de ambiente.");
+    }
+    return key.trim();
+}
+function getDefaultVoiceId() {
+    // sua voz padrão (PT-BR) — ajuste o ID se quiser
+    const vid = (process.env.ELEVEN_VOICE_ID || "e5WNhrdI30aXpS2RSGm1").trim();
+    if (!vid) {
+        throw new Error("VOICE_ID vazio/inválido (ELEVEN_VOICE_ID).");
+    }
+    return vid;
+}
+/** Permite decidir em runtime se TTS está habilitado sem lançar erro. */
+function isElevenEnabled() {
+    return Boolean(process.env.ELEVEN_API_KEY ||
+        process.env.ELEVENLABS_API_KEY ||
+        process.env.ELEVEN_TOKEN);
 }
 /** aguardinha para backoff */
 function sleep(ms) {
     return new Promise((r) => setTimeout(r, ms));
 }
+/* ──────────────────────────── TTS principal ──────────────────────────── */
 /**
  * Gera áudio TTS usando ElevenLabs (preset CALMO).
  * - prosódia suave (stability ↑), pouca teatralidade (style ↓)
@@ -64,11 +86,12 @@ async function generateAudio(text, voiceId) {
     if (!sanitized)
         throw new Error("Texto vazio após saneamento.");
     const limited = sanitized.slice(0, 2400); // limite seguro
-    // Para PT-BR, o v2 costuma soar mais natural. (Se enviar trechos MUITO longos e quiser baratear, troque para eleven_turbo_v2_5)
-    const model = "eleven_multilingual_v2";
-    const vid = (voiceId || DEFAULT_VOICE_ID || "").trim();
-    if (!vid)
-        throw new Error("VOICE_ID vazio/inválido.");
+    // validação lazy (só aqui)
+    const ELEVEN_API_KEY = getApiKey();
+    const vid = (voiceId || getDefaultVoiceId()).trim();
+    // Para PT-BR, o v2 costuma soar mais natural.
+    // (Se enviar trechos MUITO longos e quiser baratear, troque para eleven_turbo_v2_5)
+    const model = process.env.ELEVEN_MODEL_ID || "eleven_multilingual_v2";
     const headers = new node_fetch_1.Headers({
         "xi-api-key": ELEVEN_API_KEY,
         "Content-Type": "application/json",
@@ -84,7 +107,7 @@ async function generateAudio(text, voiceId) {
         model_id: model,
         voice_settings: {
             stability: 0.65,
-            similarity_boost: 0.90,
+            similarity_boost: 0.9,
             style: 0.12,
             use_speaker_boost: true,
         },
@@ -95,7 +118,7 @@ async function generateAudio(text, voiceId) {
      * Chama um endpoint (com ou sem /stream) com até 3 tentativas para 429/5xx.
      */
     const call = async (suffix) => {
-        const url = `https://api.elevenlabs.io/v1/text-to-speech/${vid}${suffix}`;
+        const url = `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(vid)}${suffix}`;
         let attempt = 0;
         const maxAttempts = 3;
         const backoff = [0, 600, 1500]; // ms

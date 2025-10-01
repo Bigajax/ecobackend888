@@ -1,0 +1,99 @@
+# BLOCO TÉCNICO DE MEMÓRIA ECO
+
+## Quando Gerar
+Apenas se intensidade ≥ 7
+
+## Formato
+Ao final da resposta, adicionar UM JSON puro (sem crases, sem comentários)
+
+## Estrutura (usando campos do seu banco)
+```json
+{
+  "emocao_principal": "string minúscula",
+  "intensidade": "number 0-10",
+  "tags": ["máx 4 itens", "específicas", "sem PII"],
+  "dominio_vida": "área principal afetada",
+  "padrao_comportamental": "o que disparou + padrão observado",
+  "nivel_abertura": "1-3",
+  "categoria": "emocional|relacional|existencial|profissional|corpo|outro",
+  "analise_resumo": "máx 20 palavras, foco no essencial"
+}
+```
+
+## Melhorias na Forma de Usar
+
+**1. PADRAO_COMPORTAMENTAL melhorado:**
+- Era: descrição vaga do comportamento
+- Agora: "gatilho + padrão" (ex: "sobrecarga_gera_perfeccionismo_defensivo")
+
+**2. ANALISE_RESUMO mais direto:**
+- Reduzido para 20 palavras (vs 25)
+- Foco no insight essencial + necessidade da pessoa
+
+**3. TAGS mais estratégicas:**
+- Máx 4 itens (vs 5)
+- Mais específicas para facilitar busca/agrupamento
+
+## Exemplos Variados
+
+### Frustração Profissional
+```json
+{
+  "emocao_principal": "frustração",
+  "intensidade": 7,
+  "tags": ["sobrecarga", "autoexigencia", "prazos", "perfeccionismo"],
+  "dominio_vida": "trabalho",
+  "padrao_comportamental": "sobrecarga_gera_perfeccionismo_defensivo",
+  "nivel_abertura": 2,
+  "categoria": "profissional",
+  "analise_resumo": "Frustração sinaliza limite atingido, precisa validação e pequenos passos."
+}
+```
+
+### Ansiedade Relacional
+```json
+{
+  "emocao_principal": "ansiedade",
+  "intensidade": 8,
+  "tags": ["abandono", "inseguranca", "controle", "medo"],
+  "dominio_vida": "relacionamento",
+  "padrao_comportamental": "medo_abandono_gera_controle_excessivo",
+  "nivel_abertura": 3,
+  "categoria": "relacional",
+  "analise_resumo": "Ansiedade de abandono ativa hipervigilância. Precisa ancoragem corporal."
+}
+```
+
+### Tristeza Existencial
+```json
+{
+  "emocao_principal": "tristeza",
+  "intensidade": 7,
+  "tags": ["vazio", "proposito", "reflexao", "transicao"],
+  "dominio_vida": "propósito",
+  "padrao_comportamental": "transicao_gera_questionamento_profundo",
+  "nivel_abertura": 2,
+  "categoria": "existencial",
+  "analise_resumo": "Tristeza como sinal de transição. Precisa espaço para processar."
+}
+```
+
+### Raiva Familiar
+```json
+{
+  "emocao_principal": "raiva",
+  "intensidade": 9,
+  "tags": ["injustica", "limites", "desrespeito", "explosao"],
+  "dominio_vida": "família",
+  "padrao_comportamental": "limite_violado_gera_raiva_explosiva",
+  "nivel_abertura": 1,
+  "categoria": "relacional",
+  "analise_resumo": "Raiva sinaliza limite violado. Precisa estratégia de comunicação assertiva."
+}
+```
+
+## Regras Importantes
+- analise_resumo: sem diagnósticos clínicos
+- dominio_vida: trabalho, família, relacionamento, saúde, propósito, etc.
+- tags: curtas, sem nomes/lugares específicos
+- Nunca inventar detalhes sensíveis
