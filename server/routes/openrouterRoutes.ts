@@ -1,4 +1,5 @@
 // routes/openrouterRoutes.ts
+import crypto from "node:crypto";
 import express, { type Request, type Response } from "express";
 import { supabase } from "../lib/supabaseAdmin"; // ✅ usa a instância (não é função)
 
@@ -10,12 +11,31 @@ import {
 import { embedTextoCompleto } from "../adapters/embeddingService";
 import { buscarMemoriasSemelhantes } from "../services/buscarMemorias";
 import { extractSessionMeta } from "./sessionMeta";
-import { trackMensagemRecebida } from "../analytics/events/mixpanelEvents";
+import { trackEcoCache, trackMensagemRecebida } from "../analytics/events/mixpanelEvents";
 
 // montar contexto e log
 import { ContextBuilder } from "../services/promptContext";
 import { log, isDebug } from "../services/promptContext/logger";
 import { now } from "../utils";
+import { RESPONSE_CACHE } from "../services/CacheService";
+
+const CACHE_TTL_MS = 60_000;
+
+type CachedResponsePayload = {
+  raw: string;
+  meta?: Record<string, any> | null;
+  modelo?: string | null;
+  usage?: unknown;
+  timings?: EcoLatencyMarks;
+};
+
+const buildResponseCacheKey = (userId: string, ultimaMsg: string) => {
+  const hash = crypto
+    .createHash("sha1")
+    .update(`${userId}:${ultimaMsg}`)
+    .digest("hex");
+  return `resp:user:${userId}:${hash}`;
+};
 
 const router = express.Router();
 
@@ -52,6 +72,10 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
   const t0 = now();
   const { usuario_id, nome_usuario } = req.body;
   const mensagensParaIA = normalizarMensagens(req.body);
+  const streamingRes = res as Response & { flush?: () => void; flushHeaders?: () => void };
+  let sseStarted = false;
+  let streamClosed = false;
+  let sendSseRef: ((payload: Record<string, unknown>) => void) | null = null;
 
   // auth
   const authHeader = req.headers.authorization;
@@ -73,11 +97,13 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
 
     const sessionMeta = extractSessionMeta(req.body);
 
-    const streamingRes = res as Response & { flush?: () => void; flushHeaders?: () => void };
-    let sseStarted = false;
-    let streamClosed = false;
     let latestTimings: EcoLatencyMarks | undefined;
     let firstChunkLogged = false;
+    let cacheKey: string | null = null;
+    let cacheable = true;
+    let cacheCandidateMeta: Record<string, any> | null = null;
+    let cacheCandidateTimings: EcoLatencyMarks | undefined;
+    let clientDisconnected = false;
 
     const startSse = () => {
       if (sseStarted) return;
@@ -96,6 +122,7 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
       streamingRes.write(`data: ${JSON.stringify(payload)}\n\n`); // LATENCY: chunk incremental da resposta.
       streamingRes.flush?.(); // LATENCY: garante entrega sem buffering adicional.
     };
+    sendSseRef = sendSse;
 
     const emitLatency = (
       stage: "prompt_ready" | "ttfb" | "ttlc",
@@ -114,6 +141,9 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
     startSse();
 
     req.on("close", () => {
+      if (!streamClosed) {
+        clientDisconnected = true;
+      }
       streamClosed = true;
     });
 
@@ -131,7 +161,81 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
       origemSessao: sessionMeta?.origem ?? null,
     });
 
+    cacheKey = buildResponseCacheKey(usuario_id, ultimaMsg);
+    let cachedPayload: CachedResponsePayload | null = null;
+    if (cacheKey) {
+      const cachedRaw = RESPONSE_CACHE.get(cacheKey);
+      if (cachedRaw) {
+        try {
+          cachedPayload = JSON.parse(cachedRaw) as CachedResponsePayload;
+        } catch (parseErr) {
+          log.warn("⚠️ Falha ao parsear RESPONSE_CACHE:", {
+            cacheKey,
+            error: (parseErr as Error)?.message,
+          });
+          RESPONSE_CACHE.delete(cacheKey);
+        }
+      }
+    }
+
+    if (cachedPayload && typeof cachedPayload.raw === "string") {
+      const promptReadyAt = now();
+      log.info("// LATENCY: cache-hit", { userId: usuario_id, cacheKey });
+      trackEcoCache({
+        distinctId: sessionMeta?.distinctId,
+        userId: usuario_id,
+        status: "hit",
+        key: cacheKey ?? undefined,
+        source: "openrouter",
+      });
+      latestTimings = cachedPayload.timings ?? latestTimings;
+      emitLatency("prompt_ready", promptReadyAt, latestTimings);
+      sendSse({
+        type: "prompt_ready",
+        at: promptReadyAt,
+        sinceStartMs: promptReadyAt - t0,
+        timings: latestTimings,
+      });
+      sendSse({ type: "first_token" });
+      const firstChunkAt = now();
+      firstChunkLogged = true;
+      emitLatency("ttfb", firstChunkAt, latestTimings);
+      sendSse({ type: "chunk", delta: cachedPayload.raw, index: 0, cache: true });
+      const doneAt = now();
+      emitLatency("ttlc", doneAt, latestTimings);
+      const doneMetaBase =
+        cachedPayload.meta ?? {
+          ...(cachedPayload.usage ? { usage: cachedPayload.usage } : {}),
+          ...(cachedPayload.modelo ? { modelo: cachedPayload.modelo } : {}),
+          length: cachedPayload.raw.length,
+        };
+      sendSse({
+        type: "done",
+        meta: { ...doneMetaBase, cache: true },
+        at: doneAt,
+        sinceStartMs: doneAt - t0,
+        timings: latestTimings,
+      });
+      if (!streamClosed) {
+        streamClosed = true;
+        streamingRes.end();
+      }
+      return;
+    }
+
+    if (cacheKey) {
+      log.info("// LATENCY: cache-miss", { userId: usuario_id, cacheKey });
+      trackEcoCache({
+        distinctId: sessionMeta?.distinctId,
+        userId: usuario_id,
+        status: "miss",
+        key: cacheKey,
+        source: "openrouter",
+      });
+    }
+
     const sendErrorAndEnd = (message: string) => {
+      cacheable = false;
       sendSse({ type: "error", message });
       if (!streamClosed) {
         streamClosed = true;
@@ -216,6 +320,7 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
         }
 
         if (event.type === "error") {
+          cacheable = false;
           sendErrorAndEnd(event.error.message);
           return;
         }
@@ -243,6 +348,8 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
           }
           if (event.name === "done") {
             doneNotified = true;
+            cacheCandidateMeta = event.meta ?? null;
+            cacheCandidateTimings = event.timings ?? latestTimings;
             latestTimings = event.timings ?? latestTimings;
             const at = now();
             emitLatency("ttlc", at, latestTimings);
@@ -292,9 +399,12 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
       const fallbackTimings = (resposta as { timings?: EcoLatencyMarks })?.timings ?? latestTimings;
       latestTimings = fallbackTimings ?? latestTimings;
       emitLatency("ttlc", at, latestTimings);
+      const fallbackMeta = resposta?.usage ? { usage: resposta.usage } : {};
+      cacheCandidateMeta = fallbackMeta;
+      cacheCandidateTimings = latestTimings;
       sendSse({
         type: "done",
-        meta: resposta?.usage ? { usage: resposta.usage } : {},
+        meta: fallbackMeta,
         at,
         sinceStartMs: at - t0,
         timings: latestTimings,
@@ -303,12 +413,57 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
       streamingRes.end();
     }
 
+    const shouldStore =
+      Boolean(cacheKey) &&
+      cacheable &&
+      !clientDisconnected &&
+      typeof resposta?.raw === "string" &&
+      resposta.raw.length > 0;
+
+    if (shouldStore && cacheKey) {
+      const metaFromDone = cacheCandidateMeta
+        ? { ...cacheCandidateMeta }
+        : resposta?.usage || resposta?.modelo
+        ? {
+            ...(resposta.usage ? { usage: resposta.usage } : {}),
+            ...(resposta.modelo ? { modelo: resposta.modelo } : {}),
+            length: resposta.raw.length,
+          }
+        : null;
+
+      const metaRecord = metaFromDone as Record<string, any> | null;
+      const payload: CachedResponsePayload = {
+        raw: resposta.raw,
+        meta: metaFromDone,
+        modelo:
+          resposta?.modelo ??
+          (typeof metaRecord?.modelo === "string" ? (metaRecord.modelo as string) : null),
+        usage:
+          resposta?.usage ??
+          (metaRecord && Object.prototype.hasOwnProperty.call(metaRecord, "usage")
+            ? metaRecord.usage
+            : undefined),
+        timings: cacheCandidateTimings ?? resposta?.timings,
+      };
+
+      try {
+        RESPONSE_CACHE.set(cacheKey, JSON.stringify(payload), CACHE_TTL_MS); // LATENCY: cache-store
+        log.info("// LATENCY: cache-store", {
+          cacheKey,
+          userId: usuario_id,
+          length: resposta.raw.length,
+        });
+      } catch (cacheErr) {
+        log.warn("⚠️ Falha ao salvar RESPONSE_CACHE:", (cacheErr as Error)?.message);
+      }
+    }
+
     return;
   } catch (err: any) {
     log.error("❌ Erro no /ask-eco:", { message: err?.message, stack: err?.stack });
     const message = err?.message || "Erro interno ao processar a requisição.";
     if (sseStarted || res.headersSent) {
-      sendSse({ type: "error", message });
+      sendSseRef?.({ type: "error", message });
       if (!streamClosed) {
         streamClosed = true;
         streamingRes.end();

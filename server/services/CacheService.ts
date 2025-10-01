@@ -189,6 +189,15 @@ export const RESPONSE_CACHE = new TinyCache<string>({
   defaultTTLms: 3 * 60_000, // 3 min
 });
 
+export function invalidateResponseCacheForUser(userId?: string) {
+  if (!userId) return;
+  RESPONSE_CACHE.clearByPrefix(`resp:user:${userId}:`);
+}
+
+export function clearResponseCache(): void {
+  RESPONSE_CACHE.clear();
+}
+
 export const DERIVADOS_CACHE = new TinyCache<Derivados>({
   name: "derivados",
   maxItems: 600,

@@ -5,6 +5,7 @@ import {
   salvarReferenciaTemporaria,
   type ReferenciaPayload,
 } from "./referenciasService"; // seu arquivo
+import { invalidateResponseCacheForUser } from "./CacheService";
 import {
   trackMemoriaRegistrada,
   trackReferenciaEmocional,
@@ -69,6 +70,7 @@ export async function saveMemoryOrReference(opts: {
       const { error } = await supabase.from("memories").insert([{ ...payloadBase, salvar_memoria: true, created_at: new Date().toISOString() }]);
       if (!error) {
         try { await updateEmotionalProfile(userId); } catch {}
+        invalidateResponseCacheForUser(userId);
       }
       trackMemoriaRegistrada({
         userId,

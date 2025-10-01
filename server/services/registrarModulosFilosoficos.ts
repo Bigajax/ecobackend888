@@ -3,6 +3,7 @@ import fs from "fs/promises";
 import path from "path";
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import { embedTextoCompleto } from "../adapters/embeddingService";
+import { clearResponseCache } from "./CacheService";
 
 // Caminho correto da pasta
 const pastaModulos = path.join(process.cwd(), "assets/modulos_filosoficos");
@@ -33,6 +34,7 @@ export async function registrarModulosFilosoficos() {
   const supabase = getSupabase();
   let inseridos = 0;
   let pulados = 0;
+  let invalidated = false;
 
   try {
     const arquivos = await fs.readdir(pastaModulos);
@@ -82,6 +84,7 @@ export async function registrarModulosFilosoficos() {
         } else {
           console.log(`✅ Inserido: ${arquivo}`);
           inseridos++;
+          invalidated = true;
         }
       } catch (err: any) {
         console.error(`⚠️ Erro no arquivo ${arquivo}:`, err.message);
@@ -91,6 +94,11 @@ export async function registrarModulosFilosoficos() {
     console.log(`🎓 Registro concluído. Inseridos: ${inseridos}, já existentes: ${pulados}`);
   } catch (err) {
     console.error("❌ Erro ao registrar módulos filosóficos:", (err as Error).message);
+  }
+
+  if (invalidated) {
+    clearResponseCache();
+    console.log("🧹 RESPONSE_CACHE limpo após atualização de heurísticas filosóficas.");
   }
 }
 
