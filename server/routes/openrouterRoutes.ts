@@ -5,9 +5,11 @@ import { supabase } from "../lib/supabaseAdmin"; // ✅ usa a instância (não �
 
 import {
   getEcoResponse,
+  buildFinalizedStreamText,
   type EcoStreamHandler,
   type EcoLatencyMarks,
 } from "../services/ConversationOrchestrator";
+import type { GetEcoResult } from "../utils";
 import { embedTextoCompleto } from "../adapters/embeddingService";
 import { buscarMemoriasSemelhantes } from "../services/buscarMemorias";
 import { extractSessionMeta } from "./sessionMeta";
@@ -178,7 +180,73 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
       }
     }
 
+    const isRecord = (value: unknown): value is Record<string, any> =>
+      typeof value === "object" && value !== null;
+
     if (cachedPayload && typeof cachedPayload.raw === "string") {
+      if (!cachedPayload.raw.includes("```json")) {
+        const metaSource = isRecord(cachedPayload.meta) ? cachedPayload.meta : {};
+        const normalizedResult: GetEcoResult = {
+          message: cachedPayload.raw,
+        };
+
+        if (typeof metaSource.intensidade === "number") {
+          normalizedResult.intensidade = metaSource.intensidade;
+        }
+        if (typeof metaSource.resumo === "string" && metaSource.resumo.trim()) {
+          normalizedResult.resumo = metaSource.resumo;
+        }
+        if (typeof metaSource.emocao === "string" && metaSource.emocao.trim()) {
+          normalizedResult.emocao = metaSource.emocao;
+        }
+        if (Array.isArray(metaSource.tags)) {
+          normalizedResult.tags = metaSource.tags.filter(
+            (tag): tag is string => typeof tag === "string"
+          );
+        }
+        if (
+          typeof metaSource.categoria === "string" ||
+          metaSource.categoria === null
+        ) {
+          normalizedResult.categoria = metaSource.categoria ?? null;
+        }
+        if (metaSource.proactive !== undefined) {
+          normalizedResult.proactive =
+            typeof metaSource.proactive === "object" || metaSource.proactive === null
+              ? (metaSource.proactive as GetEcoResult["proactive"])
+              : null;
+        }
+
+        const rebuiltRaw = buildFinalizedStreamText(normalizedResult);
+        let normalizedMeta: Record<string, any> | null = isRecord(cachedPayload.meta)
+          ? { ...cachedPayload.meta }
+          : null;
+        if (normalizedMeta) {
+          normalizedMeta.length = rebuiltRaw.length;
+        } else {
+          normalizedMeta = { length: rebuiltRaw.length };
+        }
+
+        const updatedPayload: CachedResponsePayload = {
+          ...cachedPayload,
+          raw: rebuiltRaw,
+          meta: normalizedMeta,
+        };
+
+        cachedPayload = updatedPayload;
+
+        if (cacheKey) {
+          try {
+            RESPONSE_CACHE.set(cacheKey, JSON.stringify(updatedPayload), CACHE_TTL_MS);
+          } catch (cacheErr) {
+            log.warn("⚠️ Falha ao atualizar RESPONSE_CACHE legado:", {
+              cacheKey,
+              error: (cacheErr as Error)?.message,
+            });
+          }
+        }
+      }
+
       const promptReadyAt = now();
       log.info("// LATENCY: cache-hit", { userId: usuario_id, cacheKey });
       trackEcoCache({
