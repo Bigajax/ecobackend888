@@ -92,7 +92,7 @@ test("encaminha embedding para heurísticas e memórias quando disponível", asy
   assert.deepStrictEqual(calls.getHeuristicas[0], {
     usuarioId: "user-123",
     userEmbedding: fakeEmbedding,
-    matchCount: 5,
+    matchCount: 4,
   });
   assert.deepStrictEqual(calls.getMemorias[0], ["user-123", {
     texto: "quero entender meus padrões",

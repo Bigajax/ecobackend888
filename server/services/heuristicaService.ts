@@ -20,7 +20,7 @@ export type BuscarHeuristicasInput = {
   usuarioId?: string | null;
   userEmbedding?: number[];   // se vier, não recalcula
   threshold?: number;         // default 0.80
-  matchCount?: number;        // default 5
+  matchCount?: number;        // default 4
   hydrate?: boolean;          // default true
 };
 
@@ -70,14 +70,14 @@ export async function buscarHeuristicasSemelhantes(
   input: string | BuscarHeuristicasInput,
   usuarioIdArg?: string | null,
   thresholdArg = 0.8,
-  matchCountArg = 5
+  matchCountArg = 4
 ): Promise<Heuristica[]> {
   // normalização de parâmetros
   let texto = "";
   let userEmbedding: number[] | undefined;
   let usuarioId: string | null = null;
   let threshold = clamp01(Number(thresholdArg) || 0.8);
-  let matchCount = Math.max(1, Number(matchCountArg) || 5);
+  let matchCount = Math.max(1, Number(matchCountArg) || 4);
   let hydrate = true;
 
   if (typeof input === "string") {
@@ -101,6 +101,8 @@ export async function buscarHeuristicasSemelhantes(
     tag: "🔍 heuristica",
   });
   if (!queryEmbedding) return [];
+
+  matchCount = Math.min(Math.max(1, matchCount), 4); // LATENCY: top_k
 
   return _buscarHeuristicasCore({
     queryEmbedding,
@@ -126,7 +128,7 @@ export async function buscarHeuristicaPorSimilaridade(
     queryEmbedding,
     usuarioId: usuarioId ?? null,
     threshold: clamp01(threshold),
-    matchCount: Math.max(1, matchCount),
+    matchCount: Math.min(Math.max(1, matchCount), 4), // LATENCY: top_k
     hydrate: false, // hidrataremos só arquivo para log
   });
 

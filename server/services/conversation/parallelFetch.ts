@@ -56,7 +56,7 @@ export class ParallelFetchService {
         .getHeuristicas({
           usuarioId: userId ?? null,
           userEmbedding,
-          matchCount: 5,
+          matchCount: 4, // LATENCY: top_k
         })
         .catch(() => []);
 
