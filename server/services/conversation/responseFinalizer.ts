@@ -1,9 +1,12 @@
-import { formatarTextoEco, limparResposta, now } from "../../utils";
+import { formatarTextoEco, limparResposta, now, type SessionMetadata } from "../../utils";
 import { gerarBlocoTecnicoComCache } from "../../core/EmotionalAnalyzer";
 import { saveMemoryOrReference } from "../../services/MemoryService";
 import {
   trackEcoDemorou,
   trackMensagemEnviada,
+  trackBlocoTecnico,
+  trackSessaoEntrouChat,
+  identifyUsuario,
 } from "../../analytics/events/mixpanelEvents";
 import { log } from "../promptContext/logger";
 import {
@@ -18,6 +21,9 @@ interface ResponseFinalizerDeps {
   saveMemoryOrReference: typeof saveMemoryOrReference;
   trackMensagemEnviada: typeof trackMensagemEnviada;
   trackEcoDemorou: typeof trackEcoDemorou;
+  trackBlocoTecnico: typeof trackBlocoTecnico;
+  trackSessaoEntrouChat: typeof trackSessaoEntrouChat;
+  identifyUsuario: typeof identifyUsuario;
 }
 
 export interface FinalizeParams {
@@ -34,6 +40,10 @@ export interface FinalizeParams {
   modelo?: string;
   trackDelayThresholdMs?: number;
   skipBloco?: boolean;
+  sessionMeta?: SessionMetadata;
+  distinctId?: string;
+  sessaoId?: string | null;
+  origemSessao?: string | null;
 }
 
 export class ResponseFinalizer {
@@ -43,6 +53,9 @@ export class ResponseFinalizer {
       saveMemoryOrReference,
       trackMensagemEnviada,
       trackEcoDemorou,
+      trackBlocoTecnico,
+      trackSessaoEntrouChat,
+      identifyUsuario,
     }
   ) {}
 
@@ -52,39 +65,84 @@ export class ResponseFinalizer {
     return Number.isFinite(parsed) && parsed >= 0 ? parsed : 1000;
   }
 
-  private gerarBlocoComTimeout(
-    ultimaMsg: string,
-    blocoTarget: string
-  ): Promise<any | null> {
+  private gerarBlocoComTimeout({
+    ultimaMsg,
+    blocoTarget,
+    mode,
+    skipBloco,
+    distinctId,
+    userId,
+  }: {
+    ultimaMsg: string;
+    blocoTarget: string;
+    mode: "fast" | "full";
+    skipBloco: boolean;
+    distinctId?: string;
+    userId?: string;
+  }): { race: Promise<any | null>; full: Promise<any | null> } {
+    const startedAt = now();
     const timeoutMs = this.getBlocoTimeoutMs();
+    let timeoutId: NodeJS.Timeout | undefined;
+
+    const fullPromise = this.deps
+      .gerarBlocoTecnicoComCache(ultimaMsg, blocoTarget)
+      .then((value) => {
+        if (timeoutId) clearTimeout(timeoutId);
+        const duracao = now() - startedAt;
+        this.deps.trackBlocoTecnico({
+          distinctId,
+          userId,
+          status: "success",
+          mode,
+          skipBloco,
+          duracaoMs: duracao,
+          intensidade:
+            value && typeof value.intensidade === "number"
+              ? value.intensidade
+              : undefined,
+        });
+        return value;
+      })
+      .catch((error) => {
+        if (timeoutId) clearTimeout(timeoutId);
+        const duracao = now() - startedAt;
+        this.deps.trackBlocoTecnico({
+          distinctId,
+          userId,
+          status: "failure",
+          mode,
+          skipBloco,
+          duracaoMs: duracao,
+          erro: error instanceof Error ? error.message : String(error),
+        });
+        return null;
+      });
+
     if (timeoutMs === 0) {
-      return this.deps
-        .gerarBlocoTecnicoComCache(ultimaMsg, blocoTarget)
-        .catch(() => null);
+      return { race: fullPromise, full: fullPromise };
     }
 
-    let timeoutId: NodeJS.Timeout | undefined;
     const timeoutPromise = new Promise<null>((resolve) => {
       timeoutId = setTimeout(() => {
         log.warn(
           `⚠️ gerarBlocoTecnicoComCache demorou mais de ${timeoutMs}ms; respondendo sem bloco.`
         );
+        const duracao = now() - startedAt;
+        this.deps.trackBlocoTecnico({
+          distinctId,
+          userId,
+          status: "timeout",
+          mode,
+          skipBloco,
+          duracaoMs: duracao,
+        });
         resolve(null);
       }, timeoutMs);
     });
 
-    const blocoPromise = this.deps
-      .gerarBlocoTecnicoComCache(ultimaMsg, blocoTarget)
-      .then((value) => {
-        if (timeoutId) clearTimeout(timeoutId);
-        return value;
-      })
-      .catch(() => {
-        if (timeoutId) clearTimeout(timeoutId);
-        return null;
-      });
+    const racePromise = Promise.race([fullPromise, timeoutPromise]);
 
-    return Promise.race([blocoPromise, timeoutPromise]);
+    return { race: racePromise, full: fullPromise };
   }
 
   private async persistirMemoriaEmBackground(params: {
@@ -93,24 +151,72 @@ export class ResponseFinalizer {
     lastMessageId?: string;
     cleaned: string;
     bloco: any;
+    blocoPromise?: Promise<any | null>;
     blocoTarget: string;
     ultimaMsg: string;
     skipBloco: boolean;
+    mode: "fast" | "full";
+    distinctId?: string;
   }): Promise<void> {
-    const { userId, supabase, lastMessageId, cleaned, ultimaMsg, skipBloco } = params;
+    const {
+      userId,
+      supabase,
+      lastMessageId,
+      cleaned,
+      ultimaMsg,
+      skipBloco,
+      mode,
+      distinctId,
+    } = params;
     if (!userId) return;
 
     let blocoParaSalvar = params.bloco;
 
-    if (!skipBloco) {
+    if (!blocoParaSalvar && params.blocoPromise) {
       try {
-        blocoParaSalvar = await this.deps.gerarBlocoTecnicoComCache(
-          ultimaMsg,
-          params.blocoTarget
-        );
+        blocoParaSalvar = await params.blocoPromise;
+      } catch (e) {
+        const mensagem = e instanceof Error ? e.message : String(e);
+        log.warn("⚠️ Pós-processo falhou ao aguardar bloco em background:", mensagem);
+      }
+    }
+
+    if (!skipBloco) {
+      const reprocessStartedAt = now();
+      try {
+        if (!blocoParaSalvar) {
+          blocoParaSalvar = await this.deps.gerarBlocoTecnicoComCache(
+            ultimaMsg,
+            params.blocoTarget
+          );
+          const duracao = now() - reprocessStartedAt;
+          if (blocoParaSalvar) {
+            this.deps.trackBlocoTecnico({
+              distinctId,
+              userId,
+              status: "success",
+              mode,
+              skipBloco,
+              duracaoMs: duracao,
+              intensidade:
+                typeof blocoParaSalvar?.intensidade === "number"
+                  ? blocoParaSalvar.intensidade
+                  : undefined,
+            });
+          }
+        }
       } catch (e) {
         const mensagem = e instanceof Error ? e.message : String(e);
         log.warn("⚠️ Pós-processo falhou ao gerar bloco completo:", mensagem);
+        this.deps.trackBlocoTecnico({
+          distinctId,
+          userId,
+          status: "failure",
+          mode,
+          skipBloco,
+          duracaoMs: now() - reprocessStartedAt,
+          erro: mensagem,
+        });
       }
     }
 
@@ -142,7 +248,29 @@ export class ResponseFinalizer {
     modelo,
     trackDelayThresholdMs = 2500,
     skipBloco = false,
+    sessionMeta,
+    distinctId: providedDistinctId,
+    sessaoId: providedSessaoId,
+    origemSessao,
   }: FinalizeParams): Promise<GetEcoResult> {
+    const distinctId = providedDistinctId ?? sessionMeta?.distinctId ?? userId;
+
+    if (!hasAssistantBefore) {
+      const sessaoId = providedSessaoId ?? sessionMeta?.sessaoId ?? undefined;
+      const origem = origemSessao ?? sessionMeta?.origem ?? undefined;
+
+      this.deps.trackSessaoEntrouChat({
+        distinctId,
+        userId,
+        mode,
+        sessaoId,
+        origem,
+        versaoApp: sessionMeta?.versaoApp,
+        device: sessionMeta?.device,
+        ambiente: sessionMeta?.ambiente,
+      });
+    }
+
     const base = formatarTextoEco(
       limparResposta(
         raw || "Desculpa, não consegui responder agora. Pode tentar de novo?"
@@ -154,8 +282,28 @@ export class ResponseFinalizer {
     const blocoTarget = mode === "fast" ? identityCleaned : cleaned;
 
     let bloco: any = null;
+    let blocoPromise: Promise<any | null> | undefined;
     if (!skipBloco) {
-      bloco = await this.gerarBlocoComTimeout(ultimaMsg, blocoTarget);
+      const blocoTimeout = this.gerarBlocoComTimeout({
+        ultimaMsg,
+        blocoTarget,
+        mode,
+        skipBloco,
+        distinctId: providedDistinctId ?? sessionMeta?.distinctId ?? userId,
+        userId,
+      });
+      blocoPromise = blocoTimeout.full;
+      if (mode === "fast") {
+        this.deps.trackBlocoTecnico({
+          distinctId: providedDistinctId ?? sessionMeta?.distinctId ?? userId,
+          userId,
+          status: "pending",
+          mode,
+          skipBloco,
+        });
+      } else {
+        bloco = await blocoTimeout.race;
+      }
     }
 
     const response: GetEcoResult = { message: cleaned };
@@ -172,15 +320,40 @@ export class ResponseFinalizer {
     }
 
     const duracao = now() - startedAt;
-    if (mode === "full" && duracao > trackDelayThresholdMs) {
-      this.deps.trackEcoDemorou({ userId, duracaoMs: duracao, ultimaMsg });
+    if (sessionMeta) {
+      this.deps.identifyUsuario({
+        distinctId,
+        userId,
+        versaoApp: sessionMeta.versaoApp ?? null,
+        device: sessionMeta.device ?? null,
+        ambiente: sessionMeta.ambiente ?? null,
+      });
     }
+
+    if (mode === "full" && duracao > trackDelayThresholdMs) {
+      this.deps.trackEcoDemorou({
+        userId,
+        distinctId,
+        duracaoMs: duracao,
+        ultimaMsg,
+      });
+    }
+
+    const blocoStatus = skipBloco
+      ? "skipped"
+      : mode === "fast"
+      ? "pending"
+      : bloco
+      ? "ready"
+      : "missing";
 
     this.deps.trackMensagemEnviada({
       userId,
+      distinctId,
       tempoRespostaMs: duracao,
       tokensUsados: usageTokens,
       modelo,
+      blocoStatus,
     });
 
     void this.persistirMemoriaEmBackground({
@@ -189,9 +362,12 @@ export class ResponseFinalizer {
       lastMessageId,
       cleaned,
       bloco,
+      blocoPromise,
       blocoTarget,
       ultimaMsg,
       skipBloco,
+      mode,
+      distinctId,
     });
 
     return response;

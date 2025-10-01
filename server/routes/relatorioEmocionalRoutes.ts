@@ -1,5 +1,7 @@
 import { Router, Request, Response } from "express";
+import { trackRelatorioEmocionalAcessado } from "../analytics/events/mixpanelEvents";
 import { gerarRelatorioEmocional } from "../utils/relatorioEmocionalUtils";
+import { extractDistinctId, extractRelatorioView } from "./relatorioEmocionalView";
 
 const router = Router();
 
@@ -43,6 +45,15 @@ router.get("/", async (req: Request, res: Response) => {
     }
 
     const relatorio = await gerarRelatorioEmocional(userId);
+    const view = extractRelatorioView(req);
+    const originPath = req.originalUrl ? req.originalUrl.split("?")[0] : req.path;
+
+    trackRelatorioEmocionalAcessado({
+      distinctId: extractDistinctId(req),
+      userId,
+      origem: `GET ${originPath}`,
+      view,
+    });
 
     return res.status(200).json({
       success: true,
@@ -67,6 +78,15 @@ router.get("/:usuario_id", async (req: Request, res: Response) => {
     }
 
     const relatorio = await gerarRelatorioEmocional(usuario_id);
+    const view = extractRelatorioView(req);
+    const originPath = req.originalUrl ? req.originalUrl.split("?")[0] : req.path;
+
+    trackRelatorioEmocionalAcessado({
+      distinctId: extractDistinctId(req),
+      userId: usuario_id,
+      origem: `GET ${originPath}`,
+      view,
+    });
 
     return res.status(200).json({
       success: true,

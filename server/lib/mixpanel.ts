@@ -13,6 +13,12 @@ const TOKEN =
 /** Interface mínima que sua app realmente usa */
 export interface MinimalMixpanel {
   track(event: string, props?: Record<string, any>, cb?: (...a: any[]) => void): void;
+  register(props: Record<string, any>, days?: number): void;
+  register_once(
+    props: Record<string, any>,
+    defaultValue?: string | number | null,
+    days?: number
+  ): void;
   people: {
     set(id: string, props?: Record<string, any>, cb?: (...a: any[]) => void): void;
     set_once(id: string, props?: Record<string, any>, cb?: (...a: any[]) => void): void;
@@ -30,6 +36,8 @@ class NoopMixpanel implements MinimalMixpanel {
       // console.warn("[mixpanel] track ignorado (TOKEN ausente)");
     }
   }
+  register(): void {}
+  register_once(): void {}
   people = {
     set: () => {},
     set_once: () => {},

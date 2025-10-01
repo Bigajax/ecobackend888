@@ -26,8 +26,13 @@ function createContextCache() {
   const builder = {
     build: async (params: ContextCacheParams) => {
       builds.push(params);
-      return { builtFrom: params, call: builds.length };
+      const base = `base-${builds.length}`;
+      return {
+        base,
+        montarMensagemAtual: (textoAtual: string) => `${base}|${textoAtual}`,
+      };
     },
+    montarMensagemAtual: (base: string, textoAtual: string) => `${base}|${textoAtual}`,
   };
 
   const logger = {
@@ -60,7 +65,7 @@ test("reuses cached context when inputs are unchanged", async () => {
   const second = await contextCache.build(baseParams);
 
   assert.equal(builds.length, 1, "builder should only be invoked once for identical inputs");
-  assert.deepEqual(second, first, "cached value should be reused");
+  assert.equal(second, first, "cached value should be reused");
 });
 
 test("changing forcarMetodoViva busts the cache", async () => {
@@ -144,7 +149,19 @@ test("full-lane style parameters still reuse cache when unchanged", async () => 
     1,
     "builder should be called only once for identical full-lane inputs",
   );
-  assert.deepEqual(second, first, "cached value should be reused for full-lane context");
+  assert.equal(second, first, "cached value should be reused for full-lane context");
+});
+
+test("cached base sempre injeta o texto mais recente", async () => {
+  const { contextCache, builds } = createContextCache();
+
+  const first = await contextCache.build({ ...baseParams, texto: "primeira mensagem" });
+  assert.equal(first, "base-1|primeira mensagem");
+  assert.equal(builds.length, 1, "builder roda na primeira chamada");
+
+  const second = await contextCache.build({ ...baseParams, texto: "segunda mensagem" });
+  assert.equal(builds.length, 1, "builder não deve rodar novamente");
+  assert.equal(second, "base-1|segunda mensagem", "texto atual deve ser aplicado no cache");
 });
 
 (async () => {

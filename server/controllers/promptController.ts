@@ -27,9 +27,8 @@ export async function montarContextoEco(input: any): Promise<string> {
     skipSaudacao: !!input?.skipSaudacao,
   };
 
-  // O builder atual retorna string diretamente.
-  const prompt = await ContextBuilder.build(safe);
-  return prompt;
+  const contexto = await ContextBuilder.build(safe);
+  return contexto.montarMensagemAtual(safe.texto);
 }
 
 /**
@@ -38,8 +37,8 @@ export async function montarContextoEco(input: any): Promise<string> {
  */
 export const getPromptEcoPreview = async (_req: Request, res: Response) => {
   try {
-    const prompt = await ContextBuilder.build({ texto: "" });
-    res.json({ prompt });
+    const contexto = await ContextBuilder.build({ texto: "" });
+    res.json({ prompt: contexto.montarMensagemAtual("") });
   } catch (err: any) {
     console.warn("❌ Erro ao montar o prompt:", err);
     res.status(500).json({ error: "Erro ao montar o prompt" });

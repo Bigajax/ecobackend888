@@ -11,5 +11,5 @@ export {
 
 export type {
   AnyRecord, ChatMessage, ParalelasResult, TrendPack, ProactivePayload,
-  GetEcoParams, GetEcoResult, Memoria, Heuristica, NivelNum
+  GetEcoParams, GetEcoResult, Memoria, Heuristica, NivelNum, SessionMetadata
 } from "./types";

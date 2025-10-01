@@ -74,6 +74,7 @@ test("runFastLaneLLM envia apenas as 3 últimas mensagens do histórico", async 
     lastMessageId: "msg-5",
     startedAt: 1000,
     deps,
+    sessionMeta: { distinctId: "distinct-xyz" },
   })) as RunFastLaneLLMResult;
 
   assert.strictEqual(claudeCalls.length, 1);
@@ -94,6 +95,11 @@ test("runFastLaneLLM envia apenas as 3 últimas mensagens do histórico", async 
   assert.strictEqual(finalizeCalls[0].usageTokens, 42);
   assert.strictEqual(finalizeCalls[0].modelo, "test-model");
   assert.strictEqual(finalizeCalls[0].mode, "fast");
+  assert.strictEqual(
+    finalizeCalls[0].sessionMeta?.distinctId,
+    "distinct-xyz",
+    "finalize recebe sessionMeta"
+  );
 });
 
 test("runFastLaneLLM usa fallback quando o cliente Claude falha", async () => {
@@ -122,6 +128,7 @@ test("runFastLaneLLM usa fallback quando o cliente Claude falha", async () => {
     lastMessageId: undefined,
     startedAt: 123,
     deps,
+    sessionMeta: { distinctId: "fallback-1" },
   });
 
   assert.strictEqual(result.raw, "Tô aqui com você. Quer me contar um pouco mais?");

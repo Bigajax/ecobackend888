@@ -14,6 +14,8 @@ Module._load = function patchedLoad(request: string, parent: any, isMain: boolea
     return {
       init: () => ({
         track: () => {},
+        register: () => {},
+        register_once: () => {},
         people: { set: () => {}, set_once: () => {}, increment: () => {} },
       }),
     };
@@ -25,7 +27,7 @@ Module._load = function patchedLoad(request: string, parent: any, isMain: boolea
 const responseFinalizerModule = require("../../services/conversation/responseFinalizer") as typeof import("../../services/conversation/responseFinalizer");
 const helpersModule = require("../../services/conversation/helpers") as typeof import("../../services/conversation/helpers");
 const { ResponseFinalizer } = responseFinalizerModule;
-const { stripRedundantGreeting } = helpersModule;
+const { stripRedundantGreeting, stripIdentityCorrection } = helpersModule;
 Module._load = originalLoad;
 
 const noop = () => {};
@@ -43,6 +45,10 @@ test("finalize responde rápido mesmo com analisador lento", async (t) => {
   });
 
   let saveCalls = 0;
+  const trackMensagemCalls: any[] = [];
+  const identifyCalls: any[] = [];
+  const sessaoEntrouCalls: any[] = [];
+  const trackBlocoCalls: any[] = [];
 
   const finalizer = new ResponseFinalizer({
     gerarBlocoTecnicoComCache: () =>
@@ -52,8 +58,19 @@ test("finalize responde rápido mesmo com analisador lento", async (t) => {
     saveMemoryOrReference: async () => {
       saveCalls += 1;
     },
-    trackMensagemEnviada: noop as any,
+    trackMensagemEnviada: ((props: any) => {
+      trackMensagemCalls.push(props);
+    }) as any,
     trackEcoDemorou: noop as any,
+    trackBlocoTecnico: ((payload: any) => {
+      trackBlocoCalls.push(payload);
+    }) as any,
+    identifyUsuario: ((payload: any) => {
+      identifyCalls.push(payload);
+    }) as any,
+    trackSessaoEntrouChat: ((payload: any) => {
+      sessaoEntrouCalls.push(payload);
+    }) as any,
   });
 
   const start = Date.now();
@@ -64,6 +81,14 @@ test("finalize responde rápido mesmo com analisador lento", async (t) => {
     mode: "fast",
     startedAt: Date.now(),
     userId: "user-123",
+    sessionMeta: {
+      distinctId: "distinct-123",
+      versaoApp: "1.0.0",
+      device: "ios",
+      ambiente: "produção",
+      sessaoId: "sessao-abc",
+      origem: "app-mobile",
+    },
   });
   const duration = Date.now() - start;
 
@@ -75,6 +100,128 @@ test("finalize responde rápido mesmo com analisador lento", async (t) => {
 
   await new Promise((resolve) => setTimeout(resolve, 250));
   assert.ok(saveCalls >= 1, "saveMemoryOrReference deve ser disparado em background");
+  assert.strictEqual(trackMensagemCalls.length, 1, "trackMensagemEnviada deve ser chamado");
+  assert.strictEqual(
+    trackMensagemCalls[0].distinctId,
+    "distinct-123",
+    "trackMensagemEnviada deve receber distinctId"
+  );
+  assert.strictEqual(
+    trackMensagemCalls[0].blocoStatus,
+    "pending",
+    "trackMensagemEnviada deve registrar bloco pendente no modo fast"
+  );
+  assert.ok(
+    trackBlocoCalls.some((c) => c.status === "pending"),
+    "trackBlocoTecnico deve registrar status pendente"
+  );
+  assert.ok(
+    trackBlocoCalls.some((c) => c.status === "timeout"),
+    "trackBlocoTecnico deve registrar timeout quando houver"
+  );
+  assert.ok(
+    trackBlocoCalls.some((c) => c.status === "success"),
+    "trackBlocoTecnico deve registrar sucesso quando bloco concluir em background"
+  );
+  assert.strictEqual(
+    sessaoEntrouCalls.length,
+    1,
+    "trackSessaoEntrouChat deve ser chamado na primeira interação"
+  );
+  assert.deepStrictEqual(sessaoEntrouCalls[0], {
+    distinctId: "distinct-123",
+    userId: "user-123",
+    mode: "fast",
+    sessaoId: "sessao-abc",
+    origem: "app-mobile",
+    versaoApp: "1.0.0",
+    device: "ios",
+    ambiente: "produção",
+  });
+  assert.strictEqual(identifyCalls.length, 1, "identifyUsuario deve ser chamado no primeiro contato");
+  assert.deepStrictEqual(identifyCalls[0], {
+    distinctId: "distinct-123",
+    userId: "user-123",
+    versaoApp: "1.0.0",
+    device: "ios",
+    ambiente: "produção",
+  });
+});
+
+test("trackSessaoEntrouChat só dispara quando não houve assistente antes", async () => {
+  const sessaoEntrouCalls: any[] = [];
+
+  const finalizer = new ResponseFinalizer({
+    gerarBlocoTecnicoComCache: async () => null,
+    saveMemoryOrReference: async () => {},
+    trackMensagemEnviada: noop as any,
+    trackEcoDemorou: noop as any,
+    trackBlocoTecnico: noop as any,
+    identifyUsuario: noop as any,
+    trackSessaoEntrouChat: ((payload: any) => {
+      sessaoEntrouCalls.push(payload);
+    }) as any,
+  });
+
+  await finalizer.finalize({
+    raw: "Olá",
+    ultimaMsg: "Olá",
+    hasAssistantBefore: false,
+    mode: "full",
+    startedAt: Date.now(),
+    sessionMeta: { distinctId: "d-1" },
+  });
+
+  await finalizer.finalize({
+    raw: "Oi de novo",
+    ultimaMsg: "Oi de novo",
+    hasAssistantBefore: true,
+    mode: "fast",
+    startedAt: Date.now(),
+    sessionMeta: { distinctId: "d-1" },
+  });
+
+  assert.strictEqual(sessaoEntrouCalls.length, 1);
+  assert.strictEqual(sessaoEntrouCalls[0].mode, "full");
+});
+
+test("identifyUsuario é chamado mesmo quando já houve assistente se houver sessionMeta", async () => {
+  const identifyCalls: any[] = [];
+
+  const finalizer = new ResponseFinalizer({
+    gerarBlocoTecnicoComCache: async () => null,
+    saveMemoryOrReference: async () => {},
+    trackMensagemEnviada: noop as any,
+    trackEcoDemorou: noop as any,
+    trackBlocoTecnico: noop as any,
+    identifyUsuario: ((payload: any) => {
+      identifyCalls.push(payload);
+    }) as any,
+    trackSessaoEntrouChat: noop as any,
+  });
+
+  await finalizer.finalize({
+    raw: "Olá novamente",
+    ultimaMsg: "Olá novamente",
+    hasAssistantBefore: true,
+    mode: "fast",
+    startedAt: Date.now(),
+    sessionMeta: {
+      distinctId: "distinct-xyz",
+      versaoApp: "2.0.0",
+      device: "android",
+      ambiente: "staging",
+    },
+  });
+
+  assert.strictEqual(identifyCalls.length, 1);
+  assert.deepStrictEqual(identifyCalls[0], {
+    distinctId: "distinct-xyz",
+    userId: undefined,
+    versaoApp: "2.0.0",
+    device: "android",
+    ambiente: "staging",
+  });
 });
 
 test("preenche intensidade e resumo quando bloco chega dentro do timeout", async (t) => {
@@ -99,13 +246,16 @@ test("preenche intensidade e resumo quando bloco chega dentro do timeout", async
     saveMemoryOrReference: async () => {},
     trackMensagemEnviada: noop as any,
     trackEcoDemorou: noop as any,
+    trackBlocoTecnico: noop as any,
+    identifyUsuario: noop as any,
+    trackSessaoEntrouChat: noop as any,
   });
 
   const result = await finalizer.finalize({
     raw: "Olá!",
     ultimaMsg: "Olá!",
     hasAssistantBefore: false,
-    mode: "fast",
+    mode: "full",
     startedAt: Date.now(),
   });
 
@@ -126,4 +276,40 @@ test("stripRedundantGreeting remove saudação quando assistente já respondeu",
 
   const semAssistente = stripRedundantGreeting("Oi, tudo bem?", false);
   assert.strictEqual(semAssistente, "Oi, tudo bem?");
+});
+
+test("stripIdentityCorrection lida com nomes contendo metacaracteres de regex", () => {
+  const casos: Array<[string, string, string]> = [
+    ["Oi!\nEu sou a Eco, não a C++.", "C++", "Oi!"],
+    ["Bem-vinda!\nEu sou a Eco, não a Ana(.", "Ana(", "Bem-vinda!"],
+  ];
+
+  for (const [input, nome, esperado] of casos) {
+    const resultado = stripIdentityCorrection(input, nome);
+    assert.strictEqual(resultado, esperado);
+  }
+});
+
+test("finalize remove correção de identidade com nome que contém parênteses", async () => {
+  const finalizer = new ResponseFinalizer({
+    gerarBlocoTecnicoComCache: async () => null,
+    saveMemoryOrReference: async () => {},
+    trackMensagemEnviada: noop as any,
+    trackEcoDemorou: noop as any,
+    trackBlocoTecnico: noop as any,
+    identifyUsuario: noop as any,
+    trackSessaoEntrouChat: noop as any,
+  });
+
+  const entrada = "Oi!\nEu sou a Eco, não a Ana(.";
+  const resultado = await finalizer.finalize({
+    raw: entrada,
+    ultimaMsg: entrada,
+    userName: "Ana(",
+    hasAssistantBefore: false,
+    mode: "fast",
+    startedAt: Date.now(),
+  });
+
+  assert.strictEqual(resultado.message, "Oi!");
 });

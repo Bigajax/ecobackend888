@@ -30,6 +30,7 @@ export type GetEcoParams = {
   forcarMetodoViva?: boolean;
   blocoTecnicoForcado?: any;
   clientHour?: number;
+  sessionMeta?: SessionMetadata;
 };
 
 export type GetEcoResult = {
@@ -61,3 +62,12 @@ export interface Heuristica {
   arquivo: string;
   gatilhos: string[];
 }
+
+export type SessionMetadata = {
+  distinctId?: string;
+  versaoApp?: string | null;
+  device?: string | null;
+  ambiente?: string | null;
+  sessaoId?: string | null;
+  origem?: string | null;
+};
