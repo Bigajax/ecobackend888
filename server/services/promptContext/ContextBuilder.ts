@@ -1,4 +1,3 @@
-// server/services/promptContext/ContextBuilder.ts
 import { firstName } from "../conversation/helpers";
 import { isDebug, log } from "./logger";
 import { Selector, derivarNivel, detectarSaudacaoBreve } from "./Selector";
@@ -21,6 +20,14 @@ const ID_ECO =
 const STYLE_HINTS =
   "Tom: reflexivo, claro, acolhedor, levemente bem-humorado. Use português brasileiro natural. " +
   "Responda curto (1–2 frases) quando possível. Se pedirem passos, no máximo 3 itens.";
+
+// 🔐 Política explícita de memória — evita o disclaimer do LLM base
+const MEMORY_POLICY =
+  "Memória & histórico:\n" +
+  "- Você usa memórias salvas e fornecidas neste contexto para dar continuidade.\n" +
+  "- Nunca diga frases como 'não tenho acesso a conversas anteriores' ou 'cada conversa começa do zero'.\n" +
+  "- Se houver memórias relevantes, faça referência breve e precisa (no máximo 1–2 bullets).\n" +
+  "- Se não houver memórias relevantes neste contexto, diga: 'Não encontrei memórias diretamente relacionadas ao que você trouxe agora. Se fizer sentido, me conte em 1 frase o essencial e eu registro.'";
 
 /* -------------------------------------------------------------------------- */
 /*  INTENT RESOLVER — mapeia texto de entrada -> módulos extras               */
@@ -168,7 +175,25 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
     extras.push(`Observações de continuidade: ${top}${top.length >= 220 ? "…" : ""}`);
   }
 
-  const memRecallBlock = formatMemRecall(memsSemelhantesNorm);
+  const askedAboutMemory =
+    /\b(lembr(a|ou)|record(a|a-se)|mem[oó]ria(s)?|conversas? anteriores?)\b/i.test(texto);
+
+  const hasMemories = Array.isArray(memsSemelhantesNorm) && memsSemelhantesNorm.length > 0;
+
+  if (askedAboutMemory && hasMemories) {
+    extras.push(
+      "Se o usuário perguntar se você lembra, responda afirmativamente e cite 1–2 pontos das MEMORIAS_RELEVANTES de forma breve."
+    );
+  } else if (askedAboutMemory && !hasMemories) {
+    extras.push(
+      "Se o usuário perguntar se você lembra e não houver MEMORIAS_RELEVANTES, diga que não encontrou memórias relacionadas desta vez e convide a resumir em 1 frase para registrar."
+    );
+  }
+
+  // 🔁 Sempre injete bloco de memórias — mesmo vazio — para evitar o disclaimer do LLM
+  const memRecallBlock =
+    formatMemRecall(memsSemelhantesNorm) ||
+    "MEMORIAS_RELEVANTES:\n(nenhuma encontrada desta vez)";
 
   const promptCoreBase = composePromptBase({
     nivel,
@@ -180,9 +205,8 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
     instructionText,
   });
 
-  const base = `${ID_ECO}\n${STYLE_HINTS}\n\n${promptCoreBase}`;
-  const montarMensagemAtual = (textoAtual: string) =>
-    applyCurrentMessage(base, textoAtual);
+  const base = `${ID_ECO}\n${STYLE_HINTS}\n${MEMORY_POLICY}\n\n${promptCoreBase}`;
+  const montarMensagemAtual = (textoAtual: string) => applyCurrentMessage(base, textoAtual);
 
   const promptComTexto = montarMensagemAtual(texto);
 
@@ -209,6 +233,11 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
       tokens: budgetResult.tokens,
     });
     log.info("[ContextBuilder] NV" + nivel + " pronto", { totalTokens: total });
+    log.info("[ContextBuilder] memoria", {
+      hasMemories,
+      memHits: memsSemelhantesNorm.length,
+      topResumo: memsSemelhantesNorm[0]?.resumo_eco?.slice(0, 100) ?? null,
+    });
   }
 
   // Prepend da identidade + estilo (garante 70/30 também na rota “full”)
