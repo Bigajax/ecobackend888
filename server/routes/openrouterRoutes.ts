@@ -2,7 +2,10 @@
 import express, { type Request, type Response } from "express";
 import { supabase } from "../lib/supabaseAdmin"; // ✅ usa a instância (não é função)
 
-import { getEcoResponse } from "../services/ConversationOrchestrator";
+import {
+  getEcoResponse,
+  type EcoStreamHandler,
+} from "../services/ConversationOrchestrator";
 import { embedTextoCompleto } from "../adapters/embeddingService";
 import { buscarMemoriasSemelhantes } from "../services/buscarMemorias";
 import { extractSessionMeta } from "./sessionMeta";
@@ -67,6 +70,34 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
 
     const sessionMeta = extractSessionMeta(req.body);
 
+    const streamingRes = res as Response & { flush?: () => void; flushHeaders?: () => void };
+    let sseStarted = false;
+    let streamClosed = false;
+
+    const startSse = () => {
+      if (sseStarted) return;
+      sseStarted = true;
+      res.status(200);
+      res.setHeader("Content-Type", "text/event-stream"); // LATENCY: formato SSE imediato.
+      res.setHeader("Cache-Control", "no-cache"); // LATENCY: evita buffering no cliente.
+      res.setHeader("Connection", "keep-alive"); // LATENCY: mantém socket aberto.
+      streamingRes.flushHeaders?.(); // LATENCY: envia cabeçalhos sem aguardar payload.
+      streamingRes.flush?.(); // LATENCY: força o envio imediato do preâmbulo.
+    };
+
+    const sendSse = (payload: Record<string, unknown>) => {
+      if (streamClosed) return;
+      startSse();
+      streamingRes.write(`data: ${JSON.stringify(payload)}\n\n`); // LATENCY: chunk incremental da resposta.
+      streamingRes.flush?.(); // LATENCY: garante entrega sem buffering adicional.
+    };
+
+    startSse();
+
+    req.on("close", () => {
+      streamClosed = true;
+    });
+
     const ultimaMsg = String(mensagensParaIA.at(-1)?.content ?? "");
     log.info("🗣️ Última mensagem:", safeLog(ultimaMsg));
 
@@ -80,6 +111,14 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
       sessaoId: sessionMeta?.sessaoId ?? null,
       origemSessao: sessionMeta?.origem ?? null,
     });
+
+    const sendErrorAndEnd = (message: string) => {
+      sendSse({ type: "error", message });
+      if (!streamClosed) {
+        streamClosed = true;
+        streamingRes.end(); // LATENCY: encerra imediatamente o fluxo SSE.
+      }
+    };
 
     // embedding opcional (garante number[])
     let queryEmbedding: number[] | undefined;
@@ -144,7 +183,44 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
       });
     }
 
-    // orquestrador (usa promptOverride)
+    let doneNotified = false;
+    const streamHandler: EcoStreamHandler = {
+      async onEvent(event) {
+        if (event.type === "chunk") {
+          sendSse({ type: "chunk", delta: event.content, index: event.index });
+          return;
+        }
+
+        if (event.type === "error") {
+          sendErrorAndEnd(event.error.message);
+          return;
+        }
+
+        if (event.type === "control") {
+          if (event.name === "prompt_ready") {
+            sendSse({ type: "prompt_ready" });
+            return;
+          }
+          if (event.name === "first_token") {
+            sendSse({ type: "first_token" });
+            return;
+          }
+          if (event.name === "reconnect") {
+            sendSse({ type: "reconnect", attempt: event.attempt ?? 0 });
+            return;
+          }
+          if (event.name === "done") {
+            doneNotified = true;
+            sendSse({ type: "done", meta: event.meta ?? {} });
+            if (!streamClosed) {
+              streamClosed = true;
+              streamingRes.end(); // LATENCY: encerra o SSE logo após o sinal de conclusão.
+            }
+          }
+        }
+      },
+    };
+
     const resposta = await getEcoResponse({
       messages: mensagensParaIA,
       userId: usuario_id,
@@ -153,11 +229,41 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
       mems: memsSimilares,
       promptOverride: prompt, // <- string
       sessionMeta,
-    } as any); // se o tipo ainda não tiver promptOverride
+      stream: streamHandler,
+    });
 
-    return res.status(200).json(resposta);
+    setImmediate(() => {
+      Promise.allSettled([resposta.finalize()])
+        .then((settled) => {
+          settled.forEach((result) => {
+            if (result.status === "rejected") {
+              log.warn("⚠️ Pós-processamento /ask-eco falhou:", result.reason);
+            }
+          });
+        })
+        .catch((finalErr) => {
+          log.warn("⚠️ Pós-processamento /ask-eco rejeitado:", finalErr);
+        });
+    });
+
+    if (!doneNotified && !streamClosed) {
+      sendSse({ type: "done", meta: resposta?.usage ? { usage: resposta.usage } : {} });
+      streamClosed = true;
+      streamingRes.end();
+    }
+
+    return;
   } catch (err: any) {
     log.error("❌ Erro no /ask-eco:", { message: err?.message, stack: err?.stack });
+    const message = err?.message || "Erro interno ao processar a requisição.";
+    if (sseStarted || res.headersSent) {
+      sendSse({ type: "error", message });
+      if (!streamClosed) {
+        streamClosed = true;
+        streamingRes.end();
+      }
+      return;
+    }
     return res.status(500).json({
       error: "Erro interno ao processar a requisição.",
       details: { message: err?.message, stack: err?.stack },
