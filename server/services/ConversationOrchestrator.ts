@@ -27,28 +27,104 @@ import {
   withTimeoutOrNull,
 } from "./conversation/parallelFetch";
 import { defaultContextCache } from "./conversation/contextCache";
-import { defaultResponseFinalizer } from "./conversation/responseFinalizer";
+import {
+  defaultResponseFinalizer,
+  type NormalizedEcoResponse,
+  type PrecomputedFinalizeArtifacts,
+} from "./conversation/responseFinalizer";
 import { firstName } from "./conversation/helpers";
 import { runFastLaneLLM } from "./conversation/fastLane";
 import { buildFullPrompt } from "./conversation/promptPlan";
 
 export function buildFinalizedStreamText(result: GetEcoResult): string {
+  const intensidade = typeof result.intensidade === "number" ? result.intensidade : null;
+  const resumo = typeof result.resumo === "string" ? result.resumo : null;
+  const emocao = typeof result.emocao === "string" ? result.emocao : null;
+  const tags = Array.isArray(result.tags) ? result.tags : [];
+  const categoria = typeof result.categoria === "string" ? result.categoria : null;
+  const proactive = result.proactive ?? null;
+
   const payload: Record<string, unknown> = {
-    intensidade: result.intensidade ?? null,
-    resumo: result.resumo ?? null,
-    emocao: result.emocao ?? null,
-    tags: Array.isArray(result.tags) ? result.tags : [],
-    categoria: result.categoria ?? null,
-    proactive: result.proactive ?? null,
+    intensidade,
+    resumo,
+    emocao,
+    tags,
+    categoria,
+    proactive,
   };
 
+  const hasMeta =
+    intensidade !== null ||
+    (typeof resumo === "string" && resumo.trim() !== "") ||
+    (typeof emocao === "string" && emocao.trim() !== "") ||
+    (Array.isArray(tags) && tags.length > 0) ||
+    (typeof categoria === "string" && categoria.trim() !== "") ||
+    proactive !== null;
+
+  if (!hasMeta) {
+    return result.message ?? "";
+  }
+
   return `${result.message ?? ""}\n\n\`\`\`json\n${JSON.stringify(payload, null, 2)}\n\`\`\``;
+}
+
+function buildStreamingMetaPayload(
+  bloco: any,
+  cleanedFallback: string
+): EcoStreamMetaPayload | null {
+  if (!bloco || typeof bloco !== "object") {
+    return null;
+  }
+
+  const intensidade =
+    typeof bloco.intensidade === "number" && Number.isFinite(bloco.intensidade)
+      ? bloco.intensidade
+      : null;
+  const resumo =
+    typeof bloco.analise_resumo === "string" ? bloco.analise_resumo.trim() : "";
+  const emocao =
+    typeof bloco.emocao_principal === "string" ? bloco.emocao_principal.trim() : "";
+  const categoria =
+    typeof bloco.categoria === "string" ? bloco.categoria.trim() : "";
+  const tags = Array.isArray(bloco.tags)
+    ? bloco.tags
+        .map((tag: any) => (typeof tag === "string" ? tag.trim() : ""))
+        .filter((tag: string) => tag.length > 0)
+    : [];
+
+  if (
+    intensidade === null ||
+    resumo.length === 0 ||
+    emocao.length === 0 ||
+    categoria.length === 0 ||
+    tags.length === 0
+  ) {
+    return null;
+  }
+
+  return {
+    intensidade,
+    resumo: resumo || cleanedFallback,
+    emocao,
+    categoria,
+    tags,
+  };
 }
 
 /* ---------------------------- Consts ---------------------------- */
 
 const DERIVADOS_TIMEOUT_MS = Number(process.env.ECO_DERIVADOS_TIMEOUT_MS ?? 600);
 const PARALELAS_TIMEOUT_MS = Number(process.env.ECO_PARALELAS_TIMEOUT_MS ?? 180);
+const BLOCO_DEADLINE_MS = Number(process.env.ECO_BLOCO_DEADLINE_MS ?? 5000);
+const BLOCO_PENDING_MS = Number(process.env.ECO_BLOCO_PENDING_MS ?? 1000);
+
+interface EcoStreamMetaPayload {
+  intensidade: number;
+  resumo: string;
+  emocao: string;
+  categoria: string;
+  tags: string[];
+}
 
 export interface EcoLatencyMarks {
   contextBuildStart?: number;
@@ -69,6 +145,15 @@ export type EcoStreamEvent =
       name: "done";
       meta?: { finishReason?: string | null; usage?: ORUsage; modelo?: string | null; length?: number };
       timings?: EcoLatencyMarks;
+    }
+  | {
+      type: "control";
+      name: "meta_pending";
+    }
+  | {
+      type: "control";
+      name: "meta";
+      meta: EcoStreamMetaPayload;
     }
   | { type: "chunk"; content: string; index: number }
   | { type: "error"; error: Error };
@@ -426,9 +511,6 @@ export async function getEcoResponse(
   const principalModel = process.env.ECO_CLAUDE_MODEL || "anthropic/claude-3-5-sonnet";
 
   if (streamHandler) {
-    const promptReadySnapshot = { ...timings };
-    await emitStream({ type: "control", name: "prompt_ready", timings: promptReadySnapshot });
-
     const streamedChunks: string[] = [];
     let chunkIndex = 0;
     let firstTokenSent = false;
@@ -436,6 +518,145 @@ export async function getEcoResponse(
     let finishReason: string | null | undefined;
     let modelFromStream: string | null | undefined;
     let streamFailure: Error | null = null;
+
+    let resolveRawForBloco: ((value: string) => void) | null = null;
+    let rejectRawForBloco: ((reason?: unknown) => void) | null = null;
+    const rawForBlocoPromise = new Promise<string>((resolve, reject) => {
+      resolveRawForBloco = resolve;
+      rejectRawForBloco = reject;
+    });
+
+    type StreamingBlocoArtifacts = {
+      normalized: NormalizedEcoResponse;
+      blocoPromise: Promise<any | null>;
+      blocoRacePromise: Promise<any | null>;
+    };
+
+    let blocoSetupPromise: Promise<StreamingBlocoArtifacts> | null = null;
+    let blocoPendingTimer: NodeJS.Timeout | null = null;
+    let blocoDeadlineTimer: NodeJS.Timeout | null = null;
+
+    const startBlocoPipeline = () => {
+      if (blocoSetupPromise) return;
+      blocoSetupPromise = (async () => {
+        try {
+          const rawForBloco = await rawForBlocoPromise;
+          const normalized = defaultResponseFinalizer.normalizeRawResponse({
+            raw: rawForBloco,
+            userName,
+            hasAssistantBefore: decision.hasAssistantBefore,
+            mode: "full",
+          });
+
+          const blocoTimeout = defaultResponseFinalizer.gerarBlocoComTimeout({
+            ultimaMsg,
+            blocoTarget: normalized.blocoTarget,
+            mode: "full",
+            skipBloco: false,
+            distinctId: sessionMeta?.distinctId ?? userId,
+            userId,
+          });
+
+          const blocoPromise = blocoTimeout.full;
+          const blocoRacePromise = blocoTimeout.race;
+
+          let settled = false;
+          let deadlineExceeded = false;
+          const blocoStartedAt = now();
+
+          const clearPending = () => {
+            if (blocoPendingTimer) {
+              clearTimeout(blocoPendingTimer);
+              blocoPendingTimer = null;
+            }
+          };
+
+          const clearDeadline = () => {
+            if (blocoDeadlineTimer) {
+              clearTimeout(blocoDeadlineTimer);
+              blocoDeadlineTimer = null;
+            }
+          };
+
+          blocoPromise
+            .catch(() => undefined)
+            .finally(() => {
+              settled = true;
+              clearPending();
+              clearDeadline();
+            });
+
+          blocoPendingTimer = setTimeout(() => {
+            if (settled || deadlineExceeded) {
+              return;
+            }
+            log.info("[StreamingBloco] state=pending", {
+              pendingMs: BLOCO_PENDING_MS,
+              deadlineMs: BLOCO_DEADLINE_MS,
+            });
+            void emitStream({ type: "control", name: "meta_pending" });
+            blocoPendingTimer = null;
+          }, BLOCO_PENDING_MS);
+
+          blocoDeadlineTimer = setTimeout(() => {
+            if (settled) {
+              return;
+            }
+            deadlineExceeded = true;
+            clearPending();
+            log.warn("[StreamingBloco] state=deadline_exceeded", {
+              deadlineMs: BLOCO_DEADLINE_MS,
+            });
+            blocoDeadlineTimer = null;
+          }, BLOCO_DEADLINE_MS);
+
+          blocoRacePromise
+            .then(async (payload) => {
+              if (deadlineExceeded) {
+                return;
+              }
+              const durationMs = now() - blocoStartedAt;
+              if (!payload) {
+                log.info("[StreamingBloco] state=success", {
+                  durationMs,
+                  emitted: false,
+                });
+                return;
+              }
+
+              const metaPayload = buildStreamingMetaPayload(
+                payload,
+                normalized.cleaned
+              );
+              if (!metaPayload) {
+                log.warn("[StreamingBloco] bloco payload inválido; meta não emitido", {
+                  durationMs,
+                });
+                return;
+              }
+
+              log.info("[StreamingBloco] state=success", {
+                durationMs,
+                emitted: true,
+              });
+              await emitStream({ type: "control", name: "meta", meta: metaPayload });
+            })
+            .catch((error) => {
+              if (deadlineExceeded) {
+                return;
+              }
+              const message = error instanceof Error ? error.message : String(error);
+              log.warn("[StreamingBloco] bloco promise rejected", { message });
+            });
+
+          return { normalized, blocoPromise, blocoRacePromise };
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          log.warn("[StreamingBloco] failed to start bloco", { message });
+          throw error;
+        }
+      })();
+    };
 
     timings.llmStart = now();
     inicioEco = timings.llmStart;
@@ -447,51 +668,61 @@ export async function getEcoResponse(
           : undefined,
     });
 
-    try {
-      await streamClaudeChatCompletion(
-        {
-          messages: prompt,
-          model: principalModel,
-          temperature: 0.6,
-          maxTokens,
+    const streamPromise = streamClaudeChatCompletion(
+      {
+        messages: prompt,
+        model: principalModel,
+        temperature: 0.6,
+        maxTokens,
+      },
+      {
+        async onChunk({ content }) {
+          if (!content) return;
+          streamedChunks.push(content);
+          if (!firstTokenSent) {
+            firstTokenSent = true;
+            await emitStream({ type: "control", name: "first_token" });
+          }
+          const currentIndex = chunkIndex;
+          chunkIndex += 1;
+          // LATENCY: envia token incremental direto para o SSE.
+          await emitStream({ type: "chunk", content, index: currentIndex });
         },
-        {
-          async onChunk({ content }) {
-            if (!content) return;
-            streamedChunks.push(content);
-            if (!firstTokenSent) {
-              firstTokenSent = true;
-              await emitStream({ type: "control", name: "first_token" });
-            }
-            const currentIndex = chunkIndex;
-            chunkIndex += 1;
-            // LATENCY: envia token incremental direto para o SSE.
-            await emitStream({ type: "chunk", content, index: currentIndex });
-          },
-          async onControl(event: ClaudeStreamControlEvent) {
-            if (event.type === "reconnect") {
-              await emitStream({
-                type: "control",
-                name: "reconnect",
-                attempt: event.attempt,
-              });
-              return;
-            }
-            if (event.type === "done") {
-              usageFromStream = event.usage ?? usageFromStream;
-              finishReason = event.finishReason ?? finishReason;
-              modelFromStream = event.model ?? modelFromStream;
-            }
-          },
-          async onError(error: Error) {
-            streamFailure = error;
-            await emitStream({ type: "error", error });
-          },
-        }
-      );
-    } catch (error: any) {
+        async onControl(event: ClaudeStreamControlEvent) {
+          if (event.type === "reconnect") {
+            await emitStream({
+              type: "control",
+              name: "reconnect",
+              attempt: event.attempt,
+            });
+            return;
+          }
+          if (event.type === "done") {
+            usageFromStream = event.usage ?? usageFromStream;
+            finishReason = event.finishReason ?? finishReason;
+            modelFromStream = event.model ?? modelFromStream;
+          }
+        },
+        async onError(error: Error) {
+          streamFailure = error;
+          rejectRawForBloco?.(error);
+          await emitStream({ type: "error", error });
+        },
+      }
+    ).catch((error: any) => {
       const err = error instanceof Error ? error : new Error(String(error));
       streamFailure = err;
+      rejectRawForBloco?.(err);
+      throw err;
+    });
+
+    startBlocoPipeline();
+
+    const promptReadySnapshot = { ...timings };
+    await emitStream({ type: "control", name: "prompt_ready", timings: promptReadySnapshot });
+
+    try {
+      await streamPromise;
     } finally {
       timings.llmEnd = now();
       log.info("// LATENCY: llm_request_end", {
@@ -508,25 +739,45 @@ export async function getEcoResponse(
     }
 
     const raw = streamedChunks.join("");
+    resolveRawForBloco?.(raw);
+
     let finalizePromise: Promise<GetEcoResult> | null = null;
     const finalize = () => {
       if (!finalizePromise) {
-        finalizePromise = defaultResponseFinalizer.finalize({
-          raw,
-          ultimaMsg,
-          userName,
-          hasAssistantBefore: decision.hasAssistantBefore,
-          userId,
-          supabase,
-          lastMessageId: lastMessageId ?? undefined,
-          mode: "full",
-          startedAt: inicioEco,
-          usageTokens: usageFromStream?.total_tokens ?? undefined,
-          modelo: modelFromStream ?? principalModel,
-          sessionMeta,
-          sessaoId: sessionMeta?.sessaoId ?? undefined,
-          origemSessao: sessionMeta?.origem ?? undefined,
-        });
+        finalizePromise = (async () => {
+          let precomputed: PrecomputedFinalizeArtifacts | undefined;
+          if (blocoSetupPromise) {
+            try {
+              const artifacts = await blocoSetupPromise;
+              precomputed = {
+                normalized: artifacts.normalized,
+                blocoPromise: artifacts.blocoPromise,
+                blocoRacePromise: artifacts.blocoRacePromise,
+              };
+            } catch (error) {
+              const message = error instanceof Error ? error.message : String(error);
+              log.warn("[StreamingBloco] finalize ignoring precomputed bloco", { message });
+            }
+          }
+
+          return defaultResponseFinalizer.finalize({
+            raw,
+            ultimaMsg,
+            userName,
+            hasAssistantBefore: decision.hasAssistantBefore,
+            userId,
+            supabase,
+            lastMessageId: lastMessageId ?? undefined,
+            mode: "full",
+            startedAt: inicioEco,
+            usageTokens: usageFromStream?.total_tokens ?? undefined,
+            modelo: modelFromStream ?? principalModel,
+            sessionMeta,
+            sessaoId: sessionMeta?.sessaoId ?? undefined,
+            origemSessao: sessionMeta?.origem ?? undefined,
+            precomputed,
+          });
+        })();
       }
       return finalizePromise;
     };

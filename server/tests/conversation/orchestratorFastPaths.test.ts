@@ -124,6 +124,42 @@ test("micro reflex streaming inclui bloco JSON finalizado", async (t) => {
   assert.strictEqual(finalizeCalls[0].hasAssistantBefore, false);
 });
 
+test("streaming sem metadados relevantes não inclui bloco JSON", async (t) => {
+  const finalizerResult: GetEcoResult = {
+    message: "Resposta simples",
+  };
+
+  const { orchestrator, cleanup } = setupOrchestratorTest({
+    microResponse: "resposta micro",
+    greetingResult: { handled: false },
+    finalizerResult,
+  });
+  t.after(cleanup);
+
+  const events: any[] = [];
+  const streaming = (await orchestrator.getEcoResponse({
+    messages: [{ role: "user", content: "estou bem" }],
+    userId: "user-plain",
+    userName: "Carla",
+    accessToken: "token",
+    stream: {
+      onEvent: async (event: any) => {
+        events.push(event);
+      },
+    },
+  })) as import("../../services/ConversationOrchestrator").EcoStreamingResult;
+
+  const chunkEvents = events.filter((e) => e.type === "chunk");
+  assert.strictEqual(chunkEvents.length, 1, "deve emitir exatamente um chunk");
+  const finalText = chunkEvents[0].content as string;
+  assert.strictEqual(finalText, finalizerResult.message);
+  assert.ok(!finalText.includes("```json"), "não deve conter bloco JSON quando não há metadados");
+
+  assert.strictEqual(streaming.raw, finalText, "raw deve corresponder ao texto emitido");
+  const resolved = await streaming.finalize();
+  assert.deepStrictEqual(resolved, finalizerResult);
+});
+
 test("greeting streaming inclui bloco JSON finalizado", async (t) => {
   const finalizerResult: GetEcoResult = {
     message: "Oi, bora começar?",
