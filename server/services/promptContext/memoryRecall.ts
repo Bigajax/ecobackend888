@@ -1,7 +1,7 @@
 import type { SimilarMemoryList } from "./contextTypes";
 import { countTokens } from "../../utils/text";
 
-const TOKEN_LIMIT = 350;
+const TOKEN_LIMIT = 350; // orçamento por item (não por bloco)
 
 function normalizeAndLimit(text: string): string {
   const normalized = (text || "").replace(/\s+/g, " ").trim();
@@ -11,7 +11,7 @@ function normalizeAndLimit(text: string): string {
     return normalized;
   }
 
-  // LATENCY: truncar excerto para caber no orçamento de tokens por memória.
+  // Truncamento por busca binária para caber no orçamento de tokens por memória
   let low = 0;
   let high = normalized.length;
   let best = "";
@@ -23,7 +23,6 @@ function normalizeAndLimit(text: string): string {
       high = mid - 1;
       continue;
     }
-
     if (countTokens(candidate) <= TOKEN_LIMIT) {
       best = candidate;
       low = mid + 1;
@@ -36,12 +35,28 @@ function normalizeAndLimit(text: string): string {
   while (finalText.length > 1 && countTokens(`${finalText}…`) > TOKEN_LIMIT) {
     finalText = finalText.slice(0, -1).trim();
   }
-
   return `${finalText}…`;
 }
 
+function fmtScore(sim: number | undefined): string {
+  if (typeof sim !== "number" || Number.isNaN(sim)) return "";
+  const pct = Math.round(sim * 100);
+  return ` ~${pct}%`;
+}
+
+function fmtWhen(iso?: string): string {
+  if (!iso) return "";
+  // Só o ano-mês-dia para não gastar tokens
+  return new Date(iso).toISOString().slice(0, 10); // YYYY-MM-DD
+}
+
 export function formatMemRecall(mems: SimilarMemoryList): string {
-  if (!mems || !mems.length) return "";
+  const header = "MEMORIAS_RELEVANTES:";
+
+  if (!mems || !mems.length) {
+    // 🔁 Sempre retorna um bloco — evita o disclaimer do LLM
+    return `${header}\n(nenhuma encontrada desta vez)`;
+  }
 
   const pickText = (memory: any) =>
     memory?.resumo_eco ||
@@ -58,18 +73,28 @@ export function formatMemRecall(mems: SimilarMemoryList): string {
         ? memory.similaridade
         : undefined;
 
-    const pct = typeof sim === "number" ? ` ~${Math.round(sim * 100)}%` : "";
+    const addScore = fmtScore(sim);
+    const when = fmtWhen(memory?.created_at);
+    const tags = Array.isArray(memory?.tags) && memory.tags.length
+      ? ` [${memory.tags.slice(0, 3).join(", ")}]`
+      : "";
+
     const value = normalizeAndLimit(String(pickText(memory)));
-    return value ? `- ${value}${pct}` : "";
+    if (!value) return "";
+
+    // Ex.: "- (2025-09-14 [ansiedade, trabalho] ~82%) resumo curtinho…"
+    const metaParts = [when, tags || undefined, addScore || undefined].filter(Boolean).join(" ");
+    const meta = metaParts ? `(${metaParts}) ` : "";
+    return `- ${meta}${value}`;
   });
 
   const blocos = linhas.filter(Boolean);
-  if (!blocos.length) return "";
+  if (!blocos.length) {
+    // Se por algum motivo nenhum item resultou em linha válida, mantenha o cabeçalho
+    return `${header}\n(nenhuma encontrada desta vez)`;
+  }
 
-  const header = [
-    "CONTINUIDADE — SINAIS DO HISTÓRICO (use com leveza, sem afirmar que “lembra”):",
-    "Se (e somente se) fizer sentido, pode contextualizar com: “uma coisa que você compartilhou foi…”.",
-  ].join("\n");
-
-  return [header, ...blocos].join("\n---\n");
+  // 🔹 Importante: sem instruções que proíbam “lembrar”.
+  // A MEMORY_POLICY no ContextBuilder já define como a IA deve falar sobre memórias.
+  return [header, ...blocos].join("\n");
 }
