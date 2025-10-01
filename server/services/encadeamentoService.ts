@@ -1,5 +1,6 @@
 // services/encadeamentoService.ts
 import supabaseAdmin from '../lib/supabaseAdmin';
+import { invalidateResponseCacheForUser } from './CacheService';
 
 export interface EntradaMemoria {
   usuario_id: string;
@@ -135,6 +136,7 @@ async function salvarComEncadeamentoGenerico(
       referencia_anterior_id: payload.referencia_anterior_id,
     });
 
+    invalidateResponseCacheForUser(mem.usuario_id);
     return { ok: true, id: data?.id };
   } catch (err) {
     console.error(`❌ Erro inesperado ao salvar em ${tabela}:`, (err as Error).message);

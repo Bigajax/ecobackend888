@@ -131,6 +131,29 @@ export const trackMensagemRecebida = ({
   );
 };
 
+export const trackEcoCache = ({
+  distinctId,
+  userId,
+  status,
+  key,
+  source,
+}: TrackParams<{
+  status: "hit" | "miss";
+  key?: string;
+  source: "openrouter" | string;
+}>) => {
+  mixpanel.track(
+    "Eco response cache",
+    withDistinctId({
+      distinctId,
+      userId,
+      status,
+      ...(key ? { key } : {}),
+      source,
+    })
+  );
+};
+
 export const trackEcoDemorou = ({
   distinctId,
   userId,

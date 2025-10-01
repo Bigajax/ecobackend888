@@ -1,6 +1,7 @@
 // services/referenciasService.ts
 import { supabase } from "../lib/supabaseAdmin"; // ✅ instância singleton
 import { unitNorm } from "../adapters/embeddingService";
+import { invalidateResponseCacheForUser } from "./CacheService";
 
 interface BlocoTecnicoBase {
   usuario_id: string;
@@ -120,6 +121,7 @@ export async function salvarReferenciaTemporaria(bloco: ReferenciaPayload) {
       id: (data as any)?.id,
       created_at: (data as any)?.created_at,
     });
+    invalidateResponseCacheForUser(payload.usuario_id);
     return data;
   } catch (err) {
     console.error(

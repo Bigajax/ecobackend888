@@ -3,6 +3,7 @@ import fs from "fs/promises";
 import path from "path";
 import { embedTextoCompleto } from "../adapters/embeddingService";
 import { supabase } from "../lib/supabaseAdmin"; // ✅ instância singleton
+import { clearResponseCache } from "./CacheService";
 
 // Pasta onde estão os .txt/.md das heurísticas
 const heuristicasDir = path.join(__dirname, "../assets/modulos_cognitivos");
@@ -24,6 +25,7 @@ function isHeuristicaFile(name: string) {
 }
 
 export async function registrarTodasHeuristicas(): Promise<void> {
+  let invalidated = false;
   try {
     const arquivos = await fs.readdir(heuristicasDir);
 
@@ -77,10 +79,16 @@ export async function registrarTodasHeuristicas(): Promise<void> {
         console.error(`❌ Falha ao inserir ${arquivo}:`, insercaoErro.message);
       } else {
         console.log(`✅ Heurística registrada: ${arquivo}`);
+        invalidated = true;
       }
     }
   } catch (err) {
     console.error("❌ Erro ao registrar heurísticas:", (err as Error)?.message || err);
+  }
+
+  if (invalidated) {
+    clearResponseCache();
+    console.log("🧹 RESPONSE_CACHE limpo após atualização de heurísticas.");
   }
 }
 
