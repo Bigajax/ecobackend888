@@ -9,7 +9,12 @@ import {
 } from "../utils";
 import { supabaseWithBearer } from "../adapters/SupabaseAdapter";
 import { microReflexoLocal } from "../core/ResponseGenerator";
-import { claudeChatCompletion } from "../core/ClaudeAdapter";
+import {
+  claudeChatCompletion,
+  streamClaudeChatCompletion,
+  type ClaudeStreamControlEvent,
+  type ORUsage,
+} from "../core/ClaudeAdapter";
 import { log, isDebug } from "../services/promptContext/logger";
 import { getDerivados, insightAbertura } from "../services/derivadosService";
 import { DERIVADOS_CACHE } from "./CacheService";
@@ -31,6 +36,38 @@ import { buildFullPrompt } from "./conversation/promptPlan";
 const DERIVADOS_TIMEOUT_MS = Number(process.env.ECO_DERIVADOS_TIMEOUT_MS ?? 600);
 const PARALELAS_TIMEOUT_MS = Number(process.env.ECO_PARALELAS_TIMEOUT_MS ?? 180);
 
+export type EcoStreamEvent =
+  | { type: "control"; name: "prompt_ready" | "first_token" | "reconnect"; attempt?: number }
+  | {
+      type: "control";
+      name: "done";
+      meta?: { finishReason?: string | null; usage?: ORUsage; modelo?: string | null; length?: number };
+    }
+  | { type: "chunk"; content: string; index: number }
+  | { type: "error"; error: Error };
+
+export interface EcoStreamHandler {
+  onEvent: (event: EcoStreamEvent) => void | Promise<void>;
+}
+
+export interface EcoStreamingResult {
+  raw: string;
+  modelo?: string | null;
+  usage?: ORUsage;
+  finalize: () => Promise<GetEcoResult>;
+}
+
+export function getEcoResponse(
+  params: GetEcoParams & { promptOverride?: string; metaFromBuilder?: any }
+): Promise<GetEcoResult>;
+export function getEcoResponse(
+  params: GetEcoParams & {
+    promptOverride?: string;
+    metaFromBuilder?: any;
+    stream: EcoStreamHandler;
+  }
+): Promise<EcoStreamingResult>;
+
 /* -------------------------- Orquestrador ------------------------ */
 
 export async function getEcoResponse(
@@ -46,8 +83,9 @@ export async function getEcoResponse(
     promptOverride,
     metaFromBuilder,
     sessionMeta,
-  }: GetEcoParams & { promptOverride?: string; metaFromBuilder?: any }
-): Promise<GetEcoResult> {
+    stream,
+  }: GetEcoParams & { promptOverride?: string; metaFromBuilder?: any; stream?: EcoStreamHandler }
+): Promise<GetEcoResult | EcoStreamingResult> {
   ensureEnvs();
 
   if (!Array.isArray(messages) || messages.length === 0) {
@@ -59,9 +97,28 @@ export async function getEcoResponse(
   const lastMessageId = lastMessage?.id;
   const ultimaMsg = lastMessage?.content ?? "";
 
+  const streamHandler = stream ?? null;
+  const emitStream = async (event: EcoStreamEvent) => {
+    if (!streamHandler) return;
+    // LATENCY: propaga eventos de streaming imediatamente para a camada HTTP.
+    await streamHandler.onEvent(event);
+  };
+
   // Micro-resposta local
   const micro = microReflexoLocal(ultimaMsg);
   if (micro) {
+    if (streamHandler) {
+      await emitStream({ type: "control", name: "prompt_ready" });
+      await emitStream({ type: "control", name: "first_token" });
+      await emitStream({ type: "chunk", content: micro, index: 0 });
+      await emitStream({
+        type: "control",
+        name: "done",
+        meta: { length: micro.length, modelo: "micro-reflexo" },
+      });
+      const finalize = async () => ({ message: micro });
+      return { raw: micro, modelo: "micro-reflexo", usage: undefined, finalize };
+    }
     return { message: micro };
   }
 
@@ -75,6 +132,19 @@ export async function getEcoResponse(
     greetingEnabled: process.env.ECO_GREETING_BACKEND_ENABLED !== "0",
   });
   if (greetingResult.handled && greetingResult.response) {
+    if (streamHandler) {
+      const resposta = greetingResult.response;
+      await emitStream({ type: "control", name: "prompt_ready" });
+      await emitStream({ type: "control", name: "first_token" });
+      await emitStream({ type: "chunk", content: resposta, index: 0 });
+      await emitStream({
+        type: "control",
+        name: "done",
+        meta: { length: resposta.length, modelo: "greeting" },
+      });
+      const finalize = async () => ({ message: resposta });
+      return { raw: resposta, modelo: "greeting", usage: undefined, finalize };
+    }
     return { message: greetingResult.response };
   }
 
@@ -100,7 +170,7 @@ export async function getEcoResponse(
   const supabase = supabaseWithBearer(accessToken);
 
   // --------------------------- FAST MODE ---------------------------
-  if (decision.mode === "fast") {
+  if (decision.mode === "fast" && !streamHandler) {
     const inicioFast = now();
     const fast = await runFastLaneLLM({
       messages: thread,
@@ -261,13 +331,119 @@ export async function getEcoResponse(
   });
 
   const inicioEco = now();
+  const principalModel = process.env.ECO_CLAUDE_MODEL || "anthropic/claude-3-5-sonnet";
+
+  if (streamHandler) {
+    await emitStream({ type: "control", name: "prompt_ready" });
+
+    const streamedChunks: string[] = [];
+    let chunkIndex = 0;
+    let firstTokenSent = false;
+    let usageFromStream: ORUsage | undefined;
+    let finishReason: string | null | undefined;
+    let modelFromStream: string | null | undefined;
+    let streamFailure: Error | null = null;
+
+    try {
+      await streamClaudeChatCompletion(
+        {
+          messages: prompt,
+          model: principalModel,
+          temperature: 0.6,
+          maxTokens,
+        },
+        {
+          async onChunk({ content }) {
+            if (!content) return;
+            streamedChunks.push(content);
+            if (!firstTokenSent) {
+              firstTokenSent = true;
+              await emitStream({ type: "control", name: "first_token" });
+            }
+            const currentIndex = chunkIndex;
+            chunkIndex += 1;
+            // LATENCY: envia token incremental direto para o SSE.
+            await emitStream({ type: "chunk", content, index: currentIndex });
+          },
+          async onControl(event: ClaudeStreamControlEvent) {
+            if (event.type === "reconnect") {
+              await emitStream({
+                type: "control",
+                name: "reconnect",
+                attempt: event.attempt,
+              });
+              return;
+            }
+            if (event.type === "done") {
+              usageFromStream = event.usage ?? usageFromStream;
+              finishReason = event.finishReason ?? finishReason;
+              modelFromStream = event.model ?? modelFromStream;
+            }
+          },
+          async onError(error: Error) {
+            streamFailure = error;
+            await emitStream({ type: "error", error });
+          },
+        }
+      );
+    } catch (error: any) {
+      const err = error instanceof Error ? error : new Error(String(error));
+      streamFailure = err;
+    }
+
+    if (streamFailure) {
+      throw streamFailure;
+    }
+
+    const raw = streamedChunks.join("");
+    let finalizePromise: Promise<GetEcoResult> | null = null;
+    const finalize = () => {
+      if (!finalizePromise) {
+        finalizePromise = defaultResponseFinalizer.finalize({
+          raw,
+          ultimaMsg,
+          userName,
+          hasAssistantBefore: decision.hasAssistantBefore,
+          userId,
+          supabase,
+          lastMessageId: lastMessageId ?? undefined,
+          mode: "full",
+          startedAt: inicioEco,
+          usageTokens: usageFromStream?.total_tokens ?? undefined,
+          modelo: modelFromStream ?? principalModel,
+          sessionMeta,
+          sessaoId: sessionMeta?.sessaoId ?? undefined,
+          origemSessao: sessionMeta?.origem ?? undefined,
+        });
+      }
+      return finalizePromise;
+    };
+
+    await emitStream({
+      type: "control",
+      name: "done",
+      meta: {
+        finishReason,
+        usage: usageFromStream,
+        modelo: modelFromStream ?? principalModel,
+        length: raw.length,
+      },
+    });
+
+    return {
+      raw,
+      modelo: modelFromStream ?? principalModel,
+      usage: usageFromStream,
+      finalize,
+    };
+  }
 
   let data: any;
   try {
     data = await claudeChatCompletion({
       // 'prompt' já é a lista de mensagens pronta (inclui system + histórico fatiado)
       messages: prompt,
-      model: process.env.ECO_CLAUDE_MODEL || "anthropic/claude-3-5-sonnet",
+      model: principalModel,
       temperature: 0.6,
       maxTokens,
     });
