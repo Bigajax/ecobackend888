@@ -155,6 +155,16 @@ export type EcoStreamEvent =
       name: "meta";
       meta: EcoStreamMetaPayload;
     }
+  | {
+      // ✅ NOVO: evento emitido após persistir a memória via RPC
+      type: "control";
+      name: "memory_saved";
+      meta: {
+        memoriaId: string;
+        primeiraMemoriaSignificativa: boolean;
+        intensidade: number;
+      };
+    }
   | { type: "chunk"; content: string; index: number }
   | { type: "error"; error: Error };
 
@@ -168,6 +178,49 @@ export interface EcoStreamingResult {
   usage?: ORUsage;
   finalize: () => Promise<GetEcoResult>;
   timings: EcoLatencyMarks;
+}
+
+/* ---------------------- RPC Memory Helper ---------------------- */
+/** Salva memória via RPC registrar_memoria (idempotente para milestone) e
+ * retorna se é a primeira memória >=7 para o usuário (primeira = true). */
+async function salvarMemoriaViaRPC(opts: {
+  supabase: any;                    // Supabase client já autenticado com bearer do usuário
+  userId: string;
+  mensagemId?: string | null;
+  meta: EcoStreamMetaPayload;       // { intensidade, resumo, emocao, categoria, tags }
+  origem?: string;                  // "streaming_bloco" | "full_sync"
+}) {
+  const { supabase, userId, mensagemId, meta, origem = "streaming_bloco" } = opts;
+
+  if (meta.intensidade < 7) {
+    return { saved: false as const, primeira: false, memoriaId: null as string | null };
+  }
+
+  const { data, error } = await supabase.rpc("registrar_memoria", {
+    p_usuario: userId,
+    p_texto: meta.resumo ?? "",
+    p_intensidade: meta.intensidade,
+    p_tags: (meta.tags && meta.tags.length ? meta.tags : null),
+    p_dominio_vida: meta.categoria ?? null,
+    p_padrao_comportamental: null,
+    p_meta: {
+      origem,
+      mensagem_id: mensagemId ?? null,
+      emocao_principal: meta.emocao ?? null,
+    }
+  });
+
+  if (error) {
+    log.warn("[registrar_memoria RPC] erro ao salvar memoria", { message: error.message });
+    return { saved: false as const, primeira: false, memoriaId: null as string | null };
+  }
+
+  const row = Array.isArray(data) ? data[0] : data;
+  return {
+    saved: true as const,
+    primeira: !!row?.primeira,
+    memoriaId: row?.id ?? null
+  };
 }
 
 export function getEcoResponse(
@@ -214,7 +267,6 @@ export async function getEcoResponse(
   const timings: EcoLatencyMarks = {};
   const emitStream = async (event: EcoStreamEvent) => {
     if (!streamHandler) return;
-    // LATENCY: propaga eventos de streaming imediatamente para a camada HTTP.
     await streamHandler.onEvent(event);
   };
 
@@ -490,7 +542,6 @@ export async function getEcoResponse(
     }));
 
   // Planejamento de prompt (seleção de estilo e orçamento)
-  // No seu projeto, buildFullPrompt retorna { prompt: PromptMessage[], maxTokens }
   const { prompt, maxTokens } = buildFullPrompt({
     decision,
     ultimaMsg,
@@ -519,7 +570,7 @@ export async function getEcoResponse(
     let modelFromStream: string | null | undefined;
     let streamFailure: Error | null = null;
 
-    // DEFINITE ASSIGNMENT: garantimos que serão atribuídas no new Promise abaixo
+    // DEFINITE ASSIGNMENT
     let resolveRawForBloco!: (value: string) => void;
     let rejectRawForBloco!: (reason?: unknown) => void;
     const rawForBlocoPromise = new Promise<string>((resolve, reject) => {
@@ -588,9 +639,7 @@ export async function getEcoResponse(
             });
 
           blocoPendingTimer = setTimeout(() => {
-            if (settled || deadlineExceeded) {
-              return;
-            }
+            if (settled || deadlineExceeded) return;
             log.info("[StreamingBloco] state=pending", {
               pendingMs: BLOCO_PENDING_MS,
               deadlineMs: BLOCO_DEADLINE_MS,
@@ -600,9 +649,7 @@ export async function getEcoResponse(
           }, BLOCO_PENDING_MS);
 
           blocoDeadlineTimer = setTimeout(() => {
-            if (settled) {
-              return;
-            }
+            if (settled) return;
             deadlineExceeded = true;
             clearPending();
             log.warn("[StreamingBloco] state=deadline_exceeded", {
@@ -613,39 +660,51 @@ export async function getEcoResponse(
 
           blocoRacePromise
             .then(async (payload) => {
-              if (deadlineExceeded) {
-                return;
-              }
+              if (deadlineExceeded) return;
+
               const durationMs = now() - blocoStartedAt;
               if (!payload) {
-                log.info("[StreamingBloco] state=success", {
-                  durationMs,
-                  emitted: false,
-                });
+                log.info("[StreamingBloco] state=success", { durationMs, emitted: false });
                 return;
               }
 
-              const metaPayload = buildStreamingMetaPayload(
-                payload,
-                normalized.cleaned
-              );
+              const metaPayload = buildStreamingMetaPayload(payload, normalized.cleaned);
               if (!metaPayload) {
-                log.warn("[StreamingBloco] bloco payload inválido; meta não emitido", {
-                  durationMs,
-                });
+                log.warn("[StreamingBloco] bloco payload inválido; meta não emitido", { durationMs });
                 return;
               }
 
-              log.info("[StreamingBloco] state=success", {
-                durationMs,
-                emitted: true,
-              });
+              log.info("[StreamingBloco] state=success", { durationMs, emitted: true });
+              // 1) Emite meta com os campos do bloco
               await emitStream({ type: "control", name: "meta", meta: metaPayload });
+
+              // 2) Salva via RPC e emite memory_saved se aplicável
+              try {
+                const rpcRes = await salvarMemoriaViaRPC({
+                  supabase,
+                  userId,
+                  mensagemId: lastMessageId ?? null,
+                  meta: metaPayload,
+                  origem: "streaming_bloco",
+                });
+
+                if (rpcRes.saved && rpcRes.memoriaId) {
+                  await emitStream({
+                    type: "control",
+                    name: "memory_saved",
+                    meta: {
+                      memoriaId: rpcRes.memoriaId,
+                      primeiraMemoriaSignificativa: !!rpcRes.primeira,
+                      intensidade: metaPayload.intensidade,
+                    },
+                  });
+                }
+              } catch (e: any) {
+                log.warn("[StreamingBloco] salvarMemoriaViaRPC falhou (ignorado)", { message: e?.message });
+              }
             })
             .catch((error) => {
-              if (deadlineExceeded) {
-                return;
-              }
+              if (deadlineExceeded) return;
               const message = error instanceof Error ? error.message : String(error);
               log.warn("[StreamingBloco] bloco promise rejected", { message });
             });
@@ -686,7 +745,6 @@ export async function getEcoResponse(
           }
           const currentIndex = chunkIndex;
           chunkIndex += 1;
-          // LATENCY: envia token incremental direto para o SSE.
           await emitStream({ type: "chunk", content, index: currentIndex });
         },
         async onControl(event: ClaudeStreamControlEvent) {
@@ -805,6 +863,7 @@ export async function getEcoResponse(
     };
   }
 
+  // ---------------------- Caminho sem streaming ----------------------
   let data: any;
   timings.llmStart = now();
   inicioEco = timings.llmStart;
@@ -817,7 +876,6 @@ export async function getEcoResponse(
   });
   try {
     data = await claudeChatCompletion({
-      // 'prompt' já é a lista de mensagens pronta (inclui system + histórico fatiado)
       messages: prompt,
       model: principalModel,
       temperature: 0.6,
@@ -825,8 +883,7 @@ export async function getEcoResponse(
     });
   } catch (e: any) {
     log.warn(`[getEcoResponse] LLM rota completa falhou: ${e?.message}`);
-    const msg =
-      "Desculpa, tive um problema técnico agora. Topa tentar de novo?";
+    const msg = "Desculpa, tive um problema técnico agora. Topa tentar de novo?";
     return defaultResponseFinalizer.finalize({
       raw: msg,
       ultimaMsg,
@@ -860,7 +917,7 @@ export async function getEcoResponse(
     });
   }
 
-  return defaultResponseFinalizer.finalize({
+  const finalized = await defaultResponseFinalizer.finalize({
     raw: data?.content ?? "",
     ultimaMsg,
     userName,
@@ -876,6 +933,40 @@ export async function getEcoResponse(
     sessaoId: sessionMeta?.sessaoId ?? undefined,
     origemSessao: sessionMeta?.origem ?? undefined,
   });
+
+  // Persistência via RPC também no modo não-streaming
+  try {
+    const metaPayload = buildStreamingMetaPayload(
+      {
+        intensidade: finalized.intensidade,
+        analise_resumo: finalized.resumo,
+        emocao_principal: finalized.emocao,
+        categoria: finalized.categoria,
+        tags: finalized.tags,
+      } as any,
+      finalized.message ?? ""
+    );
+
+    if (metaPayload && metaPayload.intensidade >= 7) {
+      const rpcRes = await salvarMemoriaViaRPC({
+        supabase,
+        userId,
+        mensagemId: (thread.at(-1)?.id as string) ?? null,
+        meta: metaPayload,
+        origem: "full_sync",
+      });
+      if (rpcRes.saved) {
+        log.info("[FullSync] memoria salva via RPC", {
+          memoriaId: rpcRes.memoriaId,
+          primeira: rpcRes.primeira,
+        });
+      }
+    }
+  } catch (e: any) {
+    log.warn("[FullSync] salvarMemoriaViaRPC falhou (ignorado)", { message: e?.message });
+  }
+
+  return finalized;
 }
 
 export { getEcoResponse as getEcoResponseOtimizado };
