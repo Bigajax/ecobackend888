@@ -20,38 +20,30 @@ Ao final da resposta, adicionar UM JSON puro (sem crases, sem comentários)
 }
 ```
 
-## Melhorias na Forma de Usar
+Campos Chave
+padrao_comportamental:
 
-**1. PADRAO_COMPORTAMENTAL melhorado:**
-- Era: descrição vaga do comportamento
-- Agora: "gatilho + padrão" (ex: "sobrecarga_gera_perfeccionismo_defensivo")
+Formato: "gatilho_gera_padrão"
+Ex: "sobrecarga_gera_perfeccionismo_defensivo"
 
-**2. ANALISE_RESUMO mais direto:**
-- Reduzido para 20 palavras (vs 25)
-- Foco no insight essencial + necessidade da pessoa
+analise_resumo:
 
-**3. TAGS mais estratégicas:**
-- Máx 4 itens (vs 5)
-- Mais específicas para facilitar busca/agrupamento
+Máx 20 palavras
+Foco: insight + necessidade da pessoa
+Sem diagnósticos clínicos
 
-## Exemplos Variados
+tags:
 
-### Frustração Profissional
-```json
-{
-  "emocao_principal": "frustração",
-  "intensidade": 7,
-  "tags": ["sobrecarga", "autoexigencia", "prazos", "perfeccionismo"],
-  "dominio_vida": "trabalho",
-  "padrao_comportamental": "sobrecarga_gera_perfeccionismo_defensivo",
-  "nivel_abertura": 2,
-  "categoria": "profissional",
-  "analise_resumo": "Frustração sinaliza limite atingido, precisa validação e pequenos passos."
-}
-```
+Máx 4 itens
+Específicas para busca/agrupamento
+Sem nomes/lugares
+
+dominio_vida:
+
+trabalho, família, relacionamento, saúde, propósito, etc.
 
 ### Ansiedade Relacional
-```json
+
 {
   "emocao_principal": "ansiedade",
   "intensidade": 8,
@@ -65,7 +57,7 @@ Ao final da resposta, adicionar UM JSON puro (sem crases, sem comentários)
 ```
 
 ### Tristeza Existencial
-```json
+
 {
   "emocao_principal": "tristeza",
   "intensidade": 7,
@@ -79,7 +71,7 @@ Ao final da resposta, adicionar UM JSON puro (sem crases, sem comentários)
 ```
 
 ### Raiva Familiar
-```json
+
 {
   "emocao_principal": "raiva",
   "intensidade": 9,
@@ -90,10 +82,11 @@ Ao final da resposta, adicionar UM JSON puro (sem crases, sem comentários)
   "categoria": "relacional",
   "analise_resumo": "Raiva sinaliza limite violado. Precisa estratégia de comunicação assertiva."
 }
-```
+```  
 
-## Regras Importantes
-- analise_resumo: sem diagnósticos clínicos
-- dominio_vida: trabalho, família, relacionamento, saúde, propósito, etc.
-- tags: curtas, sem nomes/lugares específicos
-- Nunca inventar detalhes sensíveis
+Regras
+
+Nunca inventar detalhes sensíveis
+Sem diagnósticos clínicos
+Tags sem nomes/lugares específicos
+Domínio sempre uma área clara da vida
