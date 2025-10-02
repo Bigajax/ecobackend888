@@ -18,6 +18,7 @@ export type Flags = {
   desabafo: boolean;
   urgencia: boolean;
   emocao_alta_linguagem: boolean;
+  crise: boolean; // ← ADICIONADO
 
   // 🔥 Heurísticas cognitivas (eco_heuristica_*.txt)
   ancoragem: boolean;
@@ -130,6 +131,19 @@ export function derivarFlags(texto: string, heuristicaFlags: HeuristicaFlagRecor
       t
     );
 
+  // 🚨 crise (sinalização ampla: ideação/risco/severo)
+  const crise = [
+    /suicid/i,
+    /me matar/i,
+    /tirar minha vida/i,
+    /acab(ar|ando) com tudo/i,
+    /ou(v|b)o vozes/i,
+    /psicose/i,
+    /agredir/i,
+    /viol[eê]ncia/i,
+    /p[aá]nico (severo|forte)/i,
+  ].some((r) => r.test(raw));
+
   return {
     curiosidade,
     pedido_pratico,
@@ -140,6 +154,9 @@ export function derivarFlags(texto: string, heuristicaFlags: HeuristicaFlagRecor
     desabafo,
     urgencia,
     emocao_alta_linguagem,
+    crise, // ← ADICIONADO
+
+    // heurísticas vindas do mapeamento
     ancoragem: Boolean(heuristicaFlags.ancoragem),
     causas_superam_estatisticas: Boolean(heuristicaFlags.causas_superam_estatisticas),
     certeza_emocional: Boolean(heuristicaFlags.certeza_emocional),
@@ -171,6 +188,8 @@ type Ctx = {
   desabafo: boolean;
   urgencia: boolean;
   emocao_alta_linguagem: boolean;
+  crise: boolean; // ← ADICIONADO
+
   ancoragem: boolean;
   causas_superam_estatisticas: boolean;
   certeza_emocional: boolean;
@@ -234,6 +253,7 @@ function readVarBool(name: string, ctx: Ctx): boolean | null {
     case "desabafo":
     case "urgencia":
     case "emocao_alta_linguagem":
+    case "crise": // ← ADICIONADO
     case "ancoragem":
     case "causas_superam_estatisticas":
     case "certeza_emocional":
