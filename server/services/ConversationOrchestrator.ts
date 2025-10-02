@@ -519,8 +519,9 @@ export async function getEcoResponse(
     let modelFromStream: string | null | undefined;
     let streamFailure: Error | null = null;
 
-    let resolveRawForBloco: ((value: string) => void) | null = null;
-    let rejectRawForBloco: ((reason?: unknown) => void) | null = null;
+    // DEFINITE ASSIGNMENT: garantimos que serão atribuídas no new Promise abaixo
+    let resolveRawForBloco!: (value: string) => void;
+    let rejectRawForBloco!: (reason?: unknown) => void;
     const rawForBlocoPromise = new Promise<string>((resolve, reject) => {
       resolveRawForBloco = resolve;
       rejectRawForBloco = reject;
@@ -705,18 +706,14 @@ export async function getEcoResponse(
         },
         async onError(error: Error) {
           streamFailure = error;
-          if (rejectRawForBloco) {
-            rejectRawForBloco(error);
-          }
+          rejectRawForBloco(error);
           await emitStream({ type: "error", error });
         },
       }
     ).catch((error: any) => {
       const err = error instanceof Error ? error : new Error(String(error));
       streamFailure = err;
-      if (rejectRawForBloco) {
-        rejectRawForBloco(err);
-      }
+      rejectRawForBloco(err);
       throw err;
     });
 
@@ -743,9 +740,7 @@ export async function getEcoResponse(
     }
 
     const raw = streamedChunks.join("");
-    if (resolveRawForBloco) {
-      resolveRawForBloco(raw);
-    }
+    resolveRawForBloco(raw);
 
     let finalizePromise: Promise<GetEcoResult> | null = null;
     const finalize = () => {
