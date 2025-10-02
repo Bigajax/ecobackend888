@@ -1,12 +1,26 @@
 // server/controllers/memoriasController.ts
 import { supabaseWithBearer } from "../adapters/SupabaseAdapter";
+import { supabase } from "../lib/supabaseAdmin";
 import type { Request, Response } from "express";
 
 export async function registrarMemoriaHandler(req: Request, res: Response) {
   try {
-    // ajuste conforme seu middleware de auth
-    const usuarioId = (req as any)?.auth?.user?.id || (req as any)?.user?.id;
-    if (!usuarioId) return res.status(401).json({ error: "Não autenticado" });
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith("Bearer ")) {
+      return res.status(401).json({ error: "Não autenticado" });
+    }
+
+    const token = authHeader.slice("Bearer ".length).trim();
+    if (!token) {
+      return res.status(401).json({ error: "Não autenticado" });
+    }
+
+    const { data, error: getUserError } = await supabase.auth.getUser(token);
+    if (getUserError || !data?.user) {
+      return res.status(401).json({ error: "Não autenticado" });
+    }
+
+    const usuarioId = data.user.id;
 
     const { texto, intensidade, tags, dominio_vida, padrao_comportamental, meta } = req.body;
     if (typeof intensidade !== "number") {
@@ -14,11 +28,9 @@ export async function registrarMemoriaHandler(req: Request, res: Response) {
     }
 
     // pegue o token do header Authorization, se seu helper exigir
-    const authHeader = req.headers.authorization || "";
-    const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : undefined;
-    const supabase = supabaseWithBearer(token || req); // conforme seu helper
+    const supabaseClient = supabaseWithBearer(token);
 
-    const { data, error } = await supabase.rpc("registrar_memoria", {
+    const { data, error } = await supabaseClient.rpc("registrar_memoria", {
       p_usuario: usuarioId,
       p_texto: texto ?? "",
       p_intensidade: intensidade,
