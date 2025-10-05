@@ -30,7 +30,7 @@ export async function registrarMemoriaHandler(req: Request, res: Response) {
     // pegue o token do header Authorization, se seu helper exigir
     const supabaseClient = supabaseWithBearer(token);
 
-    const { data, error } = await supabaseClient.rpc("registrar_memoria", {
+    const { data: rpcData, error } = await supabaseClient.rpc("registrar_memoria", {
       p_usuario: usuarioId,
       p_texto: texto ?? "",
       p_intensidade: intensidade,
@@ -42,7 +42,7 @@ export async function registrarMemoriaHandler(req: Request, res: Response) {
 
     if (error) return res.status(400).json({ error: error.message });
 
-    const row = Array.isArray(data) ? data[0] : data;
+    const row = Array.isArray(rpcData) ? rpcData[0] : rpcData;
     if (!row) return res.status(500).json({ error: "RPC não retornou dados" });
 
     return res.json({
