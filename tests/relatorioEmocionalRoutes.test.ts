@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
-import type { Request } from "express";
 import {
   DEFAULT_RELATORIO_VIEW,
   extractDistinctId,
   extractRelatorioView,
 } from "../server/routes/relatorioEmocionalView";
+
+type RelatorioRequest = Parameters<typeof extractRelatorioView>[0];
 
 type TestCase = { name: string; run: () => Promise<void> | void };
 
@@ -14,12 +15,12 @@ function test(name: string, run: () => Promise<void> | void) {
   tests.push({ name, run });
 }
 
-function makeRequest(overrides: Partial<Request>): Request {
+function makeRequest(overrides: Partial<RelatorioRequest>): RelatorioRequest {
   return {
     query: {},
     headers: {},
     ...overrides,
-  } as Request;
+  } as RelatorioRequest;
 }
 
 test("defaults to mapa when no view provided", () => {
