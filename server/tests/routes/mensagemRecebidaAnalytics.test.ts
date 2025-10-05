@@ -95,6 +95,9 @@ test("/ask-eco delega prompt ao orquestrador e propaga eventos de prompt_ready",
         },
       },
     },
+    "../adapters/EmbeddingAdapter": {
+      getEmbeddingCached: async () => [],
+    },
     "../services/ConversationOrchestrator": {
       getEcoResponse: async (params: any) => {
         orchestratorCalls.push(params);
