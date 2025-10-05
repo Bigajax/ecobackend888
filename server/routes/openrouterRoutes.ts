@@ -10,14 +10,11 @@ import {
   type EcoLatencyMarks,
 } from "../services/ConversationOrchestrator";
 import type { GetEcoResult } from "../utils";
-import { embedTextoCompleto } from "../adapters/embeddingService";
-import { buscarMemoriasSemelhantes } from "../services/buscarMemorias";
 import { extractSessionMeta } from "./sessionMeta";
 import { trackEcoCache, trackMensagemRecebida } from "../analytics/events/mixpanelEvents";
 
 // montar contexto e log
-import { ContextBuilder } from "../services/promptContext";
-import { log, isDebug } from "../services/promptContext/logger";
+import { log } from "../services/promptContext/logger";
 import { now } from "../utils";
 import { RESPONSE_CACHE } from "../services/CacheService";
 
@@ -311,69 +308,6 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
       }
     };
 
-    // embedding opcional (garante number[])
-    let queryEmbedding: number[] | undefined;
-    if (ultimaMsg.trim().length >= 6) {
-      try {
-        const raw = await embedTextoCompleto(ultimaMsg);
-        const arr = Array.isArray(raw) ? raw : JSON.parse(String(raw));
-        if (Array.isArray(arr)) {
-          const coerced = (arr as unknown[]).map((v) => Number(v));
-          if (!coerced.some((n) => Number.isNaN(n))) {
-            queryEmbedding = coerced;
-          }
-        }
-      } catch (e) {
-        log.warn("⚠️ Falha ao gerar embedding:", (e as Error)?.message);
-      }
-    }
-
-    // threshold adaptativo
-    let threshold = 0.15;
-    if (ultimaMsg.trim().length < 20) threshold = 0.1;
-    if (/lembr|record|memó/i.test(ultimaMsg)) threshold = Math.min(threshold, 0.12);
-
-    // memórias
-    let memsSimilares: any[] = [];
-    try {
-      memsSimilares = await buscarMemoriasSemelhantes(usuario_id, {
-        userEmbedding: queryEmbedding,
-        texto: queryEmbedding ? undefined : ultimaMsg,
-        k: 4, // LATENCY: top_k
-        threshold,
-      });
-      log.info(
-        "🔎 Memórias similares:",
-        memsSimilares.map((m) => ({
-          id: typeof m.id === "string" ? m.id.slice(0, 8) : m.id,
-          sim: m.similaridade ?? m.similarity ?? 0,
-        }))
-      );
-    } catch (memErr) {
-      log.warn("⚠️ Falha na busca de memórias semelhantes:", (memErr as Error)?.message);
-      memsSimilares = [];
-    }
-
-    // ===== monta contexto com ContextBuilder (sem 'new') =====
-    const buildIn = {
-      userId: usuario_id,
-      texto: ultimaMsg,
-      perfil: req.body?.perfil ?? null,
-      heuristicas: req.body?.heuristicas ?? null,
-      mems: memsSimilares,
-      blocoTecnicoForcado: req.body?.blocoTecnicoForcado ?? null,
-      forcarMetodoViva: req.body?.forcarMetodoViva ?? false,
-      aberturaHibrida: req.body?.aberturaHibrida ?? null,
-    };
-    const contexto = await ContextBuilder.build(buildIn);
-    const prompt = contexto.montarMensagemAtual(ultimaMsg);
-
-    if (isDebug()) {
-      log.debug("[ask-eco] Contexto montado", {
-        promptLen: typeof prompt === "string" ? prompt.length : -1,
-      });
-    }
-
     let doneNotified = false;
     const streamHandler: EcoStreamHandler = {
       async onEvent(event) {
@@ -442,8 +376,6 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
       userId: usuario_id,
       userName: nome_usuario,
       accessToken: token,
-      mems: memsSimilares,
-      promptOverride: prompt, // <- string
       sessionMeta,
       stream: streamHandler,
     });
