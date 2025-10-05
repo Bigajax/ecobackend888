@@ -22,10 +22,7 @@ import { DERIVADOS_CACHE } from "./CacheService";
 
 import { defaultGreetingPipeline } from "./conversation/greeting";
 import { defaultConversationRouter } from "./conversation/router";
-import {
-  defaultParallelFetchService,
-  withTimeoutOrNull,
-} from "./conversation/parallelFetch";
+import { defaultParallelFetchService } from "./conversation/parallelFetch";
 import { defaultContextCache } from "./conversation/contextCache";
 import {
   defaultResponseFinalizer,
@@ -441,71 +438,95 @@ export async function getEcoResponse(
       ]);
 
   // Derivados com cache + timeout
-  const derivadosPromise =
-    shouldSkipDerivados || cachedDerivados
-      ? Promise.resolve(cachedDerivados)
-      : withTimeoutOrNull(
-          (async () => {
-            try {
-              const [{ data: stats }, { data: marcos }, { data: efeitos }] =
-                await Promise.all([
-                  supabase
-                    .from("user_theme_stats")
-                    .select("tema,freq_30d,int_media_30d")
-                    .eq("user_id", userId)
-                    .order("freq_30d", { ascending: false })
-                    .limit(5),
-                  supabase
-                    .from("user_temporal_milestones")
-                    .select("tema,resumo_evolucao,marco_at")
-                    .eq("user_id", userId)
-                    .order("marco_at", { ascending: false })
-                    .limit(3),
-                  supabase
-                    .from("interaction_effects")
-                    .select("efeito,score,created_at")
-                    .eq("user_id", userId)
-                    .order("created_at", { ascending: false })
-                    .limit(30),
-                ]);
+  const derivadosTimeoutToken = Symbol("derivados_timeout");
+  let derivadosPromise: Promise<any | null>;
 
-              const arr = (efeitos || []).map((r: any) => ({
-                x: { efeito: (r.efeito as any) ?? "neutro" },
-              }));
-              const scores = (efeitos || [])
-                .map((r: any) => Number(r?.score))
-                .filter((v: number) => Number.isFinite(v));
-              const media = scores.length
-                ? scores.reduce((a: number, b: number) => a + b, 0) /
-                  scores.length
-                : 0;
+  if (shouldSkipDerivados) {
+    derivadosPromise = Promise.resolve(cachedDerivados ?? null);
+  } else if (cachedDerivados) {
+    derivadosPromise = Promise.resolve(cachedDerivados);
+  } else {
+    const fetchPromise = (async () => {
+      try {
+        const [{ data: stats }, { data: marcos }, { data: efeitos }] =
+          await Promise.all([
+            supabase
+              .from("user_theme_stats")
+              .select("tema,freq_30d,int_media_30d")
+              .eq("user_id", userId)
+              .order("freq_30d", { ascending: false })
+              .limit(5),
+            supabase
+              .from("user_temporal_milestones")
+              .select("tema,resumo_evolucao,marco_at")
+              .eq("user_id", userId)
+              .order("marco_at", { ascending: false })
+              .limit(3),
+            supabase
+              .from("interaction_effects")
+              .select("efeito,score,created_at")
+              .eq("user_id", userId)
+              .order("created_at", { ascending: false })
+              .limit(30),
+          ]);
 
-              return getDerivados(
-                (stats || []) as any,
-                (marcos || []) as any,
-                arr as any,
-                media
-              );
-            } catch {
-              return null;
-            }
-          })(),
-          DERIVADOS_TIMEOUT_MS,
-          "derivados",
-          { logger: log }
+        const arr = (efeitos || []).map((r: any) => ({
+          x: { efeito: (r.efeito as any) ?? "neutro" },
+        }));
+        const scores = (efeitos || [])
+          .map((r: any) => Number(r?.score))
+          .filter((v: number) => Number.isFinite(v));
+        const media = scores.length
+          ? scores.reduce((a: number, b: number) => a + b, 0) / scores.length
+          : 0;
+
+        return getDerivados(
+          (stats || []) as any,
+          (marcos || []) as any,
+          arr as any,
+          media
         );
+      } catch (error) {
+        if (isDebug()) {
+          const message = error instanceof Error ? error.message : String(error);
+          log.debug("[Orchestrator] derivados fetch falhou", { message });
+        }
+        return null;
+      }
+    })();
+
+    const backgroundPromise = fetchPromise
+      .then((result) => {
+        if (
+          derivadosCacheKey &&
+          result &&
+          typeof result === "object"
+        ) {
+          DERIVADOS_CACHE.set(derivadosCacheKey, result);
+        }
+        return result;
+      })
+      .catch((error) => {
+        if (isDebug()) {
+          const message = error instanceof Error ? error.message : String(error);
+          log.debug("[Orchestrator] derivados background falhou", { message });
+        }
+        return null;
+      });
+
+    derivadosPromise = Promise.race([
+      backgroundPromise,
+      sleep(DERIVADOS_TIMEOUT_MS).then(() => derivadosTimeoutToken),
+    ]).then((result) => {
+      if (result === derivadosTimeoutToken) {
+        return null;
+      }
+      return (result as any) ?? null;
+    });
+  }
 
   const paralelas = await paralelasPromise;
-  const derivados = await derivadosPromise;
-
-  if (
-    derivadosCacheKey &&
-    !cachedDerivados &&
-    derivados &&
-    typeof derivados === "object"
-  ) {
-    DERIVADOS_CACHE.set(derivadosCacheKey, derivados);
-  }
+  const derivados = (await derivadosPromise) ?? null;
 
   const heuristicas: any[] = paralelas?.heuristicas ?? [];
   const userEmbedding: number[] = paralelas?.userEmbedding ?? [];

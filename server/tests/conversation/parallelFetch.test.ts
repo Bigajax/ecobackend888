@@ -96,6 +96,7 @@ test("encaminha embedding para heurísticas e memórias quando disponível", asy
   });
   assert.deepStrictEqual(calls.getMemorias[0], ["user-123", {
     texto: "quero entender meus padrões",
+    userEmbedding: fakeEmbedding,
     k: 3,
     threshold: 0.12,
     supabaseClient: { tag: "db" },
