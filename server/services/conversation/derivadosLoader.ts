@@ -41,7 +41,7 @@ export interface LoadConversationContextOptions {
   promptOverride?: string;
   metaFromBuilder?: any;
   // Logger mínimo exigido: apenas warn; usamos optional chaining ao invocar
-  logger?: { warn: (msg: string) => void } | undefined;
+  logger?: { warn?: (msg: string) => void } | undefined;
   parallelFetchService?: ParallelFetchLike;
   cache?: CacheLike<Derivados>;
   getDerivadosFn?: typeof getDerivados;
@@ -50,12 +50,13 @@ export interface LoadConversationContextOptions {
   sleepFn?: typeof sleep;
   derivadosTimeoutMs?: number;
   paralelasTimeoutMs?: number;
+  onDerivadosError?: (error: unknown) => void;
 }
 
-const DEFAULT_DERIVADOS_TIMEOUT_MS = Number(
+export const DEFAULT_DERIVADOS_TIMEOUT_MS = Number(
   process.env.ECO_DERIVADOS_TIMEOUT_MS ?? 600
 );
-const DEFAULT_PARALELAS_TIMEOUT_MS = Number(
+export const DEFAULT_PARALELAS_TIMEOUT_MS = Number(
   process.env.ECO_PARALELAS_TIMEOUT_MS ?? 180
 );
 
@@ -83,6 +84,7 @@ export async function loadConversationContext(
     sleepFn = sleep,
     derivadosTimeoutMs = DEFAULT_DERIVADOS_TIMEOUT_MS,
     paralelasTimeoutMs = DEFAULT_PARALELAS_TIMEOUT_MS,
+    onDerivadosError,
   } = options;
 
   const shouldSkipDerivados =
@@ -153,6 +155,7 @@ export async function loadConversationContext(
                 media
               );
             } catch (e) {
+              onDerivadosError?.(e);
               logger?.warn?.(
                 `[derivadosLoader] falha ao buscar derivados: ${
                   (e as Error)?.message

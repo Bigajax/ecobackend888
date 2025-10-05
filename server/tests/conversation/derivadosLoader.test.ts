@@ -162,3 +162,47 @@ test("transforma efeitos em estrutura compatível com insight de abertura", asyn
   assert.deepStrictEqual(result.userEmbedding, [1, 2]);
   assert.deepStrictEqual(result.memsSemelhantes, ["memx"]);
 });
+
+test("invoca callback onDerivadosError quando leitura falha", async () => {
+  const errors: unknown[] = [];
+
+  const failingBuilder: any = {
+    select() {
+      throw new Error("boom");
+    },
+    eq() {
+      return this;
+    },
+    order() {
+      return this;
+    },
+    limit() {
+      return Promise.resolve({ data: [] });
+    },
+  };
+
+  const supabase = {
+    from() {
+      return failingBuilder;
+    },
+  };
+
+  const cache = {
+    get: () => undefined,
+    set: () => undefined,
+  };
+
+  const result = await loadConversationContext("user-4", "teste", supabase, {
+    cache,
+    onDerivadosError: (error) => {
+      errors.push(error);
+    },
+    parallelFetchService: {
+      run: async () => parallelResult,
+    },
+  });
+
+  assert.strictEqual(result.derivados, null);
+  assert.deepStrictEqual(errors.length, 1);
+  assert.strictEqual(result.aberturaHibrida, null);
+});
