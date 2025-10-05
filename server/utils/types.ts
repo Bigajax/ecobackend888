@@ -23,7 +23,7 @@ export type ProactivePayload = {
 
 export type GetEcoParams = {
   messages: ChatMessage[];
-  userId?: string;
+  userId: string;
   userName?: string;
   accessToken: string;
   mems?: any[];
