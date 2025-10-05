@@ -41,10 +41,13 @@ const getRouteHandler = (router: any, path: string, index = 0) => {
 };
 
 const makeResponse = () => {
+  const events: Array<Record<string, unknown>> = [];
   return {
     statusCode: 200,
     headers: new Map<string, string>(),
     payload: undefined as unknown,
+    events,
+    ended: false,
     status(code: number) {
       this.statusCode = code;
       return this;
@@ -56,11 +59,33 @@ const makeResponse = () => {
     setHeader(name: string, value: string) {
       this.headers.set(name.toLowerCase(), value);
     },
+    write(chunk: Buffer | string) {
+      const text = chunk.toString();
+      const parts = text.split("\n\n").filter(Boolean);
+      for (const part of parts) {
+        const dataLine = part
+          .split("\n")
+          .find((line) => line.startsWith("data: "));
+        if (!dataLine) continue;
+        const json = dataLine.replace(/^data: /, "");
+        try {
+          events.push(JSON.parse(json));
+        } catch {
+          // ignora payloads que não são JSON válidos durante os testes
+        }
+      }
+    },
+    end() {
+      this.ended = true;
+    },
+    flush() {},
+    flushHeaders() {},
   };
 };
 
-test("/ask-eco dispara trackMensagemRecebida com metadados básicos", async () => {
+test("/ask-eco delega prompt ao orquestrador e propaga eventos de prompt_ready", async () => {
   const trackCalls: any[] = [];
+  const orchestratorCalls: any[] = [];
 
   const router = await loadRouterWithStubs("../../routes/openrouterRoutes", {
     "../lib/supabaseAdmin": {
@@ -71,18 +96,41 @@ test("/ask-eco dispara trackMensagemRecebida com metadados básicos", async () =
       },
     },
     "../services/ConversationOrchestrator": {
-      getEcoResponse: async () => ({ message: "eco" }),
-    },
-    "../adapters/embeddingService": {
-      embedTextoCompleto: async () => [],
-    },
-    "../services/buscarMemorias": {
-      buscarMemoriasSemelhantes: async () => [],
-    },
-    "../services/promptContext": {
-      ContextBuilder: {
-        build: async () => "prompt",
+      getEcoResponse: async (params: any) => {
+        orchestratorCalls.push(params);
+        if (params.stream) {
+          await params.stream.onEvent({
+            type: "control",
+            name: "prompt_ready",
+            timings: { cache: false },
+          });
+          await params.stream.onEvent({ type: "control", name: "first_token" });
+          await params.stream.onEvent({
+            type: "chunk",
+            content: "eco resposta",
+            index: 0,
+          });
+          await params.stream.onEvent({
+            type: "control",
+            name: "done",
+            meta: { length: "eco resposta".length, modelo: "teste" },
+            timings: { cache: false },
+          });
+        }
+        return {
+          raw: "eco resposta",
+          modelo: "teste",
+          usage: { total_tokens: 42 },
+          timings: { cache: false },
+          finalize: async () => ({ raw: "eco resposta" }),
+        };
       },
+    },
+    "../analytics/events/mixpanelEvents": {
+      trackMensagemRecebida: (payload: unknown) => {
+        trackCalls.push(payload);
+      },
+      trackEcoCache: () => {},
     },
     "../services/promptContext/logger": {
       log: {
@@ -90,12 +138,6 @@ test("/ask-eco dispara trackMensagemRecebida com metadados básicos", async () =
         warn: () => {},
         error: () => {},
         debug: () => {},
-      },
-      isDebug: () => false,
-    },
-    "../analytics/events/mixpanelEvents": {
-      trackMensagemRecebida: (payload: unknown) => {
-        trackCalls.push(payload);
       },
     },
   });
@@ -115,6 +157,7 @@ test("/ask-eco dispara trackMensagemRecebida com metadados básicos", async () =
     headers: {
       authorization: "Bearer token-123",
     },
+    on() {},
   } as any;
 
   await handler(req, res);
@@ -132,6 +175,16 @@ test("/ask-eco dispara trackMensagemRecebida com metadados básicos", async () =
   assert.equal(event.origemSessao, "app-mobile");
   assert.ok(typeof event.timestamp === "string");
   assert.ok(!Number.isNaN(Date.parse(event.timestamp)));
+
+  assert.equal(orchestratorCalls.length, 1);
+  const orchestratorParams = orchestratorCalls[0];
+  assert.equal(orchestratorParams.promptOverride, undefined);
+  assert.equal(orchestratorParams.mems, undefined);
+
+  const promptReady = res.events.find((payload) => payload.type === "prompt_ready");
+  assert.ok(promptReady, "espera prompt_ready vindo do orquestrador");
+  const chunk = res.events.find((payload) => payload.type === "chunk");
+  assert.equal(chunk?.delta, "eco resposta");
 });
 
 test("rota de voz dispara trackMensagemRecebida com bytes e duração", async () => {
