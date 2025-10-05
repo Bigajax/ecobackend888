@@ -12,6 +12,7 @@ import {
 import type { GetEcoResult } from "../utils";
 import { extractSessionMeta } from "./sessionMeta";
 import { trackEcoCache, trackMensagemRecebida } from "../analytics/events/mixpanelEvents";
+import { getEmbeddingCached } from "../adapters/EmbeddingAdapter";
 
 // montar contexto e log
 import { log } from "../services/promptContext/logger";
@@ -147,6 +148,7 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
     });
 
     const ultimaMsg = String(mensagensParaIA.at(-1)?.content ?? "");
+    const trimmedUltimaMsg = ultimaMsg.trim();
     log.info("🗣️ Última mensagem:", safeLog(ultimaMsg));
 
     trackMensagemRecebida({
@@ -297,6 +299,14 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
         key: cacheKey,
         source: "openrouter",
       });
+    }
+
+    if (trimmedUltimaMsg.length >= 6) {
+      try {
+        await getEmbeddingCached(trimmedUltimaMsg, "entrada_usuario");
+      } catch (embeddingErr: any) {
+        log.warn("⚠️ Falha ao aquecer cache de embedding:", embeddingErr?.message ?? embeddingErr);
+      }
     }
 
     const sendErrorAndEnd = (message: string) => {

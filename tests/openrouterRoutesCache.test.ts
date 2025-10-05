@@ -36,6 +36,9 @@ const originalLoad = (Module as any)._load;
   if (request === "dotenv") {
     return { config: () => ({}) };
   }
+  if (request === "../adapters/EmbeddingAdapter") {
+    return { getEmbeddingCached: async () => [] };
+  }
   return originalLoad.call(this, request, parent, isMain);
 };
 
