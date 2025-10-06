@@ -4,7 +4,7 @@ import { Readable } from "node:stream";
 
 import { httpAgent, httpsAgent } from "../adapters/OpenRouterAdapter";
 
-type Msg = { role: "system" | "user" | "assistant"; content: string };
+export type Msg = { role: "system" | "user" | "assistant"; content: string };
 
 /** Tipos mínimos do retorno da OpenRouter (compatível com strict) */
 type ORole = "system" | "user" | "assistant";
