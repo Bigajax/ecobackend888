@@ -5,10 +5,10 @@ import { supabase } from "../lib/supabaseAdmin"; // ✅ usa a instância (não �
 
 import {
   getEcoResponse,
-  buildFinalizedStreamText,
   type EcoStreamHandler,
   type EcoLatencyMarks,
 } from "../services/ConversationOrchestrator";
+import { buildFinalizedStreamText } from "../services/conversation/responseMetadata";
 import type { GetEcoResult } from "../utils";
 import { extractSessionMeta } from "./sessionMeta";
 import { trackEcoCache, trackMensagemRecebida } from "../analytics/events/mixpanelEvents";
