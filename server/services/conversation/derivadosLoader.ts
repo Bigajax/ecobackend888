@@ -107,79 +107,97 @@ export async function loadConversationContext(
         sleepFn(paralelasTimeoutMs).then(() => EMPTY_PARALLEL_RESULT),
       ]);
 
-  const derivadosPromise =
-    shouldSkipDerivados || cachedDerivados
-      ? Promise.resolve(cachedDerivados)
-      : withTimeoutOrNullFn(
-          (async () => {
-            try {
-              const [{ data: stats }, { data: marcos }, { data: efeitos }] =
-                await Promise.all([
-                  supabase
-                    .from("user_theme_stats")
-                    .select("tema,freq_30d,int_media_30d")
-                    .eq("user_id", userId)
-                    .order("freq_30d", { ascending: false })
-                    .limit(5),
-                  supabase
-                    .from("user_temporal_milestones")
-                    .select("tema,resumo_evolucao,marco_at")
-                    .eq("user_id", userId)
-                    .order("marco_at", { ascending: false })
-                    .limit(3),
-                  supabase
-                    .from("interaction_effects")
-                    .select("efeito,score,created_at")
-                    .eq("user_id", userId)
-                    .order("created_at", { ascending: false })
-                    .limit(30),
-                ]);
+  let derivadosFetchPromise: Promise<Derivados | null> | null = null;
 
-              const arr = (efeitos || []).map((r: any) => ({
-                x: { efeito: (r?.efeito as any) ?? "neutro" },
-              }));
+  const startDerivadosFetch = () =>
+    (async () => {
+      try {
+        const [{ data: stats }, { data: marcos }, { data: efeitos }] =
+          await Promise.all([
+            supabase
+              .from("user_theme_stats")
+              .select("tema,freq_30d,int_media_30d")
+              .eq("user_id", userId)
+              .order("freq_30d", { ascending: false })
+              .limit(5),
+            supabase
+              .from("user_temporal_milestones")
+              .select("tema,resumo_evolucao,marco_at")
+              .eq("user_id", userId)
+              .order("marco_at", { ascending: false })
+              .limit(3),
+            supabase
+              .from("interaction_effects")
+              .select("efeito,score,created_at")
+              .eq("user_id", userId)
+              .order("created_at", { ascending: false })
+              .limit(30),
+          ]);
 
-              const scores = (efeitos || [])
-                .map((r: any) => Number(r?.score))
-                .filter((v: number) => Number.isFinite(v));
+        const arr = (efeitos || []).map((r: any) => ({
+          x: { efeito: (r?.efeito as any) ?? "neutro" },
+        }));
 
-              const media = scores.length
-                ? scores.reduce((a: number, b: number) => a + b, 0) /
-                  scores.length
-                : 0;
+        const scores = (efeitos || [])
+          .map((r: any) => Number(r?.score))
+          .filter((v: number) => Number.isFinite(v));
 
-              return getDerivadosFn(
-                (stats || []) as any,
-                (marcos || []) as any,
-                arr as any,
-                media
-              );
-            } catch (e) {
-              onDerivadosError?.(e);
-              logger?.warn?.(
-                `[derivadosLoader] falha ao buscar derivados: ${
-                  (e as Error)?.message
-                }`
-              );
-              return null;
-            }
-          })(),
-          derivadosTimeoutMs,
-          "derivados",
-          // Cast para evitar conflitos de tipo caso withTimeoutOrNull espere LogAPI completo
-          { logger: logger as any }
+        const media = scores.length
+          ? scores.reduce((a: number, b: number) => a + b, 0) /
+            scores.length
+          : 0;
+
+        return getDerivadosFn(
+          (stats || []) as any,
+          (marcos || []) as any,
+          arr as any,
+          media
         );
+      } catch (e) {
+        onDerivadosError?.(e);
+        logger?.warn?.(
+          `[derivadosLoader] falha ao buscar derivados: ${(e as Error)?.message}`
+        );
+        return null;
+      }
+    })();
+
+  let derivadosPromise: Promise<Derivados | null>;
+  if (shouldSkipDerivados) {
+    derivadosPromise = Promise.resolve(cachedDerivados ?? null);
+  } else if (cachedDerivados) {
+    derivadosPromise = Promise.resolve(cachedDerivados);
+  } else {
+    derivadosFetchPromise = startDerivadosFetch();
+    derivadosPromise = withTimeoutOrNullFn(
+      derivadosFetchPromise,
+      derivadosTimeoutMs,
+      "derivados",
+      // Cast para evitar conflitos de tipo caso withTimeoutOrNull espere LogAPI completo
+      { logger: logger as any }
+    );
+  }
 
   const paralelas = await paralelasPromise;
   const derivados = await derivadosPromise;
 
-  if (
-    derivadosCacheKey &&
-    !cachedDerivados &&
-    derivados &&
-    typeof derivados === "object"
-  ) {
-    cache.set(derivadosCacheKey, derivados);
+  const cacheDerivados = (value: Derivados | null) => {
+    if (
+      !derivadosCacheKey ||
+      cachedDerivados ||
+      shouldSkipDerivados ||
+      !value ||
+      typeof value !== "object"
+    ) {
+      return;
+    }
+    cache.set(derivadosCacheKey, value);
+  };
+
+  if (derivados && typeof derivados === "object") {
+    cacheDerivados(derivados);
+  } else if (derivadosFetchPromise) {
+    derivadosFetchPromise.then(cacheDerivados).catch(() => undefined);
   }
 
   const heuristicas: any[] = paralelas?.heuristicas ?? [];
