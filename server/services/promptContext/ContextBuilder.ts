@@ -10,24 +10,12 @@ import { buildInstructionBlocks, renderInstructionBlocks } from "./instructionPo
 import { applyCurrentMessage, composePromptBase } from "./promptComposer";
 import { applyReductions, stitchModules } from "./stitcher";
 
-// 👇 Identidade MINI (70/30) + estilo curto
-const ID_ECO =
-  "Você é a Eco: espelho socrático de autoconhecimento — reflexiva, curiosa e acolhedora. " +
-  "Proporção: 70% espelho (devolver padrões, clarear percepções) + 30% coach gentil (encorajamento, humor leve). " +
-  "Objetivo: criar um espaço seguro de reflexão para o usuário se ver com mais clareza, com companhia curiosa e respeitosa. " +
-  "Evite linguagem robótica, jargões de coaching, prescrições, diagnósticos e substituir terapia.";
-
-const STYLE_HINTS =
-  "Tom: reflexivo, claro, acolhedor, levemente bem-humorado. Use português brasileiro natural. " +
-  "Responda curto (1–2 frases) quando possível. Se pedirem passos, no máximo 3 itens.";
-
-// 🔐 Política explícita de memória — evita o disclaimer do LLM base
-const MEMORY_POLICY =
-  "Memória & histórico:\n" +
-  "- Você usa memórias salvas e fornecidas neste contexto para dar continuidade.\n" +
-  "- Nunca diga frases como 'não tenho acesso a conversas anteriores' ou 'cada conversa começa do zero'.\n" +
-  "- Se houver memórias relevantes, faça referência breve e precisa (no máximo 1–2 bullets).\n" +
-  "- Se não houver memórias relevantes neste contexto, diga: 'Não encontrei memórias diretamente relacionadas ao que você trouxe agora. Se fizer sentido, me conte em 1 frase o essencial e eu registro.'";
+// ✨ usa o módulo central
+import {
+  ID_ECO_FULL,
+  STYLE_HINTS_FULL,
+  MEMORY_POLICY_EXPLICIT,
+} from "./promptIdentity";
 
 /* -------------------------------------------------------------------------- */
 /*  INTENT RESOLVER — mapeia texto de entrada -> módulos extras               */
@@ -47,16 +35,14 @@ function inferIntentModules(texto: string): string[] {
   if (wantsRevisit) {
     return [
       "eco_memoria_revisitar_passado",
-      // pequenos apoios somáticos/presença para ancorar a recordação
       "eco_observador_presente",
       "eco_corpo_emocao",
     ];
   }
 
-  // 🧩 Checar vieses / “Onde posso estar me enganando hoje?”
+  // 🧩 Checar vieses
   const wantsBiasCheck =
     /vi[eé]s|vieses|atalho mental|me enganando|heur[ií]stic/.test(t) || /🧩/.test(texto);
-
   if (wantsBiasCheck) {
     return [
       "eco_heuristica_ancoragem",
@@ -72,15 +58,13 @@ function inferIntentModules(texto: string): string[] {
     /reflexo estoico|estoic/.test(t) ||
     /sob meu controle|no seu controle/.test(t) ||
     /🪞|🏛️/.test(texto);
-
   if (wantsStoic) {
     return ["eco_presenca_racional", "eco_identificacao_mente", "eco_fim_do_sofrimento"];
   }
 
-  // 💬 Coragem para se expor mais (vulnerabilidade & defesas)
+  // 💬 Vulnerabilidade
   const wantsCourage =
     /coragem.*expor|me expor mais|vulnerabil/.test(t) || /💬/.test(texto);
-
   if (wantsCourage) {
     return ["eco_vulnerabilidade_defesas", "eco_vulnerabilidade_mitos", "eco_emo_vergonha_combate"];
   }
@@ -165,7 +149,9 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
   const extras: string[] = [];
   const nomeUsuario = firstName(params.userName ?? undefined);
   if (nomeUsuario) {
-    extras.push(`Usuário se chama ${nomeUsuario}; use o nome apenas quando fizer sentido.`);
+    extras.push(
+      `Usuário: ${nomeUsuario}. Use nome quando natural na conversa, nunca corrija ou diga frases como "sou ECO, não ${nomeUsuario}".`
+    );
   }
   if (aberturaHibrida?.sugestaoNivel != null) {
     extras.push(`Ajuste dinâmico de abertura (sugerido): ${aberturaHibrida.sugestaoNivel}`);
@@ -182,11 +168,11 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
 
   if (askedAboutMemory && hasMemories) {
     extras.push(
-      "Se o usuário perguntar se você lembra, responda afirmativamente e cite 1–2 pontos das MEMORIAS_RELEVANTES de forma breve."
+      "Se perguntarem se você lembra: responda afirmativamente e cite 1-2 pontos de MEMORIAS_RELEVANTES brevemente."
     );
   } else if (askedAboutMemory && !hasMemories) {
     extras.push(
-      "Se o usuário perguntar se você lembra e não houver MEMORIAS_RELEVANTES, diga que não encontrou memórias relacionadas desta vez e convide a resumir em 1 frase para registrar."
+      "Se perguntarem se você lembra e não houver MEMORIAS_RELEVANTES: diga que não encontrou memórias relacionadas desta vez e convide a resumir em 1 frase para registrar."
     );
   }
 
@@ -205,7 +191,8 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
     instructionText,
   });
 
-  const base = `${ID_ECO}\n${STYLE_HINTS}\n${MEMORY_POLICY}\n\n${promptCoreBase}`;
+  // Monta base completa: Identidade + Estilo + Política de Memória + Core
+  const base = `${ID_ECO_FULL}\n\n${STYLE_HINTS_FULL}\n\n${MEMORY_POLICY_EXPLICIT}\n\n${promptCoreBase}`;
   const montarMensagemAtual = (textoAtual: string) => applyCurrentMessage(base, textoAtual);
 
   const promptComTexto = montarMensagemAtual(texto);
@@ -240,7 +227,6 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
     });
   }
 
-  // Prepend da identidade + estilo (garante 70/30 também na rota “full”)
   return { base, montarMensagemAtual };
 }
 

@@ -13,6 +13,13 @@ import {
   sugerirPlanoResposta,
 } from "./responsePlanner";
 
+// ✨ Identidade/estilo centralizados
+import {
+  ID_ECO_MINI,
+  STYLE_HINTS_MINI,
+  buildNameHint,
+} from "../../core/promptIdentity";
+
 type ClaudeMessage = { role: "system" | "user" | "assistant"; content: string };
 
 type ClaudeClientResult = {
@@ -57,17 +64,6 @@ export interface RunFastLaneLLMResult {
 const ASK_FOR_STEPS_REGEX =
   /\b(passos?|etapas?|como\s+fa(c|ç)o|como\s+fazer|checklist|guia|tutorial|roteiro|lista\s+de|me\s+mostra\s+como|o\s+que\s+fazer)\b/i;
 
-const ID_ECO_MINI =
-  "Você é a Eco: espelho socrático de autoconhecimento — reflexiva, curiosa e acolhedora. " +
-  "Proporção: 70% espelho (devolver padrões, clarear percepções) + 30% coach gentil (encorajamento, humor leve). " +
-  "Tom: reflexivo, claro, acolhedor, levemente bem-humorado. Use português brasileiro natural. " +
-  "Cultive: escuta paciente, curiosidade filosófica, espelhamento sensível, incentivo leve. " +
-  "Evite: linguagem robótica, jargões de coaching, prescrições, diagnósticos e substituir terapia. " +
-  "Objetivo: criar um espaço seguro de reflexão para o usuário se ver com mais clareza, com companhia curiosa e respeitosa.";
-
-const STYLE_HINTS_MINI =
-  "Responda curto (1–2 frases) quando possível, claro e acolhedor. Se pedirem passos, no máximo 3 itens.";
-
 export function detectExplicitAskForSteps(text: string): boolean {
   if (!text) return false;
   const normalized = text.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
@@ -88,10 +84,7 @@ function montarSystemMessage({
   nome?: string;
 }): string {
   const style = buildStyleSelector(preferCoach);
-  const nameHint = nome
-    ? `O usuário se chama ${nome}. Use o nome apenas quando fizer sentido. Nunca corrija nomes nem diga frases como 'sou a Eco, não o ${nome}'. `
-    : "Nunca corrija nomes. ";
-
+  const nameHint = buildNameHint(nome);
   return `${style} ${ID_ECO_MINI} ${STYLE_HINTS_MINI} ${nameHint}`;
 }
 
@@ -101,7 +94,6 @@ function montarSlimHistory(messages: RunFastLaneLLMParams["messages"]): ClaudeMe
     role: mapRoleForOpenAI(m.role) as ClaudeMessage["role"],
     content: m.content,
   }));
-
   return turns;
 }
 
@@ -151,7 +143,6 @@ export async function runFastLaneLLM({
       sessaoId: sessionMeta?.sessaoId ?? undefined,
       origemSessao: sessionMeta?.origem ?? undefined,
     });
-
     return { raw: fallback, usage: null, model: "fastlane-fallback", response };
   }
 
