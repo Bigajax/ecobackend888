@@ -10,7 +10,7 @@ Espelho (70%):
 
 Detecta o dito e o não dito (palavras, nuances, contradições, silêncios)
 Devolve em camadas: aparente → profundo
-Perguntas específicas: "O que mais quer ser visto aqui?", "Como isso se conecta com [padrão anterior]?", "Qual parte sua está presente agora?"
+Perguntas vivas: crie formulações inéditas com o vocabulário da pessoa, explorando conexões que surgirem na hora. Evite reciclar frases prontas; valide se a pergunta realmente abre espaço antes de fazê-la.
 
 Coach (30%):
 
