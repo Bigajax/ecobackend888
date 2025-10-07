@@ -134,6 +134,9 @@ test("/ask-eco delega prompt ao orquestrador e propaga eventos de prompt_ready",
         trackCalls.push(payload);
       },
       trackEcoCache: () => {},
+      trackGuestMessage: () => {},
+      trackGuestStart: () => {},
+      trackGuestClaimed: () => {},
     },
     "../services/promptContext/logger": {
       log: {
@@ -188,6 +191,92 @@ test("/ask-eco delega prompt ao orquestrador e propaga eventos de prompt_ready",
   assert.ok(promptReady, "espera prompt_ready vindo do orquestrador");
   const chunk = res.events.find((payload) => payload.type === "chunk");
   assert.equal(chunk?.delta, "eco resposta");
+});
+
+test("/ask-eco aceita modo convidado sem token e marca métricas", async () => {
+  const guestId = "9f7d3b48-9a15-4a0c-9d7c-1234567890ab";
+  const guestInteractions: string[] = [];
+  const guestEvents: any[] = [];
+  const orchestratorCalls: any[] = [];
+
+  const router = await loadRouterWithStubs("../../routes/openrouterRoutes", {
+    "../lib/supabaseAdmin": {
+      supabase: { auth: { getUser: async () => ({ data: null, error: null }) } },
+    },
+    "../adapters/EmbeddingAdapter": {
+      getEmbeddingCached: async () => [],
+    },
+    "../services/ConversationOrchestrator": {
+      getEcoResponse: async (params: any) => {
+        orchestratorCalls.push(params);
+        return {
+          raw: "guest resposta",
+          modelo: "teste",
+          usage: null,
+          timings: {},
+          finalize: async () => ({ raw: "guest resposta" }),
+        };
+      },
+    },
+    "../analytics/events/mixpanelEvents": {
+      trackMensagemRecebida: () => {},
+      trackEcoCache: () => {},
+      trackGuestMessage: (payload: unknown) => {
+        guestEvents.push({ type: "message", payload });
+      },
+      trackGuestStart: (payload: unknown) => {
+        guestEvents.push({ type: "start", payload });
+      },
+      trackGuestClaimed: () => {},
+    },
+    "../core/http/middlewares/guestSession": {
+      guestSessionConfig: { maxInteractions: 6, rateLimit: { limit: 30, windowMs: 60000 } },
+      incrementGuestInteraction: (id: string) => {
+        guestInteractions.push(id);
+        return guestInteractions.length;
+      },
+    },
+    "../services/promptContext/logger": {
+      log: {
+        info: () => {},
+        warn: () => {},
+        error: () => {},
+        debug: () => {},
+      },
+    },
+  });
+
+  const handler = getRouteHandler(router, "/ask-eco");
+  const res = makeResponse();
+  const req = {
+    body: {
+      messages: [{ role: "user", content: "Oi Eco" }],
+      sessionMeta: {},
+    },
+    headers: {
+      "x-guest-id": guestId,
+      "x-guest-mode": "1",
+    },
+    guest: {
+      id: guestId,
+      ip: "127.0.0.1",
+      interactionsUsed: 0,
+      maxInteractions: 6,
+      rateLimit: { limit: 30, remaining: 29, resetAt: Date.now() + 60000 },
+    },
+    on() {},
+  } as any;
+
+  await handler(req, res);
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(guestInteractions.length, 1);
+  assert.equal(guestEvents.length, 2);
+  const startEvent = guestEvents.find((evt) => evt.type === "start");
+  assert.ok(startEvent, "espera evento guest_start");
+  const orchestratorParams = orchestratorCalls[0];
+  assert.equal(orchestratorParams.isGuest, true);
+  assert.equal(orchestratorParams.guestId, guestId);
 });
 
 test("rota de voz dispara trackMensagemRecebida com bytes e duração", async () => {

@@ -18,6 +18,8 @@ interface PreLLMShortcutsParams {
   sessionMeta?: GetEcoParams["sessionMeta"];
   streamHandler?: EcoStreamHandler | null;
   clientHour?: number;
+  isGuest?: boolean;
+  guestId?: string;
 }
 
 interface PreLLMShortcutsDeps {
@@ -46,6 +48,8 @@ export async function handlePreLLMShortcuts(
     sessionMeta,
     streamHandler,
     clientHour,
+    isGuest = false,
+    guestId,
   } = params;
   const { microResponder, greetingPipeline, responseFinalizer, now } = deps;
 
@@ -67,6 +71,8 @@ export async function handlePreLLMShortcuts(
       sessionMeta,
       sessaoId: sessionMeta?.sessaoId ?? undefined,
       origemSessao: sessionMeta?.origem ?? undefined,
+      isGuest,
+      guestId,
     });
 
     return streamHandler
@@ -106,6 +112,8 @@ export async function handlePreLLMShortcuts(
       sessionMeta,
       sessaoId: sessionMeta?.sessaoId ?? undefined,
       origemSessao: sessionMeta?.origem ?? undefined,
+      isGuest,
+      guestId,
     });
 
     return streamHandler

@@ -57,6 +57,8 @@ export async function getEcoResponse({
   metaFromBuilder,
   sessionMeta,
   stream,
+  isGuest = false,
+  guestId = null,
 }: GetEcoParams & { promptOverride?: string; metaFromBuilder?: any; stream?: EcoStreamHandler }): Promise<
   GetEcoResult | EcoStreamingResult
 > {
@@ -74,7 +76,7 @@ export async function getEcoResponse({
   const streamHandler = stream ?? null;
   const timings: EcoLatencyMarks = {};
 
-  const supabase = supabaseWithBearer(accessToken);
+  const supabase = !isGuest && accessToken ? supabaseWithBearer(accessToken) : null;
   const hasAssistantBeforeInThread = thread
     .slice(0, -1)
     .some((msg) => mapRoleForOpenAI(msg.role) === "assistant");
@@ -91,6 +93,8 @@ export async function getEcoResponse({
       sessionMeta,
       streamHandler,
       clientHour,
+      isGuest,
+      guestId: guestId ?? undefined,
     },
     {
       microResponder: microReflexoLocal,
@@ -139,6 +143,8 @@ export async function getEcoResponse({
         firstName,
       },
       sessionMeta,
+      isGuest,
+      guestId: guestId ?? undefined,
     });
 
     return fast.response;
@@ -148,7 +154,7 @@ export async function getEcoResponse({
   log.info("// LATENCY: context_build_start", { at: timings.contextBuildStart });
 
   const { systemPrompt } = await prepareConversationContext({
-    userId,
+    userId: isGuest ? undefined : userId,
     ultimaMsg,
     supabase,
     promptOverride,
@@ -164,6 +170,8 @@ export async function getEcoResponse({
         log.debug("[Orchestrator] derivados fetch falhou", { message });
       }
     },
+    cacheUserId: userId,
+    isGuest,
   });
 
   const { prompt, maxTokens } = buildFullPrompt({
@@ -198,6 +206,8 @@ export async function getEcoResponse({
       sessionMeta,
       streamHandler,
       timings,
+      isGuest,
+      guestId: guestId ?? undefined,
     });
   }
 
@@ -214,5 +224,7 @@ export async function getEcoResponse({
     sessionMeta,
     timings,
     thread,
+    isGuest,
+    guestId: guestId ?? undefined,
   });
 }

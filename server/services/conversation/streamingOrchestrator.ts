@@ -25,11 +25,13 @@ interface StreamingExecutionParams {
   ultimaMsg: string;
   userName?: string | null;
   userId: string;
-  supabase: any;
+  supabase: any | null;
   lastMessageId?: string;
   sessionMeta?: any;
   streamHandler: EcoStreamHandler;
   timings: EcoLatencyMarks;
+  isGuest?: boolean;
+  guestId?: string;
 }
 
 export async function executeStreamingLLM({
@@ -45,7 +47,10 @@ export async function executeStreamingLLM({
   sessionMeta,
   streamHandler,
   timings,
+  isGuest = false,
+  guestId,
 }: StreamingExecutionParams): Promise<EcoStreamingResult> {
+  const supabaseClient = supabase ?? null;
   const emitStream = async (event: EcoStreamEvent) => {
     await streamHandler.onEvent(event);
   };
@@ -164,30 +169,32 @@ export async function executeStreamingLLM({
             log.info("[StreamingBloco] state=success", { durationMs, emitted: true });
             await emitStream({ type: "control", name: "meta", meta: metaPayload });
 
-            try {
-              const rpcRes = await salvarMemoriaViaRPC({
-                supabase,
-                userId,
-                mensagemId: lastMessageId ?? null,
-                meta: metaPayload,
-                origem: "streaming_bloco",
-              });
+            if (!isGuest && supabaseClient) {
+              try {
+                const rpcRes = await salvarMemoriaViaRPC({
+                  supabase: supabaseClient,
+                  userId,
+                  mensagemId: lastMessageId ?? null,
+                  meta: metaPayload,
+                  origem: "streaming_bloco",
+                });
 
-              if (rpcRes.saved && rpcRes.memoriaId) {
-                await emitStream({
-                  type: "control",
-                  name: "memory_saved",
-                  meta: {
-                    memoriaId: rpcRes.memoriaId,
-                    primeiraMemoriaSignificativa: !!rpcRes.primeira,
-                    intensidade: metaPayload.intensidade,
-                  },
+                if (rpcRes.saved && rpcRes.memoriaId) {
+                  await emitStream({
+                    type: "control",
+                    name: "memory_saved",
+                    meta: {
+                      memoriaId: rpcRes.memoriaId,
+                      primeiraMemoriaSignificativa: !!rpcRes.primeira,
+                      intensidade: metaPayload.intensidade,
+                    },
+                  });
+                }
+              } catch (error: any) {
+                log.warn("[StreamingBloco] salvarMemoriaViaRPC falhou (ignorado)", {
+                  message: error?.message,
                 });
               }
-            } catch (error: any) {
-              log.warn("[StreamingBloco] salvarMemoriaViaRPC falhou (ignorado)", {
-                message: error?.message,
-              });
             }
           })
           .catch((error) => {
@@ -304,7 +311,7 @@ export async function executeStreamingLLM({
           userName: userName ?? undefined,
           hasAssistantBefore: decision.hasAssistantBefore,
           userId,
-          supabase,
+          supabase: supabaseClient ?? undefined,
           lastMessageId,
           mode: "full",
           startedAt: timings.llmStart ?? now(),
@@ -314,6 +321,8 @@ export async function executeStreamingLLM({
           sessaoId: sessionMeta?.sessaoId ?? undefined,
           origemSessao: sessionMeta?.origem ?? undefined,
           precomputed,
+          isGuest,
+          guestId,
         });
       })();
     }

@@ -11,8 +11,18 @@ import {
 import { buildFinalizedStreamText } from "../services/conversation/responseMetadata";
 import type { GetEcoResult } from "../utils";
 import { extractSessionMeta } from "./sessionMeta";
-import { trackEcoCache, trackMensagemRecebida } from "../analytics/events/mixpanelEvents";
+import {
+  trackEcoCache,
+  trackMensagemRecebida,
+  trackGuestMessage,
+  trackGuestStart,
+} from "../analytics/events/mixpanelEvents";
 import { getEmbeddingCached } from "../adapters/EmbeddingAdapter";
+import {
+  guestSessionConfig,
+  incrementGuestInteraction,
+  type GuestSessionMeta,
+} from "../core/http/middlewares/guestSession";
 
 // montar contexto e log
 import { log } from "../services/promptContext/logger";
@@ -43,6 +53,49 @@ const router = express.Router();
 const safeLog = (s: string) =>
   process.env.NODE_ENV === "production" ? (s || "").slice(0, 60) + "…" : s || "";
 
+const parsePositiveInt = (value: string | undefined, fallback: number): number => {
+  if (!value) return fallback;
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+};
+
+const MAX_GUEST_MESSAGE_LENGTH = parsePositiveInt(
+  process.env.GUEST_MAX_MESSAGE_LENGTH,
+  2000
+);
+
+const stripHtml = (text: string): string => text.replace(/<[^>]*>/g, " ");
+
+const normalizeWhitespace = (text: string): string => text.replace(/\s+/g, " ").trim();
+
+const sanitizeGuestMessages = (
+  messages: Array<{ role?: string; content?: any }>
+): Array<{ role: string; content: any }> => {
+  return messages.map((message) => {
+    const role = typeof message?.role === "string" ? message.role : "";
+    if (role !== "user") {
+      return { ...message, role } as { role: string; content: any };
+    }
+    const rawContent =
+      typeof message?.content === "string"
+        ? message.content
+        : message?.content != null
+        ? String(message.content)
+        : "";
+    const withoutHtml = stripHtml(rawContent);
+    const sanitized = normalizeWhitespace(withoutHtml);
+    if (sanitized.length > MAX_GUEST_MESSAGE_LENGTH) {
+      const error = new Error("Mensagem excede o limite permitido para convidados.");
+      (error as any).status = 400;
+      (error as any).code = "GUEST_MESSAGE_TOO_LONG";
+      throw error;
+    }
+    return { ...message, role, content: sanitized } as { role: string; content: any };
+  });
+};
+
+type GuestAwareRequest = Request & { guest?: GuestSessionMeta };
+
 const getMensagemTipo = (
   mensagens: Array<{ role?: string }> | null | undefined
 ): "inicial" | "continuacao" => {
@@ -68,34 +121,95 @@ function normalizarMensagens(body: any): Array<{ role: string; content: any }> |
   return null;
 }
 
-router.post("/ask-eco", async (req: Request, res: Response) => {
+router.post("/ask-eco", async (req: GuestAwareRequest, res: Response) => {
   const t0 = now();
-  const { usuario_id, nome_usuario } = req.body;
-  const mensagensParaIA = normalizarMensagens(req.body);
+  const { usuario_id, nome_usuario } = req.body ?? {};
   const streamingRes = res as Response & { flush?: () => void; flushHeaders?: () => void };
   let sseStarted = false;
   let streamClosed = false;
   let sendSseRef: ((payload: Record<string, unknown>) => void) | null = null;
 
-  // auth
-  const authHeader = req.headers.authorization;
-  if (!authHeader?.startsWith("Bearer ")) {
-    return res.status(401).json({ error: "Token de acesso ausente." });
-  }
-  const token = authHeader.replace("Bearer ", "").trim();
+  const guestInfo = req.guest;
+  const isGuest = Boolean(guestInfo?.id);
+  const guestId = guestInfo?.id ?? null;
 
-  if (!usuario_id || !mensagensParaIA) {
-    return res.status(400).json({ error: "usuario_id e messages são obrigatórios." });
+  const mensagensBrutas = normalizarMensagens(req.body);
+  if (!mensagensBrutas || mensagensBrutas.length === 0) {
+    return res.status(400).json({ error: "messages são obrigatórios." });
+  }
+
+  let mensagensParaIA = mensagensBrutas;
+  if (isGuest) {
+    try {
+      mensagensParaIA = sanitizeGuestMessages(mensagensBrutas);
+    } catch (sanitizationError: any) {
+      const statusCode = Number.isInteger((sanitizationError as any)?.status)
+        ? Number((sanitizationError as any).status)
+        : 400;
+      return res.status(statusCode).json({
+        error:
+          sanitizationError?.message ||
+          "Entrada inválida para o modo convidado.",
+      });
+    }
+  }
+
+  const authHeader = req.headers.authorization;
+  const hasBearer =
+    typeof authHeader === "string" && /^Bearer\s+/i.test(authHeader.trim());
+  const token = hasBearer ? authHeader!.trim().replace(/^Bearer\s+/i, "") : undefined;
+
+  if (!isGuest) {
+    if (!hasBearer || !token) {
+      return res.status(401).json({ error: "Token de acesso ausente." });
+    }
+    if (!usuario_id) {
+      return res
+        .status(400)
+        .json({ error: "usuario_id e messages são obrigatórios." });
+    }
+  }
+
+  const pipelineUserId = isGuest && guestId ? `guest:${guestId}` : usuario_id;
+  if (!pipelineUserId) {
+    return res.status(400).json({ error: "Usuário inválido." });
+  }
+
+  let sessionMeta = extractSessionMeta(req.body);
+  sessionMeta = sessionMeta ? { ...sessionMeta } : undefined;
+  if (isGuest && guestId) {
+    if (!sessionMeta) {
+      sessionMeta = { distinctId: guestId };
+    } else if (!sessionMeta.distinctId) {
+      sessionMeta.distinctId = guestId;
+    }
+  }
+
+  const distinctId = sessionMeta?.distinctId ?? (isGuest && guestId ? guestId : undefined);
+  const analyticsUserId = isGuest ? undefined : usuario_id;
+
+  let guestInteractionCount: number | null = null;
+  if (isGuest && guestId) {
+    guestInteractionCount = incrementGuestInteraction(guestId);
+    if (guestInteractionCount > guestSessionConfig.maxInteractions) {
+      return res.status(429).json({
+        error: "Limite de interações do modo convidado atingido.",
+      });
+    }
+    if (req.guest) {
+      req.guest.interactionsUsed = guestInteractionCount;
+    }
   }
 
   try {
-    // ✅ NÃO chamar como função: o cliente já é a instância
-    const { data, error } = await supabase.auth.getUser(token);
-    if (error || !data?.user) {
-      return res.status(401).json({ error: "Token inválido ou usuário não encontrado." });
+    if (!isGuest) {
+      const { data, error } = await supabase.auth.getUser(token!);
+      if (error || !data?.user) {
+        return res
+          .status(401)
+          .json({ error: "Token inválido ou usuário não encontrado." });
+      }
     }
-
-    const sessionMeta = extractSessionMeta(req.body);
 
     let latestTimings: EcoLatencyMarks | undefined;
     let firstChunkLogged = false;
@@ -151,9 +265,27 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
     const trimmedUltimaMsg = ultimaMsg.trim();
     log.info("🗣️ Última mensagem:", safeLog(ultimaMsg));
 
+    if (isGuest && guestId && guestInteractionCount != null) {
+      if (guestInteractionCount === 1) {
+        trackGuestStart({
+          guestId,
+          sessaoId: sessionMeta?.sessaoId ?? null,
+          origem: sessionMeta?.origem ?? null,
+        });
+      }
+      trackGuestMessage({
+        guestId,
+        ordem: guestInteractionCount,
+        max: guestSessionConfig.maxInteractions,
+        tamanhoCaracteres: ultimaMsg.length,
+        sessaoId: sessionMeta?.sessaoId ?? null,
+        origem: sessionMeta?.origem ?? null,
+      });
+    }
+
     trackMensagemRecebida({
-      distinctId: sessionMeta?.distinctId,
-      userId: usuario_id,
+      distinctId,
+      userId: analyticsUserId,
       origem: "texto",
       tipo: getMensagemTipo(mensagensParaIA),
       tamanhoCaracteres: ultimaMsg.length,
@@ -162,7 +294,7 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
       origemSessao: sessionMeta?.origem ?? null,
     });
 
-    cacheKey = buildResponseCacheKey(usuario_id, ultimaMsg);
+    cacheKey = buildResponseCacheKey(pipelineUserId, ultimaMsg);
     let cachedPayload: CachedResponsePayload | null = null;
     if (cacheKey) {
       const cachedRaw = RESPONSE_CACHE.get(cacheKey);
@@ -247,10 +379,10 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
       }
 
       const promptReadyAt = now();
-      log.info("// LATENCY: cache-hit", { userId: usuario_id, cacheKey });
+      log.info("// LATENCY: cache-hit", { userId: pipelineUserId, cacheKey });
       trackEcoCache({
-        distinctId: sessionMeta?.distinctId,
-        userId: usuario_id,
+        distinctId,
+        userId: analyticsUserId,
         status: "hit",
         key: cacheKey ?? undefined,
         source: "openrouter",
@@ -291,10 +423,10 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
     }
 
     if (cacheKey) {
-      log.info("// LATENCY: cache-miss", { userId: usuario_id, cacheKey });
+      log.info("// LATENCY: cache-miss", { userId: pipelineUserId, cacheKey });
       trackEcoCache({
-        distinctId: sessionMeta?.distinctId,
-        userId: usuario_id,
+        distinctId,
+        userId: analyticsUserId,
         status: "miss",
         key: cacheKey,
         source: "openrouter",
@@ -383,11 +515,13 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
 
     const resposta = await getEcoResponse({
       messages: mensagensParaIA,
-      userId: usuario_id,
+      userId: pipelineUserId,
       userName: nome_usuario,
       accessToken: token,
       sessionMeta,
       stream: streamHandler,
+      isGuest,
+      guestId,
     });
 
     setImmediate(() => {
@@ -460,7 +594,7 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
         RESPONSE_CACHE.set(cacheKey, JSON.stringify(payload), CACHE_TTL_MS); // LATENCY: cache-store
         log.info("// LATENCY: cache-store", {
           cacheKey,
-          userId: usuario_id,
+          userId: pipelineUserId,
           length: resposta.raw.length,
         });
       } catch (cacheErr) {
