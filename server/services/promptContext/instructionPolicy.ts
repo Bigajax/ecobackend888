@@ -1,7 +1,7 @@
 export type InstructionBlock = { title: string; body: string };
 
 const RESPONSE_PLAN_ESPELHO =
-  "Fluxo (espelho 70%): acolher (1 linha) • refletir padrões ou sentimentos (1 linha) • (opcional) nomear uma impressão curta • 1 pergunta aberta socrática • fechar leve e claro.";
+  "Fluxo (espelho 70%): acolher (1 linha) • refletir padrões ou sentimentos (1 linha) • (opcional) nomear uma impressão curta • trazer perguntas vivas feitas sob medida (0-2, só se fizer sentido) • fechar leve e claro.";
 
 const RESPONSE_PLAN_COACH =
   "Fluxo (coach 30%): acolher (1 linha) • encorajar com humor ou leveza (1 linha) • (opcional) até 3 passos práticos curtos • fechar com incentivo.";
