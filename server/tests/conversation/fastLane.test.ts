@@ -6,6 +6,7 @@ import {
   runFastLaneLLM,
   type RunFastLaneLLMResult,
 } from "../../services/conversation/fastLane";
+import { planCuriousFallback } from "../../core/ResponsePlanner";
 
 function createDeps(overrides: Partial<{
   claudeClient: any;
@@ -105,6 +106,7 @@ test("runFastLaneLLM envia apenas as 3 últimas mensagens do histórico", async 
 test("runFastLaneLLM usa fallback quando o cliente Claude falha", async () => {
   const fallbackError = new Error("claude indisponível");
   const fallbackCalls: any[] = [];
+  const expectedFallback = planCuriousFallback("oi").text;
 
   const { deps } = createDeps({
     claudeClient: async () => {
@@ -131,11 +133,11 @@ test("runFastLaneLLM usa fallback quando o cliente Claude falha", async () => {
     sessionMeta: { distinctId: "fallback-1" },
   });
 
-  assert.strictEqual(result.raw, "Tô aqui com você. Quer me contar um pouco mais?");
+  assert.strictEqual(result.raw, expectedFallback);
   assert.strictEqual(result.model, "fastlane-fallback");
   assert.strictEqual(result.usage, null);
   assert.deepStrictEqual(result.response, {
-    message: "Tô aqui com você. Quer me contar um pouco mais?",
+    message: expectedFallback,
   });
   assert.strictEqual(fallbackCalls.length, 1);
   assert.strictEqual(
