@@ -1,5 +1,3 @@
-import crypto from "crypto";
-
 export type ModuleFragment = { name: string; text: string };
 
 export function applyReductions(
@@ -65,15 +63,14 @@ function dedupeBySection(text: string): string {
   const lines = text.split(/\r?\n/);
   const out: string[] = [];
   const seenTitles = new Set<string>();
-  const seenHashes = new Set<string>();
+  const seenBlocks = new Set<string>();
   let currentBlock: string[] = [];
 
   const flush = () => {
     if (currentBlock.length === 0) return;
     const blockText = currentBlock.join("\n").trim();
-    const key = hash(blockText);
-    if (!seenHashes.has(key)) {
-      seenHashes.add(key);
+    if (!seenBlocks.has(blockText)) {
+      seenBlocks.add(blockText);
       out.push(blockText);
     }
     currentBlock = [];
@@ -110,10 +107,6 @@ function titleFromName(name: string) {
   if (/METODO_VIVA_ENXUTO/i.test(name)) return "MÉTODO VIVA — ENXUTO";
   if (/BLOCO_TECNICO_MEMORIA/i.test(name)) return "BLOCO TÉCNICO — MEMÓRIA";
   return name.replace(/\.txt$/i, "").replace(/_/g, " ");
-}
-
-function hash(text: string) {
-  return crypto.createHash("sha1").update(text).digest("hex").slice(0, 10);
 }
 
 function extrairIdentidadeResumida(text: string): string | "" {

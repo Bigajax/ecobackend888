@@ -1,41 +1,67 @@
 import type { SimilarMemoryList } from "./contextTypes";
-import { countTokens } from "../../utils/text";
+import type { TokenEncoder } from "../../utils/text";
+import { getTokenEncoder } from "../../utils/text";
 
 const TOKEN_LIMIT = 350; // orçamento por item (não por bloco)
+const ELLIPSIS = "…";
+const FALLBACK_CHARS_PER_TOKEN = 4; // heurística rápida para ausência de encoder
+
+let cachedEllipsisLength: number | null = null;
+
+function ellipsisTokenLength(encoder: TokenEncoder): number {
+  if (cachedEllipsisLength != null) return cachedEllipsisLength;
+  const len = Math.max(1, encoder.encode(ELLIPSIS).length);
+  cachedEllipsisLength = len;
+  return len;
+}
+
+function decodeSlice(encoder: TokenEncoder, tokens: number[], limit: number): string | null {
+  if (typeof encoder.decode !== "function") return null;
+  const slice = tokens.slice(0, limit);
+  const decoded = encoder.decode(slice);
+  return typeof decoded === "string" ? decoded : null;
+}
+
+function fallbackTrim(normalized: string): string {
+  const charLimit = TOKEN_LIMIT * FALLBACK_CHARS_PER_TOKEN;
+  if (normalized.length <= charLimit) {
+    return normalized;
+  }
+  const trimmed = normalized.slice(0, Math.max(1, charLimit - 1)).replace(/\s+$/u, "");
+  return trimmed ? `${trimmed}${ELLIPSIS}` : ELLIPSIS;
+}
 
 function normalizeAndLimit(text: string): string {
   const normalized = (text || "").replace(/\s+/g, " ").trim();
   if (!normalized) return "";
 
-  if (countTokens(normalized) <= TOKEN_LIMIT) {
+  const encoder = getTokenEncoder();
+  if (!encoder) {
+    return fallbackTrim(normalized);
+  }
+
+  const tokens = encoder.encode(normalized);
+  if (tokens.length <= TOKEN_LIMIT) {
     return normalized;
   }
 
-  // Truncamento por busca binária para caber no orçamento de tokens por memória
-  let low = 0;
-  let high = normalized.length;
-  let best = "";
-
-  while (low <= high) {
-    const mid = Math.floor((low + high) / 2);
-    const candidate = normalized.slice(0, mid).trim();
-    if (!candidate) {
-      high = mid - 1;
-      continue;
-    }
-    if (countTokens(candidate) <= TOKEN_LIMIT) {
-      best = candidate;
-      low = mid + 1;
-    } else {
-      high = mid - 1;
-    }
+  const ellipsisLength = ellipsisTokenLength(encoder);
+  const availableTokens = Math.max(0, TOKEN_LIMIT - ellipsisLength);
+  if (availableTokens === 0) {
+    return ELLIPSIS;
   }
 
-  let finalText = best || normalized.slice(0, Math.max(1, high)).trim();
-  while (finalText.length > 1 && countTokens(`${finalText}…`) > TOKEN_LIMIT) {
-    finalText = finalText.slice(0, -1).trim();
+  const decoded = decodeSlice(encoder, tokens, availableTokens);
+  if (!decoded) {
+    return fallbackTrim(normalized);
   }
-  return `${finalText}…`;
+
+  const trimmed = decoded.replace(/\s+$/u, "");
+  if (!trimmed) {
+    return ELLIPSIS;
+  }
+
+  return `${trimmed}${ELLIPSIS}`;
 }
 
 function fmtScore(sim: number | undefined): string {
