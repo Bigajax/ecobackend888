@@ -56,6 +56,8 @@ class ClaudeTimeoutError extends Error {
   constructor(timeoutMs: number) {
     super(`Claude request timed out after ${timeoutMs}ms`);
     this.name = "ClaudeTimeoutError";
+    (this as any).__claudeBeforeStream = true;
+    (this as any).__claudeStreamDelivered = false;
   }
 }
 
@@ -170,11 +172,13 @@ export async function streamClaudeChatCompletion(
   {
     messages,
     model = process.env.ECO_CLAUDE_MODEL || "anthropic/claude-sonnet-4",
+    fallbackModel = process.env.ECO_CLAUDE_MODEL_FALLBACK || "anthropic/claude-3.7-sonnet",
     temperature = 0.5,
     maxTokens = 700,
   }: {
     messages: Msg[];
     model?: string;
+    fallbackModel?: string;
     temperature?: number;
     maxTokens?: number;
   },
@@ -197,180 +201,266 @@ export async function streamClaudeChatCompletion(
     "X-Title": "Eco App - ClaudeAdapter",
   };
 
-  const payload = {
-    model,
-    temperature,
-    max_tokens: maxTokens,
-    stream: true,
-    messages: [
-      ...(system ? [{ role: "system", content: system } as ORMessage] : []),
-      ...turns,
-    ],
-  };
+  const attemptStream = async (modelToUse: string, emitErrorEvents: boolean): Promise<void> => {
+    const payload = {
+      model: modelToUse,
+      temperature,
+      max_tokens: maxTokens,
+      stream: true,
+      messages: [
+        ...(system ? [{ role: "system", content: system } as ORMessage] : []),
+        ...turns,
+      ],
+    };
 
-  const resp = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-    method: "POST",
-    headers,
-    body: JSON.stringify(payload),
-    agent: (parsedURL: URL) => (parsedURL.protocol === "http:" ? httpAgent : httpsAgent),
-  } as any);
+    const timeoutMs = resolveTimeoutMs();
+    const controller = new AbortController();
+    const timeoutHandle: NodeJS.Timeout = setTimeout(() => controller.abort(), timeoutMs);
 
-  if (!resp.ok) {
-    throw new Error(`OpenRouter error: ${resp.status} ${resp.statusText}`);
-  }
-
-  const body = resp.body as ReadableStream<Uint8Array> | null;
-  if (!body) {
-    throw new Error("OpenRouter streaming response sem corpo.");
-  }
-
-  const decoder = new TextDecoder();
-  let buffer = "";
-  let reconnectAttempt = 0;
-  let doneEmitted = false;
-  let latestUsage: ORUsage | undefined;
-  let latestModel: string | null | undefined;
-  let latestFinish: string | null | undefined;
-
-  const handleEvent = async (rawEvent: string) => {
-    const trimmed = rawEvent.trim();
-    if (!trimmed) return;
-
-    const lines = trimmed.split(/\r?\n/);
-    let eventName = "message";
-    const dataLines: string[] = [];
-
-    for (const line of lines) {
-      if (!line) continue;
-      if (line.startsWith(":")) {
-        // LATENCY: ignora heartbeats imediatos sem gerar carga.
-        continue;
-      }
-      if (line.startsWith("event:")) {
-        eventName = line.slice(6).trim();
-        continue;
-      }
-      if (line.startsWith("data:")) {
-        dataLines.push(line.slice(5).trim());
-      }
-    }
-
-    const dataPayload = dataLines.join("\n");
-    if (!dataPayload) return;
-
-    if (dataPayload === "[DONE]") {
-      doneEmitted = true;
-      await callbacks.onControl?.({
-        type: "done",
-        finishReason: latestFinish,
-        usage: latestUsage,
-        model: latestModel ?? model,
-      });
-      return;
-    }
-
-    let parsed: ORStreamChunk | null = null;
     try {
-      parsed = JSON.parse(dataPayload) as ORStreamChunk;
-    } catch (error) {
-      const err = error instanceof Error ? error : new Error(String(error));
-      await callbacks.onError?.(err);
-      return;
-    }
+      const request = async () =>
+        fetch("https://openrouter.ai/api/v1/chat/completions", {
+          method: "POST",
+          headers,
+          body: JSON.stringify(payload),
+          signal: controller.signal,
+          agent: (parsedURL: URL) => (parsedURL.protocol === "http:" ? httpAgent : httpsAgent),
+        } as any);
 
-    if (parsed?.error?.message) {
-      const err = new Error(parsed.error.message);
-      await callbacks.onError?.(err);
-      return;
-    }
+      let resp: Awaited<ReturnType<typeof fetch>>;
+      try {
+        resp = await request();
+      } catch (error) {
+        if ((error as Error)?.name === "AbortError") {
+          throw new ClaudeTimeoutError(timeoutMs);
+        }
+        throw error;
+      }
 
-    if (eventName && eventName.toLowerCase().includes("reconnect")) {
-      reconnectAttempt += 1;
-      await callbacks.onControl?.({ type: "reconnect", attempt: reconnectAttempt, raw: parsed });
-      return;
-    }
+      if (!resp.ok) {
+        const err = new Error(`OpenRouter error: ${resp.status} ${resp.statusText}`);
+        (err as any).__claudeBeforeStream = true;
+        (err as any).__claudeStreamDelivered = false;
+        throw err;
+      }
 
-    if ((parsed as any)?.type === "heartbeat") {
-      // LATENCY: heartbeat recebido — apenas mantém a conexão viva.
-      return;
-    }
+      const body = resp.body as ReadableStream<Uint8Array> | null;
+      if (!body) {
+        const err = new Error("OpenRouter streaming response sem corpo.");
+        (err as any).__claudeBeforeStream = true;
+        (err as any).__claudeStreamDelivered = false;
+        throw err;
+      }
 
-    const choice = parsed?.choices?.[0];
-    const deltaText = choice?.delta?.content ?? "";
-    const finishReason =
-      choice?.finish_reason ?? choice?.delta?.finish_reason ?? choice?.delta?.stop_reason ?? null;
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let reconnectAttempt = 0;
+      let doneEmitted = false;
+      let latestUsage: ORUsage | undefined;
+      let latestModel: string | null | undefined;
+      let latestFinish: string | null | undefined;
+      let deliveredAnyEvents = false;
 
-    if (parsed?.usage) {
-      latestUsage = parsed.usage;
-    }
-    if (parsed?.model) {
-      latestModel = parsed.model;
-    }
-    if (finishReason) {
-      latestFinish = finishReason;
-    }
+      const safeCallbacks: ClaudeStreamCallbacks = {
+        onChunk: async (chunk) => {
+          deliveredAnyEvents = true;
+          await callbacks.onChunk?.(chunk);
+        },
+        onControl: async (event) => {
+          if (event.type !== "reconnect") {
+            deliveredAnyEvents = true;
+          }
+          await callbacks.onControl?.(event);
+        },
+        onError: async (error) => {
+          const hadDelivered = deliveredAnyEvents;
+          deliveredAnyEvents = true;
+          if (emitErrorEvents || hadDelivered) {
+            await callbacks.onError?.(error);
+          }
+        },
+      };
 
-    if (deltaText) {
-      // LATENCY: entrega incremental do token renderizável.
-      await callbacks.onChunk?.({ content: deltaText, raw: parsed });
-    }
-  };
+      const handleEvent = async (rawEvent: string) => {
+        const trimmed = rawEvent.trim();
+        if (!trimmed) return;
 
-  const flushBuffer = async (force = false) => {
-    let separatorIndex = buffer.indexOf("\n\n");
-    while (separatorIndex >= 0) {
-      const rawEvent = buffer.slice(0, separatorIndex);
-      buffer = buffer.slice(separatorIndex + 2);
-      await handleEvent(rawEvent);
-      separatorIndex = buffer.indexOf("\n\n");
-    }
+        const lines = trimmed.split(/\r?\n/);
+        let eventName = "message";
+      const dataLines: string[] = [];
 
-    if (force && buffer.trim()) {
-      await handleEvent(buffer);
-      buffer = "";
-    }
-  };
-
-  const reader = (body as any).getReader?.() as ReadableStreamDefaultReader<Uint8Array> | undefined;
-
-  try {
-    if (reader) {
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        if (value) {
-          // LATENCY: decodifica chunk SSE imediatamente.
-          buffer += decoder.decode(value, { stream: true });
-          await flushBuffer();
+      for (const line of lines) {
+        if (!line) continue;
+        if (line.startsWith(":")) {
+          // LATENCY: ignora heartbeats imediatos sem gerar carga.
+          continue;
+        }
+        if (line.startsWith("event:")) {
+          eventName = line.slice(6).trim();
+          continue;
+        }
+        if (line.startsWith("data:")) {
+          dataLines.push(line.slice(5).trim());
         }
       }
-    } else {
-      const nodeStream =
-        typeof Readable.fromWeb === "function"
-          ? Readable.fromWeb(body as any)
-          : Readable.from(body as any);
-      for await (const chunk of nodeStream) {
-        if (!chunk) continue;
-        // LATENCY: decodifica chunk SSE imediatamente (fallback Node stream).
-        buffer += decoder.decode(chunk as Buffer, { stream: true });
-        await flushBuffer();
-      }
-    }
 
-    buffer += decoder.decode(new Uint8Array(), { stream: false });
-    await flushBuffer(true);
-  } catch (error) {
-    const err = error instanceof Error ? error : new Error(String(error));
-    await callbacks.onError?.(err);
-    throw err;
+      const dataPayload = dataLines.join("\n");
+      if (!dataPayload) return;
+
+      if (dataPayload === "[DONE]") {
+        doneEmitted = true;
+        await safeCallbacks.onControl?.({
+          type: "done",
+          finishReason: latestFinish,
+          usage: latestUsage,
+          model: latestModel ?? modelToUse,
+        });
+        return;
+      }
+
+      let parsed: ORStreamChunk | null = null;
+      try {
+        parsed = JSON.parse(dataPayload) as ORStreamChunk;
+      } catch (error) {
+        const err = error instanceof Error ? error : new Error(String(error));
+        await safeCallbacks.onError?.(err);
+        return;
+      }
+
+      if (parsed?.error?.message) {
+        const err = new Error(parsed.error.message);
+        await safeCallbacks.onError?.(err);
+        return;
+      }
+
+      if (eventName && eventName.toLowerCase().includes("reconnect")) {
+        reconnectAttempt += 1;
+        await safeCallbacks.onControl?.({ type: "reconnect", attempt: reconnectAttempt, raw: parsed });
+        return;
+      }
+
+      if ((parsed as any)?.type === "heartbeat") {
+        // LATENCY: heartbeat recebido — apenas mantém a conexão viva.
+        return;
+      }
+
+      const choice = parsed?.choices?.[0];
+      const deltaText = choice?.delta?.content ?? "";
+      const finishReason =
+        choice?.finish_reason ?? choice?.delta?.finish_reason ?? choice?.delta?.stop_reason ?? null;
+
+      if (parsed?.usage) {
+        latestUsage = parsed.usage;
+      }
+      if (parsed?.model) {
+        latestModel = parsed.model;
+      }
+      if (finishReason) {
+        latestFinish = finishReason;
+      }
+
+      if (deltaText) {
+        // LATENCY: entrega incremental do token renderizável.
+        await safeCallbacks.onChunk?.({ content: deltaText, raw: parsed });
+      }
+    };
+
+      const flushBuffer = async (force = false) => {
+        let separatorIndex = buffer.indexOf("\n\n");
+        while (separatorIndex >= 0) {
+          const rawEvent = buffer.slice(0, separatorIndex);
+          buffer = buffer.slice(separatorIndex + 2);
+          await handleEvent(rawEvent);
+          separatorIndex = buffer.indexOf("\n\n");
+        }
+
+        if (force && buffer.trim()) {
+          await handleEvent(buffer);
+          buffer = "";
+        }
+      };
+
+      const reader = (body as any).getReader?.() as
+        | ReadableStreamDefaultReader<Uint8Array>
+        | undefined;
+
+      try {
+        if (reader) {
+          while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            if (value) {
+              // LATENCY: decodifica chunk SSE imediatamente.
+              buffer += decoder.decode(value, { stream: true });
+              await flushBuffer();
+            }
+          }
+        } else {
+          const nodeStream =
+            typeof Readable.fromWeb === "function"
+              ? Readable.fromWeb(body as any)
+              : Readable.from(body as any);
+          for await (const chunk of nodeStream) {
+            if (!chunk) continue;
+            // LATENCY: decodifica chunk SSE imediatamente (fallback Node stream).
+            buffer += decoder.decode(chunk as Buffer, { stream: true });
+            await flushBuffer();
+          }
+        }
+
+        buffer += decoder.decode(new Uint8Array(), { stream: false });
+        await flushBuffer(true);
+      } catch (error) {
+        const err = error instanceof Error ? error : new Error(String(error));
+        if (emitErrorEvents || deliveredAnyEvents) {
+          await callbacks.onError?.(err);
+        }
+        (err as any).__claudeStreamDelivered = deliveredAnyEvents;
+        throw err;
+      }
+
+      if (!doneEmitted) {
+        await safeCallbacks.onControl?.({
+          type: "done",
+          finishReason: latestFinish,
+          usage: latestUsage,
+          model: latestModel ?? modelToUse,
+        });
+      }
+    } finally {
+      clearTimeout(timeoutHandle);
+    }
+  };
+
+  const modelsToTry = [model];
+  if (fallbackModel && fallbackModel !== model) {
+    modelsToTry.push(fallbackModel);
   }
 
-  if (!doneEmitted) {
-    await callbacks.onControl?.({
-      type: "done",
-      finishReason: latestFinish,
-      usage: latestUsage,
-      model: latestModel ?? model,
-    });
+  let lastError: Error | null = null;
+  for (let i = 0; i < modelsToTry.length; i += 1) {
+    const currentModel = modelsToTry[i]!;
+    const isFinalAttempt = i === modelsToTry.length - 1;
+    try {
+      await attemptStream(currentModel, isFinalAttempt);
+      return;
+    } catch (error) {
+      const err = error instanceof Error ? error : new Error(String(error));
+      lastError = err;
+      const delivered = (err as any).__claudeStreamDelivered === true;
+      if (isFinalAttempt || delivered) {
+        throw err;
+      }
+      const isTimeout = err instanceof ClaudeTimeoutError;
+      const label = isTimeout ? "⏱️" : "⚠️";
+      console.warn(
+        `${label} Claude ${currentModel} falhou, tentando fallback ${modelsToTry[i + 1]}`,
+        err
+      );
+    }
+  }
+
+  if (lastError) {
+    throw lastError;
   }
 }
