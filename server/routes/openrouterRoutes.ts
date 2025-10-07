@@ -30,6 +30,7 @@ import { now } from "../utils";
 import { RESPONSE_CACHE } from "../services/CacheService";
 
 const CACHE_TTL_MS = 60_000;
+const HEARTBEAT_INTERVAL_MS = 15_000;
 
 type CachedResponsePayload = {
   raw: string;
@@ -115,6 +116,11 @@ function normalizarMensagens(body: any): Array<{ role: string; content: any }> |
 
 router.post("/ask-eco", async (req: GuestAwareRequest, res: Response) => {
   const t0 = now();
+  const promptReadyImmediate =
+    req.body?.promptReadyImmediate === true ||
+    req.body?.promptReadyImmediate === "true" ||
+    req.body?.latency?.promptReadyImmediate === true ||
+    req.body?.latency?.promptReadyImmediate === "true";
 
   // ----------- DETECÇÃO ROBUSTA DE GUEST / USER -----------
   // Preferência: middleware popula req.guest / req.userId.
@@ -151,6 +157,8 @@ router.post("/ask-eco", async (req: GuestAwareRequest, res: Response) => {
   let sseStarted = false;
   let streamClosed = false;
   let sendSseRef: ((payload: Record<string, unknown>) => void) | null = null;
+  let heartbeatTimer: NodeJS.Timeout | null = null;
+  let endStreamRef: (() => void) | null = null;
 
   const mensagensBrutas = normalizarMensagens(req.body);
   if (!mensagensBrutas || mensagensBrutas.length === 0) {
@@ -234,6 +242,24 @@ router.post("/ask-eco", async (req: GuestAwareRequest, res: Response) => {
     let cacheCandidateTimings: EcoLatencyMarks | undefined;
     let clientDisconnected = false;
 
+    const stopHeartbeat = () => {
+      if (heartbeatTimer) {
+        clearInterval(heartbeatTimer);
+        heartbeatTimer = null;
+      }
+    };
+
+    const sendHeartbeat = () => {
+      if (streamClosed || !sseStarted) return;
+      streamingRes.write(`:keepalive\n\n`);
+      streamingRes.flush?.();
+    };
+
+    const ensureHeartbeat = () => {
+      if (heartbeatTimer || streamClosed) return;
+      heartbeatTimer = setInterval(sendHeartbeat, HEARTBEAT_INTERVAL_MS);
+    };
+
     const startSse = () => {
       if (sseStarted) return;
       sseStarted = true;
@@ -243,6 +269,7 @@ router.post("/ask-eco", async (req: GuestAwareRequest, res: Response) => {
       res.setHeader("Connection", "keep-alive");
       streamingRes.flushHeaders?.();
       streamingRes.flush?.();
+      ensureHeartbeat();
     };
 
     const sendSse = (payload: Record<string, unknown>) => {
@@ -253,6 +280,15 @@ router.post("/ask-eco", async (req: GuestAwareRequest, res: Response) => {
     };
     sendSseRef = sendSse;
 
+    const endStream = () => {
+      if (!streamClosed) {
+        streamClosed = true;
+        stopHeartbeat();
+        streamingRes.end();
+      }
+    };
+    endStreamRef = endStream;
+
     const emitLatency = (stage: "prompt_ready" | "ttfb" | "ttlc", at: number, timings?: EcoLatencyMarks) => {
       const sinceStartMs = at - t0;
       log.info(`// LATENCY: ${stage}`, { at, sinceStartMs, timings });
@@ -261,11 +297,18 @@ router.post("/ask-eco", async (req: GuestAwareRequest, res: Response) => {
 
     startSse();
 
+    if (promptReadyImmediate) {
+      const at = now();
+      emitLatency("prompt_ready", at);
+      sendSse({ type: "prompt_ready", at, sinceStartMs: at - t0 });
+    }
+
     req.on("close", () => {
       if (!streamClosed) {
         clientDisconnected = true;
       }
       streamClosed = true;
+      stopHeartbeat();
     });
 
     // ----------- ANALYTICS & CACHE KEY -----------
@@ -386,10 +429,7 @@ router.post("/ask-eco", async (req: GuestAwareRequest, res: Response) => {
           length: cachedPayload.raw.length,
         };
       sendSse({ type: "done", meta: { ...doneMetaBase, cache: true }, at: doneAt, sinceStartMs: doneAt - t0, timings: latestTimings });
-      if (!streamClosed) {
-        streamClosed = true;
-        streamingRes.end();
-      }
+      endStream();
       return;
     }
 
@@ -409,10 +449,7 @@ router.post("/ask-eco", async (req: GuestAwareRequest, res: Response) => {
     const sendErrorAndEnd = (message: string) => {
       cacheable = false;
       sendSse({ type: "error", message });
-      if (!streamClosed) {
-        streamClosed = true;
-        streamingRes.end();
-      }
+      endStream();
     };
 
     let doneNotified = false;
@@ -456,10 +493,7 @@ router.post("/ask-eco", async (req: GuestAwareRequest, res: Response) => {
             const at = now();
             emitLatency("ttlc", at, latestTimings);
             sendSse({ type: "done", meta: event.meta ?? {}, at, sinceStartMs: at - t0, timings: latestTimings });
-            if (!streamClosed) {
-              streamClosed = true;
-              streamingRes.end();
-            }
+            endStream();
           }
         }
       },
@@ -499,8 +533,7 @@ router.post("/ask-eco", async (req: GuestAwareRequest, res: Response) => {
       cacheCandidateMeta = fallbackMeta;
       cacheCandidateTimings = latestTimings;
       sendSse({ type: "done", meta: fallbackMeta, at, sinceStartMs: at - t0, timings: latestTimings });
-      streamClosed = true;
-      streamingRes.end();
+      endStream();
     }
 
     const shouldStore =
@@ -551,9 +584,9 @@ router.post("/ask-eco", async (req: GuestAwareRequest, res: Response) => {
     if (sseStarted || res.headersSent) {
       sendSseRef?.({ type: "error", message });
       if (!streamClosed) {
-        streamClosed = true;
-        (res as any).end?.();
+        endStreamRef?.();
       }
+      (res as any).end?.();
       return;
     }
     return res.status(500).json({
