@@ -33,6 +33,18 @@ export type GetEcoParams = {
   sessionMeta?: SessionMetadata;
 };
 
+export type ResponsePlan = {
+  foco: string;
+  passos: string[];
+  perguntaFinal: string;
+  temas?: string[];
+};
+
+export type ResponsePlanContext = {
+  origem: "auto_reply_guard" | "manual";
+  motivos?: string[];
+};
+
 export type GetEcoResult = {
   message: string;
   intensidade?: number;
@@ -41,6 +53,8 @@ export type GetEcoResult = {
   tags?: string[];
   categoria?: string | null;
   proactive?: ProactivePayload;
+  plan?: ResponsePlan | null;
+  planContext?: ResponsePlanContext | null;
 };
 // Nivel  de abertura aceito pela matriz
 export type NivelNum = 1 | 2 | 3;
