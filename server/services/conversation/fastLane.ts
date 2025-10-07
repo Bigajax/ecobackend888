@@ -5,7 +5,13 @@ import {
   type SessionMetadata,
 } from "../../utils";
 import { log } from "../promptContext/logger";
+import { planCuriousFallback } from "../../core/ResponsePlanner";
 import type { FinalizeParams } from "./responseFinalizer";
+import { detectGenericAutoReply } from "./genericAutoReplyGuard";
+import {
+  construirRespostaPersonalizada,
+  sugerirPlanoResposta,
+} from "./responsePlanner";
 
 type ClaudeMessage = { role: "system" | "user" | "assistant"; content: string };
 
@@ -128,7 +134,7 @@ export async function runFastLaneLLM({
     completion = await deps.claudeClient(payload);
   } catch (error: any) {
     log.warn(`[fastLaneLLM] falhou: ${error?.message}`);
-    const fallback = "Tô aqui com você. Quer me contar um pouco mais?";
+    const { text: fallback } = planCuriousFallback(ultimaMsg);
     const response = await deps.responseFinalizer.finalize({
       raw: fallback,
       ultimaMsg,
@@ -153,8 +159,16 @@ export async function runFastLaneLLM({
   const usage = completion?.usage ?? null;
   const model = completion?.model;
 
+  const genericCheck = detectGenericAutoReply(raw);
+  const needsPersonalization = genericCheck.isGeneric;
+
+  const plan = needsPersonalization ? sugerirPlanoResposta(ultimaMsg) : null;
+  const finalRaw = needsPersonalization
+    ? construirRespostaPersonalizada(ultimaMsg, plan!)
+    : raw;
+
   const response = await deps.responseFinalizer.finalize({
-    raw,
+    raw: finalRaw,
     ultimaMsg,
     userName,
     hasAssistantBefore,
@@ -170,7 +184,15 @@ export async function runFastLaneLLM({
     origemSessao: sessionMeta?.origem ?? undefined,
   });
 
-  return { raw, usage, model, response };
+  if (plan) {
+    response.plan = plan;
+    response.planContext = {
+      origem: "auto_reply_guard",
+      motivos: genericCheck.matches,
+    };
+  }
+
+  return { raw: finalRaw, usage, model, response };
 }
 
 export type { ClaudeClientParams, ClaudeClientResult };

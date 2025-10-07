@@ -9,15 +9,19 @@ export function buildFinalizedStreamText(result: GetEcoResult): string {
   const tags = Array.isArray(result.tags) ? result.tags : [];
   const categoria = typeof result.categoria === "string" ? result.categoria : null;
   const proactive = result.proactive ?? null;
+  const plan = result.plan ?? null;
+  const planContext = result.planContext ?? null;
 
-  const payload: Record<string, unknown> = {
-    intensidade,
-    resumo,
-    emocao,
-    tags,
-    categoria,
-    proactive,
-  };
+  const payload: Record<string, unknown> = {};
+
+  if (intensidade !== null) payload.intensidade = intensidade;
+  if (typeof resumo === "string" && resumo.trim() !== "") payload.resumo = resumo;
+  if (typeof emocao === "string" && emocao.trim() !== "") payload.emocao = emocao;
+  payload.tags = tags;
+  payload.categoria = categoria;
+  if (proactive !== null) payload.proactive = proactive;
+  if (plan !== null) payload.plan = plan;
+  if (planContext !== null) payload.planContext = planContext;
 
   const hasMeta =
     intensidade !== null ||
@@ -25,7 +29,9 @@ export function buildFinalizedStreamText(result: GetEcoResult): string {
     (typeof emocao === "string" && emocao.trim() !== "") ||
     (Array.isArray(tags) && tags.length > 0) ||
     (typeof categoria === "string" && categoria.trim() !== "") ||
-    proactive !== null;
+    proactive !== null ||
+    plan !== null ||
+    planContext !== null;
 
   if (!hasMeta) {
     return result.message ?? "";
