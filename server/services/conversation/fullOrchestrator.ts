@@ -16,11 +16,13 @@ interface FullExecutionParams {
   userName?: string | null;
   decision: { hasAssistantBefore: boolean };
   userId: string;
-  supabase: any;
+  supabase: any | null;
   lastMessageId?: string;
   sessionMeta?: any;
   timings: EcoLatencyMarks;
   thread: ChatMessage[];
+  isGuest?: boolean;
+  guestId?: string;
 }
 
 export async function executeFullLLM({
@@ -36,7 +38,10 @@ export async function executeFullLLM({
   sessionMeta,
   timings,
   thread,
+  isGuest = false,
+  guestId,
 }: FullExecutionParams): Promise<GetEcoResult> {
+  const supabaseClient = supabase ?? null;
   let data: any;
   timings.llmStart = now();
   log.info("// LATENCY: llm_request_start", {
@@ -63,7 +68,7 @@ export async function executeFullLLM({
       userName: userName ?? undefined,
       hasAssistantBefore: decision.hasAssistantBefore,
       userId,
-      supabase,
+      supabase: supabaseClient ?? undefined,
       lastMessageId,
       mode: "full",
       startedAt: timings.llmStart,
@@ -73,6 +78,8 @@ export async function executeFullLLM({
       sessionMeta,
       sessaoId: sessionMeta?.sessaoId ?? undefined,
       origemSessao: sessionMeta?.origem ?? undefined,
+      isGuest,
+      guestId,
     });
   }
 
@@ -89,7 +96,7 @@ export async function executeFullLLM({
     userName: userName ?? undefined,
     hasAssistantBefore: decision.hasAssistantBefore,
     userId,
-    supabase,
+    supabase: supabaseClient ?? undefined,
     lastMessageId,
     mode: "full",
     startedAt: timings.llmStart,
@@ -98,37 +105,41 @@ export async function executeFullLLM({
     sessionMeta,
     sessaoId: sessionMeta?.sessaoId ?? undefined,
     origemSessao: sessionMeta?.origem ?? undefined,
+    isGuest,
+    guestId,
   });
 
-  try {
-    const metaPayload = buildStreamingMetaPayload(
-      {
-        intensidade: finalized.intensidade,
-        analise_resumo: finalized.resumo,
-        emocao_principal: finalized.emocao,
-        categoria: finalized.categoria,
-        tags: finalized.tags,
-      } as any,
-      finalized.message ?? ""
-    );
+  if (!isGuest && supabaseClient) {
+    try {
+      const metaPayload = buildStreamingMetaPayload(
+        {
+          intensidade: finalized.intensidade,
+          analise_resumo: finalized.resumo,
+          emocao_principal: finalized.emocao,
+          categoria: finalized.categoria,
+          tags: finalized.tags,
+        } as any,
+        finalized.message ?? ""
+      );
 
-    if (metaPayload && metaPayload.intensidade >= 7) {
-      const rpcRes = await salvarMemoriaViaRPC({
-        supabase,
-        userId,
-        mensagemId: (thread.at(-1)?.id as string) ?? null,
-        meta: metaPayload,
-        origem: "full_sync",
-      });
-      if (rpcRes.saved) {
-        log.info("[FullSync] memoria salva via RPC", {
-          memoriaId: rpcRes.memoriaId,
-          primeira: rpcRes.primeira,
+      if (metaPayload && metaPayload.intensidade >= 7) {
+        const rpcRes = await salvarMemoriaViaRPC({
+          supabase: supabaseClient,
+          userId,
+          mensagemId: (thread.at(-1)?.id as string) ?? null,
+          meta: metaPayload,
+          origem: "full_sync",
         });
+        if (rpcRes.saved) {
+          log.info("[FullSync] memoria salva via RPC", {
+            memoriaId: rpcRes.memoriaId,
+            primeira: rpcRes.primeira,
+          });
+        }
       }
+    } catch (error: any) {
+      log.warn("[FullSync] salvarMemoriaViaRPC falhou (ignorado)", { message: error?.message });
     }
-  } catch (error: any) {
-    log.warn("[FullSync] salvarMemoriaViaRPC falhou (ignorado)", { message: error?.message });
   }
 
   return finalized;

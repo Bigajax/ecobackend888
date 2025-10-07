@@ -154,6 +154,68 @@ export const trackEcoCache = ({
   );
 };
 
+export const trackGuestStart = ({
+  guestId,
+  sessaoId,
+  origem,
+}: {
+  guestId: string;
+  sessaoId?: string | null;
+  origem?: string | null;
+}): void => {
+  if (!guestId) return;
+  const payload: Record<string, unknown> = {
+    distinct_id: guestId,
+    guestId,
+  };
+  if (sessaoId !== undefined) payload.sessaoId = sessaoId;
+  if (origem !== undefined) payload.origem = origem;
+  mixpanel.track("guest_start", payload);
+};
+
+export const trackGuestMessage = ({
+  guestId,
+  ordem,
+  max,
+  tamanhoCaracteres,
+  sessaoId,
+  origem,
+}: {
+  guestId: string;
+  ordem: number;
+  max: number;
+  tamanhoCaracteres: number;
+  sessaoId?: string | null;
+  origem?: string | null;
+}): void => {
+  if (!guestId) return;
+  const payload: Record<string, unknown> = {
+    distinct_id: guestId,
+    guestId,
+    ordem,
+    max,
+    tamanhoCaracteres,
+  };
+  if (sessaoId !== undefined) payload.sessaoId = sessaoId;
+  if (origem !== undefined) payload.origem = origem;
+  mixpanel.track("guest_message", payload);
+};
+
+export const trackGuestClaimed = ({
+  guestId,
+  userId,
+}: {
+  guestId: string;
+  userId: string;
+}): void => {
+  if (!guestId || !userId) return;
+  mixpanel.track("guest_claimed", {
+    distinct_id: guestId,
+    guestId,
+    userId,
+  });
+};
+
 export const trackEcoDemorou = ({
   distinctId,
   userId,

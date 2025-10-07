@@ -12,6 +12,8 @@ import relatorioRoutes from "../../routes/relatorioEmocionalRoutes";
 import feedbackRoutes from "../../routes/feedback";
 import memoryRoutes from "../../domains/memory/routes";
 import { log } from "../../services/promptContext/logger";
+import { guestSessionMiddleware } from "./middlewares/guestSession";
+import guestRoutes from "../../routes/guestRoutes";
 
 export function createApp(): Express {
   const app = express();
@@ -57,6 +59,7 @@ export function createApp(): Express {
   app.use(express.json({ limit: "1mb" }));
   app.use(express.urlencoded({ extended: true }));
   app.use(requestLogger);
+  app.use(guestSessionMiddleware);
   app.use(normalizeQuery);
 
   app.get("/", (_req: Request, res: Response) => res.status(200).send("OK"));
@@ -83,6 +86,7 @@ export function createApp(): Express {
   app.use("/api/voice", voiceTTSRoutes);
   app.use("/api/voice", voiceFullRoutes);
   app.use("/api", openrouterRoutes);
+  app.use("/api/guest", guestRoutes);
   app.use("/api/relatorio-emocional", relatorioRoutes);
   app.use("/api/v1/relatorio-emocional", relatorioRoutes);
   app.use("/api/feedback", feedbackRoutes);

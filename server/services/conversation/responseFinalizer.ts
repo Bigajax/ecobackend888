@@ -50,6 +50,8 @@ export interface FinalizeParams {
   sessaoId?: string | null;
   origemSessao?: string | null;
   precomputed?: PrecomputedFinalizeArtifacts;
+  isGuest?: boolean;
+  guestId?: string | null;
 }
 
 export interface NormalizedEcoResponse {
@@ -176,6 +178,7 @@ export class ResponseFinalizer {
     skipBloco: boolean;
     mode: "fast" | "full";
     distinctId?: string;
+    isGuest?: boolean;
   }): Promise<void> {
     const {
       userId,
@@ -186,8 +189,9 @@ export class ResponseFinalizer {
       skipBloco,
       mode,
       distinctId,
+      isGuest,
     } = params;
-    if (!userId) return;
+    if (!userId || !supabase || isGuest) return;
 
     let blocoParaSalvar = params.bloco;
 
@@ -296,8 +300,11 @@ export class ResponseFinalizer {
     sessaoId: providedSessaoId,
     origemSessao,
     precomputed,
+    isGuest = false,
+    guestId,
   }: FinalizeParams): Promise<GetEcoResult> {
-    const distinctId = providedDistinctId ?? sessionMeta?.distinctId ?? userId;
+    const distinctId =
+      providedDistinctId ?? sessionMeta?.distinctId ?? guestId ?? userId;
 
     if (!hasAssistantBefore) {
       const sessaoId = providedSessaoId ?? sessionMeta?.sessaoId ?? undefined;
@@ -368,7 +375,7 @@ export class ResponseFinalizer {
     }
 
     const duracao = now() - startedAt;
-    if (sessionMeta) {
+    if (sessionMeta && !isGuest) {
       this.deps.identifyUsuario({
         distinctId,
         userId,
@@ -416,6 +423,7 @@ export class ResponseFinalizer {
       skipBloco,
       mode,
       distinctId,
+      isGuest,
     });
 
     return response;

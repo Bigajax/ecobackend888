@@ -2,9 +2,9 @@ import { loadConversationContext } from "./derivadosLoader";
 import { defaultContextCache } from "./contextCache";
 
 interface PrepareContextParams {
-  userId: string;
+  userId?: string;
   ultimaMsg: string;
-  supabase: any;
+  supabase?: any;
   promptOverride?: string;
   metaFromBuilder?: any;
   mems: any[];
@@ -13,6 +13,8 @@ interface PrepareContextParams {
   blocoTecnicoForcado: any;
   decision: { vivaAtivo: boolean };
   onDerivadosError?: (error: unknown) => void;
+  cacheUserId?: string;
+  isGuest?: boolean;
 }
 
 export interface PreparedContext {
@@ -32,8 +34,11 @@ export async function prepareConversationContext({
   blocoTecnicoForcado,
   decision,
   onDerivadosError,
+  cacheUserId,
+  isGuest,
 }: PrepareContextParams): Promise<PreparedContext> {
-  const context = await loadConversationContext(userId, ultimaMsg, supabase, {
+  const effectiveUserId = supabase && !isGuest ? userId : undefined;
+  const context = await loadConversationContext(effectiveUserId, ultimaMsg, supabase, {
     promptOverride,
     metaFromBuilder,
     onDerivadosError,
@@ -42,7 +47,7 @@ export async function prepareConversationContext({
   const systemPrompt =
     promptOverride ??
     (await defaultContextCache.build({
-      userId,
+      userId: cacheUserId ?? userId,
       userName: userName ?? undefined,
       perfil: null,
       mems,
