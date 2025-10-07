@@ -52,6 +52,8 @@ export interface RunFastLaneLLMParams {
   startedAt: number;
   deps: RunFastLaneLLMDeps;
   sessionMeta?: SessionMetadata;
+  isGuest?: boolean;
+  guestId?: string;
 }
 
 export interface RunFastLaneLLMResult {
@@ -108,6 +110,8 @@ export async function runFastLaneLLM({
   startedAt,
   deps,
   sessionMeta,
+  isGuest = false,
+  guestId,
 }: RunFastLaneLLMParams): Promise<RunFastLaneLLMResult> {
   const nome = deps.firstName?.(userName);
   const preferCoach = detectExplicitAskForSteps(ultimaMsg);
@@ -142,6 +146,8 @@ export async function runFastLaneLLM({
       sessionMeta,
       sessaoId: sessionMeta?.sessaoId ?? undefined,
       origemSessao: sessionMeta?.origem ?? undefined,
+      isGuest,
+      guestId,
     });
     return { raw: fallback, usage: null, model: "fastlane-fallback", response };
   }
@@ -173,6 +179,8 @@ export async function runFastLaneLLM({
     sessionMeta,
     sessaoId: sessionMeta?.sessaoId ?? undefined,
     origemSessao: sessionMeta?.origem ?? undefined,
+    isGuest,
+    guestId,
   });
 
   if (plan) {

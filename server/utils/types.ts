@@ -25,12 +25,14 @@ export type GetEcoParams = {
   messages: ChatMessage[];
   userId: string;
   userName?: string;
-  accessToken: string;
+  accessToken?: string;
   mems?: any[];
   forcarMetodoViva?: boolean;
   blocoTecnicoForcado?: any;
   clientHour?: number;
   sessionMeta?: SessionMetadata;
+  isGuest?: boolean;
+  guestId?: string | null;
 };
 
 export type ResponsePlan = {
