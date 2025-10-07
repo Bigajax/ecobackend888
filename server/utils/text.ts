@@ -91,7 +91,31 @@ export function extractJson<T = any>(text: string): T | null {
 // -----------------------------
 // Contador de tokens (opcional)
 // -----------------------------
-let _enc: any | null = null;
+
+export type TokenEncoder = {
+  encode: (text: string) => number[];
+  decode?: (tokens: number[]) => string;
+};
+
+let _encoder: TokenEncoder | null = null;
+let _encoderTried = false;
+
+export function getTokenEncoder(): TokenEncoder | null {
+  if (_encoder) return _encoder;
+  if (_encoderTried) return null;
+
+  _encoderTried = true;
+  try {
+    // require dinâmico para evitar issues de ESM/ciclos
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { get_encoding } = require("@dqbd/tiktoken");
+    _encoder = get_encoding("cl100k_base");
+  } catch {
+    _encoder = null;
+  }
+
+  return _encoder;
+}
 
 /**
  * Conta tokens de forma robusta:
@@ -100,19 +124,14 @@ let _enc: any | null = null;
  */
 export function countTokens(text: string): number {
   const s = text || "";
-  try {
-    if (!_enc) {
-      // require dinâmico para evitar issues de ESM/ciclos
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
-      const { get_encoding } = require("@dqbd/tiktoken");
-      _enc = get_encoding("cl100k_base");
-    }
-    return _enc.encode(s).length as number;
-  } catch {
-    // fallback simples e rápido
-    // (heurística comum: ~4 chars por token em inglês/pt)
-    return Math.ceil(s.length / 4);
+  const encoder = getTokenEncoder();
+  if (encoder) {
+    return encoder.encode(s).length;
   }
+
+  // fallback simples e rápido
+  // (heurística comum: ~4 chars por token em inglês/pt)
+  return Math.ceil(s.length / 4);
 }
 
 // -----------------------------
