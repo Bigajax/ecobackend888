@@ -40,10 +40,7 @@ type CachedResponsePayload = {
 };
 
 const buildResponseCacheKey = (userId: string, ultimaMsg: string) => {
-  const hash = crypto
-    .createHash("sha1")
-    .update(`${userId}:${ultimaMsg}`)
-    .digest("hex");
+  const hash = crypto.createHash("sha1").update(`${userId}:${ultimaMsg}`).digest("hex");
   return `resp:user:${userId}:${hash}`;
 };
 
@@ -59,13 +56,9 @@ const parsePositiveInt = (value: string | undefined, fallback: number): number =
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 };
 
-const MAX_GUEST_MESSAGE_LENGTH = parsePositiveInt(
-  process.env.GUEST_MAX_MESSAGE_LENGTH,
-  2000
-);
+const MAX_GUEST_MESSAGE_LENGTH = parsePositiveInt(process.env.GUEST_MAX_MESSAGE_LENGTH, 2000);
 
 const stripHtml = (text: string): string => text.replace(/<[^>]*>/g, " ");
-
 const normalizeWhitespace = (text: string): string => text.replace(/\s+/g, " ").trim();
 
 const sanitizeGuestMessages = (
@@ -94,7 +87,7 @@ const sanitizeGuestMessages = (
   });
 };
 
-type GuestAwareRequest = Request & { guest?: GuestSessionMeta };
+type GuestAwareRequest = Request & { guest?: GuestSessionMeta; userId?: string };
 
 const getMensagemTipo = (
   mensagens: Array<{ role?: string }> | null | undefined
@@ -108,7 +101,6 @@ const getMensagemTipo = (
     if (role === "assistant") return "continuacao";
     if (role === "user") previousUserMessages += 1;
   }
-
   return previousUserMessages > 0 ? "continuacao" : "inicial";
 };
 
@@ -123,21 +115,49 @@ function normalizarMensagens(body: any): Array<{ role: string; content: any }> |
 
 router.post("/ask-eco", async (req: GuestAwareRequest, res: Response) => {
   const t0 = now();
-  const { usuario_id, nome_usuario } = req.body ?? {};
+
+  // ----------- DETECÇÃO ROBUSTA DE GUEST / USER -----------
+  // Preferência: middleware popula req.guest / req.userId.
+  // Fallbacks: headers/body.
+  const headerGuestId =
+    (req.headers["x-guest-id"] as string | undefined)?.trim() ||
+    (req.headers["X-Guest-Id"] as string | undefined)?.trim();
+
+  const bodyIsGuest = Boolean(req.body?.isGuest);
+  const bodyGuestId = typeof req.body?.guestId === "string" ? req.body.guestId.trim() : "";
+
+  const authHeader = req.headers.authorization;
+  const hasBearer = typeof authHeader === "string" && /^Bearer\s+/i.test(authHeader.trim());
+  const token = hasBearer ? authHeader!.trim().replace(/^Bearer\s+/i, "") : undefined;
+
+  // Se veio Bearer válido, tratamos como user; caso contrário, se houver qualquer guestId/flag, tratamos como guest.
+  let isGuest = false;
+  let guestId: string | null = null;
+
+  if (hasBearer && token) {
+    isGuest = false;
+  } else if (req.guest?.id || headerGuestId || bodyIsGuest || bodyGuestId) {
+    isGuest = true;
+    guestId = (req.guest?.id || headerGuestId || bodyGuestId || "").trim() || null;
+  } else {
+    // Sem token e sem guestId declarado → gera um guestId efêmero
+    isGuest = true;
+    guestId = `guest_${crypto.randomUUID()}`;
+  }
+
+  // ----------- INPUT BÁSICO -----------
+  const { usuario_id: usuarioIdBody, nome_usuario } = req.body ?? {};
   const streamingRes = res as Response & { flush?: () => void; flushHeaders?: () => void };
   let sseStarted = false;
   let streamClosed = false;
   let sendSseRef: ((payload: Record<string, unknown>) => void) | null = null;
-
-  const guestInfo = req.guest;
-  const isGuest = Boolean(guestInfo?.id);
-  const guestId = guestInfo?.id ?? null;
 
   const mensagensBrutas = normalizarMensagens(req.body);
   if (!mensagensBrutas || mensagensBrutas.length === 0) {
     return res.status(400).json({ error: "messages são obrigatórios." });
   }
 
+  // Sanitização apenas no guest
   let mensagensParaIA = mensagensBrutas;
   if (isGuest) {
     try {
@@ -147,36 +167,31 @@ router.post("/ask-eco", async (req: GuestAwareRequest, res: Response) => {
         ? Number((sanitizationError as any).status)
         : 400;
       return res.status(statusCode).json({
-        error:
-          sanitizationError?.message ||
-          "Entrada inválida para o modo convidado.",
+        error: sanitizationError?.message || "Entrada inválida para o modo convidado.",
       });
     }
   }
 
-  const authHeader = req.headers.authorization;
-  const hasBearer =
-    typeof authHeader === "string" && /^Bearer\s+/i.test(authHeader.trim());
-  const token = hasBearer ? authHeader!.trim().replace(/^Bearer\s+/i, "") : undefined;
-
+  // ----------- GUARD DE AUTENTICAÇÃO -----------
   if (!isGuest) {
     if (!hasBearer || !token) {
       return res.status(401).json({ error: "Token de acesso ausente." });
     }
-    if (!usuario_id) {
-      return res
-        .status(400)
-        .json({ error: "usuario_id e messages são obrigatórios." });
+    if (!usuarioIdBody) {
+      return res.status(400).json({ error: "usuario_id e messages são obrigatórios." });
     }
   }
 
-  const pipelineUserId = isGuest && guestId ? `guest:${guestId}` : usuario_id;
+  // Define o "userId" que o pipeline vai usar (diferencia convidados)
+  const pipelineUserId = isGuest ? `guest:${guestId!}` : String(usuarioIdBody);
   if (!pipelineUserId) {
     return res.status(400).json({ error: "Usuário inválido." });
   }
 
+  // ----------- SESSION META / ANALYTICS -----------
   let sessionMeta = extractSessionMeta(req.body);
   sessionMeta = sessionMeta ? { ...sessionMeta } : undefined;
+
   if (isGuest && guestId) {
     if (!sessionMeta) {
       sessionMeta = { distinctId: guestId };
@@ -186,31 +201,31 @@ router.post("/ask-eco", async (req: GuestAwareRequest, res: Response) => {
   }
 
   const distinctId = sessionMeta?.distinctId ?? (isGuest && guestId ? guestId : undefined);
-  const analyticsUserId = isGuest ? undefined : usuario_id;
+  const analyticsUserId = isGuest ? undefined : usuarioIdBody;
 
+  // ----------- RATE LIMIT DO GUEST -----------
   let guestInteractionCount: number | null = null;
   if (isGuest && guestId) {
     guestInteractionCount = incrementGuestInteraction(guestId);
     if (guestInteractionCount > guestSessionConfig.maxInteractions) {
-      return res.status(429).json({
-        error: "Limite de interações do modo convidado atingido.",
-      });
+      return res.status(429).json({ error: "Limite de interações do modo convidado atingido." });
     }
+    // Se o middleware usa req.guest, atualiza contagem (opcional)
     if (req.guest) {
       req.guest.interactionsUsed = guestInteractionCount;
     }
   }
 
   try {
+    // ----------- VALIDAÇÃO DO TOKEN QUANDO USER -----------
     if (!isGuest) {
       const { data, error } = await supabase.auth.getUser(token!);
       if (error || !data?.user) {
-        return res
-          .status(401)
-          .json({ error: "Token inválido ou usuário não encontrado." });
+        return res.status(401).json({ error: "Token inválido ou usuário não encontrado." });
       }
     }
 
+    // ----------- SSE BOOTSTRAP -----------
     let latestTimings: EcoLatencyMarks | undefined;
     let firstChunkLogged = false;
     let cacheKey: string | null = null;
@@ -223,32 +238,24 @@ router.post("/ask-eco", async (req: GuestAwareRequest, res: Response) => {
       if (sseStarted) return;
       sseStarted = true;
       res.status(200);
-      res.setHeader("Content-Type", "text/event-stream"); // LATENCY: formato SSE imediato.
-      res.setHeader("Cache-Control", "no-cache"); // LATENCY: evita buffering no cliente.
-      res.setHeader("Connection", "keep-alive"); // LATENCY: mantém socket aberto.
-      streamingRes.flushHeaders?.(); // LATENCY: envia cabeçalhos sem aguardar payload.
-      streamingRes.flush?.(); // LATENCY: força o envio imediato do preâmbulo.
+      res.setHeader("Content-Type", "text/event-stream");
+      res.setHeader("Cache-Control", "no-cache");
+      res.setHeader("Connection", "keep-alive");
+      streamingRes.flushHeaders?.();
+      streamingRes.flush?.();
     };
 
     const sendSse = (payload: Record<string, unknown>) => {
       if (streamClosed) return;
       startSse();
-      streamingRes.write(`data: ${JSON.stringify(payload)}\n\n`); // LATENCY: chunk incremental da resposta.
-      streamingRes.flush?.(); // LATENCY: garante entrega sem buffering adicional.
+      streamingRes.write(`data: ${JSON.stringify(payload)}\n\n`);
+      streamingRes.flush?.();
     };
     sendSseRef = sendSse;
 
-    const emitLatency = (
-      stage: "prompt_ready" | "ttfb" | "ttlc",
-      at: number,
-      timings?: EcoLatencyMarks
-    ) => {
+    const emitLatency = (stage: "prompt_ready" | "ttfb" | "ttlc", at: number, timings?: EcoLatencyMarks) => {
       const sinceStartMs = at - t0;
-      log.info(`// LATENCY: ${stage}`, {
-        at,
-        sinceStartMs,
-        timings,
-      });
+      log.info(`// LATENCY: ${stage}`, { at, sinceStartMs, timings });
       sendSse({ type: "latency", stage, at, sinceStartMs, timings });
     };
 
@@ -261,6 +268,7 @@ router.post("/ask-eco", async (req: GuestAwareRequest, res: Response) => {
       streamClosed = true;
     });
 
+    // ----------- ANALYTICS & CACHE KEY -----------
     const ultimaMsg = String(mensagensParaIA.at(-1)?.content ?? "");
     const trimmedUltimaMsg = ultimaMsg.trim();
     log.info("🗣️ Última mensagem:", safeLog(ultimaMsg));
@@ -302,10 +310,7 @@ router.post("/ask-eco", async (req: GuestAwareRequest, res: Response) => {
         try {
           cachedPayload = JSON.parse(cachedRaw) as CachedResponsePayload;
         } catch (parseErr) {
-          log.warn("⚠️ Falha ao parsear RESPONSE_CACHE:", {
-            cacheKey,
-            error: (parseErr as Error)?.message,
-          });
+          log.warn("⚠️ Falha ao parsear RESPONSE_CACHE:", { cacheKey, error: (parseErr as Error)?.message });
           RESPONSE_CACHE.delete(cacheKey);
         }
       }
@@ -317,28 +322,17 @@ router.post("/ask-eco", async (req: GuestAwareRequest, res: Response) => {
     if (cachedPayload && typeof cachedPayload.raw === "string") {
       if (!cachedPayload.raw.includes("```json")) {
         const metaSource = isRecord(cachedPayload.meta) ? cachedPayload.meta : {};
-        const normalizedResult: GetEcoResult = {
-          message: cachedPayload.raw,
-        };
+        const normalizedResult: GetEcoResult = { message: cachedPayload.raw };
 
-        if (typeof metaSource.intensidade === "number") {
-          normalizedResult.intensidade = metaSource.intensidade;
-        }
-        if (typeof metaSource.resumo === "string" && metaSource.resumo.trim()) {
+        if (typeof metaSource.intensidade === "number") normalizedResult.intensidade = metaSource.intensidade;
+        if (typeof metaSource.resumo === "string" && metaSource.resumo.trim())
           normalizedResult.resumo = metaSource.resumo;
-        }
-        if (typeof metaSource.emocao === "string" && metaSource.emocao.trim()) {
+        if (typeof metaSource.emocao === "string" && metaSource.emocao.trim())
           normalizedResult.emocao = metaSource.emocao;
-        }
         if (Array.isArray(metaSource.tags)) {
-          normalizedResult.tags = metaSource.tags.filter(
-            (tag): tag is string => typeof tag === "string"
-          );
+          normalizedResult.tags = metaSource.tags.filter((tag): tag is string => typeof tag === "string");
         }
-        if (
-          typeof metaSource.categoria === "string" ||
-          metaSource.categoria === null
-        ) {
+        if (typeof metaSource.categoria === "string" || metaSource.categoria === null) {
           normalizedResult.categoria = metaSource.categoria ?? null;
         }
         if (metaSource.proactive !== undefined) {
@@ -349,21 +343,15 @@ router.post("/ask-eco", async (req: GuestAwareRequest, res: Response) => {
         }
 
         const rebuiltRaw = buildFinalizedStreamText(normalizedResult);
-        let normalizedMeta: Record<string, any> | null = isRecord(cachedPayload.meta)
-          ? { ...cachedPayload.meta }
-          : null;
-        if (normalizedMeta) {
-          normalizedMeta.length = rebuiltRaw.length;
-        } else {
-          normalizedMeta = { length: rebuiltRaw.length };
-        }
+        let normalizedMeta: Record<string, any> | null = isRecord(cachedPayload.meta) ? { ...cachedPayload.meta } : null;
+        if (normalizedMeta) normalizedMeta.length = rebuiltRaw.length;
+        else normalizedMeta = { length: rebuiltRaw.length };
 
         const updatedPayload: CachedResponsePayload = {
           ...cachedPayload,
           raw: rebuiltRaw,
           meta: normalizedMeta,
         };
-
         cachedPayload = updatedPayload;
 
         if (cacheKey) {
@@ -380,21 +368,10 @@ router.post("/ask-eco", async (req: GuestAwareRequest, res: Response) => {
 
       const promptReadyAt = now();
       log.info("// LATENCY: cache-hit", { userId: pipelineUserId, cacheKey });
-      trackEcoCache({
-        distinctId,
-        userId: analyticsUserId,
-        status: "hit",
-        key: cacheKey ?? undefined,
-        source: "openrouter",
-      });
+      trackEcoCache({ distinctId, userId: analyticsUserId, status: "hit", key: cacheKey ?? undefined, source: "openrouter" });
       latestTimings = cachedPayload.timings ?? latestTimings;
       emitLatency("prompt_ready", promptReadyAt, latestTimings);
-      sendSse({
-        type: "prompt_ready",
-        at: promptReadyAt,
-        sinceStartMs: promptReadyAt - t0,
-        timings: latestTimings,
-      });
+      sendSse({ type: "prompt_ready", at: promptReadyAt, sinceStartMs: promptReadyAt - t0, timings: latestTimings });
       sendSse({ type: "first_token" });
       const firstChunkAt = now();
       firstChunkLogged = true;
@@ -408,13 +385,7 @@ router.post("/ask-eco", async (req: GuestAwareRequest, res: Response) => {
           ...(cachedPayload.modelo ? { modelo: cachedPayload.modelo } : {}),
           length: cachedPayload.raw.length,
         };
-      sendSse({
-        type: "done",
-        meta: { ...doneMetaBase, cache: true },
-        at: doneAt,
-        sinceStartMs: doneAt - t0,
-        timings: latestTimings,
-      });
+      sendSse({ type: "done", meta: { ...doneMetaBase, cache: true }, at: doneAt, sinceStartMs: doneAt - t0, timings: latestTimings });
       if (!streamClosed) {
         streamClosed = true;
         streamingRes.end();
@@ -424,13 +395,7 @@ router.post("/ask-eco", async (req: GuestAwareRequest, res: Response) => {
 
     if (cacheKey) {
       log.info("// LATENCY: cache-miss", { userId: pipelineUserId, cacheKey });
-      trackEcoCache({
-        distinctId,
-        userId: analyticsUserId,
-        status: "miss",
-        key: cacheKey,
-        source: "openrouter",
-      });
+      trackEcoCache({ distinctId, userId: analyticsUserId, status: "miss", key: cacheKey, source: "openrouter" });
     }
 
     if (trimmedUltimaMsg.length >= 6) {
@@ -446,7 +411,7 @@ router.post("/ask-eco", async (req: GuestAwareRequest, res: Response) => {
       sendSse({ type: "error", message });
       if (!streamClosed) {
         streamClosed = true;
-        streamingRes.end(); // LATENCY: encerra imediatamente o fluxo SSE.
+        streamingRes.end();
       }
     };
 
@@ -462,24 +427,17 @@ router.post("/ask-eco", async (req: GuestAwareRequest, res: Response) => {
           sendSse({ type: "chunk", delta: event.content, index: event.index });
           return;
         }
-
         if (event.type === "error") {
           cacheable = false;
           sendErrorAndEnd(event.error.message);
           return;
         }
-
         if (event.type === "control") {
           if (event.name === "prompt_ready") {
             latestTimings = event.timings ?? latestTimings;
             const at = now();
             emitLatency("prompt_ready", at, latestTimings);
-            sendSse({
-              type: "prompt_ready",
-              at,
-              sinceStartMs: at - t0,
-              timings: latestTimings,
-            });
+            sendSse({ type: "prompt_ready", at, sinceStartMs: at - t0, timings: latestTimings });
             return;
           }
           if (event.name === "first_token") {
@@ -497,16 +455,10 @@ router.post("/ask-eco", async (req: GuestAwareRequest, res: Response) => {
             latestTimings = event.timings ?? latestTimings;
             const at = now();
             emitLatency("ttlc", at, latestTimings);
-            sendSse({
-              type: "done",
-              meta: event.meta ?? {},
-              at,
-              sinceStartMs: at - t0,
-              timings: latestTimings,
-            });
+            sendSse({ type: "done", meta: event.meta ?? {}, at, sinceStartMs: at - t0, timings: latestTimings });
             if (!streamClosed) {
               streamClosed = true;
-              streamingRes.end(); // LATENCY: encerra o SSE logo após o sinal de conclusão.
+              streamingRes.end();
             }
           }
         }
@@ -517,11 +469,11 @@ router.post("/ask-eco", async (req: GuestAwareRequest, res: Response) => {
       messages: mensagensParaIA,
       userId: pipelineUserId,
       userName: nome_usuario,
-      accessToken: token,
+      accessToken: token, // pode ser undefined no guest; seu orquestrador deve tolerar
       sessionMeta,
       stream: streamHandler,
       isGuest,
-      guestId,
+      guestId: guestId ?? undefined,
     });
 
     setImmediate(() => {
@@ -546,13 +498,7 @@ router.post("/ask-eco", async (req: GuestAwareRequest, res: Response) => {
       const fallbackMeta = resposta?.usage ? { usage: resposta.usage } : {};
       cacheCandidateMeta = fallbackMeta;
       cacheCandidateTimings = latestTimings;
-      sendSse({
-        type: "done",
-        meta: fallbackMeta,
-        at,
-        sinceStartMs: at - t0,
-        timings: latestTimings,
-      });
+      sendSse({ type: "done", meta: fallbackMeta, at, sinceStartMs: at - t0, timings: latestTimings });
       streamClosed = true;
       streamingRes.end();
     }
@@ -565,15 +511,16 @@ router.post("/ask-eco", async (req: GuestAwareRequest, res: Response) => {
       resposta.raw.length > 0;
 
     if (shouldStore && cacheKey) {
-      const metaFromDone = cacheCandidateMeta
-        ? { ...cacheCandidateMeta }
-        : resposta?.usage || resposta?.modelo
-        ? {
-            ...(resposta.usage ? { usage: resposta.usage } : {}),
-            ...(resposta.modelo ? { modelo: resposta.modelo } : {}),
-            length: resposta.raw.length,
-          }
-        : null;
+      const metaFromDone =
+        cacheCandidateMeta
+          ? { ...cacheCandidateMeta }
+          : resposta?.usage || resposta?.modelo
+          ? {
+              ...(resposta.usage ? { usage: resposta.usage } : {}),
+              ...(resposta.modelo ? { modelo: resposta.modelo } : {}),
+              length: resposta.raw.length,
+            }
+          : null;
 
       const metaRecord = metaFromDone as Record<string, any> | null;
       const payload: CachedResponsePayload = {
@@ -584,19 +531,13 @@ router.post("/ask-eco", async (req: GuestAwareRequest, res: Response) => {
           (typeof metaRecord?.modelo === "string" ? (metaRecord.modelo as string) : null),
         usage:
           resposta?.usage ??
-          (metaRecord && Object.prototype.hasOwnProperty.call(metaRecord, "usage")
-            ? metaRecord.usage
-            : undefined),
+          (metaRecord && Object.prototype.hasOwnProperty.call(metaRecord, "usage") ? metaRecord.usage : undefined),
         timings: cacheCandidateTimings ?? resposta?.timings,
       };
 
       try {
-        RESPONSE_CACHE.set(cacheKey, JSON.stringify(payload), CACHE_TTL_MS); // LATENCY: cache-store
-        log.info("// LATENCY: cache-store", {
-          cacheKey,
-          userId: pipelineUserId,
-          length: resposta.raw.length,
-        });
+        RESPONSE_CACHE.set(cacheKey, JSON.stringify(payload), CACHE_TTL_MS);
+        log.info("// LATENCY: cache-store", { cacheKey, userId: pipelineUserId, length: resposta.raw.length });
       } catch (cacheErr) {
         log.warn("⚠️ Falha ao salvar RESPONSE_CACHE:", (cacheErr as Error)?.message);
       }
@@ -606,11 +547,12 @@ router.post("/ask-eco", async (req: GuestAwareRequest, res: Response) => {
   } catch (err: any) {
     log.error("❌ Erro no /ask-eco:", { message: err?.message, stack: err?.stack });
     const message = err?.message || "Erro interno ao processar a requisição.";
+    // Se já iniciou SSE, devolve como evento
     if (sseStarted || res.headersSent) {
       sendSseRef?.({ type: "error", message });
       if (!streamClosed) {
         streamClosed = true;
-        streamingRes.end();
+        (res as any).end?.();
       }
       return;
     }
