@@ -1,4 +1,4 @@
-import supabase from "../../lib/supabaseAdmin"; // ✅ default import
+import { ensureSupabaseConfigured } from "../../lib/supabaseAdmin";
 import { embedTextoCompleto } from "../../adapters/embeddingService";
 
 export async function buscarHeuristicasSemelhantes(texto: string) {
@@ -6,6 +6,8 @@ export async function buscarHeuristicasSemelhantes(texto: string) {
   const query_embedding = await embedTextoCompleto(texto, "🔍 heuristica");
 
   // chamada direta (sem precisar stringify)
+  const supabase = ensureSupabaseConfigured();
+
   const { data, error } = await supabase.rpc("buscar_heuristica_semelhante", {
     query_embedding,       // array number[] vai direto
     match_threshold: 0.8,

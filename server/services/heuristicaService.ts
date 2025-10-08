@@ -1,6 +1,5 @@
 // services/heuristicaService.ts
-import { supabase } from "../lib/supabaseAdmin";
-import supabaseAdmin from "../lib/supabaseAdmin"; // para o hydrate simples do segundo helper
+import { ensureSupabaseConfigured } from "../lib/supabaseAdmin";
 import { embedTextoCompleto, unitNorm } from "../adapters/embeddingService";
 import { prepareQueryEmbedding } from "./prepareQueryEmbedding";
 
@@ -34,6 +33,7 @@ async function _buscarHeuristicasCore(params: {
   hydrate: boolean;
 }): Promise<Heuristica[]> {
   const { queryEmbedding, usuarioId, threshold, matchCount, hydrate } = params;
+  const supabase = ensureSupabaseConfigured();
 
   const { data, error } = await supabase.rpc("buscar_heuristica_semelhante", {
     query_embedding: queryEmbedding,
@@ -138,7 +138,8 @@ export async function buscarHeuristicaPorSimilaridade(
   }
 
   const ids = resultados.map((r) => r.id);
-  const { data: metas } = await supabaseAdmin
+  const supabase = ensureSupabaseConfigured();
+  const { data: metas } = await supabase
     .from("heuristicas_embeddings")
     .select("id, arquivo")
     .in("id", ids);

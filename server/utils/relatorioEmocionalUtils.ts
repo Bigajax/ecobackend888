@@ -1,5 +1,5 @@
 // utils/relatorioEmocionalUtils.ts
-import { supabase } from "../lib/supabaseAdmin";
+import { ensureSupabaseConfigured } from "../lib/supabaseAdmin";
 
 interface Memoria {
   emocao_principal?: string | null;
@@ -54,6 +54,7 @@ function gerarInsight(
 }
 
 export async function gerarRelatorioEmocional(userId: string) {
+  const supabase = ensureSupabaseConfigured();
   const { data, error } = await supabase
     .from("memories")
     .select(
