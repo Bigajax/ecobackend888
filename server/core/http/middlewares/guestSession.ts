@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { type NextFunction, type Request, type Response } from "express";
 
 const UUID_V4_REGEX =
@@ -107,13 +108,27 @@ export const blockGuestId = (guestId: string): void => {
   }
 };
 
+const GUEST_ID_PREFIX = "guest_";
+
+const createGuestId = (): string => `${GUEST_ID_PREFIX}${randomUUID()}`;
+
 const sanitizeGuestId = (raw: string | undefined): string | null => {
   if (!raw) return null;
   const trimmed = raw.trim();
-  if (!UUID_V4_REGEX.test(trimmed)) {
-    return null;
+  if (!trimmed) return null;
+
+  if (UUID_V4_REGEX.test(trimmed)) {
+    return trimmed;
   }
-  return trimmed;
+
+  if (trimmed.toLowerCase().startsWith(GUEST_ID_PREFIX)) {
+    const candidate = trimmed.slice(GUEST_ID_PREFIX.length);
+    if (UUID_V4_REGEX.test(candidate)) {
+      return `${GUEST_ID_PREFIX}${candidate}`;
+    }
+  }
+
+  return null;
 };
 
 const getClientIp = (req: Request): string => {
@@ -152,9 +167,17 @@ export function guestSessionMiddleware(req: Request, res: Response, next: NextFu
   }
 
   const rawGuestId = getHeaderString(req.headers["x-guest-id"]);
-  const guestId = sanitizeGuestId(rawGuestId ?? undefined);
+  const normalizedRawGuestId = rawGuestId?.trim();
+  let guestId = sanitizeGuestId(normalizedRawGuestId ?? undefined);
+  let generatedGuestId = false;
+
   if (!guestId) {
-    return res.status(400).json({ error: "Guest ID inválido." });
+    if (normalizedRawGuestId && normalizedRawGuestId.length > 0) {
+      return res.status(400).json({ error: "Guest ID inválido." });
+    }
+
+    guestId = createGuestId();
+    generatedGuestId = true;
   }
 
   if (blockedGuests.has(guestId)) {
@@ -180,6 +203,11 @@ export function guestSessionMiddleware(req: Request, res: Response, next: NextFu
       resetAt: bucket.resetAt,
     },
   };
+
+  if (generatedGuestId) {
+    res.setHeader("x-guest-id", guestId);
+    (req.headers as Record<string, string>)["x-guest-id"] = guestId;
+  }
 
   return next();
 }
