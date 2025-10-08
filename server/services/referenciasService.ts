@@ -1,5 +1,5 @@
 // services/referenciasService.ts
-import { supabase } from "../lib/supabaseAdmin"; // ✅ instância singleton
+import { ensureSupabaseConfigured } from "../lib/supabaseAdmin";
 import { unitNorm } from "../adapters/embeddingService";
 import { invalidateResponseCacheForUser } from "./CacheService";
 
@@ -97,6 +97,7 @@ export async function salvarReferenciaTemporaria(bloco: ReferenciaPayload) {
       }
     }
 
+    const supabase = ensureSupabaseConfigured();
     const { data, error } = await supabase
       .from("referencias_temporarias")
       .insert([payload])

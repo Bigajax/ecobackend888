@@ -1,7 +1,9 @@
 import { Router } from "express";
+import requireAdmin from "../../mw/requireAdmin";
 import { createMemoryController } from "./controller";
 
 const router = Router();
+router.use(requireAdmin);
 const controller = createMemoryController();
 
 router.post("/registrar", controller.registerMemory);

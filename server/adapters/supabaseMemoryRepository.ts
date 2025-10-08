@@ -1,4 +1,4 @@
-import { supabase } from "../lib/supabaseAdmin";
+import { ensureSupabaseConfigured } from "../lib/supabaseAdmin";
 
 export type MemoryTable = "memories" | "referencias_temporarias";
 
@@ -34,6 +34,7 @@ export async function insertMemory(
   table: MemoryTable,
   payload: MemoryInsert
 ): Promise<MemoryRow[]> {
+  const supabase = ensureSupabaseConfigured();
   const { data, error } = await supabase.from(table).insert([payload]).select();
 
   if (error) {
@@ -48,6 +49,8 @@ export async function listMemories(
   options: ListMemoriesOptions
 ): Promise<MemoryRow[]> {
   const { tags = [], limit } = options;
+
+  const supabase = ensureSupabaseConfigured();
 
   let query = supabase
     .from("memories")

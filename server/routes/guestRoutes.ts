@@ -1,5 +1,5 @@
 import { Router, type Request, type Response } from "express";
-import { supabase } from "../lib/supabaseAdmin";
+import { getSupabaseAdmin, getSupabaseConfigError } from "../lib/supabaseAdmin";
 import {
   resetGuestInteraction,
   blockGuestId,
@@ -24,6 +24,23 @@ const sanitizeGuestId = (input: unknown): string | null => {
 };
 
 router.post("/claim", async (req: Request, res: Response) => {
+  const supabase = getSupabaseAdmin();
+  if (!supabase) {
+    const env = process.env.NODE_ENV ?? "development";
+    const configError = getSupabaseConfigError();
+    console.warn("[guestRoutes] running in limited mode", {
+      service: "guestRoutes",
+      env,
+      reason: "no-admin-config",
+      timestamp: new Date().toISOString(),
+      error: configError?.message ?? null,
+    });
+    return res.status(200).json({
+      migrated: 0,
+      limitedMode: true,
+      reason: "no-admin-config",
+    });
+  }
   const authHeader = getHeaderString(req.headers.authorization);
   if (!authHeader?.startsWith("Bearer ")) {
     return res.status(401).json({ error: "Token de acesso ausente." });

@@ -1,6 +1,6 @@
 // services/buscarMemorias.ts
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { supabase as supabaseDefault } from "../lib/supabaseAdmin"; // ✅ renomeado
+import { getSupabaseAdmin } from "../lib/supabaseAdmin";
 import { prepareQueryEmbedding } from "./prepareQueryEmbedding";
 
 export interface MemoriaSimilar {
@@ -66,7 +66,10 @@ export async function buscarMemoriasSemelhantes(
     k = Math.min(Math.max(1, k), 4); // LATENCY: top_k
 
     // Client a usar
-    const sb = supabaseClient ?? supabaseDefault; // ✅ preferir injetado
+    const sb = supabaseClient ?? getSupabaseAdmin();
+    if (!sb) {
+      throw new Error("Supabase admin misconfigured");
+    }
 
     // Guarda: se não veio embedding e o texto é muito curto, evita custo
     if (!userEmbedding && (!texto || texto.trim().length < 6)) return [];

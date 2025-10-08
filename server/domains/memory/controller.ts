@@ -1,6 +1,5 @@
 import type { Request, Response } from "express";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { supabase } from "../../lib/supabaseAdmin";
 import { MemoryRepository } from "./repository";
 import { MemoryService } from "./service";
 
@@ -21,21 +20,38 @@ const safeLog = (s: string) =>
 
 export class MemoryController {
   private readonly service: MemoryService;
-  private readonly supabaseClient: SupabaseClient;
+  private supabaseClient: SupabaseClient | null;
 
   constructor({ repository, service, supabaseClient }: ControllerDependencies = {}) {
     const repo = repository ?? new MemoryRepository();
     this.service = service ?? new MemoryService(repo);
-    this.supabaseClient = supabaseClient ?? supabase;
+    this.supabaseClient = supabaseClient ?? null;
   }
 
-  private async getAuthenticatedUser(req: Request) {
+  private ensureSupabase(req: Request, res: Response): SupabaseClient | null {
+    if (req.supabaseAdmin) {
+      this.supabaseClient = req.supabaseAdmin;
+      return req.supabaseAdmin;
+    }
+    if (this.supabaseClient) {
+      return this.supabaseClient;
+    }
+    res.status(500).json({
+      type: "about:blank",
+      title: "Admin configuration missing",
+      detail: "SUPABASE_URL ou SERVICE_ROLE ausentes no servidor.",
+      status: 500,
+    });
+    return null;
+  }
+
+  private async getAuthenticatedUser(req: Request, client: SupabaseClient) {
     const authHeader = req.headers.authorization;
     if (!authHeader?.startsWith("Bearer ")) return null;
     const token = authHeader.slice("Bearer ".length).trim();
 
     try {
-      const { data, error } = await this.supabaseClient.auth.getUser(token);
+      const { data, error } = await client.auth.getUser(token);
       if (error || !data?.user) {
         console.warn("[Auth] Falha ao obter usuário:", error?.message);
         return null;
@@ -48,7 +64,10 @@ export class MemoryController {
   }
 
   registerMemory = async (req: Request, res: Response) => {
-    const user = await this.getAuthenticatedUser(req);
+    const client = this.ensureSupabase(req, res);
+    if (!client) return;
+
+    const user = await this.getAuthenticatedUser(req, client);
     if (!user) return res.status(401).json({ error: "Usuário não autenticado." });
 
     const {
@@ -94,7 +113,10 @@ export class MemoryController {
   };
 
   listMemories = async (req: Request, res: Response) => {
-    const user = await this.getAuthenticatedUser(req);
+    const client = this.ensureSupabase(req, res);
+    if (!client) return;
+
+    const user = await this.getAuthenticatedUser(req, client);
     if (!user) return res.status(401).json({ error: "Usuário não autenticado." });
 
     const limiteParam = (req.query.limite ?? req.query.limit) as string | undefined;
@@ -122,7 +144,10 @@ export class MemoryController {
   };
 
   findSimilar = async (req: Request, res: Response) => {
-    const user = await this.getAuthenticatedUser(req);
+    const client = this.ensureSupabase(req, res);
+    if (!client) return;
+
+    const user = await this.getAuthenticatedUser(req, client);
     if (!user) return res.status(401).json({ error: "Usuário não autenticado." });
 
     const textoRaw: string = String(req.body?.texto ?? req.body?.query ?? "");

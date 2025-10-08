@@ -1,7 +1,7 @@
 // routes/openrouterRoutes.ts
 import crypto from "node:crypto";
 import express, { type Request, type Response } from "express";
-import { supabase } from "../lib/supabaseAdmin"; // ✅ usa a instância (não é função)
+import requireAdmin from "../mw/requireAdmin";
 
 import {
   getEcoResponse,
@@ -114,7 +114,7 @@ function normalizarMensagens(body: any): Array<{ role: string; content: any }> |
   return null;
 }
 
-router.post("/ask-eco", async (req: GuestAwareRequest, res: Response) => {
+router.post("/ask-eco", requireAdmin, async (req: GuestAwareRequest, res: Response) => {
   const t0 = now();
   const promptReadyImmediate =
     req.body?.promptReadyImmediate === true ||
@@ -227,6 +227,7 @@ router.post("/ask-eco", async (req: GuestAwareRequest, res: Response) => {
   try {
     // ----------- VALIDAÇÃO DO TOKEN QUANDO USER -----------
     if (!isGuest) {
+      const supabase = req.supabaseAdmin!;
       const { data, error } = await supabase.auth.getUser(token!);
       if (error || !data?.user) {
         return res.status(401).json({ error: "Token inválido ou usuário não encontrado." });

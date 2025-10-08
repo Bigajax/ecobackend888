@@ -1,9 +1,12 @@
 // routes/perfilEmocional.routes.ts
 import { Router, type Request, type Response } from "express";
-import { supabase } from "../lib/supabaseAdmin"; // ✅ instância singleton
+import type { SupabaseClient } from "@supabase/supabase-js";
+import requireAdmin from "../mw/requireAdmin";
 import { updateEmotionalProfile } from "../services/updateEmotionalProfile";
 
 const router = Router();
+
+router.use(requireAdmin);
 
 /* --------------------------------- utils --------------------------------- */
 function getUserIdFromReq(req: Request): string | null {
@@ -36,8 +39,8 @@ function getUserIdFromReq(req: Request): string | null {
   return injected || null;
 }
 
-async function carregarPerfil(userId: string) {
-  const { data, error } = await supabase
+async function carregarPerfil(client: SupabaseClient, userId: string) {
+  const { data, error } = await client
     .from("perfis_emocionais")
     .select(
       `
@@ -59,6 +62,7 @@ async function carregarPerfil(userId: string) {
 
 /* --------------------------- GET /api/perfil-emocional --------------------------- */
 router.get("/", async (req: Request, res: Response) => {
+  const supabase = req.supabaseAdmin!;
   try {
     const userId = getUserIdFromReq(req);
 
@@ -68,7 +72,7 @@ router.get("/", async (req: Request, res: Response) => {
         .json({ success: false, error: "userId ausente. Envie ?usuario_id= ou Bearer JWT." });
     }
 
-    const data = await carregarPerfil(userId);
+    const data = await carregarPerfil(supabase, userId);
 
     return res.status(200).json({
       success: true,
@@ -83,6 +87,7 @@ router.get("/", async (req: Request, res: Response) => {
 
 /* --------------------- GET /api/perfil-emocional/:userId --------------------- */
 router.get("/:userId", async (req: Request, res: Response) => {
+  const supabase = req.supabaseAdmin!;
   const { userId } = req.params;
 
   if (!userId || typeof userId !== "string") {
@@ -92,7 +97,7 @@ router.get("/:userId", async (req: Request, res: Response) => {
   }
 
   try {
-    const data = await carregarPerfil(userId);
+    const data = await carregarPerfil(supabase, userId);
 
     return res.status(200).json({
       success: true,
@@ -107,6 +112,7 @@ router.get("/:userId", async (req: Request, res: Response) => {
 
 /* ----------------------- POST /api/perfil-emocional/update ---------------------- */
 router.post("/update", async (req: Request, res: Response) => {
+  const supabase = req.supabaseAdmin!;
   const { userId } = req.body;
 
   if (!userId) {
@@ -114,7 +120,7 @@ router.post("/update", async (req: Request, res: Response) => {
   }
 
   try {
-    const resultado = await updateEmotionalProfile(userId);
+    const resultado = await updateEmotionalProfile(userId, { supabase });
     return res.status(resultado.success ? 200 : 500).json(resultado);
   } catch (err: any) {
     console.error("[❌ perfil-emocional /update] ", err?.message || err);

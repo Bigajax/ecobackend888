@@ -1,5 +1,5 @@
 // services/buscarReferenciasSemelhantes.ts
-import { supabase } from "../lib/supabaseAdmin";
+import { ensureSupabaseConfigured } from "../lib/supabaseAdmin";
 import { prepareQueryEmbedding } from "./prepareQueryEmbedding";
 
 export interface ReferenciaTemporaria {
@@ -62,6 +62,8 @@ export async function buscarReferenciasSemelhantes(
     const match_threshold = Math.min(1, Math.max(0, Number(threshold) || 0.8));
 
     // ---------------- RPC: buscar_referencias_similares ----------------
+    const supabase = ensureSupabaseConfigured();
+
     const { data, error } = await supabase.rpc("buscar_referencias_similares", {
       filtro_usuario: userId,
       query_embedding: queryEmbedding, // array<number> -> Postgres vector

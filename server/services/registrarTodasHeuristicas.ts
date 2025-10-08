@@ -2,7 +2,7 @@
 import fs from "fs/promises";
 import path from "path";
 import { embedTextoCompleto } from "../adapters/embeddingService";
-import { supabase } from "../lib/supabaseAdmin"; // ✅ instância singleton
+import { ensureSupabaseConfigured } from "../lib/supabaseAdmin";
 import { clearResponseCache } from "./CacheService";
 
 // Pasta onde estão os .txt/.md das heurísticas
@@ -27,6 +27,7 @@ function isHeuristicaFile(name: string) {
 export async function registrarTodasHeuristicas(): Promise<void> {
   let invalidated = false;
   try {
+    const supabase = ensureSupabaseConfigured();
     const arquivos = await fs.readdir(heuristicasDir);
 
     for (const arquivo of arquivos) {
