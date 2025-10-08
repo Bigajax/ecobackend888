@@ -1,5 +1,6 @@
 // services/updateEmotionalProfile.ts
-import { supabase } from "../lib/supabaseAdmin";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { ensureSupabaseConfigured } from "../lib/supabaseAdmin";
 
 interface Memoria {
   emocao_principal?: string;
@@ -15,9 +16,15 @@ function ordenarPorFrequencia(obj: Record<string, number>): string[] {
     .map(([k]) => k);
 }
 
+type UpdateEmotionalProfileOptions = {
+  supabase?: SupabaseClient;
+};
+
 export async function updateEmotionalProfile(
-  userId: string
+  userId: string,
+  options: UpdateEmotionalProfileOptions = {}
 ): Promise<{ success: boolean; message: string }> {
+  const supabase = options.supabase ?? ensureSupabaseConfigured();
   try {
     const { data, error } = await supabase
       .from("memories")

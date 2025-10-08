@@ -1,7 +1,7 @@
 // routes/feedbackRoutes.ts
 import { Router, type Request, type Response } from "express";
 import { z } from "zod";
-import { supabase } from "../lib/supabaseAdmin"; // ✅ usa a instância
+import { getSupabaseAdmin } from "../lib/supabaseAdmin";
 
 const router = Router();
 
@@ -28,6 +28,19 @@ router.post("/", async (req: Request, res: Response): Promise<void> => {
   }
 
   const payload = parsed.data;
+
+  const supabase = getSupabaseAdmin();
+  if (!supabase) {
+    console.warn(
+      `[feedbackRoute][limited-mode][env=${process.env.NODE_ENV ?? "development"}] Supabase admin misconfigured`
+    );
+    res.status(200).json({
+      ok: false,
+      mode: "limited",
+      error: "Supabase admin misconfigured",
+    });
+    return;
+  }
 
   const insertBody: Record<string, unknown> = {
     sessao_id: payload.sessaoId,

@@ -1,7 +1,7 @@
 // routes/openrouterRoutes.ts
 import crypto from "node:crypto";
 import express, { type Request, type Response } from "express";
-import { supabase } from "../lib/supabaseAdmin"; // ✅ usa a instância (não é função)
+import { getSupabaseAdmin } from "../lib/supabaseAdmin";
 
 import {
   getEcoResponse,
@@ -227,6 +227,14 @@ router.post("/ask-eco", async (req: GuestAwareRequest, res: Response) => {
   try {
     // ----------- VALIDAÇÃO DO TOKEN QUANDO USER -----------
     if (!isGuest) {
+      const supabase = getSupabaseAdmin();
+      if (!supabase) {
+        console.warn(
+          `[openrouterRoutes][critical][env=${process.env.NODE_ENV ?? "development"}] Supabase admin misconfigured`
+        );
+        return res.status(500).json({ error: "Supabase admin misconfigured" });
+      }
+
       const { data, error } = await supabase.auth.getUser(token!);
       if (error || !data?.user) {
         return res.status(401).json({ error: "Token inválido ou usuário não encontrado." });

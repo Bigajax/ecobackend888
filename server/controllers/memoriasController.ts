@@ -1,6 +1,6 @@
 // server/controllers/memoriasController.ts
 import { supabaseWithBearer } from "../adapters/SupabaseAdapter";
-import { supabase } from "../lib/supabaseAdmin";
+import { getSupabaseAdmin } from "../lib/supabaseAdmin";
 import type { Request, Response } from "express";
 
 export async function registrarMemoriaHandler(req: Request, res: Response) {
@@ -13,6 +13,14 @@ export async function registrarMemoriaHandler(req: Request, res: Response) {
     const token = authHeader.slice("Bearer ".length).trim();
     if (!token) {
       return res.status(401).json({ error: "Não autenticado" });
+    }
+
+    const supabase = getSupabaseAdmin();
+    if (!supabase) {
+      console.warn(
+        `[memoriasController][critical][env=${process.env.NODE_ENV ?? "development"}] Supabase admin misconfigured`
+      );
+      return res.status(500).json({ error: "Supabase admin misconfigured" });
     }
 
     const { data, error: getUserError } = await supabase.auth.getUser(token);
