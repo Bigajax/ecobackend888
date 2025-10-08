@@ -46,10 +46,6 @@ const createErrorProxy = <T extends object>(error: Error): T =>
   ) as T;
 
 /** Singleton do Supabase usando a Service Role Key (admin) */
-const logger = baseLog.withContext({
-  name: "supabaseAdmin",
-  service: "lib/supabaseAdmin",
-});
 
 export const supabase: SupabaseClient = configurationError
   ? createErrorProxy<SupabaseClient>(configurationError)
