@@ -30,8 +30,58 @@ export const mapRoleForOpenAI = (
 // -----------------------------
 // Sanitização & formatação
 // -----------------------------
-export const limparResposta = (t: string) =>
-  (t || "")
+const TECH_BLOCK_HINT_KEYS = new Set([
+  "intensidade",
+  "analise_resumo",
+  "resumo",
+  "emocao_principal",
+  "categoria",
+  "tags",
+  "dominio_vida",
+  "padrao_comportamental",
+  "nivel_abertura",
+]);
+
+function removeTechBlockJson(text: string): string {
+  if (!text) return text;
+
+  const jsonRegex = /\{[\s\S]*?\}/g;
+  let match: RegExpExecArray | null;
+  let current = text;
+
+  while ((match = jsonRegex.exec(current))) {
+    try {
+      const parsed = JSON.parse(match[0]);
+      const keys = Object.keys(parsed ?? {});
+      if (!keys.length) continue;
+
+      let matches = 0;
+      for (const key of keys) {
+        if (TECH_BLOCK_HINT_KEYS.has(key)) {
+          matches += 1;
+        }
+      }
+
+      // Considera bloco técnico apenas se vários campos conhecidos estiverem presentes.
+      if (matches >= 2) {
+        const before = current.slice(0, match.index).replace(/\s+$/, "");
+        const after = current
+          .slice(match.index + match[0].length)
+          .replace(/^\s+/, "");
+
+        current = before && after ? `${before}\n\n${after}` : before || after;
+        jsonRegex.lastIndex = 0;
+      }
+    } catch {
+      // Ignora blocos que não são JSON válido.
+    }
+  }
+
+  return current;
+}
+
+export const limparResposta = (t: string) => {
+  const sanitized = (t || "")
     // remove blocos de código JSON e genéricos
     .replace(/```json[\s\S]*?```/gi, "")
     .replace(/```[\s\S]*?```/gi, "")
@@ -43,6 +93,9 @@ export const limparResposta = (t: string) =>
     .replace(/\r\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
+
+  return removeTechBlockJson(sanitized).trim();
+};
 
 export const formatarTextoEco = (t: string) =>
   (t || "")
