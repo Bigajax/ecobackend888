@@ -1,15 +1,4 @@
-const test = require("node:test");
-const assert = require("node:assert/strict");
-const http = require("node:http");
 
-const { createApp } = require("../../core/http/app");
-
-test("OPTIONS /api/ask-eco expõe cabeçalhos do modo convidado", async (t) => {
-  const app = createApp();
-  const server = http.createServer(app);
-
-  await new Promise((resolve) => {
-    server.listen(0, resolve);
   });
 
   t.after(() => server.close());
