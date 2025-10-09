@@ -1,7 +1,7 @@
 // routes/feedbackRoutes.ts
 import { Router, type Request, type Response } from "express";
 import { z } from "zod";
-import { getSupabaseAdmin, getSupabaseConfigError } from "../lib/supabaseAdmin";
+
 
 const router = Router();
 
@@ -31,19 +31,6 @@ router.post("/", async (req: Request, res: Response): Promise<void> => {
 
   const supabase = getSupabaseAdmin();
   if (!supabase) {
-    const env = process.env.NODE_ENV ?? "development";
-    const configError = getSupabaseConfigError();
-    console.warn("[feedbackRoute] running in limited mode", {
-      service: "feedbackRoute",
-      env,
-      reason: "no-admin-config",
-      timestamp: new Date().toISOString(),
-      error: configError?.message ?? null,
-    });
-    res.status(200).json({
-      ok: false,
-      limitedMode: true,
-      reason: "no-admin-config",
     });
     return;
   }

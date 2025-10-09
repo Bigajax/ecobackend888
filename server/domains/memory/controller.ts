@@ -1,5 +1,6 @@
 import type { Request, Response } from "express";
 import type { SupabaseClient } from "@supabase/supabase-js";
+
 import { MemoryRepository } from "./repository";
 import { MemoryService } from "./service";
 
@@ -25,24 +26,7 @@ export class MemoryController {
   constructor({ repository, service, supabaseClient }: ControllerDependencies = {}) {
     const repo = repository ?? new MemoryRepository();
     this.service = service ?? new MemoryService(repo);
-    this.supabaseClient = supabaseClient ?? null;
-  }
 
-  private ensureSupabase(req: Request, res: Response): SupabaseClient | null {
-    if (req.supabaseAdmin) {
-      this.supabaseClient = req.supabaseAdmin;
-      return req.supabaseAdmin;
-    }
-    if (this.supabaseClient) {
-      return this.supabaseClient;
-    }
-    res.status(500).json({
-      type: "about:blank",
-      title: "Admin configuration missing",
-      detail: "SUPABASE_URL ou SERVICE_ROLE ausentes no servidor.",
-      status: 500,
-    });
-    return null;
   }
 
   private async getAuthenticatedUser(req: Request, client: SupabaseClient) {
@@ -64,7 +48,7 @@ export class MemoryController {
   }
 
   registerMemory = async (req: Request, res: Response) => {
-    const client = this.ensureSupabase(req, res);
+
     if (!client) return;
 
     const user = await this.getAuthenticatedUser(req, client);
@@ -113,7 +97,6 @@ export class MemoryController {
   };
 
   listMemories = async (req: Request, res: Response) => {
-    const client = this.ensureSupabase(req, res);
     if (!client) return;
 
     const user = await this.getAuthenticatedUser(req, client);
@@ -144,7 +127,7 @@ export class MemoryController {
   };
 
   findSimilar = async (req: Request, res: Response) => {
-    const client = this.ensureSupabase(req, res);
+
     if (!client) return;
 
     const user = await this.getAuthenticatedUser(req, client);

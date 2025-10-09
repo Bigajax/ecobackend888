@@ -1,5 +1,6 @@
 // server/controllers/memoriasController.ts
 import { supabaseWithBearer } from "../adapters/SupabaseAdapter";
+
 import type { Request, Response } from "express";
 
 export async function registrarMemoriaHandler(req: Request, res: Response) {
@@ -14,14 +15,7 @@ export async function registrarMemoriaHandler(req: Request, res: Response) {
       return res.status(401).json({ error: "Não autenticado" });
     }
 
-    const supabase = req.supabaseAdmin;
-    if (!supabase) {
-      return res.status(500).json({
-        type: "about:blank",
-        title: "Admin configuration missing",
-        detail: "SUPABASE_URL ou SERVICE_ROLE ausentes no servidor.",
-        status: 500,
-      });
+
     }
 
     const { data, error: getUserError } = await supabase.auth.getUser(token);

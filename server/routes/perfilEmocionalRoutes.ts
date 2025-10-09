@@ -1,7 +1,6 @@
 // routes/perfilEmocional.routes.ts
 import { Router, type Request, type Response } from "express";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import requireAdmin from "../mw/requireAdmin";
 import { updateEmotionalProfile } from "../services/updateEmotionalProfile";
 
 const router = Router();
@@ -62,7 +61,6 @@ async function carregarPerfil(client: SupabaseClient, userId: string) {
 
 /* --------------------------- GET /api/perfil-emocional --------------------------- */
 router.get("/", async (req: Request, res: Response) => {
-  const supabase = req.supabaseAdmin!;
   try {
     const userId = getUserIdFromReq(req);
 
@@ -87,7 +85,7 @@ router.get("/", async (req: Request, res: Response) => {
 
 /* --------------------- GET /api/perfil-emocional/:userId --------------------- */
 router.get("/:userId", async (req: Request, res: Response) => {
-  const supabase = req.supabaseAdmin!;
+
   const { userId } = req.params;
 
   if (!userId || typeof userId !== "string") {
@@ -112,7 +110,7 @@ router.get("/:userId", async (req: Request, res: Response) => {
 
 /* ----------------------- POST /api/perfil-emocional/update ---------------------- */
 router.post("/update", async (req: Request, res: Response) => {
-  const supabase = req.supabaseAdmin!;
+
   const { userId } = req.body;
 
   if (!userId) {

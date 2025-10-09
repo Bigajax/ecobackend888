@@ -1,7 +1,7 @@
 // routes/openrouterRoutes.ts
 import crypto from "node:crypto";
 import express, { type Request, type Response } from "express";
-import requireAdmin from "../mw/requireAdmin";
+
 
 import {
   getEcoResponse,
@@ -227,7 +227,6 @@ router.post("/ask-eco", requireAdmin, async (req: GuestAwareRequest, res: Respon
   try {
     // ----------- VALIDAÇÃO DO TOKEN QUANDO USER -----------
     if (!isGuest) {
-      const supabase = req.supabaseAdmin!;
       const { data, error } = await supabase.auth.getUser(token!);
       if (error || !data?.user) {
         return res.status(401).json({ error: "Token inválido ou usuário não encontrado." });

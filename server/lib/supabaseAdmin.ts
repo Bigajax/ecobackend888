@@ -2,13 +2,6 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { log as baseLog } from "../services/promptContext/logger";
 
-const hasWindow =
-  typeof globalThis !== "undefined" &&
-  typeof (globalThis as { window?: unknown }).window !== "undefined";
-
-if (hasWindow) {
-  throw new Error("server-only");
-}
 
 const url = process.env.SUPABASE_URL ?? "";
 const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY ?? "";
@@ -45,11 +38,6 @@ const createErrorProxy = <T extends object>(error: Error): T =>
   ) as T;
 
 /** Singleton do Supabase usando a Service Role Key (admin) */
-const logger = baseLog.withContext({
-  name: "supabaseAdmin",
-  service: "lib/supabaseAdmin",
-});
-
 export const supabase: SupabaseClient = configurationError
   ? createErrorProxy<SupabaseClient>(configurationError)
   : createClient(url, serviceKey, {
