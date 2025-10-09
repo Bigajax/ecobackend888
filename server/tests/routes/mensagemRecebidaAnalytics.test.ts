@@ -279,6 +279,92 @@ test("/ask-eco aceita modo convidado sem token e marca métricas", async () => {
   assert.equal(orchestratorParams.guestId, guestId);
 });
 
+test("/ask-eco permite fallback JSON quando stream=false", async () => {
+  const guestId = "guest-json-test";
+  const orchestratorCalls: any[] = [];
+
+  const router = await loadRouterWithStubs("../../routes/openrouterRoutes", {
+    "../lib/supabaseAdmin": {
+      supabase: { auth: { getUser: async () => ({ data: null, error: null }) } },
+    },
+    "../adapters/EmbeddingAdapter": {
+      getEmbeddingCached: async () => [],
+    },
+    "../services/ConversationOrchestrator": {
+      getEcoResponse: async (params: any) => {
+        orchestratorCalls.push(params);
+        if (params.stream) {
+          await params.stream.onEvent({
+            type: "control",
+            name: "prompt_ready",
+            timings: { llmStart: 1 },
+          });
+          await params.stream.onEvent({ type: "chunk", content: "resposta convidado", index: 0 });
+          await params.stream.onEvent({
+            type: "control",
+            name: "done",
+            meta: { length: "resposta convidado".length },
+            timings: { llmEnd: 2 },
+          });
+        }
+        return {
+          raw: "resposta convidado",
+          modelo: "teste",
+          usage: null,
+          timings: { llmEnd: 2 },
+          finalize: async () => ({ raw: "resposta convidado" }),
+        };
+      },
+    },
+    "../analytics/events/mixpanelEvents": {
+      trackMensagemRecebida: () => {},
+      trackEcoCache: () => {},
+      trackGuestMessage: () => {},
+      trackGuestStart: () => {},
+      trackGuestClaimed: () => {},
+    },
+    "../core/http/middlewares/guestSession": {
+      guestSessionConfig: { maxInteractions: 6, rateLimit: { limit: 30, windowMs: 60000 } },
+      incrementGuestInteraction: () => 1,
+    },
+    "../services/promptContext/logger": {
+      log: {
+        info: () => {},
+        warn: () => {},
+        error: () => {},
+        debug: () => {},
+      },
+    },
+  });
+
+  const handler = getRouteHandler(router, "/ask-eco");
+  const res = makeResponse();
+  const req = {
+    body: { messages: [{ role: "user", content: "Oi" }] },
+    query: { stream: "false" },
+    headers: {
+      "x-guest-id": guestId,
+      "x-guest-mode": "1",
+    },
+    guest: { id: guestId },
+    on() {},
+  } as any;
+
+  await handler(req, res);
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.events.length, 0);
+  assert.equal(orchestratorCalls.length, 1);
+
+  const payload = res.payload as any;
+  assert.equal(payload?.ok, true);
+  assert.equal(payload?.stream, false);
+  assert.equal(payload?.message, "resposta convidado");
+  assert.ok(Array.isArray(payload?.events));
+  assert.ok(payload.events.some((event: any) => event?.type === "chunk"));
+  assert.ok(payload.events.some((event: any) => event?.type === "done"));
+});
+
 test("rota de voz dispara trackMensagemRecebida com bytes e duração", async () => {
   const trackCalls: any[] = [];
 

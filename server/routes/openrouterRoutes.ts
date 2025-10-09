@@ -33,6 +33,9 @@ import { ensureSupabaseConfigured } from "../lib/supabaseAdmin";
 
 const CACHE_TTL_MS = 60_000;
 const HEARTBEAT_INTERVAL_MS = 15_000;
+const STREAM_TIMEOUT_GUARD_MS = 5_000;
+const STREAM_TIMEOUT_MESSAGE =
+  "Desculpe, não consegui enviar uma resposta a tempo. Pode tentar novamente em instantes?";
 
 type CachedResponsePayload = {
   raw: string;
@@ -60,6 +63,25 @@ const parsePositiveInt = (value: string | undefined, fallback: number): number =
 };
 
 const MAX_GUEST_MESSAGE_LENGTH = parsePositiveInt(process.env.GUEST_MAX_MESSAGE_LENGTH, 2000);
+
+const normalizeStreamParam = (value: unknown): string | boolean | undefined => {
+  if (Array.isArray(value)) {
+    return value.length > 0 ? value[0] : undefined;
+  }
+  return value as string | boolean | undefined;
+};
+
+const isStreamDisabled = (value: unknown): boolean => {
+  const normalized = normalizeStreamParam(value);
+  if (typeof normalized === "string") {
+    const lowered = normalized.trim().toLowerCase();
+    return lowered === "false" || lowered === "0" || lowered === "no" || lowered === "off";
+  }
+  if (typeof normalized === "boolean") {
+    return normalized === false;
+  }
+  return false;
+};
 
 const stripHtml = (text: string): string => text.replace(/<[^>]*>/g, " ");
 const normalizeWhitespace = (text: string): string => text.replace(/\s+/g, " ").trim();
@@ -156,15 +178,36 @@ router.post("/ask-eco", requireAdmin, async (req: GuestAwareRequest, res: Respon
   // ----------- INPUT BÁSICO -----------
   const { usuario_id: usuarioIdBody, nome_usuario } = req.body ?? {};
   const streamingRes = res as Response & { flush?: () => void; flushHeaders?: () => void };
+  const rawStreamQuery = (req.query as any)?.stream;
+  const rawStreamBody = (req.body as any)?.stream;
+  const hasStreamPreference =
+    typeof rawStreamQuery !== "undefined" || typeof rawStreamBody !== "undefined";
+  const streamDisabled = isStreamDisabled(rawStreamQuery) || isStreamDisabled(rawStreamBody);
+  const respondAsStream = !streamDisabled && (!isGuest ? true : hasStreamPreference);
   let sseStarted = false;
   let streamClosed = false;
   let sendSseRef: ((payload: Record<string, unknown>) => void) | null = null;
   let heartbeatTimer: NodeJS.Timeout | null = null;
+  let timeoutGuard: NodeJS.Timeout | null = null;
   let endStreamRef: (() => void) | null = null;
+  const offlineEvents: Array<Record<string, unknown>> = [];
+  let aggregatedText = "";
+  let chunkReceived = false;
+  let lastChunkIndex = -1;
+  let latestTimings: EcoLatencyMarks | undefined;
+  let firstChunkLogged = false;
+  let cacheKey: string | null = null;
+  let cacheable = true;
+  let cacheCandidateMeta: Record<string, any> | null = null;
+  let cacheCandidateTimings: EcoLatencyMarks | undefined;
+  let clientDisconnected = false;
 
   const mensagensBrutas = normalizarMensagens(req.body);
   if (!mensagensBrutas || mensagensBrutas.length === 0) {
-    return res.status(400).json({ error: "messages são obrigatórios." });
+    return res.status(200).json({
+      ok: false,
+      error: { message: "messages são obrigatórios.", statusCode: 400 },
+    });
   }
 
   // Sanitização apenas no guest
@@ -176,8 +219,12 @@ router.post("/ask-eco", requireAdmin, async (req: GuestAwareRequest, res: Respon
       const statusCode = Number.isInteger((sanitizationError as any)?.status)
         ? Number((sanitizationError as any).status)
         : 400;
-      return res.status(statusCode).json({
-        error: sanitizationError?.message || "Entrada inválida para o modo convidado.",
+      return res.status(200).json({
+        ok: false,
+        error: {
+          message: sanitizationError?.message || "Entrada inválida para o modo convidado.",
+          statusCode,
+        },
       });
     }
   }
@@ -185,17 +232,26 @@ router.post("/ask-eco", requireAdmin, async (req: GuestAwareRequest, res: Respon
   // ----------- GUARD DE AUTENTICAÇÃO -----------
   if (!isGuest) {
     if (!hasBearer || !token) {
-      return res.status(401).json({ error: "Token de acesso ausente." });
+      return res.status(200).json({
+        ok: false,
+        error: { message: "Token de acesso ausente.", statusCode: 401 },
+      });
     }
     if (!usuarioIdBody) {
-      return res.status(400).json({ error: "usuario_id e messages são obrigatórios." });
+      return res.status(200).json({
+        ok: false,
+        error: { message: "usuario_id e messages são obrigatórios.", statusCode: 400 },
+      });
     }
   }
 
   // Define o "userId" que o pipeline vai usar (diferencia convidados)
   const pipelineUserId = isGuest ? `guest:${guestId!}` : String(usuarioIdBody);
   if (!pipelineUserId) {
-    return res.status(400).json({ error: "Usuário inválido." });
+    return res.status(200).json({
+      ok: false,
+      error: { message: "Usuário inválido.", statusCode: 400 },
+    });
   }
 
   // ----------- SESSION META / ANALYTICS -----------
@@ -218,7 +274,13 @@ router.post("/ask-eco", requireAdmin, async (req: GuestAwareRequest, res: Respon
   if (isGuest && guestId) {
     guestInteractionCount = incrementGuestInteraction(guestId);
     if (guestInteractionCount > guestSessionConfig.maxInteractions) {
-      return res.status(429).json({ error: "Limite de interações do modo convidado atingido." });
+      return res.status(200).json({
+        ok: false,
+        error: {
+          message: "Limite de interações do modo convidado atingido.",
+          statusCode: 429,
+        },
+      });
     }
     // Se o middleware usa req.guest, atualiza contagem (opcional)
     if (req.guest) {
@@ -232,18 +294,14 @@ router.post("/ask-eco", requireAdmin, async (req: GuestAwareRequest, res: Respon
       const supabaseClient = req.supabaseAdmin ?? ensureSupabaseConfigured();
       const { data, error } = await supabaseClient.auth.getUser(token!);
       if (error || !data?.user) {
-        return res.status(401).json({ error: "Token inválido ou usuário não encontrado." });
+        return res.status(200).json({
+          ok: false,
+          error: { message: "Token inválido ou usuário não encontrado.", statusCode: 401 },
+        });
       }
     }
 
     // ----------- SSE BOOTSTRAP -----------
-    let latestTimings: EcoLatencyMarks | undefined;
-    let firstChunkLogged = false;
-    let cacheKey: string | null = null;
-    let cacheable = true;
-    let cacheCandidateMeta: Record<string, any> | null = null;
-    let cacheCandidateTimings: EcoLatencyMarks | undefined;
-    let clientDisconnected = false;
 
     const stopHeartbeat = () => {
       if (heartbeatTimer) {
@@ -253,57 +311,113 @@ router.post("/ask-eco", requireAdmin, async (req: GuestAwareRequest, res: Respon
     };
 
     const sendHeartbeat = () => {
-      if (streamClosed || !sseStarted) return;
+      if (!respondAsStream || streamClosed || !sseStarted) return;
       streamingRes.write(`:keepalive\n\n`);
       streamingRes.flush?.();
     };
 
     const ensureHeartbeat = () => {
-      if (heartbeatTimer || streamClosed) return;
+      if (!respondAsStream || heartbeatTimer || streamClosed) return;
       heartbeatTimer = setInterval(sendHeartbeat, HEARTBEAT_INTERVAL_MS);
     };
 
+    const clearTimeoutGuard = () => {
+      if (timeoutGuard) {
+        clearTimeout(timeoutGuard);
+        timeoutGuard = null;
+      }
+    };
+
+    let timeoutGuardHandler: (() => void) | null = null;
+
+    const ensureTimeoutGuard = () => {
+      if (!respondAsStream || timeoutGuard || streamClosed) return;
+      timeoutGuard = setTimeout(() => {
+        if (streamClosed || chunkReceived) return;
+        timeoutGuardHandler?.();
+      }, STREAM_TIMEOUT_GUARD_MS);
+    };
+
     const startSse = () => {
-      if (sseStarted) return;
+      if (!respondAsStream || sseStarted) return;
       sseStarted = true;
       res.status(200);
-      res.setHeader("Content-Type", "text/event-stream");
-      res.setHeader("Cache-Control", "no-cache");
+      res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+      res.setHeader("Cache-Control", "no-cache, no-transform");
       res.setHeader("Connection", "keep-alive");
       streamingRes.flushHeaders?.();
       streamingRes.flush?.();
       ensureHeartbeat();
+      ensureTimeoutGuard();
     };
 
-    const sendSse = (payload: Record<string, unknown>) => {
+    const dispatchEvent = (payload: Record<string, unknown>) => {
       if (streamClosed) return;
+      if (!respondAsStream) {
+        offlineEvents.push(payload);
+        return;
+      }
       startSse();
       streamingRes.write(`data: ${JSON.stringify(payload)}\n\n`);
       streamingRes.flush?.();
     };
-    sendSseRef = sendSse;
+    sendSseRef = dispatchEvent;
 
     const endStream = () => {
-      if (!streamClosed) {
-        streamClosed = true;
-        stopHeartbeat();
+      if (streamClosed) return;
+      streamClosed = true;
+      stopHeartbeat();
+      clearTimeoutGuard();
+      if (respondAsStream) {
         streamingRes.end();
       }
     };
     endStreamRef = endStream;
 
-    const emitLatency = (stage: "prompt_ready" | "ttfb" | "ttlc", at: number, timings?: EcoLatencyMarks) => {
+    const emitLatency = (
+      stage: "prompt_ready" | "ttfb" | "ttlc",
+      at: number,
+      timings?: EcoLatencyMarks
+    ) => {
       const sinceStartMs = at - t0;
       log.info(`// LATENCY: ${stage}`, { at, sinceStartMs, timings });
-      sendSse({ type: "latency", stage, at, sinceStartMs, timings });
+      dispatchEvent({ type: "latency", stage, at, sinceStartMs, timings });
     };
 
-    startSse();
+    const triggerTimeoutFallback = () => {
+      if (!respondAsStream || streamClosed || chunkReceived) return;
+      cacheable = false;
+      chunkReceived = true;
+      aggregatedText = STREAM_TIMEOUT_MESSAGE;
+      lastChunkIndex = lastChunkIndex < 0 ? 0 : lastChunkIndex + 1;
+      dispatchEvent({
+        type: "chunk",
+        delta: STREAM_TIMEOUT_MESSAGE,
+        index: lastChunkIndex,
+        fallback: true,
+      });
+      const at = now();
+      emitLatency("ttlc", at, latestTimings);
+      dispatchEvent({
+        type: "done",
+        meta: { fallback: true, reason: "timeout" },
+        at,
+        sinceStartMs: at - t0,
+        timings: latestTimings,
+      });
+      endStream();
+    };
+
+    timeoutGuardHandler = triggerTimeoutFallback;
+
+    if (respondAsStream) {
+      startSse();
+    }
 
     if (promptReadyImmediate) {
       const at = now();
       emitLatency("prompt_ready", at);
-      sendSse({ type: "prompt_ready", at, sinceStartMs: at - t0 });
+      dispatchEvent({ type: "prompt_ready", at, sinceStartMs: at - t0 });
     }
 
     req.on("close", () => {
@@ -312,6 +426,7 @@ router.post("/ask-eco", requireAdmin, async (req: GuestAwareRequest, res: Respon
       }
       streamClosed = true;
       stopHeartbeat();
+      clearTimeoutGuard();
     });
 
     // ----------- ANALYTICS & CACHE KEY -----------
@@ -417,12 +532,20 @@ router.post("/ask-eco", requireAdmin, async (req: GuestAwareRequest, res: Respon
       trackEcoCache({ distinctId, userId: analyticsUserId, status: "hit", key: cacheKey ?? undefined, source: "openrouter" });
       latestTimings = cachedPayload.timings ?? latestTimings;
       emitLatency("prompt_ready", promptReadyAt, latestTimings);
-      sendSse({ type: "prompt_ready", at: promptReadyAt, sinceStartMs: promptReadyAt - t0, timings: latestTimings });
-      sendSse({ type: "first_token" });
+      dispatchEvent({
+        type: "prompt_ready",
+        at: promptReadyAt,
+        sinceStartMs: promptReadyAt - t0,
+        timings: latestTimings,
+      });
+      dispatchEvent({ type: "first_token" });
       const firstChunkAt = now();
       firstChunkLogged = true;
       emitLatency("ttfb", firstChunkAt, latestTimings);
-      sendSse({ type: "chunk", delta: cachedPayload.raw, index: 0, cache: true });
+      aggregatedText = cachedPayload.raw;
+      chunkReceived = true;
+      lastChunkIndex = 0;
+      dispatchEvent({ type: "chunk", delta: cachedPayload.raw, index: 0, cache: true });
       const doneAt = now();
       emitLatency("ttlc", doneAt, latestTimings);
       const doneMetaBase =
@@ -431,7 +554,13 @@ router.post("/ask-eco", requireAdmin, async (req: GuestAwareRequest, res: Respon
           ...(cachedPayload.modelo ? { modelo: cachedPayload.modelo } : {}),
           length: cachedPayload.raw.length,
         };
-      sendSse({ type: "done", meta: { ...doneMetaBase, cache: true }, at: doneAt, sinceStartMs: doneAt - t0, timings: latestTimings });
+      dispatchEvent({
+        type: "done",
+        meta: { ...doneMetaBase, cache: true },
+        at: doneAt,
+        sinceStartMs: doneAt - t0,
+        timings: latestTimings,
+      });
       endStream();
       return;
     }
@@ -451,7 +580,20 @@ router.post("/ask-eco", requireAdmin, async (req: GuestAwareRequest, res: Respon
 
     const sendErrorAndEnd = (message: string) => {
       cacheable = false;
-      sendSse({ type: "error", message });
+      if (!aggregatedText) {
+        aggregatedText = message;
+      }
+      dispatchEvent({ type: "error", message });
+      const at = now();
+      emitLatency("ttlc", at, latestTimings);
+      dispatchEvent({
+        type: "done",
+        meta: { fallback: true, reason: "error" },
+        at,
+        sinceStartMs: at - t0,
+        timings: latestTimings,
+      });
+      clearTimeoutGuard();
       endStream();
     };
 
@@ -464,7 +606,11 @@ router.post("/ask-eco", requireAdmin, async (req: GuestAwareRequest, res: Respon
             const at = now();
             emitLatency("ttfb", at, latestTimings);
           }
-          sendSse({ type: "chunk", delta: event.content, index: event.index });
+          aggregatedText += event.content;
+          chunkReceived = true;
+          lastChunkIndex = event.index;
+          clearTimeoutGuard();
+          dispatchEvent({ type: "chunk", delta: event.content, index: event.index });
           return;
         }
         if (event.type === "error") {
@@ -477,15 +623,15 @@ router.post("/ask-eco", requireAdmin, async (req: GuestAwareRequest, res: Respon
             latestTimings = event.timings ?? latestTimings;
             const at = now();
             emitLatency("prompt_ready", at, latestTimings);
-            sendSse({ type: "prompt_ready", at, sinceStartMs: at - t0, timings: latestTimings });
+            dispatchEvent({ type: "prompt_ready", at, sinceStartMs: at - t0, timings: latestTimings });
             return;
           }
           if (event.name === "first_token") {
-            sendSse({ type: "first_token" });
+            dispatchEvent({ type: "first_token" });
             return;
           }
           if (event.name === "reconnect") {
-            sendSse({ type: "reconnect", attempt: event.attempt ?? 0 });
+            dispatchEvent({ type: "reconnect", attempt: event.attempt ?? 0 });
             return;
           }
           if (event.name === "done") {
@@ -493,9 +639,20 @@ router.post("/ask-eco", requireAdmin, async (req: GuestAwareRequest, res: Respon
             cacheCandidateMeta = event.meta ?? null;
             cacheCandidateTimings = event.timings ?? latestTimings;
             latestTimings = event.timings ?? latestTimings;
+            if (!chunkReceived && respondAsStream) {
+              triggerTimeoutFallback();
+              return;
+            }
             const at = now();
             emitLatency("ttlc", at, latestTimings);
-            sendSse({ type: "done", meta: event.meta ?? {}, at, sinceStartMs: at - t0, timings: latestTimings });
+            dispatchEvent({
+              type: "done",
+              meta: event.meta ?? {},
+              at,
+              sinceStartMs: at - t0,
+              timings: latestTimings,
+            });
+            clearTimeoutGuard();
             endStream();
           }
         }
@@ -535,7 +692,14 @@ router.post("/ask-eco", requireAdmin, async (req: GuestAwareRequest, res: Respon
       const fallbackMeta = resposta?.usage ? { usage: resposta.usage } : {};
       cacheCandidateMeta = fallbackMeta;
       cacheCandidateTimings = latestTimings;
-      sendSse({ type: "done", meta: fallbackMeta, at, sinceStartMs: at - t0, timings: latestTimings });
+      dispatchEvent({
+        type: "done",
+        meta: fallbackMeta,
+        at,
+        sinceStartMs: at - t0,
+        timings: latestTimings,
+      });
+      clearTimeoutGuard();
       endStream();
     }
 
@@ -579,22 +743,62 @@ router.post("/ask-eco", requireAdmin, async (req: GuestAwareRequest, res: Respon
       }
     }
 
+    if (!respondAsStream) {
+      const finalRaw =
+        typeof resposta?.raw === "string" && resposta.raw.length > 0
+          ? resposta.raw
+          : aggregatedText || STREAM_TIMEOUT_MESSAGE;
+
+      const baseMeta = cacheCandidateMeta
+        ? { ...cacheCandidateMeta }
+        : resposta?.usage || resposta?.modelo
+        ? {
+            ...(resposta.usage ? { usage: resposta.usage } : {}),
+            ...(resposta.modelo ? { modelo: resposta.modelo } : {}),
+          }
+        : null;
+
+      if (baseMeta && typeof baseMeta === "object" && !("length" in baseMeta)) {
+        (baseMeta as Record<string, unknown>).length = finalRaw.length;
+      }
+
+      const timingsPayload = cacheCandidateTimings ?? resposta?.timings ?? latestTimings ?? null;
+
+      res.status(200).json({
+        ok: true,
+        stream: false,
+        message: finalRaw,
+        meta: baseMeta,
+        timings: timingsPayload,
+        events: offlineEvents,
+      });
+      return;
+    }
+
     return;
   } catch (err: any) {
     log.error("❌ Erro no /ask-eco:", { message: err?.message, stack: err?.stack });
     const message = err?.message || "Erro interno ao processar a requisição.";
-    // Se já iniciou SSE, devolve como evento
+    // Se já iniciou SSE, devolve como evento amigável
     if (sseStarted || res.headersSent) {
       sendSseRef?.({ type: "error", message });
+      const at = now();
+      sendSseRef?.({
+        type: "done",
+        meta: { fallback: true, reason: "error" },
+        at,
+        sinceStartMs: at - t0,
+        timings: latestTimings,
+      });
       if (!streamClosed) {
         endStreamRef?.();
       }
       (res as any).end?.();
       return;
     }
-    return res.status(500).json({
-      error: "Erro interno ao processar a requisição.",
-      details: { message: err?.message, stack: err?.stack },
+    return res.status(200).json({
+      ok: false,
+      error: { message, statusCode: 500 },
     });
   }
 });
