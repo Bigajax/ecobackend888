@@ -28,6 +28,8 @@ import {
 import { log } from "../services/promptContext/logger";
 import { now } from "../utils";
 import { RESPONSE_CACHE } from "../services/CacheService";
+import requireAdmin from "../mw/requireAdmin";
+import { ensureSupabaseConfigured } from "../lib/supabaseAdmin";
 
 const CACHE_TTL_MS = 60_000;
 const HEARTBEAT_INTERVAL_MS = 15_000;
@@ -227,7 +229,8 @@ router.post("/ask-eco", requireAdmin, async (req: GuestAwareRequest, res: Respon
   try {
     // ----------- VALIDAÇÃO DO TOKEN QUANDO USER -----------
     if (!isGuest) {
-      const { data, error } = await supabase.auth.getUser(token!);
+      const supabaseClient = req.supabaseAdmin ?? ensureSupabaseConfigured();
+      const { data, error } = await supabaseClient.auth.getUser(token!);
       if (error || !data?.user) {
         return res.status(401).json({ error: "Token inválido ou usuário não encontrado." });
       }

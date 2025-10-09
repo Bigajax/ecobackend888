@@ -1,6 +1,7 @@
 import type { Request, Response } from "express";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { ensureSupabaseConfigured } from "../../lib/supabaseAdmin";
 import { MemoryRepository } from "./repository";
 import { MemoryService } from "./service";
 
@@ -21,12 +22,23 @@ const safeLog = (s: string) =>
 
 export class MemoryController {
   private readonly service: MemoryService;
-  private supabaseClient: SupabaseClient | null;
+  private supabaseClient: SupabaseClient | null = null;
 
   constructor({ repository, service, supabaseClient }: ControllerDependencies = {}) {
     const repo = repository ?? new MemoryRepository();
     this.service = service ?? new MemoryService(repo);
+    this.supabaseClient = supabaseClient ?? null;
+  }
 
+  private getSupabaseClient(): SupabaseClient | null {
+    if (this.supabaseClient) return this.supabaseClient;
+    try {
+      this.supabaseClient = ensureSupabaseConfigured();
+      return this.supabaseClient;
+    } catch (error) {
+      console.error("[MemoryController] Supabase admin não configurado:", (error as Error)?.message ?? error);
+      return null;
+    }
   }
 
   private async getAuthenticatedUser(req: Request, client: SupabaseClient) {
@@ -48,8 +60,10 @@ export class MemoryController {
   }
 
   registerMemory = async (req: Request, res: Response) => {
-
-    if (!client) return;
+    const client = this.getSupabaseClient();
+    if (!client) {
+      return res.status(500).json({ error: "Configuração do Supabase ausente." });
+    }
 
     const user = await this.getAuthenticatedUser(req, client);
     if (!user) return res.status(401).json({ error: "Usuário não autenticado." });
@@ -97,7 +111,10 @@ export class MemoryController {
   };
 
   listMemories = async (req: Request, res: Response) => {
-    if (!client) return;
+    const client = this.getSupabaseClient();
+    if (!client) {
+      return res.status(500).json({ error: "Configuração do Supabase ausente." });
+    }
 
     const user = await this.getAuthenticatedUser(req, client);
     if (!user) return res.status(401).json({ error: "Usuário não autenticado." });
@@ -127,8 +144,10 @@ export class MemoryController {
   };
 
   findSimilar = async (req: Request, res: Response) => {
-
-    if (!client) return;
+    const client = this.getSupabaseClient();
+    if (!client) {
+      return res.status(500).json({ error: "Configuração do Supabase ausente." });
+    }
 
     const user = await this.getAuthenticatedUser(req, client);
     if (!user) return res.status(401).json({ error: "Usuário não autenticado." });
