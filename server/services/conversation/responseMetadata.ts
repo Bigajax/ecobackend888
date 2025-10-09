@@ -3,42 +3,7 @@ import type { GetEcoResult } from "../../utils";
 import type { EcoStreamMetaPayload } from "./types";
 
 export function buildFinalizedStreamText(result: GetEcoResult): string {
-  const intensidade = typeof result.intensidade === "number" ? result.intensidade : null;
-  const resumo = typeof result.resumo === "string" ? result.resumo : null;
-  const emocao = typeof result.emocao === "string" ? result.emocao : null;
-  const tags = Array.isArray(result.tags) ? result.tags : [];
-  const categoria = typeof result.categoria === "string" ? result.categoria : null;
-  const proactive = result.proactive ?? null;
-  const plan = result.plan ?? null;
-  const planContext = result.planContext ?? null;
-
-  const payload: Record<string, unknown> = {};
-
-  if (intensidade !== null) payload.intensidade = intensidade;
-  if (typeof resumo === "string" && resumo.trim() !== "") payload.resumo = resumo;
-  if (typeof emocao === "string" && emocao.trim() !== "") payload.emocao = emocao;
-  payload.tags = tags;
-  payload.categoria = categoria;
-  if (proactive !== null) payload.proactive = proactive;
-  if (plan !== null) payload.plan = plan;
-  if (planContext !== null) payload.planContext = planContext;
-
-  const hasMeta =
-    intensidade !== null ||
-    (typeof resumo === "string" && resumo.trim() !== "") ||
-    (typeof emocao === "string" && emocao.trim() !== "") ||
-    (Array.isArray(tags) && tags.length > 0) ||
-    (typeof categoria === "string" && categoria.trim() !== "") ||
-    proactive !== null ||
-    plan !== null ||
-    planContext !== null;
-
-  if (!hasMeta) {
-    return result.message ?? "";
-  }
-
-  return `${result.message ?? ""}` +
-    `\n\n\`\`\`json\n${JSON.stringify(payload, null, 2)}\n\`\`\``;
+  return typeof result.message === "string" ? result.message : "";
 }
 
 export function buildStreamingMetaPayload(
