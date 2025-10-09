@@ -1,6 +1,6 @@
 // server/services/promptContext/Selector.ts
 
-import matrizPromptBaseV2 from "./matrizPromptBaseV2"; // ajuste o caminho se necessário
+import matrizPromptBaseV2 from "./matrizPromptBaseV2";
 import { Camada, CondicaoEspecial } from "./types";
 import type { HeuristicaFlagRecord } from "./heuristicaFlags";
 
@@ -11,16 +11,16 @@ export type Flags = {
   pedido_pratico: boolean;
   duvida_classificacao: boolean;
 
-  // 🔥 Novas flags para o pipeline VIVA/roteamento:
+  // VIVA / roteamento
   saudacao: boolean;
   factual: boolean;
   cansaco: boolean;
   desabafo: boolean;
   urgencia: boolean;
   emocao_alta_linguagem: boolean;
-  crise: boolean; // ← ADICIONADO
+  crise: boolean;
 
-  // 🔥 Vulnerabilidade & autorregulação
+  // Vulnerabilidade & autorregulação
   vergonha: boolean;
   vulnerabilidade: boolean;
   defesas_ativas: boolean;
@@ -30,7 +30,7 @@ export type Flags = {
   culpa_marcada: boolean;
   catastrofizacao: boolean;
 
-  // aliases em inglês (para debug/API)
+  // aliases EN (debug/API)
   shame: boolean;
   vulnerability: boolean;
   active_defenses: boolean;
@@ -39,12 +39,18 @@ export type Flags = {
   guilt: boolean;
   catastrophizing: boolean;
 
-  // 🔥 Heurísticas cognitivas (eco_heuristica_*.txt)
+  // Heurísticas cognitivas
   ancoragem: boolean;
   causas_superam_estatisticas: boolean;
   certeza_emocional: boolean;
   excesso_intuicao_especialista: boolean;
   ignora_regressao_media: boolean;
+
+  // Crise granular (usadas nas regras)
+  ideacao: boolean;
+  desespero: boolean;
+  vazio: boolean;
+  autodesvalorizacao: boolean;
 };
 
 export type BaseSelection = {
@@ -130,7 +136,7 @@ export function derivarFlags(texto: string, heuristicaFlags: HeuristicaFlagRecor
   const raw = texto || "";
   const t = normalize(raw);
 
-  // já existentes
+  // básicas
   const curiosidade =
     /\b(como|por que|porque|pra que|para que|e se|poderia|podes|pode)\b/.test(t) || /\?$/.test(raw);
   const pedido_pratico =
@@ -138,48 +144,33 @@ export function derivarFlags(texto: string, heuristicaFlags: HeuristicaFlagRecor
   const duvida_classificacao =
     /\b(nivel|abertura|intensidade|classificacao|classificar)\b/.test(t);
 
-  // novas
+  // roteamento
   const saudacao =
     /\b(oi+|oie+|ola+|ola|ol[aá]|alo+|opa+|salve|bom dia|boa tarde|boa noite|boa madrugada)\b/.test(t);
   const factual =
-    /\b(que dia|que data|horario|endereco|onde fica|preco|valor|numero|cpf|rg|link|url|site|telefone|contato|confirmar|confirmacao|agenda|quando|que horas)\b/.test(
-      t
-    );
+    /\b(que dia|que data|horario|endereco|onde fica|preco|valor|numero|cpf|rg|link|url|site|telefone|contato|confirmar|confirmacao|agenda|quando|que horas)\b/.test(t);
   const cansaco =
-    /\b(cansad[ao]|sem energia|esgotad[ao]|exaust[ao]|exausta|acabado|acabada|saturad[ao](?: mas (?:de boa|tranq|ok))?)\b/.test(
-      t
-    );
+    /\b(cansad[ao]|sem energia|esgotad[ao]|exaust[ao]|exausta|acabado|acabada|saturad[ao](?: mas (?:de boa|tranq|ok))?)\b/.test(t);
   const desabafo =
-    /\b(so desabafando|queria desabafar|so queria falar|nao precisa responder|nao quero conselho|nao preciso de intervencao)\b/.test(
-      t
-    );
-  const urgencia =
-    /\b(preciso resolver ja|nao sei mais o que fazer|socorro|urgente|agora|pra ontem)\b/.test(t);
+    /\b(so desabafando|queria desabafar|so queria falar|nao precisa responder|nao quero conselho|nao preciso de intervencao)\b/.test(t);
+  const urgencia = /\b(preciso resolver ja|nao sei mais o que fazer|socorro|urgente|agora|pra ontem)\b/.test(t);
   const emocao_alta_linguagem =
-    /\b(nao aguento|no limite|explodindo|desesperad[oa]|muito ansios[oa]|panico|crise|tremend[oa])\b/.test(
-      t
-    );
+    /\b(nao aguento|no limite|explodindo|desesperad[oa]|muito ansios[oa]|panico|crise|tremend[oa])\b/.test(t);
 
-  // 🚨 crise (sinalização ampla: ideação/risco/severo)
-  const crise = [
-    /suicid/i,
-    /me matar/i,
-    /tirar minha vida/i,
-    /acab(ar|ando) com tudo/i,
-    /ou(v|b)o vozes/i,
-    /psicose/i,
-    /agredir/i,
-    /viol[eê]ncia/i,
-    /p[aá]nico (severo|forte)/i,
-  ].some((r) => r.test(raw));
+  // crise granular
+  const ideacao = /suicid|me matar|tirar minha vida|acabar com tudo/i.test(raw);
+  const desespero = /desesper|sem sa[ií]da|no limite/i.test(t);
+  const vazio = /\bvazio\b|\bsem sentido\b|\bnada faz sentido\b/i.test(t);
+  const autodesvalorizacao = /\b(n[aã]o presto|n[aã]o valho|sou um lixo|sou horr[ií]vel)\b/i.test(t);
+  const crise = ideacao || desespero || vazio || autodesvalorizacao;
 
+  // padrões
   const vergonha = /\b(vergonha|humilha[cç][aã]o|me escondo|me esconder)\b/.test(t);
   const vulnerabilidade = /\b(vulner[aá]vel|abrir meu cora[cç][aã]o|medo de me abrir)\b/.test(t);
   const defesas_ativas =
     /\b(racionalizo|racionalizando|minimizo|minimizando|faco piada|faço piada|mudo de assunto|fugir do tema)\b/.test(t);
   const combate = /\b(brigar|bater de frente|comprar briga|contra-ataco|contra ataco|contra-atacar)\b/.test(t);
-  const evitamento =
-    /\b(evito|evitando|fujo|fugindo|adi[oó]o|procrastino|adiar|adiando|adiamento)\b/.test(t);
+  const evitamento = /\b(evito|evitando|fujo|fugindo|adi[oó]o|procrastino|adiar|adiando|adiamento)\b/.test(t);
   const autocritica = /\b(sou um lixo|sou horr[ií]vel|me detesto|sou fraco|sou fraca|falhei|fracassei)\b/.test(t);
   const culpa_marcada = /\b(culpa|culpada|culpado|me sinto culp[oa])\b/.test(t);
   const catastrofizacao =
@@ -195,7 +186,7 @@ export function derivarFlags(texto: string, heuristicaFlags: HeuristicaFlagRecor
     desabafo,
     urgencia,
     emocao_alta_linguagem,
-    crise, // ← ADICIONADO
+    crise,
 
     vergonha,
     vulnerabilidade,
@@ -214,29 +205,37 @@ export function derivarFlags(texto: string, heuristicaFlags: HeuristicaFlagRecor
     guilt: culpa_marcada,
     catastrophizing: catastrofizacao,
 
-    // heurísticas vindas do mapeamento
+    // heurísticas mapeadas externamente (ex.: fast-lane)
     ancoragem: Boolean(heuristicaFlags.ancoragem),
     causas_superam_estatisticas: Boolean(heuristicaFlags.causas_superam_estatisticas),
     certeza_emocional: Boolean(heuristicaFlags.certeza_emocional),
     excesso_intuicao_especialista: Boolean(heuristicaFlags.excesso_intuicao_especialista),
     ignora_regressao_media: Boolean(heuristicaFlags.ignora_regressao_media),
+
+    // crise granular
+    ideacao,
+    desespero,
+    vazio,
+    autodesvalorizacao,
   };
 }
 
 /* ===================== Mini avaliador de regras =====================
 
-Suporta expressões como:
+Suporta:
 - "nivel>=2 && intensidade>=7"
 - "nivel>=2 && !pedido_pratico"
-- "nivel>=2 && intensidade>=3 && intensidade<=6 && !pedido_pratico"
+- "intensidade>=8 && nivel>=3 && (ideacao || desespero || vazio || autodesvalorizacao)"
+- "intensidade>=7 && hasTechBlock==true"
 
 ==================================================================== */
 
 type Ctx = {
   nivel: number;
   intensidade: number;
+  hasTechBlock?: boolean;
 
-  // boolean flags
+  // flags
   curiosidade: boolean;
   pedido_pratico: boolean;
   duvida_classificacao: boolean;
@@ -246,7 +245,7 @@ type Ctx = {
   desabafo: boolean;
   urgencia: boolean;
   emocao_alta_linguagem: boolean;
-  crise: boolean; // ← ADICIONADO
+  crise: boolean;
 
   vergonha: boolean;
   vulnerabilidade: boolean;
@@ -270,6 +269,11 @@ type Ctx = {
   certeza_emocional: boolean;
   excesso_intuicao_especialista: boolean;
   ignora_regressao_media: boolean;
+
+  ideacao: boolean;
+  desespero: boolean;
+  vazio: boolean;
+  autodesvalorizacao: boolean;
 };
 
 function evalRule(rule: string, ctx: Ctx): boolean {
@@ -295,17 +299,26 @@ function evalRule(rule: string, ctx: Ctx): boolean {
         if (v !== true) return false;
         continue;
       }
-      // comparações numéricas
-      const cmp = term.match(/^([a-z_]+)\s*(>=|<=|==|!=|>|<)\s*([0-9]+)$/i);
-      if (cmp) {
-        const left = readVarNum(cmp[1], ctx);
-        const op = cmp[2];
-        const right = Number(cmp[3]);
+      // numérico
+      const cmpNum = term.match(/^([a-z_]+)\s*(>=|<=|==|!=|>|<)\s*([0-9]+)$/i);
+      if (cmpNum) {
+        const left = readVarNum(cmpNum[1], ctx);
+        const op = cmpNum[2];
+        const right = Number(cmpNum[3]);
         if (left === null) return false;
         if (!compare(left, op, right)) return false;
         continue;
       }
-      // termo inválido
+      // booleano: hasTechBlock==true / flag!=false
+      const cmpBool = term.match(/^([a-z_]+)\s*(==|!=)\s*(true|false)$/i);
+      if (cmpBool) {
+        const left = readVarBool(cmpBool[1], ctx);
+        if (left === null) return false;
+        const want = cmpBool[3].toLowerCase() === "true";
+        const ok = cmpBool[2] === "==" ? left === want : left !== want;
+        if (!ok) return false;
+        continue;
+      }
       return false;
     }
     return true;
@@ -319,6 +332,7 @@ function evalRule(rule: string, ctx: Ctx): boolean {
 
 function readVarBool(name: string, ctx: Ctx): boolean | null {
   switch (name) {
+    case "hasTechBlock":
     case "curiosidade":
     case "pedido_pratico":
     case "duvida_classificacao":
@@ -328,7 +342,7 @@ function readVarBool(name: string, ctx: Ctx): boolean | null {
     case "desabafo":
     case "urgencia":
     case "emocao_alta_linguagem":
-    case "crise": // ← ADICIONADO
+    case "crise":
     case "vergonha":
     case "vulnerabilidade":
     case "defesas_ativas":
@@ -349,6 +363,10 @@ function readVarBool(name: string, ctx: Ctx): boolean | null {
     case "certeza_emocional":
     case "excesso_intuicao_especialista":
     case "ignora_regressao_media":
+    case "ideacao":
+    case "desespero":
+    case "vazio":
+    case "autodesvalorizacao":
       return Boolean((ctx as any)[name]);
     default:
       return null;
@@ -367,20 +385,13 @@ function readVarNum(name: string, ctx: Ctx): number | null {
 
 function compare(a: number, op: string, b: number): boolean {
   switch (op) {
-    case ">=":
-      return a >= b;
-    case "<=":
-      return a <= b;
-    case ">":
-      return a > b;
-    case "<":
-      return a < b;
-    case "==":
-      return a === b;
-    case "!=":
-      return a !== b;
-    default:
-      return false;
+    case ">=": return a >= b;
+    case "<=": return a <= b;
+    case ">":  return a >  b;
+    case "<":  return a <  b;
+    case "==": return a === b;
+    case "!=": return a !== b;
+    default:   return false;
   }
 }
 
@@ -410,14 +421,16 @@ export const Selector = {
     nivel,
     intensidade,
     flags,
+    hasTechBlock,
   }: {
     nivel: 1 | 2 | 3;
     intensidade: number;
     flags: Flags;
+    hasTechBlock?: boolean;
   }): BaseSelection {
     const cortados: string[] = [];
 
-    // NV1: somente os três minis definidos na matriz (byNivelV2[1].specific)
+    // NV1: somente os minis
     if (nivel === 1) {
       const minis =
         matrizPromptBaseV2.byNivelV2[1]?.specific?.slice?.() ?? [
@@ -441,7 +454,7 @@ export const Selector = {
       };
     }
 
-    // NV2/NV3: monta a lista a partir da matriz (specific + inherits -> baseModules)
+    // NV2/NV3: specific + inherits(baseModules)
     const spec = matrizPromptBaseV2.byNivelV2[nivel]?.specific ?? [];
     const inherits = matrizPromptBaseV2.byNivelV2[nivel]?.inherits ?? [];
     const inheritedModules = inherits.flatMap(
@@ -476,9 +489,8 @@ export const Selector = {
       }
     }
 
-    // Gating 2: regras semânticas (ativação condicional)
-    // → se a regra bater, inclui; se não bater, não força remoção (exceto se já removido por intensidade).
-    const ctx: Ctx = { nivel, intensidade, ...flags };
+    // Gating 2: regras semânticas
+    const ctx: Ctx = { nivel, intensidade, hasTechBlock, ...flags };
     const condicoes = Object.entries(
       (matrizPromptBaseV2.condicoesEspeciais ?? {}) as Record<string, CondicaoEspecial>
     );
@@ -497,16 +509,12 @@ export const Selector = {
           gatedSet.add(mod);
         }
       } catch {
-        // regra malformada: ignorar silenciosamente
+        // regra malformada: ignora
       }
     }
 
     const posGating = Array.from(gatedSet);
-    const priorizado = ordenarPorPrioridade(
-      posGating,
-      matrizPromptBaseV2.limites?.prioridade,
-      nivel
-    );
+    const priorizado = ordenarPorPrioridade(posGating, matrizPromptBaseV2.limites?.prioridade, nivel);
 
     return {
       nivel,
@@ -528,17 +536,14 @@ function ordenarPorPrioridade(
   priorityFromMatrix?: string[],
   nivel?: 1 | 2 | 3
 ): string[] {
-  // Prioridade vinda da matriz (se houver)
   const priority = Array.isArray(priorityFromMatrix) ? priorityFromMatrix.slice() : [];
 
-  // Em NV1 garantimos que os minis ficam no topo (caso alguém os injete indevidamente)
   if (nivel === 1) {
     ["NV1_CORE.txt", "IDENTIDADE_MINI.txt", "ANTISALDO_MIN.txt"].forEach((m) => {
       if (!priority.includes(m)) priority.unshift(m);
     });
   }
 
-  // Índices de prioridade
   const idx = new Map<string, number>();
   priority.forEach((n, i) => idx.set(n, i));
 
