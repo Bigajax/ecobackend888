@@ -28,4 +28,5 @@ export type BuildParams = {
   perfil?: any;
   memsSemelhantes?: SimilarMemory[];
   memoriasSemelhantes?: SimilarMemory[];
+  decision?: import("../conversation/ecoDecisionHub").EcoDecisionResult;
 };

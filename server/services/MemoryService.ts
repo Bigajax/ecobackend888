@@ -11,6 +11,7 @@ import {
   trackReferenciaEmocional,
   trackPerguntaProfunda,
 } from "../analytics/events/mixpanelEvents"; // seu arquivo
+import type { EcoDecisionResult } from "./conversation/ecoDecisionHub";
 
 export async function saveMemoryOrReference(opts: {
   supabase: AnySupabase;
@@ -19,8 +20,9 @@ export async function saveMemoryOrReference(opts: {
   cleaned: string;
   bloco: any | null;
   ultimaMsg: string;
+  decision: EcoDecisionResult;
 }) {
-  const { supabase, userId, lastMessageId, cleaned, bloco, ultimaMsg } = opts;
+  const { supabase, userId, lastMessageId, cleaned, bloco, ultimaMsg, decision } = opts;
 
   const analiseResumoSafe =
     typeof bloco?.analise_resumo === "string" ? bloco.analise_resumo.trim() : "";
@@ -42,11 +44,10 @@ export async function saveMemoryOrReference(opts: {
   // @ts-ignore
   referenciaAnteriorId = (ultimaMemoria as any)?.id ?? null;
 
-  const intensidadeNum = typeof bloco?.intensidade === "number" ? Math.round(bloco.intensidade) : 0;
-  const nivelNumerico =
-    typeof bloco?.nivel_abertura === "number" ? Math.round(bloco.nivel_abertura)
-      : bloco?.nivel_abertura === "baixo" ? 1 : bloco?.nivel_abertura === "médio" ? 2
-      : bloco?.nivel_abertura === "alto" ? 3 : null;
+  const intensidadeNum = Math.max(0, Math.round(decision.intensity));
+  const nivelNumerico = decision.openness ?? null;
+  const shouldSaveMemory = decision.saveMemory && intensidadeNum >= 7;
+  const shouldSaveReference = !shouldSaveMemory && intensidadeNum > 0;
 
   const payloadBase = {
     usuario_id: userId,
@@ -65,8 +66,8 @@ export async function saveMemoryOrReference(opts: {
     referencia_anterior_id: referenciaAnteriorId,
   };
 
-  if (Number.isFinite(intensidadeNum)) {
-    if (intensidadeNum >= 7) {
+  if (Number.isFinite(intensidadeNum) && intensidadeNum > 0) {
+    if (shouldSaveMemory) {
       const { error } = await supabase.from("memories").insert([{ ...payloadBase, salvar_memoria: true, created_at: new Date().toISOString() }]);
       if (!error) {
         try { await updateEmotionalProfile(userId); } catch {}
@@ -79,7 +80,7 @@ export async function saveMemoryOrReference(opts: {
         dominioVida: payloadBase.dominio_vida,
         categoria: payloadBase.categoria,
       });
-    } else if (intensidadeNum > 0) {
+    } else if (shouldSaveReference) {
       await salvarReferenciaTemporaria(payloadBase as ReferenciaPayload);
       trackReferenciaEmocional({
         userId,

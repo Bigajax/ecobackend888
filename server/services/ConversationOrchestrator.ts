@@ -17,6 +17,7 @@ import { runFastLaneLLM } from "./conversation/fastLane";
 import { buildFullPrompt } from "./conversation/promptPlan";
 import { defaultResponseFinalizer } from "./conversation/responseFinalizer";
 import { firstName } from "./conversation/helpers";
+import { computeEcoDecision } from "./conversation/ecoDecisionHub";
 
 import { handlePreLLMShortcuts } from "./conversation/preLLMPipeline";
 import { prepareConversationContext } from "./conversation/contextPreparation";
@@ -108,31 +109,34 @@ export async function getEcoResponse({
     return preLLM.result;
   }
 
-  const decision = defaultConversationRouter.decide({
+  const ecoDecision = computeEcoDecision(ultimaMsg);
+
+  const routeDecision = defaultConversationRouter.decide({
     messages: thread,
     ultimaMsg,
     forcarMetodoViva,
     promptOverride,
+    decision: ecoDecision,
   });
 
   if (isDebug()) {
     log.debug("[Orchestrator] flags", {
       promptOverrideLen: (promptOverride || "").trim().length,
-      low: decision.lowComplexity,
-      vivaAtivo: decision.vivaAtivo,
-      nivelRoteador: decision.nivelRoteador,
+      low: routeDecision.lowComplexity,
+      vivaAtivo: routeDecision.vivaAtivo,
+      nivelRoteador: routeDecision.nivelRoteador,
       ultimaLen: (ultimaMsg || "").length,
-      mode: decision.mode,
+      mode: routeDecision.mode,
     });
   }
 
-  if (decision.mode === "fast" && !streamHandler) {
+  if (routeDecision.mode === "fast" && !streamHandler) {
     const inicioFast = now();
     const fast = await runFastLaneLLM({
       messages: thread,
       userName: userName ?? undefined,
       ultimaMsg,
-      hasAssistantBefore: decision.hasAssistantBefore,
+      hasAssistantBefore: routeDecision.hasAssistantBefore,
       userId,
       supabase,
       lastMessageId: lastMessageId ?? undefined,
@@ -145,6 +149,7 @@ export async function getEcoResponse({
       sessionMeta,
       isGuest,
       guestId: guestId ?? undefined,
+      ecoDecision,
     });
 
     return fast.response;
@@ -163,7 +168,7 @@ export async function getEcoResponse({
     userName,
     forcarMetodoViva,
     blocoTecnicoForcado,
-    decision,
+    decision: ecoDecision,
     onDerivadosError: (error) => {
       if (isDebug()) {
         const message = error instanceof Error ? error.message : String(error);
@@ -175,7 +180,7 @@ export async function getEcoResponse({
   });
 
   const { prompt, maxTokens } = buildFullPrompt({
-    decision,
+    decision: routeDecision,
     ultimaMsg,
     systemPrompt,
     messages: thread,
@@ -197,9 +202,10 @@ export async function getEcoResponse({
       prompt,
       maxTokens,
       principalModel,
-      decision,
+      decision: routeDecision,
       ultimaMsg,
       userName,
+      ecoDecision,
       userId,
       supabase,
       lastMessageId: lastMessageId ?? undefined,
@@ -217,7 +223,8 @@ export async function getEcoResponse({
     principalModel,
     ultimaMsg,
     userName,
-    decision,
+    decision: routeDecision,
+    ecoDecision,
     userId,
     supabase,
     lastMessageId: lastMessageId ?? undefined,
