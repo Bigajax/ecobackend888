@@ -1,4 +1,3 @@
-
 import { callOpenRouterChat } from "../adapters/OpenRouterAdapter";
 import { limparResposta, formatarTextoEco } from "../utils/text";
 import { hedge } from "./policies/hedge";
@@ -12,7 +11,7 @@ const MODEL_TECH_ALT = process.env.ECO_MODEL_TECH_ALT || "openai/gpt-5-mini";
  * ------------------------------------------- */
 export async function fastGreet(prompt: string) {
   const lightSystem =
-    "Sou a ECO: curiosa, presente, sem julgamentos ou prescrições, acolhendo e refletindo com um tom calmo, direto e gentil, convidando à autorreflexão com honestidade cuidadosa e humor apropriado, sem orientar diretamente."
+    "Sou a ECO: curiosa, presente, sem julgamentos ou prescrições, acolhendo e refletindo com um tom calmo, direto e gentil, convidando à autorreflexão com honestidade cuidadosa e humor apropriado, sem orientar diretamente.";
   const headers = {
     Authorization: `Bearer ${process.env.OPENROUTER_API_KEY!}`,
     "Content-Type": "application/json",
@@ -62,7 +61,10 @@ function construirEspelho(msg: string): string {
   if (!msg) return "";
   // remove emojis e excesso de espaços
   let t = msg
-    .replace(/([\u2700-\u27BF]|[\uE000-\uF8FF]|\uD83C[\uDC00-\uDFFF]|\uD83D[\uDC00-\uDFFF]|\uD83E[\uDD00-\uDFFF])/g, "")
+    .replace(
+      /([\u2700-\u27BF]|[\uE000-\uF8FF]|\uD83C[\uDC00-\uDFFF]|\uD83D[\uDC00-\uDFFF]|\uD83E[\uDD00-\uDFFF])/g,
+      ""
+    )
     .replace(/\s+/g, " ")
     .trim();
 
@@ -106,7 +108,7 @@ function pickRandom<T>(arr: T[]): T {
 
 // garante no máximo 1 interrogação (1 pergunta)
 function limitarPerguntas(phrase: string): string {
-  const idxs = [...phrase.matchAll(/\?/g)].map(m => m.index ?? -1);
+  const idxs = [...phrase.matchAll(/\?/g)].map((m) => m.index ?? -1);
   if (idxs.length <= 1) return phrase;
   // mantém a primeira e transforma as demais em ponto final
   let out = phrase;
