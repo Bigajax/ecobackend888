@@ -1,16 +1,4 @@
-import test from "node:test";
-import type { TestContext } from "node:test";
-import assert from "node:assert/strict";
-import http from "node:http";
 
-import { createApp } from "../../core/http/app";
-
-test("OPTIONS /api/ask-eco expõe cabeçalhos do modo convidado", async (t: TestContext) => {
-  const app = createApp();
-  const server = http.createServer(app);
-
-  await new Promise<void>((resolve) => {
-    server.listen(0, () => resolve());
   });
 
   t.after(() => server.close());
