@@ -11,17 +11,44 @@ import {
 import { buildStreamingMetaPayload } from "./responseMetadata";
 import { salvarMemoriaViaRPC } from "./memoryPersistence";
 import { defaultResponseFinalizer, type PrecomputedFinalizeArtifacts } from "./responseFinalizer";
+import type { EcoDecisionResult } from "./ecoDecisionHub";
 
 import type { GetEcoResult } from "../../utils";
 
 const BLOCO_DEADLINE_MS = Number(process.env.ECO_BLOCO_DEADLINE_MS ?? 5000);
 const BLOCO_PENDING_MS = Number(process.env.ECO_BLOCO_PENDING_MS ?? 1000);
 
+function normalizeBlocoForMeta(
+  bloco: any,
+  ecoDecision: EcoDecisionResult,
+  cleaned: string
+) {
+  const payload = bloco && typeof bloco === "object" ? { ...bloco } : {};
+  payload.intensidade = ecoDecision.intensity;
+  if (typeof payload.analise_resumo !== "string" || !payload.analise_resumo.trim()) {
+    payload.analise_resumo = cleaned;
+  } else {
+    payload.analise_resumo = payload.analise_resumo.trim();
+  }
+  if (typeof payload.emocao_principal !== "string" || !payload.emocao_principal.trim()) {
+    payload.emocao_principal = "indefinida";
+  }
+  if (!Array.isArray(payload.tags)) {
+    payload.tags = [];
+  }
+  payload.categoria =
+    typeof payload.categoria === "string" && payload.categoria.trim().length
+      ? payload.categoria.trim()
+      : null;
+  return payload;
+}
+
 interface StreamingExecutionParams {
   prompt: Msg[];
   maxTokens: number;
   principalModel: string;
   decision: { hasAssistantBefore: boolean };
+  ecoDecision: EcoDecisionResult;
   ultimaMsg: string;
   userName?: string | null;
   userId: string;
@@ -39,6 +66,7 @@ export async function executeStreamingLLM({
   maxTokens,
   principalModel,
   decision,
+  ecoDecision,
   ultimaMsg,
   userName,
   userId,
@@ -81,6 +109,7 @@ export async function executeStreamingLLM({
   let blocoDeadlineTimer: NodeJS.Timeout | null = null;
 
   const startBlocoPipeline = () => {
+    if (!ecoDecision.hasTechBlock) return;
     if (blocoSetupPromise) return;
     blocoSetupPromise = (async () => {
       try {
@@ -99,6 +128,7 @@ export async function executeStreamingLLM({
           skipBloco: false,
           distinctId: sessionMeta?.distinctId ?? userId,
           userId,
+          intensidade: ecoDecision.intensity,
         });
 
         const blocoPromise = blocoTimeout.full;
@@ -160,7 +190,8 @@ export async function executeStreamingLLM({
               return;
             }
 
-            const metaPayload = buildStreamingMetaPayload(payload, normalized.cleaned);
+            const normalizedPayload = normalizeBlocoForMeta(payload, ecoDecision, normalized.cleaned);
+            const metaPayload = buildStreamingMetaPayload(normalizedPayload, normalized.cleaned);
             if (!metaPayload) {
               log.warn("[StreamingBloco] bloco payload inválido; meta não emitido", { durationMs });
               return;
@@ -321,6 +352,10 @@ export async function executeStreamingLLM({
           sessaoId: sessionMeta?.sessaoId ?? undefined,
           origemSessao: sessionMeta?.origem ?? undefined,
           precomputed,
+          moduleCandidates: ecoDecision.debug.modules,
+          selectedModules: ecoDecision.debug.selectedModules,
+          timingsSnapshot: timings,
+          ecoDecision,
           isGuest,
           guestId,
         });

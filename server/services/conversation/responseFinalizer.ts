@@ -20,6 +20,8 @@ import {
   stripRedundantGreeting,
 } from "./helpers";
 import type { GetEcoResult } from "../../utils";
+import type { EcoLatencyMarks } from "./types";
+import type { EcoDecisionResult } from "./ecoDecisionHub";
 
 interface ResponseFinalizerDeps {
   gerarBlocoTecnicoComCache: typeof gerarBlocoTecnicoComCache;
@@ -52,6 +54,10 @@ export interface FinalizeParams {
   precomputed?: PrecomputedFinalizeArtifacts;
   isGuest?: boolean;
   guestId?: string | null;
+  ecoDecision: EcoDecisionResult;
+  moduleCandidates?: Array<{ id: string; activated: boolean; rule?: string | null; threshold?: number | null; signals?: string[] }>;
+  selectedModules?: string[];
+  timingsSnapshot?: EcoLatencyMarks;
 }
 
 export interface NormalizedEcoResponse {
@@ -65,6 +71,41 @@ export interface PrecomputedFinalizeArtifacts {
   normalized: NormalizedEcoResponse;
   blocoPromise?: Promise<any | null>;
   blocoRacePromise?: Promise<any | null>;
+}
+
+function ensureTechBlock(
+  bloco: any,
+  decision: EcoDecisionResult,
+  cleaned: string
+) {
+  const safe = bloco && typeof bloco === "object" ? { ...bloco } : {};
+  const safeEmotion = typeof safe.emocao_principal === "string" ? safe.emocao_principal.trim() : "";
+  const safeSummary = typeof safe.analise_resumo === "string" ? safe.analise_resumo.trim() : "";
+  const safeTags = Array.isArray(safe.tags)
+    ? safe.tags
+        .map((tag: any) => (typeof tag === "string" ? tag.trim() : ""))
+        .filter((tag: string) => tag.length > 0)
+    : [];
+
+  return {
+    ...safe,
+    emocao_principal: safeEmotion || "indefinida",
+    intensidade: decision.intensity,
+    tags: safeTags,
+    dominio_vida: typeof safe.dominio_vida === "string" && safe.dominio_vida.trim().length
+      ? safe.dominio_vida
+      : null,
+    padrao_comportamental:
+      typeof safe.padrao_comportamental === "string" && safe.padrao_comportamental.trim().length
+        ? safe.padrao_comportamental
+        : null,
+    nivel_abertura: decision.openness,
+    analise_resumo: safeSummary || cleaned,
+    categoria:
+      typeof safe.categoria === "string" && safe.categoria.trim().length
+        ? safe.categoria.trim()
+        : null,
+  };
 }
 
 export class ResponseFinalizer {
@@ -93,6 +134,7 @@ export class ResponseFinalizer {
     skipBloco,
     distinctId,
     userId,
+    intensidade,
   }: {
     ultimaMsg: string;
     blocoTarget: string;
@@ -100,6 +142,7 @@ export class ResponseFinalizer {
     skipBloco: boolean;
     distinctId?: string;
     userId?: string;
+    intensidade?: number;
   }): { race: Promise<any | null>; full: Promise<any | null> } {
     const startedAt = now();
     const timeoutMs = this.getBlocoTimeoutMs();
@@ -118,7 +161,9 @@ export class ResponseFinalizer {
           skipBloco,
           duracaoMs: duracao,
           intensidade:
-            value && typeof value.intensidade === "number"
+            typeof intensidade === "number"
+              ? intensidade
+              : value && typeof value.intensidade === "number"
               ? value.intensidade
               : undefined,
         });
@@ -179,6 +224,7 @@ export class ResponseFinalizer {
     mode: "fast" | "full";
     distinctId?: string;
     isGuest?: boolean;
+    ecoDecision: EcoDecisionResult;
   }): Promise<void> {
     const {
       userId,
@@ -190,6 +236,7 @@ export class ResponseFinalizer {
       mode,
       distinctId,
       isGuest,
+      ecoDecision,
     } = params;
     if (!userId || !supabase || isGuest) return;
 
@@ -251,6 +298,7 @@ export class ResponseFinalizer {
         cleaned,
         bloco: blocoParaSalvar,
         ultimaMsg,
+        decision: ecoDecision,
       });
     } catch (e) {
       log.warn("⚠️ Pós-processo falhou:", (e as Error).message);
@@ -302,6 +350,10 @@ export class ResponseFinalizer {
     precomputed,
     isGuest = false,
     guestId,
+    ecoDecision,
+    moduleCandidates,
+    selectedModules,
+    timingsSnapshot,
   }: FinalizeParams): Promise<GetEcoResult> {
     const distinctId =
       providedDistinctId ?? sessionMeta?.distinctId ?? guestId ?? userId;
@@ -328,10 +380,12 @@ export class ResponseFinalizer {
 
     const { cleaned, blocoTarget } = normalized;
 
+    const shouldBuildTechBlock = ecoDecision.hasTechBlock && !skipBloco;
+
     let bloco: any = null;
     let blocoPromise: Promise<any | null> | undefined;
     let blocoRacePromise: Promise<any | null> | undefined;
-    if (!skipBloco) {
+    if (shouldBuildTechBlock) {
       blocoPromise = precomputed?.blocoPromise;
       blocoRacePromise = precomputed?.blocoRacePromise ?? blocoPromise;
 
@@ -340,9 +394,10 @@ export class ResponseFinalizer {
           ultimaMsg,
           blocoTarget,
           mode,
-          skipBloco,
+          skipBloco: false,
           distinctId: providedDistinctId ?? sessionMeta?.distinctId ?? userId,
           userId,
+          intensidade: ecoDecision.intensity,
         });
         blocoPromise = blocoTimeout.full;
         blocoRacePromise = blocoTimeout.race;
@@ -354,25 +409,50 @@ export class ResponseFinalizer {
           userId,
           status: "pending",
           mode,
-          skipBloco,
+          skipBloco: false,
         });
       } else {
         bloco = await blocoRacePromise;
       }
     }
 
-    const response: GetEcoResult = { message: cleaned };
-    if (bloco && typeof bloco.intensidade === "number") {
-      response.intensidade = bloco.intensidade;
-      response.resumo = bloco?.analise_resumo?.trim().length
-        ? bloco.analise_resumo.trim()
-        : cleaned;
-      response.emocao = bloco.emocao_principal || "indefinida";
-      response.tags = Array.isArray(bloco.tags) ? bloco.tags : [];
-      response.categoria = bloco.categoria ?? null;
-    } else if (bloco) {
-      response.categoria = bloco.categoria ?? null;
+    const normalizedBloco = shouldBuildTechBlock
+      ? ensureTechBlock(bloco, ecoDecision, cleaned)
+      : null;
+
+    const response: GetEcoResult = { message: cleaned, intensidade: ecoDecision.intensity };
+    if (normalizedBloco) {
+      response.resumo = normalizedBloco.analise_resumo;
+      response.emocao = normalizedBloco.emocao_principal || "indefinida";
+      response.tags = normalizedBloco.tags ?? [];
+      response.categoria = normalizedBloco.categoria ?? null;
+    } else {
+      response.resumo = cleaned;
+      response.tags = [];
+      response.categoria = null;
+      response.emocao = "indefinida";
     }
+
+    const debugTrace = {
+      inputPreview: ultimaMsg.slice(0, 200),
+      intensity: ecoDecision.intensity,
+      openness: ecoDecision.openness,
+      isVulnerable: ecoDecision.isVulnerable,
+      vivaSteps: ecoDecision.vivaSteps,
+      saveMemory: ecoDecision.saveMemory,
+      hasTechBlock: ecoDecision.hasTechBlock,
+      moduleCandidates: moduleCandidates ?? ecoDecision.debug.modules,
+      selectedModules: selectedModules ?? ecoDecision.debug.selectedModules,
+      signals: ecoDecision.debug,
+      latencyMs: now() - startedAt,
+      timings: timingsSnapshot ?? undefined,
+    };
+
+    if (process.env.ECO_LOGIC_DEBUG === "1") {
+      log.info("[ECO_LOGIC_DEBUG] decision", debugTrace);
+    }
+
+    response.meta = { ...(response.meta ?? {}), debug_trace: debugTrace };
 
     const duracao = now() - startedAt;
     if (sessionMeta && !isGuest) {
@@ -394,13 +474,13 @@ export class ResponseFinalizer {
       });
     }
 
-    const blocoStatus = skipBloco
-      ? "skipped"
-      : mode === "fast"
-      ? "pending"
-      : bloco
-      ? "ready"
-      : "missing";
+    const blocoStatus = shouldBuildTechBlock
+      ? mode === "fast"
+        ? "pending"
+        : normalizedBloco
+        ? "ready"
+        : "missing"
+      : "skipped";
 
     this.deps.trackMensagemEnviada({
       userId,
@@ -416,14 +496,15 @@ export class ResponseFinalizer {
       supabase,
       lastMessageId,
       cleaned,
-      bloco,
-      blocoPromise,
+      bloco: normalizedBloco,
+      blocoPromise: shouldBuildTechBlock ? blocoPromise : undefined,
       blocoTarget,
       ultimaMsg,
-      skipBloco,
+      skipBloco: !shouldBuildTechBlock,
       mode,
       distinctId,
       isGuest,
+      ecoDecision,
     });
 
     return response;

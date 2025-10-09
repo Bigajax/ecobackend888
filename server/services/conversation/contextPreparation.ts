@@ -1,5 +1,6 @@
 import { loadConversationContext } from "./derivadosLoader";
 import { defaultContextCache } from "./contextCache";
+import type { EcoDecisionResult } from "./ecoDecisionHub";
 
 interface PrepareContextParams {
   userId?: string;
@@ -11,7 +12,7 @@ interface PrepareContextParams {
   userName?: string | null;
   forcarMetodoViva: boolean;
   blocoTecnicoForcado: any;
-  decision: { vivaAtivo: boolean };
+  decision: EcoDecisionResult;
   onDerivadosError?: (error: unknown) => void;
   cacheUserId?: string;
   isGuest?: boolean;
@@ -52,7 +53,7 @@ export async function prepareConversationContext({
       perfil: null,
       mems,
       memoriasSemelhantes: context.memsSemelhantes,
-      forcarMetodoViva: decision.vivaAtivo,
+      forcarMetodoViva: decision.vivaSteps.length > 0,
       blocoTecnicoForcado,
       texto: ultimaMsg,
       heuristicas: context.heuristicas,
@@ -60,6 +61,7 @@ export async function prepareConversationContext({
       skipSaudacao: true,
       derivados: context.derivados,
       aberturaHibrida: context.aberturaHibrida,
+      decision,
     }));
 
   return { systemPrompt, context };

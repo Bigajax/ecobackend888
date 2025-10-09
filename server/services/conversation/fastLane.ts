@@ -7,6 +7,7 @@ import {
 import { log } from "../promptContext/logger";
 import { planCuriousFallback } from "../../core/ResponsePlanner";
 import type { FinalizeParams } from "./responseFinalizer";
+import type { EcoDecisionResult } from "./ecoDecisionHub";
 import { detectGenericAutoReply } from "./genericAutoReplyGuard";
 import {
   construirRespostaPersonalizada,
@@ -54,6 +55,7 @@ export interface RunFastLaneLLMParams {
   sessionMeta?: SessionMetadata;
   isGuest?: boolean;
   guestId?: string;
+  ecoDecision: EcoDecisionResult;
 }
 
 export interface RunFastLaneLLMResult {
@@ -112,6 +114,7 @@ export async function runFastLaneLLM({
   sessionMeta,
   isGuest = false,
   guestId,
+  ecoDecision,
 }: RunFastLaneLLMParams): Promise<RunFastLaneLLMResult> {
   const nome = deps.firstName?.(userName);
   const preferCoach = detectExplicitAskForSteps(ultimaMsg);
@@ -146,6 +149,9 @@ export async function runFastLaneLLM({
       sessionMeta,
       sessaoId: sessionMeta?.sessaoId ?? undefined,
       origemSessao: sessionMeta?.origem ?? undefined,
+      ecoDecision,
+      moduleCandidates: ecoDecision.debug.modules,
+      selectedModules: ecoDecision.debug.selectedModules,
       isGuest,
       guestId,
     });
@@ -179,6 +185,9 @@ export async function runFastLaneLLM({
     sessionMeta,
     sessaoId: sessionMeta?.sessaoId ?? undefined,
     origemSessao: sessionMeta?.origem ?? undefined,
+    ecoDecision,
+    moduleCandidates: ecoDecision.debug.modules,
+    selectedModules: ecoDecision.debug.selectedModules,
     isGuest,
     guestId,
   });

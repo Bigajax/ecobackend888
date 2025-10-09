@@ -20,6 +20,25 @@ export type Flags = {
   emocao_alta_linguagem: boolean;
   crise: boolean; // ← ADICIONADO
 
+  // 🔥 Vulnerabilidade & autorregulação
+  vergonha: boolean;
+  vulnerabilidade: boolean;
+  defesas_ativas: boolean;
+  combate: boolean;
+  evitamento: boolean;
+  autocritica: boolean;
+  culpa_marcada: boolean;
+  catastrofizacao: boolean;
+
+  // aliases em inglês (para debug/API)
+  shame: boolean;
+  vulnerability: boolean;
+  active_defenses: boolean;
+  avoidance: boolean;
+  self_criticism: boolean;
+  guilt: boolean;
+  catastrophizing: boolean;
+
   // 🔥 Heurísticas cognitivas (eco_heuristica_*.txt)
   ancoragem: boolean;
   causas_superam_estatisticas: boolean;
@@ -36,6 +55,16 @@ export type BaseSelection = {
   posGating: string[];
   priorizado: string[];
   cortados: string[];
+  debug: { modules: ModuleDebugEntry[] };
+};
+
+export type ModuleDebugEntry = {
+  id: string;
+  source: "base" | "intensity" | "rule";
+  activated: boolean;
+  threshold?: number | null;
+  rule?: string | null;
+  signals?: string[];
 };
 
 /* ===================== Utils ===================== */
@@ -144,6 +173,18 @@ export function derivarFlags(texto: string, heuristicaFlags: HeuristicaFlagRecor
     /p[aá]nico (severo|forte)/i,
   ].some((r) => r.test(raw));
 
+  const vergonha = /\b(vergonha|humilha[cç][aã]o|me escondo|me esconder)\b/.test(t);
+  const vulnerabilidade = /\b(vulner[aá]vel|abrir meu cora[cç][aã]o|medo de me abrir)\b/.test(t);
+  const defesas_ativas =
+    /\b(racionalizo|racionalizando|minimizo|minimizando|faco piada|faço piada|mudo de assunto|fugir do tema)\b/.test(t);
+  const combate = /\b(brigar|bater de frente|comprar briga|contra-ataco|contra ataco|contra-atacar)\b/.test(t);
+  const evitamento =
+    /\b(evito|evitando|fujo|fugindo|adi[oó]o|procrastino|adiar|adiando|adiamento)\b/.test(t);
+  const autocritica = /\b(sou um lixo|sou horr[ií]vel|me detesto|sou fraco|sou fraca|falhei|fracassei)\b/.test(t);
+  const culpa_marcada = /\b(culpa|culpada|culpado|me sinto culp[oa])\b/.test(t);
+  const catastrofizacao =
+    /\b(catastrof|vai dar tudo errado|nunca vai melhorar|tudo acaba|sempre ruim|nada funciona)\b/.test(t);
+
   return {
     curiosidade,
     pedido_pratico,
@@ -155,6 +196,23 @@ export function derivarFlags(texto: string, heuristicaFlags: HeuristicaFlagRecor
     urgencia,
     emocao_alta_linguagem,
     crise, // ← ADICIONADO
+
+    vergonha,
+    vulnerabilidade,
+    defesas_ativas,
+    combate,
+    evitamento,
+    autocritica,
+    culpa_marcada,
+    catastrofizacao,
+
+    shame: vergonha,
+    vulnerability: vulnerabilidade,
+    active_defenses: defesas_ativas,
+    avoidance: evitamento,
+    self_criticism: autocritica,
+    guilt: culpa_marcada,
+    catastrophizing: catastrofizacao,
 
     // heurísticas vindas do mapeamento
     ancoragem: Boolean(heuristicaFlags.ancoragem),
@@ -189,6 +247,23 @@ type Ctx = {
   urgencia: boolean;
   emocao_alta_linguagem: boolean;
   crise: boolean; // ← ADICIONADO
+
+  vergonha: boolean;
+  vulnerabilidade: boolean;
+  defesas_ativas: boolean;
+  combate: boolean;
+  evitamento: boolean;
+  autocritica: boolean;
+  culpa_marcada: boolean;
+  catastrofizacao: boolean;
+
+  shame: boolean;
+  vulnerability: boolean;
+  active_defenses: boolean;
+  avoidance: boolean;
+  self_criticism: boolean;
+  guilt: boolean;
+  catastrophizing: boolean;
 
   ancoragem: boolean;
   causas_superam_estatisticas: boolean;
@@ -254,6 +329,21 @@ function readVarBool(name: string, ctx: Ctx): boolean | null {
     case "urgencia":
     case "emocao_alta_linguagem":
     case "crise": // ← ADICIONADO
+    case "vergonha":
+    case "vulnerabilidade":
+    case "defesas_ativas":
+    case "combate":
+    case "evitamento":
+    case "autocritica":
+    case "culpa_marcada":
+    case "catastrofizacao":
+    case "shame":
+    case "vulnerability":
+    case "active_defenses":
+    case "avoidance":
+    case "self_criticism":
+    case "guilt":
+    case "catastrophizing":
     case "ancoragem":
     case "causas_superam_estatisticas":
     case "certeza_emocional":
@@ -294,6 +384,23 @@ function compare(a: number, op: string, b: number): boolean {
   }
 }
 
+function collectActiveSignals(rule: string | undefined, ctx: Ctx): string[] {
+  if (!rule) return [];
+  const tokens = rule.match(/[a-z_]+/gi) ?? [];
+  const seen = new Set<string>();
+  const signals: string[] = [];
+  for (const token of tokens) {
+    const key = token.trim();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    const value = readVarBool(key, ctx);
+    if (value === true) {
+      signals.push(key);
+    }
+  }
+  return signals;
+}
+
 /* ===================== Seleção base (Matriz V2 + gating) ===================== */
 
 export const Selector = {
@@ -328,6 +435,9 @@ export const Selector = {
         posGating: priorizado,
         priorizado,
         cortados,
+        debug: {
+          modules: minis.map((id) => ({ id, source: "base", activated: true })),
+        },
       };
     }
 
@@ -339,6 +449,10 @@ export const Selector = {
     );
     const rawSet = new Set<string>([...spec, ...inheritedModules]);
     const raw = Array.from(rawSet);
+    const moduleDebugMap = new Map<string, ModuleDebugEntry>();
+    raw.forEach((id) => {
+      if (!moduleDebugMap.has(id)) moduleDebugMap.set(id, { id, source: "base", activated: true });
+    });
 
     // Gating 1: intensidade mínima
     const gatedSet = new Set<string>(raw);
@@ -346,6 +460,19 @@ export const Selector = {
       if (gatedSet.has(mod) && intensidade < Number(minInt)) {
         gatedSet.delete(mod);
         cortados.push(`${mod} [min=${minInt}]`);
+        moduleDebugMap.set(mod, {
+          id: mod,
+          source: "intensity",
+          activated: false,
+          threshold: Number(minInt),
+        });
+      } else if (gatedSet.has(mod)) {
+        moduleDebugMap.set(mod, {
+          id: mod,
+          source: "intensity",
+          activated: true,
+          threshold: Number(minInt),
+        });
       }
     }
 
@@ -358,7 +485,15 @@ export const Selector = {
 
     for (const [mod, cond] of condicoes) {
       try {
-        if (evalRule(cond.regra, ctx)) {
+        const passed = evalRule(cond.regra, ctx);
+        moduleDebugMap.set(mod, {
+          id: mod,
+          source: "rule",
+          activated: passed,
+          rule: cond.regra,
+          signals: collectActiveSignals(cond.regra, ctx),
+        });
+        if (passed) {
           gatedSet.add(mod);
         }
       } catch {
@@ -381,6 +516,7 @@ export const Selector = {
       posGating: priorizado,
       priorizado,
       cortados,
+      debug: { modules: Array.from(moduleDebugMap.values()) },
     };
   },
 };
