@@ -1,12 +1,7 @@
 ---
-id: ECO_ESTRUTURA_DE_RESPOSTA
-type: core
 order: 30
-inject_as: "section"
-when:
-  min_intensity: 0
-  max_intensity: 10
-  openness_in: [1,2,3]
+openness_in: [1, 2, 3]
+dedupe_key: estrutura_base
 ---
 # Estrutura base da resposta
 

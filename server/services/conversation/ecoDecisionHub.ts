@@ -21,6 +21,8 @@ export interface EcoDecisionResult {
   vivaSteps: EcoVivaStep[];
   saveMemory: boolean;
   hasTechBlock: boolean;
+  tags: string[];
+  domain: string | null;
   flags: Flags;
   debug: EcoDecisionDebug;
 }
@@ -103,6 +105,8 @@ export function computeEcoDecision(texto: string, options: EcoDecisionOptions = 
     vivaSteps,
     saveMemory: intensity >= 7,
     hasTechBlock: intensity >= 7,
+    tags: [],
+    domain: null,
     flags,
     debug: {
       intensitySignals: [`heuristic:${intensityRaw}`],

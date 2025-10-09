@@ -1,12 +1,7 @@
 ---
-id: IDENTIDADE
-type: core
 order: 2
-inject_as: "section"
-when:
-  min_intensity: 0
-  max_intensity: 10
-  openness_in: [1,2,3]
+openness_in: [1, 2, 3]
+dedupe_key: identidade
 ---
 # Identidade da ECO (v2 – alinhada ao sistema DEC)
 

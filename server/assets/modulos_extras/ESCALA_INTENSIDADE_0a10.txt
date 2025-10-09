@@ -1,11 +1,8 @@
 ---
-id: ESCALA_INTENSIDADE_0a10
-type: extra
-order: 10
-inject_as: "inline"
-when:
-  min_intensity: 0
-  max_intensity: 10
+order: 12
+min_intensity: 0
+openness_in: [1, 2, 3]
+dedupe_key: escala_intensidade
 ---
 # Escala de Intensidade (0 a 10)
 

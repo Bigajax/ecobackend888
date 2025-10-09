@@ -1,12 +1,7 @@
 ---
-id: MODULACAO_TOM_REGISTRO
-type: core
-order: 25
-inject_as: "inline"
-when:
-  min_intensity: 0
-  max_intensity: 10
-  openness_in: [1,2,3]
+order: 35
+openness_in: [1, 2, 3]
+dedupe_key: modulacao_tom
 ---
 # Modulação de tom
 

@@ -1,12 +1,8 @@
 ---
-id: NV1_CORE
-type: core
-order: 22
-inject_as: "section"
-when:
-  min_intensity: 0
-  max_intensity: 4
-  openness_in: [1]
+order: 20
+max_intensity: 4
+openness_in: [1]
+dedupe_key: nv1_core
 ---
 # Núcleo NV1 (superfície)
 

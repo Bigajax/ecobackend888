@@ -1,12 +1,7 @@
 ---
-id: PRINCIPIOS_CHAVE
-type: core
 order: 3
-inject_as: "inline"
-when:
-  min_intensity: 0
-  max_intensity: 10
-  openness_in: [1,2,3]
+openness_in: [1, 2, 3]
+dedupe_key: principios_chave
 ---
 # Princípios-chave
 
