@@ -13,6 +13,8 @@ export type SimilarMemory = {
 
 export type SimilarMemoryList = SimilarMemory[] | undefined;
 
+import type { ActivationTracer } from "../../core/activationTracer";
+
 export type BuildParams = {
   userId?: string | null;
   userName?: string | null;
@@ -29,4 +31,5 @@ export type BuildParams = {
   memsSemelhantes?: SimilarMemory[];
   memoriasSemelhantes?: SimilarMemory[];
   decision?: import("../conversation/ecoDecisionHub").EcoDecisionResult;
+  activationTracer?: ActivationTracer;
 };

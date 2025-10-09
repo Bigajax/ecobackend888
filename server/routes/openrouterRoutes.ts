@@ -30,6 +30,11 @@ import { now } from "../utils";
 import { RESPONSE_CACHE } from "../services/CacheService";
 import requireAdmin from "../mw/requireAdmin";
 import { ensureSupabaseConfigured } from "../lib/supabaseAdmin";
+import {
+  ActivationTracer,
+  saveActivationTrace,
+  getActivationTrace,
+} from "../core/activationTracer";
 
 const CACHE_TTL_MS = 60_000;
 const HEARTBEAT_INTERVAL_MS = 15_000;
@@ -79,6 +84,16 @@ const isStreamDisabled = (value: unknown): boolean => {
   }
   if (typeof normalized === "boolean") {
     return normalized === false;
+  }
+  return false;
+};
+
+const isTruthyFlag = (value: unknown): boolean => {
+  if (value === true) return true;
+  if (typeof value === "number") return value === 1;
+  if (typeof value === "string") {
+    const lowered = value.trim().toLowerCase();
+    return lowered === "true" || lowered === "1" || lowered === "yes";
   }
   return false;
 };
@@ -146,6 +161,22 @@ router.post("/ask-eco", requireAdmin, async (req: GuestAwareRequest, res: Respon
     req.body?.latency?.promptReadyImmediate === true ||
     req.body?.latency?.promptReadyImmediate === "true";
 
+  const debugRequested =
+    isTruthyFlag((req.query as any)?.debug) || isTruthyFlag((req.body as any)?.debug);
+  const activationTracer = new ActivationTracer({ startedAt: t0 });
+  res.setHeader("X-Eco-Trace-Id", activationTracer.traceId);
+
+  let traceCommitted = false;
+  const commitTrace = () => {
+    if (traceCommitted) return;
+    activationTracer.markTotal();
+    saveActivationTrace(activationTracer.snapshot());
+    traceCommitted = true;
+  };
+
+  res.on("finish", commitTrace);
+  res.on("close", commitTrace);
+
   // ----------- DETECÇÃO ROBUSTA DE GUEST / USER -----------
   // Preferência: middleware popula req.guest / req.userId.
   // Fallbacks: headers/body.
@@ -204,9 +235,11 @@ router.post("/ask-eco", requireAdmin, async (req: GuestAwareRequest, res: Respon
 
   const mensagensBrutas = normalizarMensagens(req.body);
   if (!mensagensBrutas || mensagensBrutas.length === 0) {
+    activationTracer.addError("validation", "messages são obrigatórios.");
     return res.status(200).json({
       ok: false,
       error: { message: "messages são obrigatórios.", statusCode: 400 },
+      ...(debugRequested ? { trace: activationTracer.snapshot() } : {}),
     });
   }
 
@@ -219,12 +252,17 @@ router.post("/ask-eco", requireAdmin, async (req: GuestAwareRequest, res: Respon
       const statusCode = Number.isInteger((sanitizationError as any)?.status)
         ? Number((sanitizationError as any).status)
         : 400;
+      activationTracer.addError(
+        "sanitize_guest_messages",
+        sanitizationError?.message || "Entrada inválida para o modo convidado."
+      );
       return res.status(200).json({
         ok: false,
         error: {
           message: sanitizationError?.message || "Entrada inválida para o modo convidado.",
           statusCode,
         },
+        ...(debugRequested ? { trace: activationTracer.snapshot() } : {}),
       });
     }
   }
@@ -232,15 +270,19 @@ router.post("/ask-eco", requireAdmin, async (req: GuestAwareRequest, res: Respon
   // ----------- GUARD DE AUTENTICAÇÃO -----------
   if (!isGuest) {
     if (!hasBearer || !token) {
+      activationTracer.addError("auth", "Token de acesso ausente.");
       return res.status(200).json({
         ok: false,
         error: { message: "Token de acesso ausente.", statusCode: 401 },
+        ...(debugRequested ? { trace: activationTracer.snapshot() } : {}),
       });
     }
     if (!usuarioIdBody) {
+      activationTracer.addError("auth", "usuario_id e messages são obrigatórios.");
       return res.status(200).json({
         ok: false,
         error: { message: "usuario_id e messages são obrigatórios.", statusCode: 400 },
+        ...(debugRequested ? { trace: activationTracer.snapshot() } : {}),
       });
     }
   }
@@ -248,11 +290,14 @@ router.post("/ask-eco", requireAdmin, async (req: GuestAwareRequest, res: Respon
   // Define o "userId" que o pipeline vai usar (diferencia convidados)
   const pipelineUserId = isGuest ? `guest:${guestId!}` : String(usuarioIdBody);
   if (!pipelineUserId) {
+    activationTracer.addError("validation", "Usuário inválido.");
     return res.status(200).json({
       ok: false,
       error: { message: "Usuário inválido.", statusCode: 400 },
+      ...(debugRequested ? { trace: activationTracer.snapshot() } : {}),
     });
   }
+  activationTracer.setUserId(pipelineUserId);
 
   // ----------- SESSION META / ANALYTICS -----------
   let sessionMeta = extractSessionMeta(req.body);
@@ -274,12 +319,14 @@ router.post("/ask-eco", requireAdmin, async (req: GuestAwareRequest, res: Respon
   if (isGuest && guestId) {
     guestInteractionCount = incrementGuestInteraction(guestId);
     if (guestInteractionCount > guestSessionConfig.maxInteractions) {
+      activationTracer.addError("rate_limit", "Limite de interações do modo convidado atingido.");
       return res.status(200).json({
         ok: false,
         error: {
           message: "Limite de interações do modo convidado atingido.",
           statusCode: 429,
         },
+        ...(debugRequested ? { trace: activationTracer.snapshot() } : {}),
       });
     }
     // Se o middleware usa req.guest, atualiza contagem (opcional)
@@ -294,9 +341,11 @@ router.post("/ask-eco", requireAdmin, async (req: GuestAwareRequest, res: Respon
       const supabaseClient = req.supabaseAdmin ?? ensureSupabaseConfigured();
       const { data, error } = await supabaseClient.auth.getUser(token!);
       if (error || !data?.user) {
+        activationTracer.addError("auth", "Token inválido ou usuário não encontrado.");
         return res.status(200).json({
           ok: false,
           error: { message: "Token inválido ou usuário não encontrado.", statusCode: 401 },
+          ...(debugRequested ? { trace: activationTracer.snapshot() } : {}),
         });
       }
     }
@@ -379,6 +428,9 @@ router.post("/ask-eco", requireAdmin, async (req: GuestAwareRequest, res: Respon
       at: number,
       timings?: EcoLatencyMarks
     ) => {
+      if (stage === "prompt_ready") activationTracer.markPromptReady(at);
+      else if (stage === "ttfb") activationTracer.markFirstToken(at);
+      else if (stage === "ttlc") activationTracer.markTotal(at);
       const sinceStartMs = at - t0;
       log.info(`// LATENCY: ${stage}`, { at, sinceStartMs, timings });
       dispatchEvent({ type: "latency", stage, at, sinceStartMs, timings });
@@ -398,13 +450,17 @@ router.post("/ask-eco", requireAdmin, async (req: GuestAwareRequest, res: Respon
       });
       const at = now();
       emitLatency("ttlc", at, latestTimings);
-      dispatchEvent({
+      const donePayload: Record<string, unknown> = {
         type: "done",
         meta: { fallback: true, reason: "timeout" },
         at,
         sinceStartMs: at - t0,
         timings: latestTimings,
-      });
+      };
+      if (debugRequested) {
+        donePayload.trace = activationTracer.snapshot();
+      }
+      dispatchEvent(donePayload);
       endStream();
     };
 
@@ -481,6 +537,10 @@ router.post("/ask-eco", requireAdmin, async (req: GuestAwareRequest, res: Respon
       typeof value === "object" && value !== null;
 
     if (cachedPayload && typeof cachedPayload.raw === "string") {
+      activationTracer.markCache("hit");
+      if (cachedPayload.modelo) {
+        activationTracer.setModel(cachedPayload.modelo);
+      }
       if (!cachedPayload.raw.includes("```json")) {
         const metaSource = isRecord(cachedPayload.meta) ? cachedPayload.meta : {};
         const normalizedResult: GetEcoResult = { message: cachedPayload.raw };
@@ -554,18 +614,23 @@ router.post("/ask-eco", requireAdmin, async (req: GuestAwareRequest, res: Respon
           ...(cachedPayload.modelo ? { modelo: cachedPayload.modelo } : {}),
           length: cachedPayload.raw.length,
         };
-      dispatchEvent({
+      const donePayload: Record<string, unknown> = {
         type: "done",
         meta: { ...doneMetaBase, cache: true },
         at: doneAt,
         sinceStartMs: doneAt - t0,
         timings: latestTimings,
-      });
+      };
+      if (debugRequested) {
+        donePayload.trace = activationTracer.snapshot();
+      }
+      dispatchEvent(donePayload);
       endStream();
       return;
     }
 
     if (cacheKey) {
+      activationTracer.markCache("miss");
       log.info("// LATENCY: cache-miss", { userId: pipelineUserId, cacheKey });
       trackEcoCache({ distinctId, userId: analyticsUserId, status: "miss", key: cacheKey, source: "openrouter" });
     }
@@ -583,16 +648,21 @@ router.post("/ask-eco", requireAdmin, async (req: GuestAwareRequest, res: Respon
       if (!aggregatedText) {
         aggregatedText = message;
       }
+      activationTracer.addError("stream", message);
       dispatchEvent({ type: "error", message });
       const at = now();
       emitLatency("ttlc", at, latestTimings);
-      dispatchEvent({
+      const donePayload: Record<string, unknown> = {
         type: "done",
         meta: { fallback: true, reason: "error" },
         at,
         sinceStartMs: at - t0,
         timings: latestTimings,
-      });
+      };
+      if (debugRequested) {
+        donePayload.trace = activationTracer.snapshot();
+      }
+      dispatchEvent(donePayload);
       clearTimeoutGuard();
       endStream();
     };
@@ -645,13 +715,17 @@ router.post("/ask-eco", requireAdmin, async (req: GuestAwareRequest, res: Respon
             }
             const at = now();
             emitLatency("ttlc", at, latestTimings);
-            dispatchEvent({
+            const donePayload: Record<string, unknown> = {
               type: "done",
               meta: event.meta ?? {},
               at,
               sinceStartMs: at - t0,
               timings: latestTimings,
-            });
+            };
+            if (debugRequested) {
+              donePayload.trace = activationTracer.snapshot();
+            }
+            dispatchEvent(donePayload);
             clearTimeoutGuard();
             endStream();
           }
@@ -668,7 +742,12 @@ router.post("/ask-eco", requireAdmin, async (req: GuestAwareRequest, res: Respon
       stream: streamHandler,
       isGuest,
       guestId: guestId ?? undefined,
+      activationTracer,
     });
+
+    if (resposta && typeof (resposta as any)?.modelo === "string") {
+      activationTracer.setModel((resposta as any).modelo);
+    }
 
     setImmediate(() => {
       Promise.allSettled([resposta.finalize()])
@@ -692,13 +771,17 @@ router.post("/ask-eco", requireAdmin, async (req: GuestAwareRequest, res: Respon
       const fallbackMeta = resposta?.usage ? { usage: resposta.usage } : {};
       cacheCandidateMeta = fallbackMeta;
       cacheCandidateTimings = latestTimings;
-      dispatchEvent({
+      const donePayload: Record<string, unknown> = {
         type: "done",
         meta: fallbackMeta,
         at,
         sinceStartMs: at - t0,
         timings: latestTimings,
-      });
+      };
+      if (debugRequested) {
+        donePayload.trace = activationTracer.snapshot();
+      }
+      dispatchEvent(donePayload);
       clearTimeoutGuard();
       endStream();
     }
@@ -771,6 +854,7 @@ router.post("/ask-eco", requireAdmin, async (req: GuestAwareRequest, res: Respon
         meta: baseMeta,
         timings: timingsPayload,
         events: offlineEvents,
+        ...(debugRequested ? { trace: activationTracer.snapshot() } : {}),
       });
       return;
     }
@@ -779,17 +863,22 @@ router.post("/ask-eco", requireAdmin, async (req: GuestAwareRequest, res: Respon
   } catch (err: any) {
     log.error("❌ Erro no /ask-eco:", { message: err?.message, stack: err?.stack });
     const message = err?.message || "Erro interno ao processar a requisição.";
+    activationTracer.addError("ask-eco", message);
     // Se já iniciou SSE, devolve como evento amigável
     if (sseStarted || res.headersSent) {
       sendSseRef?.({ type: "error", message });
       const at = now();
-      sendSseRef?.({
+      const donePayload: Record<string, unknown> = {
         type: "done",
         meta: { fallback: true, reason: "error" },
         at,
         sinceStartMs: at - t0,
         timings: latestTimings,
-      });
+      };
+      if (debugRequested) {
+        donePayload.trace = activationTracer.snapshot();
+      }
+      sendSseRef?.(donePayload);
       if (!streamClosed) {
         endStreamRef?.();
       }
@@ -799,8 +888,29 @@ router.post("/ask-eco", requireAdmin, async (req: GuestAwareRequest, res: Respon
     return res.status(200).json({
       ok: false,
       error: { message, statusCode: 500 },
+      ...(debugRequested ? { trace: activationTracer.snapshot() } : {}),
     });
   }
+});
+
+router.get("/debug/trace/:id", requireAdmin, (req: GuestAwareRequest, res: Response) => {
+  const traceId = req.params.id;
+  if (!traceId) {
+    return res.status(400).json({
+      ok: false,
+      error: { message: "TraceId inválido.", statusCode: 400 },
+    });
+  }
+
+  const trace = getActivationTrace(traceId);
+  if (!trace) {
+    return res.status(404).json({
+      ok: false,
+      error: { message: "Trace não encontrado.", statusCode: 404 },
+    });
+  }
+
+  return res.status(200).json({ ok: true, trace });
 });
 
 export default router;

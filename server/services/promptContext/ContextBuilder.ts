@@ -134,6 +134,7 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
     memsSemelhantes,
     memoriasSemelhantes,
     decision,
+    activationTracer,
   } = params;
 
   const memsSemelhantesNorm =
@@ -243,6 +244,17 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
   const moduleDebugEntries = Array.from(debugMap.values());
   ecoDecision.debug.modules = moduleDebugEntries;
   ecoDecision.debug.selectedModules = budgetResult.used;
+
+  if (activationTracer) {
+    for (const entry of moduleDebugEntries) {
+      const reasonParts: string[] = [];
+      if (entry.reason) reasonParts.push(String(entry.reason));
+      if (entry.source) reasonParts.push(`source:${entry.source}`);
+      const reason = reasonParts.length ? reasonParts.join("|") : null;
+      const mode = entry.activated ? "selected" : "skipped";
+      activationTracer.addModule(entry.id, reason, mode);
+    }
+  }
 
   const reduced = applyReductions(
     finalRegular.map((module) => ({ name: module.name, text: module.text })),

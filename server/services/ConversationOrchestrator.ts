@@ -58,6 +58,7 @@ export async function getEcoResponse({
   metaFromBuilder,
   sessionMeta,
   stream,
+  activationTracer,
   isGuest = false,
   guestId = null,
 }: GetEcoParams & { promptOverride?: string; metaFromBuilder?: any; stream?: EcoStreamHandler }): Promise<
@@ -110,6 +111,13 @@ export async function getEcoResponse({
   }
 
   const ecoDecision = computeEcoDecision(ultimaMsg);
+  activationTracer?.setMemoryDecision(
+    ecoDecision.saveMemory,
+    ecoDecision.intensity,
+    ecoDecision.saveMemory
+      ? `intensity>=7 (${ecoDecision.intensity.toFixed(1)})`
+      : `intensity<7 (${ecoDecision.intensity.toFixed(1)})`
+  );
 
   const routeDecision = defaultConversationRouter.decide({
     messages: thread,
@@ -177,6 +185,7 @@ export async function getEcoResponse({
     },
     cacheUserId: userId,
     isGuest,
+    activationTracer,
   });
 
   const { prompt, maxTokens } = buildFullPrompt({
@@ -196,6 +205,7 @@ export async function getEcoResponse({
   });
 
   const principalModel = process.env.ECO_CLAUDE_MODEL || "anthropic/claude-3-5-sonnet";
+  activationTracer?.setModel(principalModel);
 
   if (streamHandler) {
     return executeStreamingLLM({

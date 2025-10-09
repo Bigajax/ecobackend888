@@ -21,6 +21,8 @@ export type ProactivePayload = {
   memoryWhen?: string;
 } | null;
 
+import type { ActivationTracer } from "../core/activationTracer";
+
 export type GetEcoParams = {
   messages: ChatMessage[];
   userId: string;
@@ -33,6 +35,7 @@ export type GetEcoParams = {
   sessionMeta?: SessionMetadata;
   isGuest?: boolean;
   guestId?: string | null;
+  activationTracer?: ActivationTracer;
 };
 
 export type ResponsePlan = {
