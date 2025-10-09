@@ -13,6 +13,7 @@ import relatorioRoutes from "../../routes/relatorioEmocionalRoutes";
 import feedbackRoutes from "../../routes/feedback";
 import memoryRoutes from "../../domains/memory/routes";
 import { log } from "../../services/promptContext/logger";
+import { isSupabaseConfigured } from "../../lib/supabaseAdmin";
 import { guestSessionMiddleware } from "./middlewares/guestSession";
 import guestRoutes from "../../routes/guestRoutes";
 
@@ -69,8 +70,18 @@ export function createApp(): Express {
   app.use(normalizeQuery);
 
   app.get("/", (_req: Request, res: Response) => res.status(200).send("OK"));
-  app.get("/healthz", (_req: Request, res: Response) => res.status(200).json({ status: "ok" }));
-  app.get("/readyz", (_req: Request, res: Response) => res.status(200).json({ ready: true }));
+  app.get("/healthz", (_req: Request, res: Response) =>
+    res.status(200).json({ status: "ok", timestamp: new Date().toISOString() })
+  );
+  app.get("/readyz", (_req: Request, res: Response) => {
+    if (!isSupabaseConfigured()) {
+      return res.status(503).json({
+        status: "degraded",
+        reason: "no-admin-config",
+      });
+    }
+    return res.status(200).json({ status: "ready" });
+  });
 
   app.get("/debug/modules", (_req: Request, res: Response) => {
     const stats = ModuleCatalog.stats();

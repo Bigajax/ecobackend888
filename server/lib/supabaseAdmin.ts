@@ -2,27 +2,19 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { log as baseLog } from "../services/promptContext/logger";
 
-const url =
-  process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || "";
-const serviceKey =
-  process.env.SUPABASE_SERVICE_ROLE_KEY ||
-  process.env.SUPABASE_SECRET ||
-  process.env.SUPABASE_KEY ||
-  "";
+
+const url = process.env.SUPABASE_URL ?? "";
+const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY ?? "";
 
 const missingVars = [
-  !url ? "SUPABASE_URL (ou NEXT_PUBLIC_SUPABASE_URL)" : null,
-  !serviceKey
-    ? "SUPABASE_SERVICE_ROLE_KEY (ou SUPABASE_SECRET/SUPABASE_KEY)"
-    : null,
-].filter(Boolean);
+  !url ? "SUPABASE_URL" : null,
+  !serviceKey ? "SUPABASE_SERVICE_ROLE_KEY" : null,
+].filter(Boolean) as string[];
 
 const configurationError =
   missingVars.length > 0
     ? new Error(
-        `Supabase admin não configurado: defina ${missingVars.join(
-          ", "
-        )} nas variáveis de ambiente.`
+        `Supabase admin não configurado: defina ${missingVars.join(", ")} nas variáveis de ambiente.`
       )
     : null;
 
@@ -46,7 +38,6 @@ const createErrorProxy = <T extends object>(error: Error): T =>
   ) as T;
 
 /** Singleton do Supabase usando a Service Role Key (admin) */
-
 export const supabase: SupabaseClient = configurationError
   ? createErrorProxy<SupabaseClient>(configurationError)
   : createClient(url, serviceKey, {
@@ -55,11 +46,14 @@ export const supabase: SupabaseClient = configurationError
 
 if (configurationError && process.env.NODE_ENV !== "test") {
   const env = process.env.NODE_ENV || "development";
-  console.warn(`[supabaseAdmin] ${configurationError.message}`);
-  logger.warn("Supabase admin misconfiguration", {
+  const payload = {
+    service: "supabaseAdmin",
     env,
     missingVars,
-  });
+    timestamp: new Date().toISOString(),
+  };
+  console.warn("[supabaseAdmin] Missing configuration", payload);
+  logger.warn("Supabase admin misconfiguration", payload);
 }
 
 export const isSupabaseConfigured = (): boolean => configurationError == null;

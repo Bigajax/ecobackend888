@@ -1,5 +1,5 @@
 import { Router, type Request, type Response } from "express";
-import { getSupabaseAdmin } from "../lib/supabaseAdmin";
+
 import {
   resetGuestInteraction,
   blockGuestId,
@@ -26,13 +26,6 @@ const sanitizeGuestId = (input: unknown): string | null => {
 router.post("/claim", async (req: Request, res: Response) => {
   const supabase = getSupabaseAdmin();
   if (!supabase) {
-    console.warn(
-      `[guestRoutes][limited-mode][env=${process.env.NODE_ENV ?? "development"}] Supabase admin misconfigured`
-    );
-    return res.status(200).json({
-      migrated: 0,
-      mode: "limited",
-      error: "Supabase admin misconfigured",
     });
   }
   const authHeader = getHeaderString(req.headers.authorization);

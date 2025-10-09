@@ -1,6 +1,6 @@
 import type { Request, Response } from "express";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { getSupabaseAdmin } from "../../lib/supabaseAdmin";
+
 import { MemoryRepository } from "./repository";
 import { MemoryService } from "./service";
 
@@ -26,21 +26,7 @@ export class MemoryController {
   constructor({ repository, service, supabaseClient }: ControllerDependencies = {}) {
     const repo = repository ?? new MemoryRepository();
     this.service = service ?? new MemoryService(repo);
-    this.supabaseClient = supabaseClient ?? getSupabaseAdmin();
-  }
 
-  private ensureSupabase(res: Response): SupabaseClient | null {
-    if (this.supabaseClient) return this.supabaseClient;
-    const admin = getSupabaseAdmin();
-    if (!admin) {
-      console.warn(
-        `[memoryController][critical][env=${process.env.NODE_ENV ?? "development"}] Supabase admin misconfigured`
-      );
-      res.status(500).json({ error: "Supabase admin misconfigured" });
-      return null;
-    }
-    this.supabaseClient = admin;
-    return admin;
   }
 
   private async getAuthenticatedUser(req: Request, client: SupabaseClient) {
@@ -62,7 +48,7 @@ export class MemoryController {
   }
 
   registerMemory = async (req: Request, res: Response) => {
-    const client = this.ensureSupabase(res);
+
     if (!client) return;
 
     const user = await this.getAuthenticatedUser(req, client);
@@ -111,7 +97,6 @@ export class MemoryController {
   };
 
   listMemories = async (req: Request, res: Response) => {
-    const client = this.ensureSupabase(res);
     if (!client) return;
 
     const user = await this.getAuthenticatedUser(req, client);
@@ -142,7 +127,7 @@ export class MemoryController {
   };
 
   findSimilar = async (req: Request, res: Response) => {
-    const client = this.ensureSupabase(res);
+
     if (!client) return;
 
     const user = await this.getAuthenticatedUser(req, client);
