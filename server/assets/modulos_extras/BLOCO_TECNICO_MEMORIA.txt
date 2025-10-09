@@ -7,7 +7,7 @@ Apenas se intensidade ≥ 7
 Ao final da resposta, adicionar UM JSON puro (sem crases, sem comentários)
 
 ## Estrutura (usando campos do seu banco)
-```json
+
 {
   "emocao_principal": "string minúscula",
   "intensidade": "number 0-10",
@@ -20,73 +20,16 @@ Ao final da resposta, adicionar UM JSON puro (sem crases, sem comentários)
 }
 ```
 
-Campos Chave
-padrao_comportamental:
 
-Formato: "gatilho_gera_padrão"
-Ex: "sobrecarga_gera_perfeccionismo_defensivo"
-
-analise_resumo:
-
-Máx 20 palavras
-Foco: insight + necessidade da pessoa
-Sem diagnósticos clínicos
-
-tags:
-
-Máx 4 itens
-Específicas para busca/agrupamento
-Sem nomes/lugares
-
-dominio_vida:
-
-trabalho, família, relacionamento, saúde, propósito, etc.
-
-### Ansiedade Relacional
-
-{
-  "emocao_principal": "ansiedade",
-  "intensidade": 8,
-  "tags": ["abandono", "inseguranca", "controle", "medo"],
-  "dominio_vida": "relacionamento",
-  "padrao_comportamental": "medo_abandono_gera_controle_excessivo",
-  "nivel_abertura": 3,
-  "categoria": "relacional",
-  "analise_resumo": "Ansiedade de abandono ativa hipervigilância. Precisa ancoragem corporal."
-}
-```
-
-### Tristeza Existencial
-
-{
-  "emocao_principal": "tristeza",
-  "intensidade": 7,
-  "tags": ["vazio", "proposito", "reflexao", "transicao"],
-  "dominio_vida": "propósito",
-  "padrao_comportamental": "transicao_gera_questionamento_profundo",
-  "nivel_abertura": 2,
-  "categoria": "existencial",
-  "analise_resumo": "Tristeza como sinal de transição. Precisa espaço para processar."
-}
-```
-
-### Raiva Familiar
-
-{
-  "emocao_principal": "raiva",
-  "intensidade": 9,
-  "tags": ["injustica", "limites", "desrespeito", "explosao"],
-  "dominio_vida": "família",
-  "padrao_comportamental": "limite_violado_gera_raiva_explosiva",
-  "nivel_abertura": 1,
-  "categoria": "relacional",
-  "analise_resumo": "Raiva sinaliza limite violado. Precisa estratégia de comunicação assertiva."
-}
-```  
-
-Regras
-
-Nunca inventar detalhes sensíveis
-Sem diagnósticos clínicos
-Tags sem nomes/lugares específicos
-Domínio sempre uma área clara da vida
+---
+id: BLOCO_TECNICO_MEMORIA
+type: extra
+when:
+  min_intensity: 7
+  openness_in: [2,3]
+  require_vulnerability: false
+order: 90
+inject_as: "footer"
+---
+Gere **sem markdown** um bloco JSON ao final **apenas se** `{{DEC.hasTechBlock}}` = true, com os campos:
+emocao_principal, intensidade (0–10), tags, dominio_vida, padrao_comportamental, nivel_abertura (1–3), analise_resumo.
