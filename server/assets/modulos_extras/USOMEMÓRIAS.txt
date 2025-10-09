@@ -1,11 +1,8 @@
 ---
-id: USOMEMORIAS
-type: extra
 order: 60
-inject_as: "section"
-when:
-  min_intensity: 0
-  max_intensity: 10
+openness_in: [1, 2, 3]
+flags_any: [saveMemory]
+dedupe_key: uso_memorias
 ---
 # Uso de Memórias
 

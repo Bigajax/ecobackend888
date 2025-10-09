@@ -1,13 +1,11 @@
 ---
-id: DETECCAOCRISE
-type: extra
-order: 100
-inject_as: "footer"
-when:
-  min_intensity: 8
-  openness_in: [3]
-  require_vulnerability: true
-  flags_any: ["desespero","vazio","sem_sentido","autodesvalorizacao","ideacao"]
+order: 5
+min_intensity: 8
+openness_in: [3]
+require_vulnerability: true
+flags_any: [crise, ideacao, desespero, vazio, autodesvalorizacao]
+inject_as: footer
+dedupe_key: protocolo_crise
 ---
 # Detecção de Crise
 

@@ -1,12 +1,8 @@
 ---
-id: ENCERRAMENTO_SENSIVEL
-type: core
 order: 95
-inject_as: "footer"
-when:
-  min_intensity: 0
-  max_intensity: 10
-  openness_in: [2,3]
+openness_in: [2, 3]
+inject_as: footer
+dedupe_key: encerramento_sensivel
 ---
 # Encerramento sensível
 

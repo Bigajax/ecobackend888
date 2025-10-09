@@ -1,8 +1,10 @@
 import { firstName } from "../conversation/helpers";
+import { computeEcoDecision } from "../conversation/ecoDecisionHub";
 import { isDebug, log } from "./logger";
-import { Selector, derivarNivel, detectarSaudacaoBreve } from "./Selector";
+import { Selector } from "./Selector";
 import { mapHeuristicasToFlags } from "./heuristicaFlags";
-import type { BuildParams } from "./contextTypes";
+import type { BuildParams, SimilarMemory } from "./contextTypes";
+import type { DecSnapshot } from "./Selector";
 import { ModuleCatalog } from "./moduleCatalog";
 import { planBudget } from "./budget";
 import { formatMemRecall } from "./memoryRecall";
@@ -16,6 +18,44 @@ import {
   STYLE_HINTS_FULL,
   MEMORY_POLICY_EXPLICIT,
 } from "./promptIdentity";
+
+function collectTagsFromMemories(mems: SimilarMemory[] | undefined): string[] {
+  if (!Array.isArray(mems)) return [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+
+  for (const memory of mems) {
+    const tags = Array.isArray(memory?.tags) ? memory!.tags : [];
+    for (const raw of tags) {
+      if (typeof raw !== "string") continue;
+      const tag = raw.trim();
+      if (!tag || seen.has(tag)) continue;
+      seen.add(tag);
+      out.push(tag);
+      if (out.length >= 6) return out;
+    }
+  }
+
+  return out;
+}
+
+function renderDecBlock(dec: DecSnapshot): string {
+  const viva = dec.vivaSteps.length ? dec.vivaSteps.join(" → ") : "none";
+  const tags = dec.tags.length ? dec.tags.join(", ") : "none";
+  const domain = dec.domain ?? "none";
+
+  return [
+    "DEC:",
+    `  intensity: ${dec.intensity}`,
+    `  openness: ${dec.openness}`,
+    `  isVulnerable: ${dec.isVulnerable ? "true" : "false"}`,
+    `  vivaSteps: ${viva}`,
+    `  saveMemory: ${dec.saveMemory ? "true" : "false"}`,
+    `  hasTechBlock: ${dec.hasTechBlock ? "true" : "false"}`,
+    `  tags: ${tags}`,
+    `  domain: ${domain}`,
+  ].join("\n");
+}
 
 /* -------------------------------------------------------------------------- */
 /*  INTENT RESOLVER — mapeia texto de entrada -> módulos extras               */
@@ -101,24 +141,39 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
       ? memsSemelhantes
       : memoriasSemelhantes) || [];
 
-  const saudacaoBreve = detectarSaudacaoBreve(texto);
-  const nivel = (decision?.openness ?? derivarNivel(texto, saudacaoBreve)) as 1 | 2 | 3;
-
-  const memIntensity = decision?.intensity ?? Math.max(0, ...mems.map((m) => Number(m?.intensidade ?? 0)));
-  const memCount = mems.length;
-
   await ModuleCatalog.ensureReady();
 
   const heuristicaFlags = mapHeuristicasToFlags(_heuristicas);
+  const ecoDecision = decision ?? computeEcoDecision(texto, { heuristicaFlags });
+  const nivel = ecoDecision.openness as 1 | 2 | 3;
+  const memCount = mems.length;
+
+  const decisionTags = Array.isArray((ecoDecision as any).tags)
+    ? ((ecoDecision as any).tags as string[])
+    : [];
+  const memoryTags = collectTagsFromMemories(memsSemelhantesNorm);
+  const mergedTags = decisionTags.length > 0 ? decisionTags : memoryTags;
+  const decisionDomainRaw = (ecoDecision as any).domain;
+
+  const DEC: DecSnapshot = {
+    intensity: ecoDecision.intensity,
+    openness: nivel,
+    isVulnerable: ecoDecision.isVulnerable,
+    vivaSteps: ecoDecision.vivaSteps,
+    saveMemory: ecoDecision.saveMemory,
+    hasTechBlock: ecoDecision.hasTechBlock,
+    tags: mergedTags,
+    domain: typeof decisionDomainRaw === "string" ? decisionDomainRaw : null,
+    flags: ecoDecision.flags,
+  };
 
   const baseSelection = Selector.selecionarModulosBase({
     nivel,
-    intensidade: memIntensity,
-    flags: decision?.flags ?? Selector.derivarFlags(texto, heuristicaFlags),
+    intensidade: ecoDecision.intensity,
+    flags: ecoDecision.flags,
+    hasTechBlock: ecoDecision.hasTechBlock,
   });
-  if (decision) {
-    decision.debug.modules = baseSelection.debug.modules;
-  }
+  ecoDecision.debug.modules = baseSelection.debug.modules;
 
   const toUnique = (list: string[] | undefined) =>
     Array.from(new Set(Array.isArray(list) ? list : []));
@@ -138,18 +193,67 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
     : modulesAfterGating;
 
   const candidates = await ModuleCatalog.load(ordered);
-  const budgetResult = planBudget({ ordered, candidates });
+  const selection = Selector.applyModuleMetadata({
+    dec: DEC,
+    baseOrder: ordered,
+    candidates,
+  });
 
-  const filtered = candidates.filter(
-    (candidate) => budgetResult.used.includes(candidate.name) && candidate.text.trim().length > 0
-  );
+  const modulesWithTokens = [...selection.regular, ...selection.footers].map((module) => ({
+    name: module.name,
+    text: module.text,
+    tokens: ModuleCatalog.tokenCountOf(module.name, module.text),
+    meta: module.meta,
+  }));
 
-  if (decision) {
-    decision.debug.selectedModules = filtered.map((candidate) => candidate.name);
+  const budgetResult = planBudget({
+    ordered: selection.orderedNames,
+    candidates: modulesWithTokens,
+  });
+
+  const usedSet = new Set(budgetResult.used);
+
+  const finalRegular = selection.regular.filter((module) => usedSet.has(module.name));
+  const finalFooters = selection.footers.filter((module) => usedSet.has(module.name));
+
+  const debugMap = selection.debug;
+  for (const module of modulesWithTokens) {
+    if (usedSet.has(module.name)) continue;
+    const existing = debugMap.get(module.name);
+    if (existing) {
+      existing.activated = false;
+      existing.source = "budget";
+      if (existing.reason && existing.reason !== "pass" && existing.reason !== "budget") {
+        existing.reason = `${existing.reason}|budget`;
+      } else {
+        existing.reason = "budget";
+      }
+      debugMap.set(module.name, existing);
+    } else {
+      debugMap.set(module.name, {
+        id: module.name,
+        source: "budget",
+        activated: false,
+        reason: "budget",
+        threshold: null,
+      });
+    }
   }
 
-  const reduced = applyReductions(filtered, nivel);
+  const moduleDebugEntries = Array.from(debugMap.values());
+  ecoDecision.debug.modules = moduleDebugEntries;
+  ecoDecision.debug.selectedModules = budgetResult.used;
+
+  const reduced = applyReductions(
+    finalRegular.map((module) => ({ name: module.name, text: module.text })),
+    nivel
+  );
   const stitched = stitchModules(reduced, nivel);
+  const footerText = finalFooters
+    .map((module) => module.text.trim())
+    .filter((text) => text.length > 0)
+    .join("\n\n");
+  const decBlock = renderDecBlock(DEC);
 
   const instructionBlocks = buildInstructionBlocks(nivel);
   const instructionText = renderInstructionBlocks(instructionBlocks);
@@ -192,11 +296,13 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
   const promptCoreBase = composePromptBase({
     nivel,
     memCount,
-    forcarMetodoViva: decision?.vivaSteps.length ? true : forcarMetodoViva,
+    forcarMetodoViva: ecoDecision.vivaSteps.length ? true : forcarMetodoViva,
     extras,
     stitched,
+    footer: footerText,
     memRecallBlock,
     instructionText,
+    decBlock,
   });
 
   // Monta base completa: Identidade + Estilo + Política de Memória + Core
@@ -208,8 +314,8 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
   if (isDebug()) {
     log.debug("[ContextBuilder] módulos base", {
       nivel,
-      ordered,
-      incluiEscala: ordered.includes("ESCALA_ABERTURA_1a3.txt"),
+      ordered: selection.orderedNames,
+      incluiEscala: selection.orderedNames.includes("ESCALA_ABERTURA_1a3.txt"),
       addByIntent: intentModules,
     });
     const tokensContexto = ModuleCatalog.tokenCountOf("__INLINE__:ctx", texto);
@@ -227,6 +333,9 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
       cut: budgetResult.cut,
       tokens: budgetResult.tokens,
     });
+    log.debug("[ContextBuilder] debug módulos", {
+      moduleDebugEntries,
+    });
     log.info("[ContextBuilder] NV" + nivel + " pronto", { totalTokens: total });
     log.info("[ContextBuilder] memoria", {
       hasMemories,
@@ -234,6 +343,27 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
       topResumo: memsSemelhantesNorm[0]?.resumo_eco?.slice(0, 100) ?? null,
     });
   }
+
+  log.info("ECO_MODULE_DEBUG", {
+    module_candidates: moduleDebugEntries.map((entry) => ({
+      id: entry.id,
+      source: entry.source,
+      activated: entry.activated,
+      reason: entry.reason,
+      threshold: entry.threshold ?? null,
+    })),
+    selected_modules: budgetResult.used,
+    dec: {
+      intensity: DEC.intensity,
+      openness: DEC.openness,
+      isVulnerable: DEC.isVulnerable,
+      vivaSteps: DEC.vivaSteps,
+      saveMemory: DEC.saveMemory,
+      hasTechBlock: DEC.hasTechBlock,
+      tags: DEC.tags,
+      domain: DEC.domain,
+    },
+  });
 
   return { base, montarMensagemAtual };
 }

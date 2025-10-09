@@ -1,12 +1,7 @@
 ---
-id: LINGUAGEM_NATURAL
-type: core
-order: 10
-inject_as: "inline"
-when:
-  min_intensity: 0
-  max_intensity: 10
-  openness_in: [1,2,3]
+order: 15
+openness_in: [1, 2, 3]
+dedupe_key: linguagem_natural
 ---
 # Linguagem
 

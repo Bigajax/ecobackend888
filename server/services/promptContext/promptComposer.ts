@@ -4,8 +4,10 @@ export type PromptComposerInput = {
   forcarMetodoViva: boolean;
   extras: string[];
   stitched: string;
+  footer?: string;
   memRecallBlock?: string;
   instructionText: string;
+  decBlock?: string;
   texto: string;
 };
 
@@ -19,8 +21,10 @@ export function composePromptBase({
   forcarMetodoViva,
   extras,
   stitched,
+  footer,
   memRecallBlock = "",
   instructionText,
+  decBlock,
 }: PromptComposerBaseInput): string {
   const header = [
     `Nível de abertura: ${nivel}`,
@@ -32,19 +36,23 @@ export function composePromptBase({
     ? `\n\n${extras.map((entry) => `• ${entry}`).join("\n")}`
     : "";
 
-  return [
+  const parts = [
     `// CONTEXTO ECO — NV${nivel}`,
     `// ${header}${extrasBlock}`,
     "",
+    ...(decBlock ? [decBlock, ""] : []),
     stitched,
     "",
     memRecallBlock || "",
     "",
     instructionText,
     "",
+    ...(footer ? [footer, ""] : []),
     `Mensagem atual: ${CURRENT_MESSAGE_PLACEHOLDER}`,
-  ]
-    .filter(Boolean)
+  ];
+
+  return parts
+    .filter((segment) => typeof segment === "string" && segment.length > 0)
     .join("\n")
     .trim();
 }
