@@ -1,10 +1,12 @@
 // server/controllers/memoriasController.ts
-import { supabaseWithBearer } from "../adapters/SupabaseAdapter";
-
 import type { Request, Response } from "express";
+
+import { supabaseWithBearer } from "../adapters/SupabaseAdapter";
+import { ensureSupabaseConfigured } from "../lib/supabaseAdmin";
 
 export async function registrarMemoriaHandler(req: Request, res: Response) {
   try {
+    const supabase = ensureSupabaseConfigured();
     const authHeader = req.headers.authorization;
     if (!authHeader?.startsWith("Bearer ")) {
       return res.status(401).json({ error: "Não autenticado" });
@@ -13,9 +15,6 @@ export async function registrarMemoriaHandler(req: Request, res: Response) {
     const token = authHeader.slice("Bearer ".length).trim();
     if (!token) {
       return res.status(401).json({ error: "Não autenticado" });
-    }
-
-
     }
 
     const { data, error: getUserError } = await supabase.auth.getUser(token);

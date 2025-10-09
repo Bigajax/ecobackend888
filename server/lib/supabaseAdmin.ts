@@ -2,6 +2,8 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { log as baseLog } from "../services/promptContext/logger";
 
+const logger = baseLog.withContext("SupabaseAdmin");
+
 
 const url = process.env.SUPABASE_URL ?? "";
 const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY ?? "";

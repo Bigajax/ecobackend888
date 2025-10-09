@@ -2,6 +2,8 @@
 import { Router, type Request, type Response } from "express";
 import { z } from "zod";
 
+import { getSupabaseAdmin } from "../lib/supabaseAdmin";
+
 
 const router = Router();
 
@@ -31,6 +33,9 @@ router.post("/", async (req: Request, res: Response): Promise<void> => {
 
   const supabase = getSupabaseAdmin();
   if (!supabase) {
+    res.status(500).json({
+      error: "Serviço de dados indisponível.",
+      details: "Supabase admin não configurado.",
     });
     return;
   }

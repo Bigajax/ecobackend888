@@ -5,6 +5,7 @@ import {
   blockGuestId,
 } from "../core/http/middlewares/guestSession";
 import { trackGuestClaimed } from "../analytics/events/mixpanelEvents";
+import { getSupabaseAdmin } from "../lib/supabaseAdmin";
 
 const UUID_V4_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -26,6 +27,9 @@ const sanitizeGuestId = (input: unknown): string | null => {
 router.post("/claim", async (req: Request, res: Response) => {
   const supabase = getSupabaseAdmin();
   if (!supabase) {
+    return res.status(500).json({
+      error: "Serviço de dados indisponível.",
+      details: "Supabase admin não configurado.",
     });
   }
   const authHeader = getHeaderString(req.headers.authorization);
