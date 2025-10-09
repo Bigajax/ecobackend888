@@ -3,6 +3,7 @@ import { ContextBuilder } from "../promptContext";
 import { derivarNivel, detectarSaudacaoBreve } from "../promptContext/Selector";
 import type { EcoDecisionResult } from "./ecoDecisionHub";
 import { isDebug, log } from "../promptContext/logger";
+import type { ActivationTracer } from "../../core/activationTracer";
 
 export interface ContextCacheParams {
   userId?: string;
@@ -19,6 +20,7 @@ export interface ContextCacheParams {
   derivados?: any;
   aberturaHibrida?: any;
   decision?: EcoDecisionResult;
+  activationTracer?: ActivationTracer;
 }
 
 interface ContextCacheDeps {
@@ -76,6 +78,7 @@ export class ContextCache {
       if (this.deps.debug()) {
         this.deps.logger.debug("[Orchestrator] contexto via cache", { cacheKey });
       }
+      params.activationTracer?.addModule("__context_cache", "prompt_cache", "cached");
       return this.deps.builder.montarMensagemAtual(cachedBase, entrada);
     }
 

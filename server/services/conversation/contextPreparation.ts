@@ -1,6 +1,7 @@
 import { loadConversationContext } from "./derivadosLoader";
 import { defaultContextCache } from "./contextCache";
 import type { EcoDecisionResult } from "./ecoDecisionHub";
+import type { ActivationTracer } from "../../core/activationTracer";
 
 interface PrepareContextParams {
   userId?: string;
@@ -16,6 +17,7 @@ interface PrepareContextParams {
   onDerivadosError?: (error: unknown) => void;
   cacheUserId?: string;
   isGuest?: boolean;
+  activationTracer?: ActivationTracer;
 }
 
 export interface PreparedContext {
@@ -37,12 +39,14 @@ export async function prepareConversationContext({
   onDerivadosError,
   cacheUserId,
   isGuest,
+  activationTracer,
 }: PrepareContextParams): Promise<PreparedContext> {
   const effectiveUserId = supabase && !isGuest ? userId : undefined;
   const context = await loadConversationContext(effectiveUserId, ultimaMsg, supabase, {
     promptOverride,
     metaFromBuilder,
     onDerivadosError,
+    activationTracer,
   });
 
   const systemPrompt =
@@ -62,6 +66,7 @@ export async function prepareConversationContext({
       derivados: context.derivados,
       aberturaHibrida: context.aberturaHibrida,
       decision,
+      activationTracer,
     }));
 
   return { systemPrompt, context };

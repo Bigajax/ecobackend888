@@ -11,6 +11,7 @@ import {
   withTimeoutOrNull,
 } from "./parallelFetch";
 import { log as defaultLogger } from "../promptContext/logger";
+import type { ActivationTracer } from "../../core/activationTracer";
 
 export interface ConversationContextResult {
   heuristicas: any[];
@@ -51,6 +52,7 @@ export interface LoadConversationContextOptions {
   derivadosTimeoutMs?: number;
   paralelasTimeoutMs?: number;
   onDerivadosError?: (error: unknown) => void;
+  activationTracer?: ActivationTracer;
 }
 
 export const DEFAULT_DERIVADOS_TIMEOUT_MS = Number(
@@ -85,6 +87,7 @@ export async function loadConversationContext(
     derivadosTimeoutMs = DEFAULT_DERIVADOS_TIMEOUT_MS,
     paralelasTimeoutMs = DEFAULT_PARALELAS_TIMEOUT_MS,
     onDerivadosError,
+    activationTracer,
   } = options;
 
   const shouldSkipDerivados =
@@ -203,6 +206,28 @@ export async function loadConversationContext(
   const heuristicas: any[] = paralelas?.heuristicas ?? [];
   const userEmbedding: number[] = paralelas?.userEmbedding ?? [];
   const memsSemelhantes: any[] = paralelas?.memsSemelhantes ?? [];
+
+  if (activationTracer) {
+    const threshold = 0.8;
+    heuristicas.forEach((item: any, index: number) => {
+      const evidence = {
+        similarity: typeof item?.similarity === "number" ? item.similarity : null,
+        tags: Array.isArray(item?.tags) ? item.tags : null,
+        origem: item?.origem ?? null,
+        index,
+      };
+      activationTracer.addHeuristic(item?.arquivo || item?.id || `heuristica_${index + 1}`, evidence);
+    });
+    const topSimilarity =
+      heuristicas.length && typeof heuristicas[0]?.similarity === "number"
+        ? heuristicas[0].similarity
+        : null;
+    activationTracer.setEmbeddingResult({
+      hits: heuristicas.length,
+      similarity: topSimilarity,
+      threshold,
+    });
+  }
 
   const aberturaHibrida = derivados
     ? (() => {
