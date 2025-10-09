@@ -93,6 +93,7 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
     perfil: _perfil = null,
     memsSemelhantes,
     memoriasSemelhantes,
+    decision,
   } = params;
 
   const memsSemelhantesNorm =
@@ -101,9 +102,9 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
       : memoriasSemelhantes) || [];
 
   const saudacaoBreve = detectarSaudacaoBreve(texto);
-  const nivel = derivarNivel(texto, saudacaoBreve) as 1 | 2 | 3;
+  const nivel = (decision?.openness ?? derivarNivel(texto, saudacaoBreve)) as 1 | 2 | 3;
 
-  const memIntensity = Math.max(0, ...mems.map((m) => Number(m?.intensidade ?? 0)));
+  const memIntensity = decision?.intensity ?? Math.max(0, ...mems.map((m) => Number(m?.intensidade ?? 0)));
   const memCount = mems.length;
 
   await ModuleCatalog.ensureReady();
@@ -113,8 +114,11 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
   const baseSelection = Selector.selecionarModulosBase({
     nivel,
     intensidade: memIntensity,
-    flags: Selector.derivarFlags(texto, heuristicaFlags),
+    flags: decision?.flags ?? Selector.derivarFlags(texto, heuristicaFlags),
   });
+  if (decision) {
+    decision.debug.modules = baseSelection.debug.modules;
+  }
 
   const toUnique = (list: string[] | undefined) =>
     Array.from(new Set(Array.isArray(list) ? list : []));
@@ -139,6 +143,10 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
   const filtered = candidates.filter(
     (candidate) => budgetResult.used.includes(candidate.name) && candidate.text.trim().length > 0
   );
+
+  if (decision) {
+    decision.debug.selectedModules = filtered.map((candidate) => candidate.name);
+  }
 
   const reduced = applyReductions(filtered, nivel);
   const stitched = stitchModules(reduced, nivel);
@@ -184,7 +192,7 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
   const promptCoreBase = composePromptBase({
     nivel,
     memCount,
-    forcarMetodoViva,
+    forcarMetodoViva: decision?.vivaSteps.length ? true : forcarMetodoViva,
     extras,
     stitched,
     memRecallBlock,

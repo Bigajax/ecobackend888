@@ -57,6 +57,7 @@ export type GetEcoResult = {
   proactive?: ProactivePayload;
   plan?: ResponsePlan | null;
   planContext?: ResponsePlanContext | null;
+  meta?: Record<string, any> | null;
 };
 // Nivel  de abertura aceito pela matriz
 export type NivelNum = 1 | 2 | 3;

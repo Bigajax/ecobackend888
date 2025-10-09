@@ -3,17 +3,20 @@ import assert from "node:assert";
 
 import { buildFullPrompt } from "../../services/conversation/promptPlan";
 import type { RouteDecision } from "../../services/conversation/router";
+import { computeEcoDecision } from "../../services/conversation/ecoDecisionHub";
 
 function createDecision(overrides: Partial<RouteDecision> = {}): RouteDecision {
-  return {
+  const base: RouteDecision = {
     mode: "full",
     hasAssistantBefore: false,
     vivaAtivo: false,
     lowComplexity: false,
     nivelRoteador: 2,
     forceFull: false,
-    ...overrides,
+    decision: computeEcoDecision("teste"),
   };
+
+  return { ...base, ...overrides, decision: overrides.decision ?? base.decision };
 }
 
 test("maxTokens respects length thresholds", () => {

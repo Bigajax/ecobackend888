@@ -7,6 +7,7 @@ import {
   type RunFastLaneLLMResult,
 } from "../../services/conversation/fastLane";
 import { planCuriousFallback } from "../../core/ResponsePlanner";
+import { computeEcoDecision } from "../../services/conversation/ecoDecisionHub";
 
 function createDeps(overrides: Partial<{
   claudeClient: any;
@@ -76,6 +77,7 @@ test("runFastLaneLLM envia apenas as 3 últimas mensagens do histórico", async 
     startedAt: 1000,
     deps,
     sessionMeta: { distinctId: "distinct-xyz" },
+    ecoDecision: computeEcoDecision("mensagem 5"),
   })) as RunFastLaneLLMResult;
 
   assert.strictEqual(claudeCalls.length, 1);
@@ -131,6 +133,7 @@ test("runFastLaneLLM usa fallback quando o cliente Claude falha", async () => {
     startedAt: 123,
     deps,
     sessionMeta: { distinctId: "fallback-1" },
+    ecoDecision: computeEcoDecision("oi"),
   });
 
   assert.strictEqual(result.raw, expectedFallback);
@@ -167,6 +170,7 @@ test("STYLE_SELECTOR alterna entre coach e espelho conforme o pedido", async () 
     lastMessageId: undefined,
     startedAt: 0,
     deps,
+    ecoDecision: computeEcoDecision("pode me dar passos?"),
   });
 
   await runFastLaneLLM({
@@ -179,6 +183,7 @@ test("STYLE_SELECTOR alterna entre coach e espelho conforme o pedido", async () 
     lastMessageId: undefined,
     startedAt: 0,
     deps,
+    ecoDecision: computeEcoDecision("quero apenas refletir"),
   });
 
   assert.strictEqual(recordedSystems.length, 2);

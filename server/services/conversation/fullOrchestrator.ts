@@ -6,6 +6,7 @@ import { buildStreamingMetaPayload } from "./responseMetadata";
 import { salvarMemoriaViaRPC } from "./memoryPersistence";
 import { defaultResponseFinalizer } from "./responseFinalizer";
 import type { ChatMessage, GetEcoResult } from "../../utils";
+import type { EcoDecisionResult } from "./ecoDecisionHub";
 import type { EcoLatencyMarks } from "./types";
 
 interface FullExecutionParams {
@@ -15,6 +16,7 @@ interface FullExecutionParams {
   ultimaMsg: string;
   userName?: string | null;
   decision: { hasAssistantBefore: boolean };
+  ecoDecision: EcoDecisionResult;
   userId: string;
   supabase: any | null;
   lastMessageId?: string;
@@ -32,6 +34,7 @@ export async function executeFullLLM({
   ultimaMsg,
   userName,
   decision,
+  ecoDecision,
   userId,
   supabase,
   lastMessageId,
@@ -78,6 +81,10 @@ export async function executeFullLLM({
       sessionMeta,
       sessaoId: sessionMeta?.sessaoId ?? undefined,
       origemSessao: sessionMeta?.origem ?? undefined,
+      ecoDecision,
+      moduleCandidates: ecoDecision.debug.modules,
+      selectedModules: ecoDecision.debug.selectedModules,
+      timingsSnapshot: timings,
       isGuest,
       guestId,
     });
@@ -105,6 +112,10 @@ export async function executeFullLLM({
     sessionMeta,
     sessaoId: sessionMeta?.sessaoId ?? undefined,
     origemSessao: sessionMeta?.origem ?? undefined,
+    ecoDecision,
+    moduleCandidates: ecoDecision.debug.modules,
+    selectedModules: ecoDecision.debug.selectedModules,
+    timingsSnapshot: timings,
     isGuest,
     guestId,
   });

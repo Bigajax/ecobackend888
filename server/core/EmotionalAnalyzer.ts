@@ -21,46 +21,23 @@ const CANDIDATES_FALLBACK = [
   "openai/gpt-5-mini",
 ];
 
-// ===== heurística de extração “failsafe” =====
-export function extrairBlocoPorRegex(mensagemUsuario: string, respostaIa: string) {
-  const texto = `${mensagemUsuario}\n${respostaIa}`.toLowerCase();
-  const emocoes: Record<string, RegExp[]> = {
-    medo: [/medo/i, /receio/i, /temor/i, /insegur/i],
-    ansiedade: [/ansiedad/i, /apreens/i, /nervos/i],
-    tristeza: [/triste/i, /desanima/i, /abatid/i],
-    raiva: [/raiva/i, /irrit/i, /frustr/i, /ódio/i],
-    culpa: [/culpa/i, /remors/i, /arrepend/i],
-  };
-  let emocao_principal: string | null = null;
-  for (const [emo, regs] of Object.entries(emocoes)) {
-    if (regs.some((r) => r.test(texto))) { emocao_principal = emo; break; }
-  }
-  let intensidade = 0;
-  if (emocao_principal) {
-    const m3 = [/muito/i, /demais/i, /fort/i, /pânico/i, /crise/i];
-    const m2 = [/bastante/i, /bem/i, /grande/i];
-    intensidade = m3.some((r)=>r.test(texto)) ? 3 : m2.some((r)=>r.test(texto)) ? 2 : 1;
-  }
-  const dominio_vida =
-    /trabalho|emprego|carreir/i.test(texto) ? "trabalho" :
-    /fam[ií]lia|m[ãa]e|pai|irm[ãa]o/i.test(texto) ? "família" :
-    /relacionament/i.test(texto) ? "relacionamentos" :
-    /projeto|lançar|app|ia/i.test(texto) ? "projetos_pessoais" : null;
-
-  const tags: string[] = [];
-  if (emocao_principal) tags.push(emocao_principal);
-  if (/projeto|lançar|app|ia/i.test(texto)) tags.push("projeto");
-  if (dominio_vida) tags.push(dominio_vida);
-
+// ===== estrutura padrão para cenários em que o modelo não retorna JSON =====
+function blocoEmBranco() {
   return {
-    emocao_principal,
-    intensidade,
-    tags,
-    dominio_vida,
+    emocao_principal: null,
+    intensidade: 0,
+    tags: [] as string[],
+    dominio_vida: null,
     padrao_comportamental: null,
-    nivel_abertura: "médio",
+    nivel_abertura: "baixo",
     categoria: null,
-    analise_resumo: respostaIa?.slice(0, 500) || null,
+    analise_resumo: null,
+    tema_recorrente: null,
+    evolucao_temporal: null,
+    impacto_resposta_estimado: null,
+    sugestao_proximo_passo: null,
+    modo_hibrido_acionado: false,
+    tipo_referencia: null,
   };
 }
 
@@ -157,10 +134,10 @@ export async function gerarBlocoTecnicoSeparado(mensagemUsuario: string, respost
       } catch { /* último recurso abaixo */ }
     }
 
-    // 3) fallback heurístico
-    return extrairBlocoPorRegex(mensagemUsuario, respostaIa);
+    // 3) fallback seguro
+    return blocoEmBranco();
   } catch {
-    return extrairBlocoPorRegex(mensagemUsuario, respostaIa);
+    return blocoEmBranco();
   }
 }
 
@@ -180,9 +157,15 @@ function sanitizeJson(jsonStr: string, mensagemUsuario: string, respostaIa: stri
       (!Array.isArray(clean.tags) || !clean.tags.length) &&
       (!clean.intensidade || clean.intensidade === 0);
 
-    return empty ? extrairBlocoPorRegex(mensagemUsuario, respostaIa) : clean;
+    if (typeof clean.intensidade === "number") {
+      clean.intensidade = Math.max(0, Math.min(10, clean.intensidade));
+    } else {
+      clean.intensidade = 0;
+    }
+
+    return empty ? blocoEmBranco() : clean;
   } catch {
-    return extrairBlocoPorRegex(mensagemUsuario, respostaIa);
+    return blocoEmBranco();
   }
 }
 

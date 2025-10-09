@@ -1,6 +1,7 @@
 import { PROMPT_CACHE } from "../CacheService";
 import { ContextBuilder } from "../promptContext";
 import { derivarNivel, detectarSaudacaoBreve } from "../promptContext/Selector";
+import type { EcoDecisionResult } from "./ecoDecisionHub";
 import { isDebug, log } from "../promptContext/logger";
 
 export interface ContextCacheParams {
@@ -17,6 +18,7 @@ export interface ContextCacheParams {
   skipSaudacao?: boolean;
   derivados?: any;
   aberturaHibrida?: any;
+  decision?: EcoDecisionResult;
 }
 
 interface ContextCacheDeps {
@@ -39,17 +41,15 @@ export class ContextCache {
   async build(params: ContextCacheParams) {
     const entrada = String(params.texto ?? "");
     const saudacaoBreve = detectarSaudacaoBreve(entrada);
-    const nivel = derivarNivel(entrada, saudacaoBreve);
-    const intensidade = Math.max(
-      0,
-      ...(params.mems ?? []).map((m: any) => Number(m?.intensidade ?? 0))
-    );
+    const decision = params.decision;
+    const nivel = decision?.openness ?? derivarNivel(entrada, saudacaoBreve);
+    const intensidade = decision?.intensity ?? 0;
 
     const msCount = Array.isArray(params.memoriasSemelhantes)
       ? params.memoriasSemelhantes.length
       : 0;
 
-    const vivaFlag = params.forcarMetodoViva ? "1" : "0";
+    const vivaFlag = decision?.vivaSteps?.length ? "1" : params.forcarMetodoViva ? "1" : "0";
     const derivadosFlag = params.derivados ? "1" : "0";
     const aberturaFlag = params.aberturaHibrida ? "1" : "0";
     const heuristicasFlag = Array.isArray(params.heuristicas)

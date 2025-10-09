@@ -27,6 +27,7 @@ Module._load = function patchedLoad(request: string, parent: any, isMain: boolea
 const responseFinalizerModule = require("../../services/conversation/responseFinalizer") as typeof import("../../services/conversation/responseFinalizer");
 const helpersModule = require("../../services/conversation/helpers") as typeof import("../../services/conversation/helpers");
 const { ResponseFinalizer } = responseFinalizerModule;
+const { computeEcoDecision } = require("../../services/conversation/ecoDecisionHub") as typeof import("../../services/conversation/ecoDecisionHub");
 const { stripRedundantGreeting, stripIdentityCorrection } = helpersModule;
 Module._load = originalLoad;
 
@@ -74,6 +75,7 @@ test("finalize responde rápido mesmo com analisador lento", async (t) => {
   });
 
   const start = Date.now();
+  const ecoDecision = computeEcoDecision("Oi");
   const result = await finalizer.finalize({
     raw: "Oi",
     ultimaMsg: "Oi",
@@ -89,6 +91,7 @@ test("finalize responde rápido mesmo com analisador lento", async (t) => {
       sessaoId: "sessao-abc",
       origem: "app-mobile",
     },
+    ecoDecision,
   });
   const duration = Date.now() - start;
 
@@ -96,7 +99,7 @@ test("finalize responde rápido mesmo com analisador lento", async (t) => {
     duration < 150,
     `finalize deveria resolver rápido; levou ${duration}ms`
   );
-  assert.strictEqual(result.intensidade, undefined);
+  assert.strictEqual(result.intensidade, ecoDecision.intensity);
 
   await new Promise((resolve) => setTimeout(resolve, 250));
   assert.ok(saveCalls >= 1, "saveMemoryOrReference deve ser disparado em background");
@@ -108,21 +111,10 @@ test("finalize responde rápido mesmo com analisador lento", async (t) => {
   );
   assert.strictEqual(
     trackMensagemCalls[0].blocoStatus,
-    "pending",
-    "trackMensagemEnviada deve registrar bloco pendente no modo fast"
+    "skipped",
+    "trackMensagemEnviada deve registrar bloco pulado quando intensidade baixa"
   );
-  assert.ok(
-    trackBlocoCalls.some((c) => c.status === "pending"),
-    "trackBlocoTecnico deve registrar status pendente"
-  );
-  assert.ok(
-    trackBlocoCalls.some((c) => c.status === "timeout"),
-    "trackBlocoTecnico deve registrar timeout quando houver"
-  );
-  assert.ok(
-    trackBlocoCalls.some((c) => c.status === "success"),
-    "trackBlocoTecnico deve registrar sucesso quando bloco concluir em background"
-  );
+  assert.strictEqual(trackBlocoCalls.length, 0, "trackBlocoTecnico não deve ser chamado quando bloco não é necessário");
   assert.strictEqual(
     sessaoEntrouCalls.length,
     1,
@@ -170,6 +162,7 @@ test("trackSessaoEntrouChat só dispara quando não houve assistente antes", asy
     mode: "full",
     startedAt: Date.now(),
     sessionMeta: { distinctId: "d-1" },
+    ecoDecision: computeEcoDecision("Olá"),
   });
 
   await finalizer.finalize({
@@ -179,6 +172,7 @@ test("trackSessaoEntrouChat só dispara quando não houve assistente antes", asy
     mode: "fast",
     startedAt: Date.now(),
     sessionMeta: { distinctId: "d-1" },
+    ecoDecision: computeEcoDecision("Oi de novo"),
   });
 
   assert.strictEqual(sessaoEntrouCalls.length, 1);
@@ -212,6 +206,7 @@ test("identifyUsuario é chamado mesmo quando já houve assistente se houver ses
       device: "android",
       ambiente: "staging",
     },
+    ecoDecision: computeEcoDecision("Olá novamente"),
   });
 
   assert.strictEqual(identifyCalls.length, 1);
@@ -251,15 +246,17 @@ test("preenche intensidade e resumo quando bloco chega dentro do timeout", async
     trackSessaoEntrouChat: noop as any,
   });
 
+  const ecoDecisionPrompt = computeEcoDecision("Olá!");
   const result = await finalizer.finalize({
     raw: "Olá!",
     ultimaMsg: "Olá!",
     hasAssistantBefore: false,
     mode: "full",
     startedAt: Date.now(),
+    ecoDecision: ecoDecisionPrompt,
   });
 
-  assert.strictEqual(result.intensidade, 0.42);
+  assert.strictEqual(result.intensidade, ecoDecisionPrompt.intensity);
   assert.strictEqual(result.resumo, "resumo alinhado");
 });
 
@@ -309,6 +306,7 @@ test("finalize remove correção de identidade com nome que contém parênteses"
     hasAssistantBefore: false,
     mode: "fast",
     startedAt: Date.now(),
+    ecoDecision: computeEcoDecision(entrada),
   });
 
   assert.strictEqual(resultado.message, "Oi!");

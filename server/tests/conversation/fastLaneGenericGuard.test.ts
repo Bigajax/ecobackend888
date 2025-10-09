@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { runFastLaneLLM } from "../../services/conversation/fastLane";
+import { computeEcoDecision } from "../../services/conversation/ecoDecisionHub";
 
 const makeFinalizerStub = () => {
   const calls: any[] = [];
@@ -36,6 +37,7 @@ test("runFastLaneLLM substitui resposta genérica por plano personalizado", asyn
       firstName: (name?: string) => (name ? name.split(/\s+/)[0] : undefined),
     },
     sessionMeta: undefined,
+    ecoDecision: computeEcoDecision("Oi, estou exausta com o trabalho e nada anda."),
   });
 
   assert.equal(calls.length, 1);
