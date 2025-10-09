@@ -32,7 +32,7 @@ export function createApp(): Express {
     // ⬇️ inclui X-Guest-Id para o modo convidado
     res.setHeader(
       "Access-Control-Allow-Headers",
-      "Content-Type, Authorization, X-Requested-With, Accept, Origin, X-Guest-Id"
+      "Content-Type, Authorization, X-Requested-With, Accept, Origin, X-Guest-Id, X-Guest-Mode"
     );
     return res.sendStatus(204);
   });
@@ -47,7 +47,7 @@ export function createApp(): Express {
       // ⬇️ inclui X-Guest-Id também aqui
       res.setHeader(
         "Access-Control-Allow-Headers",
-        "Content-Type, Authorization, X-Requested-With, Accept, Origin, X-Guest-Id"
+        "Content-Type, Authorization, X-Requested-With, Accept, Origin, X-Guest-Id, X-Guest-Mode"
       );
       return res.sendStatus(204);
     }
