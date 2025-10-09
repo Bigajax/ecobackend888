@@ -38,8 +38,8 @@ export function createApp(): Express {
   });
 
   // ✅ Tratamento dedicado ao endpoint SSE (/api/ask-eco)
-  // - responde OPTIONS
-  // - injeta headers de CORS + SSE antes do handler real escrever
+  // - responde OPTIONS com cabeçalhos de CORS
+  // - garante que os handlers subsequentes recebam o request já com CORS aplicado
   app.all("/api/ask-eco", (req: Request, res: Response, next: NextFunction) => {
     if (req.method === "OPTIONS") {
       ensureCorsHeaders(res, req.headers.origin as string | undefined);
@@ -51,12 +51,12 @@ export function createApp(): Express {
       );
       return res.sendStatus(204);
     }
-    // Para POST real (stream)
+
     ensureCorsHeaders(res, req.headers.origin as string | undefined);
     res.setHeader("Vary", "Origin");
-    res.setHeader("Cache-Control", "no-cache, no-transform");
-    res.setHeader("Connection", "keep-alive");
-    res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+    if (req.method === "POST") {
+      res.setHeader("Cache-Control", "no-cache, no-transform");
+    }
     return next();
   });
 
