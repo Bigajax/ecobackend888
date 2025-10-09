@@ -1,14 +1,18 @@
 ---
+id: BLOCO_TECNICO_MEMORIA
+type: extra
 order: 90
-min_intensity: 7
-openness_in: [2, 3]
+inject_as: "footer"
+when:
+  min_intensity: 7
+  max_intensity: 10
+  openness_in: [2,3]
 flags_any: [hasTechBlock]
-inject_as: footer
 dedupe_key: bloco_tecnico_memoria
 ---
 # Bloco Técnico de Memória
 
-Se `{{DEC.hasTechBlock}}` for verdadeiro, gere **sem markdown nem código** um bloco JSON com os campos:
+Se `{{DEC.hasTechBlock}}` for verdadeiro, gere **sem markdown nem código** um bloco JSON:
 
 {
   "emocao_principal": "...",
@@ -20,7 +24,7 @@ Se `{{DEC.hasTechBlock}}` for verdadeiro, gere **sem markdown nem código** um b
   "analise_resumo": "Síntese emocional concisa da experiência."
 }
 
-- Preencha `tags` com `{{DEC.tags}}` (se vazio, retorne `[]`).
-- Para `dominio_vida`, use `{{DEC.domain}}` ou `null` quando indisponível.
+- Preencha `tags` com `{{DEC.tags}}` (se vazio, retorne `[]`)
+- Para `dominio_vida`, use `{{DEC.domain}}` ou `null` quando indisponível
 
-Este bloco **não deve ser visível ao usuário**; é apenas para persistência e aprendizado emocional.
+Este bloco **não é visível ao usuário**. Apenas para persistência e aprendizado emocional.

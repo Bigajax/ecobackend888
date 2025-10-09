@@ -1,12 +1,20 @@
 ---
+id: ESCALA_ABERTURA
+type: extra
 order: 10
-openness_in: [1, 2, 3]
+inject_as: "inline"
+when:
+  min_intensity: 0
+  max_intensity: 10
+  openness_in: [1,2,3]
 dedupe_key: escala_abertura
 ---
 # Escala de Abertura (1 a 3)
 
-- **Nível 1 – Superfície:** racional, direto, foco prático imediato.
-- **Nível 2 – Reflexão:** introspectivo, identifica significados.
-- **Nível 3 – Profundidade:** vulnerável, expõe sentimento essencial.
+Use `{{DEC.openness}}` para definir quanta **autorrevelação** cabe:
 
-Use o `{{DEC.openness}}` para definir quanta **autorrevelação** cabe.
+- **Nível 1 – Superfície:** racional, direto, foco prático imediato
+- **Nível 2 – Reflexão:** introspectivo, identifica significados
+- **Nível 3 – Profundidade:** vulnerável, expõe sentimento essencial
+
+Ajuste curiosidade, metáforas e silêncios conforme o nível.

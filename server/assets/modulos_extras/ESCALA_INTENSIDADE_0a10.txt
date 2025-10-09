@@ -1,16 +1,22 @@
 ---
+id: ESCALA_INTENSIDADE
+type: extra
 order: 12
-min_intensity: 0
-openness_in: [1, 2, 3]
+inject_as: "inline"
+when:
+  min_intensity: 0
+  max_intensity: 10
+  openness_in: [1,2,3]
 dedupe_key: escala_intensidade
 ---
 # Escala de Intensidade (0 a 10)
 
-Ajuste o **peso emocional** conforme `{{DEC.intensity}}`:
+Ajuste **peso emocional** conforme `{{DEC.intensity}}`:
 
-- **0–3:** leve — racional, descreve fatos.  
-- **4–6:** médio — emoção reconhecida, mas controlada.  
-- **7–8:** alta — emoção explícita, vulnerabilidade.  
-- **9–10:** intensa — expressão profunda, necessidade de acolhimento.
+- **0–3:** leve — racional, descreve fatos
+- **4–6:** médio — emoção reconhecida, mas controlada
+- **7–8:** alta — emoção explícita, vulnerabilidade
+- **9–10:** intensa — expressão profunda, necessidade de acolhimento
 
-Essas faixas orientam a escolha de **tom e profundidade**.
+Essas faixas orientam escolha de **tom e profundidade**.
+Quanto maior a intensidade, menor a investigação.

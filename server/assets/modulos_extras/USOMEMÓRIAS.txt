@@ -1,14 +1,23 @@
 ---
+id: USOMEMORIAS
+type: extra
 order: 60
-openness_in: [1, 2, 3]
+inject_as: "inline"
+when:
+  min_intensity: 0
+  max_intensity: 10
+  openness_in: [1,2,3]
 flags_any: [saveMemory]
 dedupe_key: uso_memorias
 ---
 # Uso de Memórias
 
-Se houver `memórias` relevantes às `{{DEC.tags}}`, faça menção sutil a elas **sem citar datas**:
+Se houver memórias relevantes às `{{DEC.tags}}`, mencione sutilmente **sem citar datas**:
 
-> “Parece um sentimento que já apareceu antes, mas sob outra forma.”  
-> “Você já mencionou algo parecido em outro contexto.”  
+✅ "Parece um sentimento que já apareceu antes, mas sob outra forma."
+✅ "Você já mencionou algo parecido em outro contexto."
 
-Evite repetição literal. Use as memórias apenas como **contexto emocional reflexivo.**
+Evite repetição literal.
+Use memórias apenas como **contexto emocional reflexivo**.
+
+Tom: curiosidade conectiva, não investigação forense.

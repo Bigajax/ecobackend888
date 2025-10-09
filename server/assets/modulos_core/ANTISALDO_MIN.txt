@@ -8,9 +8,21 @@ when:
   max_intensity: 10
   openness_in: [1,2,3]
 ---
-# ANTI-SALDO (contenção de comprimento)
+# Contenção de comprimento
 
-- Mantenha a resposta **enxuta** e **concreta**.
-- No máximo **4 linhas** para NV1, **6 linhas** para NV2 e **8 linhas** para NV3.
-- **1 pergunta aberta** no final (apenas se `{{DEC.vivaSteps}}` incluir "A").
-- Evite repetições, desculpas e explicações sobre como você funciona.
+- **NV1:** máximo 4 linhas + 1 pergunta
+- **NV2:** máximo 6 linhas + 1 pergunta  
+- **NV3:** máximo 8 linhas + 1 pergunta (ou silêncio)
+
+**Proibido:**
+- Repetir o que o usuário disse
+- Explicar como você funciona
+- Pedir desculpas por limitações
+- Múltiplas perguntas seguidas
+- Listas longas ou bullet points em conversa casual
+
+**Obrigatório:**
+- Cada palavra conta
+- Uma ideia central por resposta
+- Espaço para o usuário respirar
+- 1 pergunta aberta apenas se `{{DEC.vivaSteps}}` incluir "A"
