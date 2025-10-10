@@ -6,10 +6,27 @@
 export const now = () => Date.now();
 export const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-export function ensureEnvs() {
-  const required = ["OPENROUTER_API_KEY", "SUPABASE_URL", "SUPABASE_ANON_KEY"];
+let warnedMissingSupabase = false;
+
+export function ensureEnvs({ requireSupabase = false }: { requireSupabase?: boolean } = {}) {
+  const required = ["OPENROUTER_API_KEY"];
   const missing = required.filter((k) => !process.env[k]);
   if (missing.length) throw new Error(`ENVs ausentes: ${missing.join(", ")}`);
+
+  const supabaseKeys = ["SUPABASE_URL", "SUPABASE_ANON_KEY"];
+  const missingSupabase = supabaseKeys.filter((k) => !process.env[k]);
+
+  if (requireSupabase && missingSupabase.length) {
+    throw new Error(`ENVs do Supabase ausentes: ${missingSupabase.join(", ")}`);
+  }
+
+  if (!requireSupabase && missingSupabase.length && !warnedMissingSupabase) {
+    warnedMissingSupabase = true;
+    console.warn(
+      `[Eco] ENVs do Supabase ausentes (${missingSupabase.join(", ")}); ` +
+        "funcionalidades dependentes de memória serão desativadas."
+    );
+  }
 }
 
 // -----------------------------

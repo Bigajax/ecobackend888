@@ -73,7 +73,8 @@ export async function getEcoResponse({
   metaFromBuilder?: any;
   stream?: EcoStreamHandler;
 }): Promise<GetEcoResult | EcoStreamingResult> {
-  ensureEnvs();
+  const needsSupabase = !isGuest && !!accessToken;
+  ensureEnvs({ requireSupabase: needsSupabase });
 
   if (!Array.isArray(messages) || messages.length === 0) {
     throw new Error('Parâmetro "messages" vazio ou inválido.');
