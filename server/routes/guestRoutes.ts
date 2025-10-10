@@ -12,17 +12,60 @@ const UUID_V4_REGEX =
 
 const router = Router();
 
+/* ----------------------------- helpers ----------------------------- */
+
 const getHeaderString = (value: string | string[] | undefined): string | undefined => {
   if (typeof value === "string") return value;
   if (Array.isArray(value)) return value[0];
   return undefined;
 };
 
-const sanitizeGuestId = (input: unknown): string | null => {
+/**
+ * Normaliza qualquer entrada para um guestId CANÔNICO "guest_<uuid>".
+ * Aceita formatos:
+ *   - "<uuid>"
+ *   - "guest_<uuid>"
+ *   - "guest:<uuid>"
+ *   - "guest-<uuid>"
+ *
+ * Retorna também todos os ALIASES possíveis para atualizar registros que
+ * possam ter sido salvos com outros formatos.
+ */
+function normalizeGuestId(
+  input: unknown
+): { uuid: string; canonical: string; aliases: string[] } | null {
   if (!input) return null;
-  const text = String(input).trim();
-  return UUID_V4_REGEX.test(text) ? text : null;
-};
+  const raw = String(input).trim();
+  if (!raw) return null;
+
+  const lower = raw.toLowerCase();
+  const prefixes = ["guest_", "guest:", "guest-"];
+
+  let uuid: string | null = null;
+
+  if (UUID_V4_REGEX.test(lower)) {
+    uuid = lower;
+  } else {
+    for (const p of prefixes) {
+      if (lower.startsWith(p)) {
+        const candidate = lower.slice(p.length);
+        if (UUID_V4_REGEX.test(candidate)) {
+          uuid = candidate;
+          break;
+        }
+      }
+    }
+  }
+
+  if (!uuid) return null;
+
+  const canonical = `guest_${uuid}`;
+  const aliases = [uuid, `guest_${uuid}`, `guest:${uuid}`, `guest-${uuid}`];
+
+  return { uuid, canonical, aliases };
+}
+
+/* ----------------------------- route ----------------------------- */
 
 router.post("/claim", async (req: Request, res: Response) => {
   const supabase = getSupabaseAdmin();
@@ -32,6 +75,8 @@ router.post("/claim", async (req: Request, res: Response) => {
       details: "Supabase admin não configurado.",
     });
   }
+
+  // Requer login (Bearer do usuário autenticado)
   const authHeader = getHeaderString(req.headers.authorization);
   if (!authHeader?.startsWith("Bearer ")) {
     return res.status(401).json({ error: "Token de acesso ausente." });
@@ -44,12 +89,13 @@ router.post("/claim", async (req: Request, res: Response) => {
       return res.status(401).json({ error: "Token inválido ou usuário não encontrado." });
     }
 
-    const guestId =
-      sanitizeGuestId(req.body?.guestId) ||
-      sanitizeGuestId(req.body?.guest_id) ||
-      sanitizeGuestId(req.body?.id);
+    // Aceita body: { guestId | guest_id | id } em qualquer dos formatos suportados
+    const norm =
+      normalizeGuestId(req.body?.guestId) ||
+      normalizeGuestId(req.body?.guest_id) ||
+      normalizeGuestId(req.body?.id);
 
-    if (!guestId) {
+    if (!norm) {
       return res.status(400).json({ error: "Guest ID inválido." });
     }
 
@@ -58,10 +104,11 @@ router.post("/claim", async (req: Request, res: Response) => {
       return res.status(400).json({ error: "Usuário inválido." });
     }
 
+    // Migra referências gravadas com QUALQUER variação do guestId
     const { data: updatedRows, error: updateError } = await supabase
       .from("referencias_temporarias")
       .update({ usuario_id: userId })
-      .eq("usuario_id", guestId)
+      .in("usuario_id", norm.aliases) // cobre uuid puro e as três variantes com 'guest'
       .select("id");
 
     if (updateError) {
@@ -71,11 +118,15 @@ router.post("/claim", async (req: Request, res: Response) => {
       });
     }
 
-    resetGuestInteraction(guestId);
-    blockGuestId(guestId);
-    trackGuestClaimed({ guestId, userId });
+    // Limpa contadores e bloqueia o guestId canônico para evitar reuso
+    resetGuestInteraction(norm.canonical);
+    blockGuestId(norm.canonical);
 
-    return res.status(200).json({ migrated: Array.isArray(updatedRows) ? updatedRows.length : 0 });
+    trackGuestClaimed({ guestId: norm.canonical, userId });
+
+    return res
+      .status(200)
+      .json({ migrated: Array.isArray(updatedRows) ? updatedRows.length : 0 });
   } catch (error: any) {
     return res.status(500).json({ error: "Erro interno.", details: error?.message });
   }
