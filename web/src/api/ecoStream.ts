@@ -26,6 +26,125 @@ export type EcoClientEvent =
   | { type: "error"; message: string }
   | EcoLatencyEvent;
 
+type EcoServerEvent =
+  | { type: "prompt_ready"; at?: number; sinceStartMs?: number; timings?: EcoLatencyTimings }
+  | { type: "first_token" }
+  | { type: "chunk"; delta?: string; content?: string; index?: number }
+  | { type: "reconnect"; attempt?: number }
+  | { type: "done"; meta?: Record<string, unknown>; at?: number; sinceStartMs?: number; timings?: EcoLatencyTimings }
+  | { type: "error"; message?: string; error?: { message?: string } | string }
+  | EcoLatencyEvent
+  | { type: "control"; name: string; timings?: EcoLatencyTimings; meta?: Record<string, unknown>; attempt?: number }
+  | Record<string, unknown>;
+
+function normalizeServerEvent(event: EcoServerEvent): EcoClientEvent[] {
+  if (!event || typeof event !== "object") {
+    return [];
+  }
+
+  const coerceNumber = (value: unknown): number | undefined => {
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return value;
+    }
+    return undefined;
+  };
+
+  const asChunkEvent = (delta: unknown, index: unknown): EcoClientEvent[] => {
+    if (typeof delta !== "string" || delta.length === 0) {
+      return [];
+    }
+    const resolvedIndex = coerceNumber(index) ?? 0;
+    return [{ type: "chunk", delta, index: resolvedIndex }];
+  };
+
+  switch (event.type) {
+    case "prompt_ready":
+      return [
+        {
+          type: "prompt_ready",
+          at: coerceNumber(event.at),
+          sinceStartMs: coerceNumber(event.sinceStartMs),
+          timings: event.timings,
+        },
+      ];
+    case "first_token":
+      return [{ type: "first_token" }];
+    case "chunk":
+      return asChunkEvent(event.delta ?? event.content, event.index);
+    case "reconnect":
+      return [{ type: "reconnect", attempt: coerceNumber(event.attempt) }];
+    case "done":
+      return [
+        {
+          type: "done",
+          meta: event.meta,
+          at: coerceNumber(event.at),
+          sinceStartMs: coerceNumber(event.sinceStartMs),
+          timings: event.timings,
+        },
+      ];
+    case "error": {
+      const message =
+        typeof event.message === "string"
+          ? event.message
+          : typeof event.error === "string"
+          ? event.error
+          : event.error && typeof event.error === "object" && typeof event.error.message === "string"
+          ? event.error.message
+          : "Erro desconhecido";
+      return [{ type: "error", message }];
+    }
+    case "latency":
+      if (
+        event.stage === "prompt_ready" ||
+        event.stage === "ttfb" ||
+        event.stage === "ttlc"
+      ) {
+        return [
+          {
+            type: "latency",
+            stage: event.stage,
+            at: coerceNumber(event.at) ?? Date.now(),
+            sinceStartMs: coerceNumber(event.sinceStartMs) ?? 0,
+            timings: event.timings,
+          },
+        ];
+      }
+      return [];
+    case "control": {
+      const { name } = event;
+      if (name === "prompt_ready") {
+        return [
+          {
+            type: "prompt_ready",
+            timings: event.timings,
+          },
+        ];
+      }
+      if (name === "first_token") {
+        return [{ type: "first_token" }];
+      }
+      if (name === "reconnect") {
+        return [{ type: "reconnect", attempt: coerceNumber(event.attempt) }];
+      }
+      if (name === "done") {
+        return [
+          {
+            type: "done",
+            meta: event.meta,
+            timings: event.timings,
+          },
+        ];
+      }
+      // Outros eventos de controle (meta/meta_pending/memory_saved) não têm representação direta
+      // no cliente atual, então são ignorados silenciosamente.
+      return [];
+    }
+    default:
+      return [];
+  }
+}
+
 export interface StartEcoStreamParams {
   body: unknown;
   token: string;
@@ -109,9 +228,12 @@ export function startEcoStream({
           for (const entry of decoded) {
             if (!entry.data) continue;
             try {
-              const payload = JSON.parse(entry.data) as EcoClientEvent;
-              // LATENCY: entrega cada token/control para renderização imediata.
-              onEvent(payload);
+              const payload = JSON.parse(entry.data) as EcoServerEvent;
+              const normalizedEvents = normalizeServerEvent(payload);
+              for (const normalized of normalizedEvents) {
+                // LATENCY: entrega cada token/control para renderização imediata.
+                onEvent(normalized);
+              }
             } catch (parseErr) {
               console.warn("[startEcoStream] Falha ao decodificar SSE:", parseErr);
             }
@@ -126,8 +248,11 @@ export function startEcoStream({
         for (const entry of tail) {
           if (!entry.data) continue;
           try {
-            const payload = JSON.parse(entry.data) as EcoClientEvent;
-            onEvent(payload);
+            const payload = JSON.parse(entry.data) as EcoServerEvent;
+            const normalizedEvents = normalizeServerEvent(payload);
+            for (const normalized of normalizedEvents) {
+              onEvent(normalized);
+            }
           } catch (parseErr) {
             console.warn("[startEcoStream] Falha ao decodificar resto do SSE:", parseErr);
           }
