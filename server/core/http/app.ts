@@ -48,7 +48,10 @@ export function createApp(): Express {
       "GET,POST,PUT,PATCH,DELETE,OPTIONS"
     );
     res.setHeader("Access-Control-Allow-Headers", GUEST_ALLOWED_HEADERS);
-    return res.sendStatus(204);
+    // fix: mirror 200 OK for OPTIONS with SSE headers already provided upstream
+    res.setHeader("Cache-Control", "no-cache, no-transform");
+    res.setHeader("X-Accel-Buffering", "no");
+    return res.status(200).end();
   });
 
   // Alias sem /api (se algum cliente usar diretam. /ask-eco)
@@ -56,16 +59,20 @@ export function createApp(): Express {
     ensureCorsHeaders(res, req.headers.origin as string | undefined);
     res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
     res.setHeader("Access-Control-Allow-Headers", GUEST_ALLOWED_HEADERS);
-    return res.sendStatus(204);
+    res.setHeader("Cache-Control", "no-cache, no-transform");
+    res.setHeader("X-Accel-Buffering", "no");
+    return res.status(200).end();
   });
 
   // 3) Entrada dedicada ao endpoint SSE (garante cabeçalhos corretos)
-  const sseEntry = (req: Request, res: Response, next: NextFunction) => {
+    const sseEntry = (req: Request, res: Response, next: NextFunction) => {
     if (req.method === "OPTIONS") {
       ensureCorsHeaders(res, req.headers.origin as string | undefined);
       res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
       res.setHeader("Access-Control-Allow-Headers", GUEST_ALLOWED_HEADERS);
-      return res.sendStatus(204);
+      res.setHeader("Cache-Control", "no-cache, no-transform");
+      res.setHeader("X-Accel-Buffering", "no");
+      return res.status(200).end();
     }
     ensureCorsHeaders(res, req.headers.origin as string | undefined);
     res.setHeader("Vary", "Origin");
@@ -152,7 +159,7 @@ export function createApp(): Express {
     (err: any, req: Request, res: Response, _next: NextFunction) => {
       const origin = req.headers.origin as string | undefined;
       ensureCorsHeaders(res, origin);
-      if (req.method === "OPTIONS") return res.sendStatus(204);
+      if (req.method === "OPTIONS") return res.status(200).end();
 
       log.error("Erro não tratado:", {
         message: err?.message,

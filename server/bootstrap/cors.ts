@@ -2,7 +2,11 @@
 import cors from "cors";
 
 /** Origens conhecidas */
-const PROD_ORIGINS = ["https://ecofrontend888.vercel.app"] as const;
+const PROD_ORIGINS = [
+  "https://ecofrontend888.vercel.app",
+  // fix: allow Vercel preview domain for SSE streaming during QA
+  "https://ecofrontend888-geviqh5x7-rafaels-projects-f3ef53c3.vercel.app",
+] as const;
 const LOCAL_ORIGINS = [
   "http://localhost:3000",
   "http://127.0.0.1:3000",

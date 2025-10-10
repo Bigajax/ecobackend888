@@ -43,11 +43,11 @@ export function applyCors(app: Express) {
 
     res.setHeader("Access-Control-Allow-Methods", ALLOWED_METHODS.join(","));
     res.setHeader("Access-Control-Allow-Headers", GUEST_ALLOWED_HEADERS.join(", "));
-    // Recomendado para SSE/fetch streaming
+    // fix: align OPTIONS preflight with SSE caching directives
     res.setHeader("Cache-Control", "no-cache, no-transform");
     res.setHeader("X-Accel-Buffering", "no");
 
-    return res.status(204).end();
+    return res.status(200).end();
   });
 
   // CORS padrão (para requisições não-OPTIONS)
