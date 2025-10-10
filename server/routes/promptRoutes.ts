@@ -69,16 +69,19 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
   };
 
   // Converte eventos do orquestrador em nomes SSE esperados pelo front
-  const forwardEvent = (evt: EcoStreamEvent) => {
+  const forwardEvent = (rawEvt: EcoStreamEvent | any) => {
     if (finished) return;
 
-    switch (evt.type) {
+    const evt = rawEvt as any;
+    const t = String(evt?.type || ""); // evita narrowing do tipo restrito
+
+    switch (t) {
       case "control": {
-        const name = (evt as any).name;
+        const name = evt?.name;
         if (name === "prompt_ready") {
           sendEvent("prompt_ready", { ok: true });
         } else if (name === "done") {
-          sendEvent("done", (evt as any).meta ?? { done: true });
+          sendEvent("done", evt?.meta ?? { done: true });
         }
         return;
       }
@@ -87,10 +90,10 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
       case "token":
       case "chunk": {
         const delta =
-          (evt as any).delta ??
-          (evt as any).content ??
-          (evt as any).text ??
-          (evt as any).message;
+          evt?.delta ??
+          evt?.content ??
+          evt?.text ??
+          evt?.message;
         if (typeof delta === "string" && delta.length > 0) {
           if (!firstTokenSent) {
             sendEvent("first_token", { delta });
@@ -105,26 +108,25 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
       case "meta":
       case "meta_pending":
       case "meta-pending": {
-        const metadata = (evt as any).metadata ?? evt;
-        sendEvent(evt.type === "meta" ? "meta" : "meta_pending", { metadata });
+        const metadata = evt?.metadata ?? evt;
+        sendEvent(t === "meta" ? "meta" : "meta_pending", { metadata });
         return;
       }
 
       case "memory_saved": {
-        const memory = (evt as any).memory ?? (evt as any).memoria ?? evt;
+        const memory = evt?.memory ?? evt?.memoria ?? evt;
         sendEvent("memory_saved", memory);
         return;
       }
 
       case "latency": {
-        const value = (evt as any).value ?? (evt as any).latencyMs;
+        const value = evt?.value ?? evt?.latencyMs;
         sendEvent("latency", { value });
         return;
       }
 
       case "error": {
-        const errorPayload =
-          (evt as any).error ?? { message: (evt as any).message || "Erro desconhecido" };
+        const errorPayload = evt?.error ?? { message: evt?.message || "Erro desconhecido" };
         sendEvent("error", { error: errorPayload });
         return;
       }
@@ -135,8 +137,7 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
         return;
       }
       case "first_token": {
-        const delta =
-          (evt as any).delta ?? (evt as any).content ?? (evt as any).text ?? "";
+        const delta = evt?.delta ?? evt?.content ?? evt?.text ?? "";
         if (typeof delta === "string" && delta) {
           firstTokenSent = true;
           sendEvent("first_token", { delta });
@@ -144,7 +145,7 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
         return;
       }
       case "done": {
-        sendEvent("done", (evt as any).meta ?? { done: true });
+        sendEvent("done", evt?.meta ?? { done: true });
         return;
       }
 
