@@ -119,9 +119,40 @@ export async function getEcoResponse({
     }
   );
 
+  // >>>>>>>>>>>>>>>>>>>>>>>>> PATCH IMPORTANTE <<<<<<<<<<<<<<<<<<<<<<<<<
   if (preLLM) {
+    // Se há stream, emite eventos SSE equivalentes e finaliza
+    if (streamHandler) {
+      const text =
+        (preLLM.result as any)?.text ??
+        (preLLM.result as any)?.content ??
+        (preLLM.result as any)?.message ??
+        "";
+
+      const meta = (preLLM.result as any)?.metadata ?? undefined;
+
+      if (typeof text === "string" && text.trim()) {
+        streamHandler.onEvent?.({ type: "first_token", delta: text } as any);
+      }
+
+      if (meta) {
+        streamHandler.onEvent?.({ type: "meta", metadata: meta } as any);
+      }
+
+      streamHandler.onEvent?.({
+        type: "control",
+        name: "done",
+        meta: { finishReason: "preLLM" },
+      } as any);
+
+      // Valor simbólico apenas para cumprir a assinatura de streaming
+      return { ok: true } as any;
+    }
+
+    // Sem streaming, retorna o resultado direto
     return preLLM.result;
   }
+  // >>>>>>>>>>>>>>>>>>>>>>>>> FIM DO PATCH <<<<<<<<<<<<<<<<<<<<<<<<<<<<
 
   // Decisão sobre memória e modo de conversa
   const ecoDecision = computeEcoDecision(ultimaMsg);
