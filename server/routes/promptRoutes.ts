@@ -20,7 +20,88 @@ router.get("/prompt-preview", async (req: Request, res: Response) => {
   }
 });
 
-/** POST /api/ask-eco — stream SSE */
+/* -------------------------------------------------------------------------- */
+/*                             Utilidades de SSE                              */
+/* -------------------------------------------------------------------------- */
+
+function sendSse(res: Response, name: string, payload?: any) {
+  // injeta "type" no JSON do data (o front usa esse campo)
+  const body =
+    payload && typeof payload === "object" && !Array.isArray(payload)
+      ? { type: name, ...payload }
+      : payload === undefined
+      ? { type: name }
+      : { type: name, value: payload };
+
+  res.write(`event: ${name}\n`);
+  res.write(`data: ${JSON.stringify(body)}\n\n`);
+}
+
+const TEXT_KEYS = [
+  "delta",
+  "content",
+  "text",
+  "message",
+  "output_text",
+  "outputText",
+  "output",
+  "answer",
+  "resposta",
+  "respostaFinal",
+  "reply",
+  "fala",
+  "speech",
+  "response",
+  "final",
+  "resultText",
+];
+
+/** Vasculha objeto/evento e tenta extrair a primeira string textual útil */
+function extractText(anyObj: any): string | undefined {
+  if (!anyObj) return;
+  if (typeof anyObj === "string") return anyObj.trim() || undefined;
+
+  const seen = new Set<any>();
+  const stack: any[] = [anyObj];
+
+  while (stack.length) {
+    const cur = stack.pop();
+    if (!cur || typeof cur !== "object") continue;
+    if (seen.has(cur)) continue;
+    seen.add(cur);
+
+    // 1) chaves textuais diretas
+    for (const k of TEXT_KEYS) {
+      if (k in cur) {
+        const v = (cur as any)[k];
+        if (typeof v === "string" && v.trim()) return v;
+      }
+    }
+
+    // 2) aninhados comuns
+    if ("data" in cur) stack.push((cur as any).data);
+    if ("payload" in cur) stack.push((cur as any).payload);
+    if ("value" in cur) stack.push((cur as any).value);
+    if ("result" in cur) stack.push((cur as any).result);
+    if ("meta" in cur) stack.push((cur as any).meta);
+    if ("response" in cur) stack.push((cur as any).response);
+    if ("message" in cur) stack.push((cur as any).message);
+    if ("mensagem" in cur) stack.push((cur as any).mensagem);
+    if ("resposta" in cur) stack.push((cur as any).resposta);
+
+    if (Array.isArray((cur as any).choices)) {
+      for (const ch of (cur as any).choices) {
+        stack.push(ch);
+      }
+    }
+  }
+  return;
+}
+
+/* -------------------------------------------------------------------------- */
+/*                             Rota principal SSE                             */
+/* -------------------------------------------------------------------------- */
+
 router.post("/ask-eco", async (req: Request, res: Response) => {
   // Headers SSE
   res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
@@ -36,7 +117,6 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
   );
   res.setHeader("Vary", "Origin");
 
-  // Propaga guest id (se houver)
   const guestIdFromMiddleware: string | undefined = (req as any)?.guest?.id || undefined;
   if (guestIdFromMiddleware) res.setHeader("x-guest-id", guestIdFromMiddleware);
 
@@ -53,39 +133,22 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
   let finished = false;
   let sawDone = false;
   let firstTokenSent = false;
+  let sentAnyText = false;
 
   const endSafely = () => {
     if (finished) return;
     finished = true;
-    try { res.end(); } catch {}
+    try {
+      res.end();
+    } catch {}
   };
 
-  /**
-   * Envia SSE como:
-   *   event: <name>
-   *   data: {"type":"<name>", ...}
-   *
-   * IMPORTANTE: o front lê o `type` de dentro do JSON.
-   */
   const sendEvent = (name: string, payload?: any) => {
     if (finished) return;
-
-    // injeta type no JSON do data
-    let dataObj: any;
-    if (payload && typeof payload === "object" && !Array.isArray(payload)) {
-      dataObj = { type: name, ...payload };
-    } else if (payload === undefined) {
-      dataObj = { type: name };
-    } else {
-      dataObj = { type: name, value: payload };
-    }
-
-    res.write(`event: ${name}\n`);
-    res.write(`data: ${JSON.stringify(dataObj)}\n\n`);
+    sendSse(res, name, payload);
     if (name === "done") sawDone = true;
   };
 
-  // Converte eventos do orquestrador em nomes SSE esperados pelo front
   const forwardEvent = (rawEvt: EcoStreamEvent | any) => {
     if (finished) return;
 
@@ -98,6 +161,7 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
         if (name === "prompt_ready") {
           sendEvent("prompt_ready", { ok: true });
         } else if (name === "done") {
+          // veremos "done" novamente no final, mas mantemos compat
           sendEvent("done", evt?.meta ?? { done: true });
         }
         return;
@@ -106,7 +170,15 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
       case "delta":
       case "token":
       case "chunk": {
-        const delta = evt?.delta ?? evt?.content ?? evt?.text ?? evt?.message;
+        const delta =
+          extractText(evt) ||
+          extractText(evt?.data) ||
+          extractText(evt?.payload) ||
+          evt?.delta ||
+          evt?.content ||
+          evt?.text ||
+          evt?.message;
+
         if (typeof delta === "string" && delta.length > 0) {
           if (!firstTokenSent) {
             sendEvent("first_token", { delta });
@@ -114,6 +186,7 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
           } else {
             sendEvent("chunk", { delta });
           }
+          sentAnyText = true;
         }
         return;
       }
@@ -144,15 +217,17 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
         return;
       }
 
-      // Se algum produtor já enviar exatamente esses types
+      // Se algum produtor já enviar exatamente esses types:
       case "prompt_ready": {
         sendEvent("prompt_ready", { ok: true });
         return;
       }
       case "first_token": {
-        const delta = evt?.delta ?? evt?.content ?? evt?.text ?? "";
+        const delta =
+          extractText(evt) || evt?.delta || evt?.content || evt?.text || "";
         if (typeof delta === "string" && delta) {
           firstTokenSent = true;
+          sentAnyText = true;
           sendEvent("first_token", { delta });
         }
         return;
@@ -162,10 +237,9 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
         return;
       }
 
-      default: {
-        // Silenciosamente ignora outros tipos
+      default:
+        // Ignora silenciosamente outros tipos
         return;
-      }
     }
   };
 
@@ -186,7 +260,7 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
       sessionMeta,
     } = (req.body ?? {}) as Record<string, any>;
 
-    // Sinaliza prontidão
+    // Sinaliza prontidão para o front
     sendEvent("prompt_ready", { ok: true });
 
     const bearer =
@@ -195,7 +269,22 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
         : undefined;
 
     const stream: EcoStreamHandler = {
-      onEvent: (event) => forwardEvent(event),
+      onEvent: (event) => {
+        // Intercepta "done" para garantir fallback textual
+        if (event?.type === "control" && (event as any).name === "done") {
+          if (!sentAnyText) {
+            const tryText =
+              extractText(event) ||
+              extractText((event as any).meta) ||
+              "Desculpe, não recebi conteúdo textual do modelo.";
+            sendEvent("chunk", { delta: tryText });
+            sentAnyText = true;
+          }
+          sendEvent("done", (event as any).meta ?? { done: true });
+          return;
+        }
+        forwardEvent(event);
+      },
     };
 
     // Monta params defensivamente
@@ -214,13 +303,19 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
     if (typeof usuario_id === "string") params.userId = usuario_id;
 
     const guestIdToSend =
-      (typeof guestId === "string" && guestId.trim()) ? guestId : guestIdFromMiddleware;
+      (typeof guestId === "string" && guestId.trim())
+        ? guestId
+        : guestIdFromMiddleware;
     if (typeof guestIdToSend === "string") params.guestId = guestIdToSend;
 
     await getEcoResponse(params as any);
 
+    // Fallback extra: se por algum motivo não chegou "done"
     if (!sawDone) {
-      // Fallback garantido
+      if (!sentAnyText) {
+        sendEvent("chunk", { delta: "Desculpe, não recebi conteúdo textual do modelo." });
+        sentAnyText = true;
+      }
       sendEvent("done", { finishReason: "fallback" });
     }
   } catch (err: any) {
@@ -229,7 +324,9 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
     if (!sawDone) sendEvent("done", { finishReason: "error" });
   } finally {
     clearInterval(ping);
-    setTimeout(endSafely, 10);
+    setTimeout(() => {
+      try { res.end(); } catch {}
+    }, 10);
   }
 });
 
