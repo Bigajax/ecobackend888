@@ -32,8 +32,50 @@ import type {
   EcoStreamEvent,
 } from "./conversation/types";
 
+// Reexport para compatibilidade
 export { getEcoResponse as getEcoResponseOtimizado };
 export type { EcoStreamEvent, EcoStreamHandler, EcoStreamingResult, EcoLatencyMarks };
+
+// ---- util local: tenta extrair um texto de uma resposta "full" de atalhos ----
+function extractTextLoose(payload: any): string | undefined {
+  if (!payload) return undefined;
+
+  // formatos que costumam aparecer nos atalhos/finalizer
+  const candidates: unknown[] = [
+    payload.text,
+    payload.content,
+    payload.message,
+    payload.response?.text,
+    payload.response?.content,
+    payload.response?.message,
+    payload.result?.text,
+    payload.result?.content,
+    payload.result?.message,
+    payload.delta,
+  ];
+
+  for (const c of candidates) {
+    if (typeof c === "string" && c.trim()) return c;
+  }
+
+  // varre algumas chaves comuns de forma defensiva
+  const tryKeys = [
+    "texto",
+    "output_text",
+    "output",
+    "answer",
+    "reply",
+    "resposta",
+    "fala",
+    "speech",
+  ];
+  for (const k of tryKeys) {
+    const v = (payload as any)?.[k] ?? (payload as any)?.response?.[k];
+    if (typeof v === "string" && v.trim()) return v;
+  }
+
+  return undefined;
+}
 
 export async function getEcoResponse(
   params: GetEcoParams & { promptOverride?: string; metaFromBuilder?: any }
@@ -46,6 +88,11 @@ export async function getEcoResponse(
   }
 ): Promise<EcoStreamingResult>;
 
+/**
+ * Orquestrador principal da Eco (modo full e streaming).
+ * - Se `stream` vier, usa pipeline de streaming e emite eventos.
+ * - Se não vier, retorna resposta completa (full).
+ */
 export async function getEcoResponse({
   messages,
   userId,
@@ -82,12 +129,14 @@ export async function getEcoResponse({
   const streamHandler = stream ?? null;
   const timings: EcoLatencyMarks = {};
 
+  // Supabase somente quando NÃO for guest e houver token
   const supabase = !isGuest && accessToken ? supabaseWithBearer(accessToken) : null;
 
   const hasAssistantBeforeInThread = thread
     .slice(0, -1)
     .some((msg) => mapRoleForOpenAI(msg.role) === "assistant");
 
+  // Pré-atalhos (saudações, respostas curtas, etc.)
   const preLLM = await handlePreLLMShortcuts(
     {
       thread,
@@ -98,7 +147,7 @@ export async function getEcoResponse({
       hasAssistantBefore: hasAssistantBeforeInThread,
       lastMessageId: lastMessageId ?? undefined,
       sessionMeta,
-      streamHandler,
+      streamHandler, // já passamos, mas garantimos emissão abaixo
       clientHour,
       isGuest,
       guestId: guestId ?? undefined,
@@ -111,33 +160,34 @@ export async function getEcoResponse({
     }
   );
 
-  // Se o pré-pipeline resolveu e há stream, emite tokens mínimos e finaliza
   if (preLLM) {
-    if (streamHandler) {
-      const text =
-        (preLLM.result as any)?.text ??
-        (preLLM.result as any)?.content ??
-        (preLLM.result as any)?.message ??
-        "";
-      const meta = (preLLM.result as any)?.metadata ?? undefined;
-
-      if (typeof text === "string" && text.trim()) {
-        streamHandler.onEvent?.({ type: "first_token", delta: text } as any);
+    // Se estamos em STREAMING, precisamos emitir tokens também aqui.
+    if (streamHandler && typeof streamHandler.onEvent === "function") {
+      const text = extractTextLoose(preLLM.result) ?? "";
+      if (text.trim()) {
+        // emite como "first_token" seguido de "done" (simples/compatível)
+        streamHandler.onEvent({ type: "chunk", delta: text } as any);
+      } else {
+        // ainda assim, dá um meta para o front conseguir logar
+        streamHandler.onEvent({
+          type: "meta",
+          metadata: { note: "preLLM without text" },
+        } as any);
       }
-      if (meta) {
-        streamHandler.onEvent?.({ type: "meta", metadata: meta } as any);
-      }
-      streamHandler.onEvent?.({
+      streamHandler.onEvent({
         type: "control",
         name: "done",
-        meta: { finishReason: "preLLM" },
+        meta: { finishReason: "shortcuts" },
       } as any);
-
+      // Em modo streaming, o valor de retorno não é consumido
       return { ok: true } as any;
     }
+
+    // Sem streaming: devolve o objeto "full" como já era antes
     return preLLM.result;
   }
 
+  // Decisão sobre memória e modo de conversa
   const ecoDecision = computeEcoDecision(ultimaMsg);
   activationTracer?.setMemoryDecision(
     ecoDecision.saveMemory,
@@ -166,7 +216,7 @@ export async function getEcoResponse({
     });
   }
 
-  // Fast lane (sem stream)
+  // Fast lane (somente quando não for streaming)
   if (routeDecision.mode === "fast" && !streamHandler) {
     const inicioFast = now();
     const fast = await runFastLaneLLM({
@@ -192,7 +242,7 @@ export async function getEcoResponse({
     return fast.response;
   }
 
-  // Montagem de contexto
+  // Montagem de contexto (prompts, memórias, etc.)
   timings.contextBuildStart = now();
   log.info("// LATENCY: context_build_start", { at: timings.contextBuildStart });
 
@@ -239,43 +289,6 @@ export async function getEcoResponse({
 
   // STREAMING
   if (streamHandler) {
-    // Proxy para garantir ao menos um token antes do "done"
-    let sawAnyToken = false;
-
-    const proxy: EcoStreamHandler = {
-      onEvent: (evt: EcoStreamEvent) => {
-        const t = (evt as any)?.type;
-        // marca se chegou texto
-        if (
-          t === "first_token" ||
-          t === "delta" ||
-          t === "token" ||
-          t === "chunk"
-        ) {
-          const delta =
-            (evt as any)?.delta ??
-            (evt as any)?.content ??
-            (evt as any)?.text ??
-            (evt as any)?.message;
-          if (typeof delta === "string" && delta.trim().length > 0) {
-            sawAnyToken = true;
-          }
-        }
-
-        // Se vier "done" sem nada antes, injeta um fallback curto antes do done
-        if ((t === "control" && (evt as any)?.name === "done") || t === "done") {
-          if (!sawAnyToken) {
-            const fallback =
-              "Desculpe, tive um problema para responder agora. Pode tentar de novo?";
-            streamHandler.onEvent?.({ type: "first_token", delta: fallback } as any);
-          }
-        }
-
-        // repassa evento original
-        streamHandler.onEvent?.(evt);
-      },
-    };
-
     return executeStreamingLLM({
       prompt,
       maxTokens,
@@ -288,7 +301,7 @@ export async function getEcoResponse({
       supabase,
       lastMessageId: lastMessageId ?? undefined,
       sessionMeta,
-      streamHandler: proxy,
+      streamHandler,
       timings,
       isGuest,
       guestId: guestId ?? undefined,
