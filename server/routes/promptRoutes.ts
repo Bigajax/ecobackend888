@@ -2,6 +2,7 @@
 import { Router, type Request, type Response } from "express";
 import { getPromptEcoPreview } from "../controllers/promptController";
 import { getEcoResponse } from "../services/ConversationOrchestrator";
+import type { EcoStreamHandler } from "../services/conversation/types";
 
 const router = Router();
 
@@ -62,7 +63,7 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
     } catch {}
   };
 
-  // helpers SSE
+  // helper básico para escrever eventos SSE
   const sseSend = (type: string, payload: unknown) => {
     if (finished) return;
     if (type === "done") sentDone = true;
@@ -77,8 +78,8 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
     const {
       mensagens,
       nome_usuario,
-      clientHour,
-      clientTz,
+      clientHour,   // <- este existe no GetEcoParams
+      // clientTz,   // <- NÃO existe no GetEcoParams (removido do call)
       isGuest,
       guestId,
       usuario_id,
@@ -88,29 +89,37 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
     // evento inicial
     sseSend("prompt_ready", { ok: true });
 
-    // token de acesso (se houver)
+    // Token de acesso (se houver)
     const bearer = req.headers.authorization?.startsWith("Bearer ")
       ? req.headers.authorization.slice(7)
       : undefined;
 
-    // Wrapper do handler de stream para garantir 'done' em último caso
-    const stream = {
-      send: (type: string, payload: unknown) => sseSend(type, payload),
+    // Implementa EcoStreamHandler: onEvent é obrigatório
+    const stream: EcoStreamHandler = {
+      onEvent: (evt) => {
+        // evt: { type, payload, ... }
+        const type = (evt as any)?.type ?? "chunk";
+        const payload = (evt as any)?.payload ?? evt;
+        sseSend(type, payload);
+      },
+      send: (type: string, payload: unknown) => {
+        sseSend(type, payload);
+      },
       close: () => endSafely(),
     };
 
-    // Chama o orquestrador em modo streaming
+    // Chama o orquestrador em modo streaming (sem clientTz para bater com o tipo)
     await getEcoResponse({
       messages: mensagens,
       userId: usuario_id,
       userName: nome_usuario,
       accessToken: bearer,
-      clientHour,
-      clientTz,
+      clientHour,          // OK
+      // clientTz,          // REMOVIDO para satisfazer o tipo
       sessionMeta,
       isGuest: Boolean(isGuest),
       guestId: guestId ?? (req as any).guest?.id ?? null,
-      stream,
+      stream,              // EcoStreamHandler com onEvent/send/close
     });
 
     // Se por qualquer motivo o pipeline não tiver enviado 'done', envia aqui
