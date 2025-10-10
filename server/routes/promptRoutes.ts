@@ -25,7 +25,7 @@ router.get("/prompt-preview", async (req: Request, res: Response) => {
 /* -------------------------------------------------------------------------- */
 
 function sendSse(res: Response, name: string, payload?: any) {
-  // injeta "type" no JSON do data (o front usa esse campo)
+  // Injeta "type" no JSON do data (o front usa esse campo)
   const body =
     payload && typeof payload === "object" && !Array.isArray(payload)
       ? { type: name, ...payload }
@@ -56,7 +56,7 @@ const TEXT_KEYS = [
   "resultText",
 ];
 
-/** Vasculha objeto/evento e tenta extrair a primeira string textual útil */
+/** Varre objetos/arrays e tenta achar a primeira string útil */
 function extractText(anyObj: any): string | undefined {
   if (!anyObj) return;
   if (typeof anyObj === "string") return anyObj.trim() || undefined;
@@ -70,7 +70,7 @@ function extractText(anyObj: any): string | undefined {
     if (seen.has(cur)) continue;
     seen.add(cur);
 
-    // 1) chaves textuais diretas
+    // chaves diretas
     for (const k of TEXT_KEYS) {
       if (k in cur) {
         const v = (cur as any)[k];
@@ -78,7 +78,7 @@ function extractText(anyObj: any): string | undefined {
       }
     }
 
-    // 2) aninhados comuns
+    // aninhados comuns
     if ("data" in cur) stack.push((cur as any).data);
     if ("payload" in cur) stack.push((cur as any).payload);
     if ("value" in cur) stack.push((cur as any).value);
@@ -90,9 +90,7 @@ function extractText(anyObj: any): string | undefined {
     if ("resposta" in cur) stack.push((cur as any).resposta);
 
     if (Array.isArray((cur as any).choices)) {
-      for (const ch of (cur as any).choices) {
-        stack.push(ch);
-      }
+      for (const ch of (cur as any).choices) stack.push(ch);
     }
   }
   return;
@@ -138,9 +136,7 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
   const endSafely = () => {
     if (finished) return;
     finished = true;
-    try {
-      res.end();
-    } catch {}
+    try { res.end(); } catch {}
   };
 
   const sendEvent = (name: string, payload?: any) => {
@@ -149,11 +145,33 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
     if (name === "done") sawDone = true;
   };
 
+  // Helper para emitir chunk/first_token a partir de uma fonte qualquer
+  const tryEmitText = (src: any): boolean => {
+    const delta = extractText(src);
+    if (typeof delta === "string" && delta.length > 0) {
+      if (!firstTokenSent) {
+        sendEvent("first_token", { delta });
+        firstTokenSent = true;
+      } else {
+        sendEvent("chunk", { delta });
+      }
+      sentAnyText = true;
+      return true;
+    }
+    return false;
+  };
+
   const forwardEvent = (rawEvt: EcoStreamEvent | any) => {
     if (finished) return;
 
     const evt = rawEvt as any;
-    const t = String(evt?.type || "");
+    const t = evt && typeof evt === "object" ? String(evt.type || "") : "";
+
+    // ▶️ Robustez: eventos sem tipo ou string pura
+    if (!t) {
+      if (tryEmitText(evt) || tryEmitText(evt?.data) || tryEmitText(evt?.payload)) return;
+      return; // sem texto → ignora silenciosamente
+    }
 
     switch (t) {
       case "control": {
@@ -161,7 +179,7 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
         if (name === "prompt_ready") {
           sendEvent("prompt_ready", { ok: true });
         } else if (name === "done") {
-          // veremos "done" novamente no final, mas mantemos compat
+          // veremos "done" novamente via wrapper, mas não tem problema duplicar
           sendEvent("done", evt?.meta ?? { done: true });
         }
         return;
@@ -170,24 +188,7 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
       case "delta":
       case "token":
       case "chunk": {
-        const delta =
-          extractText(evt) ||
-          extractText(evt?.data) ||
-          extractText(evt?.payload) ||
-          evt?.delta ||
-          evt?.content ||
-          evt?.text ||
-          evt?.message;
-
-        if (typeof delta === "string" && delta.length > 0) {
-          if (!firstTokenSent) {
-            sendEvent("first_token", { delta });
-            firstTokenSent = true;
-          } else {
-            sendEvent("chunk", { delta });
-          }
-          sentAnyText = true;
-        }
+        if (tryEmitText(evt) || tryEmitText(evt?.data) || tryEmitText(evt?.payload)) return;
         return;
       }
 
@@ -217,28 +218,22 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
         return;
       }
 
-      // Se algum produtor já enviar exatamente esses types:
       case "prompt_ready": {
         sendEvent("prompt_ready", { ok: true });
         return;
       }
+
       case "first_token": {
-        const delta =
-          extractText(evt) || evt?.delta || evt?.content || evt?.text || "";
-        if (typeof delta === "string" && delta) {
-          firstTokenSent = true;
-          sentAnyText = true;
-          sendEvent("first_token", { delta });
-        }
+        if (tryEmitText(evt)) return;
         return;
       }
+
       case "done": {
         sendEvent("done", evt?.meta ?? { done: true });
         return;
       }
 
       default:
-        // Ignora silenciosamente outros tipos
         return;
     }
   };
@@ -270,14 +265,10 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
 
     const stream: EcoStreamHandler = {
       onEvent: (event) => {
-        // Intercepta "done" para garantir fallback textual
+        // Garante fallback textual se o produtor finalizar sem tokens
         if (event?.type === "control" && (event as any).name === "done") {
           if (!sentAnyText) {
-            const tryText =
-              extractText(event) ||
-              extractText((event as any).meta) ||
-              "Desculpe, não recebi conteúdo textual do modelo.";
-            sendEvent("chunk", { delta: tryText });
+            tryEmitText(event) || tryEmitText((event as any).meta) || sendEvent("chunk", { delta: "…" });
             sentAnyText = true;
           }
           sendEvent("done", (event as any).meta ?? { done: true });
@@ -310,12 +301,9 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
 
     await getEcoResponse(params as any);
 
-    // Fallback extra: se por algum motivo não chegou "done"
+    // Fallback extra: se não chegou "done" por algum motivo
     if (!sawDone) {
-      if (!sentAnyText) {
-        sendEvent("chunk", { delta: "Desculpe, não recebi conteúdo textual do modelo." });
-        sentAnyText = true;
-      }
+      if (!sentAnyText) sendEvent("chunk", { delta: "…" });
       sendEvent("done", { finishReason: "fallback" });
     }
   } catch (err: any) {
