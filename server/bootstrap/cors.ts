@@ -1,5 +1,7 @@
+// server/bootstrap/cors.ts
 import cors from "cors";
 
+/** Origens conhecidas */
 const PROD_ORIGINS = ["https://ecofrontend888.vercel.app"] as const;
 const LOCAL_ORIGINS = [
   "http://localhost:3000",
@@ -19,14 +21,14 @@ const toOriginKey = (origin: string) => {
 
 const EXTRA_ORIGINS = (process.env.CORS_ALLOW_ORIGINS || "")
   .split(",")
-  .map((entry) => entry.trim())
+  .map((s) => s.trim())
   .filter(Boolean);
 
 const STATIC_ALLOW_LIST = new Set<string>(
   [...PROD_ORIGINS, ...LOCAL_ORIGINS, ...EXTRA_ORIGINS].map(toOriginKey)
 );
 
-const vercelAppSuffix = ".vercel.app";
+const VERCEL_SUFFIX = ".vercel.app";
 
 const resolveHostname = (origin: string) => {
   try {
@@ -48,22 +50,31 @@ export const ALLOWED_HEADERS = [
   "X-Guest-Mode",
   "X-Title",
   "HTTP-Referer",
+  // Alguns ambientes/proxies checam estes no preflight
+  "User-Agent",
+  "Sec-Fetch-Mode",
+  "Sec-Fetch-Site",
+  "Sec-Fetch-Dest",
+] as const;
+
+/** Cabeçalhos que o browser poderá enxergar via fetch() */
+export const EXPOSE_HEADERS = [
+  "X-Guest-Id",
+  "Content-Type",
+  "Cache-Control",
 ] as const;
 
 export const allowList = STATIC_ALLOW_LIST;
 
 export const isAllowedOrigin = (origin?: string | null): boolean => {
+  // Permite chamadas sem Origin (ex: curl, extensões, apps nativos)
   if (!origin) return true;
 
   const normalized = toOriginKey(origin);
-  if (allowList.has(normalized)) {
-    return true;
-  }
+  if (allowList.has(normalized)) return true;
 
   const hostname = resolveHostname(origin);
-  if (hostname && hostname.endsWith(vercelAppSuffix)) {
-    return true;
-  }
+  if (hostname && hostname.endsWith(VERCEL_SUFFIX)) return true;
 
   return false;
 };
@@ -74,17 +85,14 @@ export const corsMiddleware = cors({
       callback(null, true);
       return;
     }
-
-    if (origin) {
-      console.warn(`[CORS] Bloqueado origin: ${origin}`);
-    } else {
-      console.warn("[CORS] Bloqueado origin: <desconhecido>");
-    }
-
+    console.warn(`[CORS] Bloqueado origin: ${origin || "<desconhecido>"}`);
     callback(new Error("CORS não permitido para este domínio"));
   },
   credentials: true,
   methods: [...ALLOWED_METHODS],
   allowedHeaders: [...ALLOWED_HEADERS],
+  exposedHeaders: [...EXPOSE_HEADERS],
+  // 20 minutos de cache para preflight
+  maxAge: 1200,
   optionsSuccessStatus: 204,
 });
