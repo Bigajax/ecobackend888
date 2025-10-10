@@ -60,11 +60,28 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
     try { res.end(); } catch {}
   };
 
-  // Utilitário: envia "event: <name>\n data: <json>\n\n"
+  /**
+   * Envia SSE como:
+   *   event: <name>
+   *   data: {"type":"<name>", ...}
+   *
+   * IMPORTANTE: o front lê o `type` de dentro do JSON.
+   */
   const sendEvent = (name: string, payload?: any) => {
     if (finished) return;
+
+    // injeta type no JSON do data
+    let dataObj: any;
+    if (payload && typeof payload === "object" && !Array.isArray(payload)) {
+      dataObj = { type: name, ...payload };
+    } else if (payload === undefined) {
+      dataObj = { type: name };
+    } else {
+      dataObj = { type: name, value: payload };
+    }
+
     res.write(`event: ${name}\n`);
-    res.write(`data: ${payload === undefined ? "{}" : JSON.stringify(payload)}\n\n`);
+    res.write(`data: ${JSON.stringify(dataObj)}\n\n`);
     if (name === "done") sawDone = true;
   };
 
@@ -73,7 +90,7 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
     if (finished) return;
 
     const evt = rawEvt as any;
-    const t = String(evt?.type || ""); // evita narrowing do tipo restrito
+    const t = String(evt?.type || "");
 
     switch (t) {
       case "control": {
@@ -89,11 +106,7 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
       case "delta":
       case "token":
       case "chunk": {
-        const delta =
-          evt?.delta ??
-          evt?.content ??
-          evt?.text ??
-          evt?.message;
+        const delta = evt?.delta ?? evt?.content ?? evt?.text ?? evt?.message;
         if (typeof delta === "string" && delta.length > 0) {
           if (!firstTokenSent) {
             sendEvent("first_token", { delta });
