@@ -17,54 +17,61 @@ import { isSupabaseConfigured } from "../../lib/supabaseAdmin";
 import { guestSessionMiddleware } from "./middlewares/guestSession";
 import guestRoutes from "../../routes/guestRoutes";
 
+const GUEST_ALLOWED_HEADERS =
+  "Content-Type, Authorization, X-Requested-With, Accept, Origin, X-Guest-Id, X-Guest-Mode";
+
 export function createApp(): Express {
   const app = express();
 
   app.set("trust proxy", 1);
 
-  // CORS precisa vir antes de parsers/rotas
+  // CORS sempre primeiro
   applyCors(app);
 
-  // ✅ Pré-flight universal para qualquer endpoint da API
+  // ---- PRE-FLIGHT GLOBALS ---------------------------------------------------
+  // /api/* (todas as rotas REST)
   app.options("/api/*", (req: Request, res: Response) => {
     ensureCorsHeaders(res, req.headers.origin as string | undefined);
     res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
-    // ⬇️ inclui X-Guest-Id para o modo convidado
-    res.setHeader(
-      "Access-Control-Allow-Headers",
-      "Content-Type, Authorization, X-Requested-With, Accept, Origin, X-Guest-Id, X-Guest-Mode"
-    );
+    res.setHeader("Access-Control-Allow-Headers", GUEST_ALLOWED_HEADERS);
+    return res.sendStatus(204);
+  });
+  // /ask-eco (alias sem /api, usado pelo front em alguns ambientes)
+  app.options("/ask-eco", (req: Request, res: Response) => {
+    ensureCorsHeaders(res, req.headers.origin as string | undefined);
+    res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", GUEST_ALLOWED_HEADERS);
     return res.sendStatus(204);
   });
 
-  // ✅ Tratamento dedicado ao endpoint SSE (/api/ask-eco)
-  // - responde OPTIONS com cabeçalhos de CORS
-  // - garante que os handlers subsequentes recebam o request já com CORS aplicado
-  app.all("/api/ask-eco", (req: Request, res: Response, next: NextFunction) => {
+  // ---- HANDLER DEDICADO AO ENDPOINT SSE ------------------------------------
+  // para garantir os cabeçalhos certos mesmo quando a rota for montada depois
+  const sseEntry = (req: Request, res: Response, next: NextFunction) => {
     if (req.method === "OPTIONS") {
       ensureCorsHeaders(res, req.headers.origin as string | undefined);
       res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
-      // ⬇️ inclui X-Guest-Id também aqui
-      res.setHeader(
-        "Access-Control-Allow-Headers",
-        "Content-Type, Authorization, X-Requested-With, Accept, Origin, X-Guest-Id, X-Guest-Mode"
-      );
+      res.setHeader("Access-Control-Allow-Headers", GUEST_ALLOWED_HEADERS);
       return res.sendStatus(204);
     }
-
     ensureCorsHeaders(res, req.headers.origin as string | undefined);
     res.setHeader("Vary", "Origin");
     if (req.method === "POST") {
+      // recomendações p/ SSE via fetch
       res.setHeader("Cache-Control", "no-cache, no-transform");
     }
     return next();
-  });
+  };
 
+  // atende nos dois caminhos
+  app.all("/api/ask-eco", sseEntry);
+  app.all("/ask-eco", sseEntry);
+
+  // --------------------------------------------------------------------------
   app.use(express.json({ limit: "1mb" }));
   app.use(express.urlencoded({ extended: true }));
   app.use(requestLogger);
 
-  // ⬇️ Middleware que deve popular req.isGuest/req.guestId/req.userId
+  // popula req.guest e limita rate do modo convidado
   app.use(guestSessionMiddleware);
 
   app.use(normalizeQuery);
@@ -75,10 +82,7 @@ export function createApp(): Express {
   );
   app.get("/readyz", (_req: Request, res: Response) => {
     if (!isSupabaseConfigured()) {
-      return res.status(503).json({
-        status: "degraded",
-        reason: "no-admin-config",
-      });
+      return res.status(503).json({ status: "degraded", reason: "no-admin-config" });
     }
     return res.status(200).json({ status: "ready" });
   });
@@ -94,8 +98,8 @@ export function createApp(): Express {
     });
   });
 
-  // Rotas
-  app.use("/api", promptRoutes);
+  // Rotas (prefixo /api)
+  app.use("/api", promptRoutes);                // inclui POST /api/ask-eco
   app.use("/api/memorias", memoryRoutes);
   app.use("/api/memories", memoryRoutes);
   app.use("/api/perfil-emocional", profileRoutes);
@@ -108,7 +112,7 @@ export function createApp(): Express {
   app.use("/api/v1/relatorio-emocional", relatorioRoutes);
   app.use("/api/feedback", feedbackRoutes);
 
-  // aliases sem /api (se usados por algum cliente)
+  // Aliases sem /api (se algum cliente legado consome)
   app.use("/memorias", memoryRoutes);
   app.use("/memories", memoryRoutes);
   app.use("/perfil-emocional", profileRoutes);
