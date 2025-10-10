@@ -22,7 +22,7 @@ router.get("/prompt-preview", async (req: Request, res: Response) => {
 
 /** POST /api/ask-eco — stream SSE */
 router.post("/ask-eco", async (req: Request, res: Response) => {
-  // SSE headers
+  // Headers SSE
   res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
   res.setHeader("Cache-Control", "no-cache, no-transform");
   res.setHeader("Connection", "keep-alive");
@@ -36,14 +36,14 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
   );
   res.setHeader("Vary", "Origin");
 
+  // Propaga guest id (se houver)
   const guestIdFromMiddleware: string | undefined = (req as any)?.guest?.id || undefined;
-  if (guestIdFromMiddleware) {
-    res.setHeader("x-guest-id", guestIdFromMiddleware);
-  }
+  if (guestIdFromMiddleware) res.setHeader("x-guest-id", guestIdFromMiddleware);
 
   // @ts-ignore
   if (typeof (res as any).flushHeaders === "function") (res as any).flushHeaders();
 
+  // Heartbeat
   const ping = setInterval(() => {
     try {
       res.write(`: ping ${Date.now()}\n\n`);
@@ -52,28 +52,112 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
 
   let finished = false;
   let sawDone = false;
+  let firstTokenSent = false;
 
   const endSafely = () => {
     if (finished) return;
     finished = true;
-    try {
-      res.end();
-    } catch {}
+    try { res.end(); } catch {}
   };
 
-  const writeEvent = (evt: EcoStreamEvent) => {
+  // Utilitário: envia "event: <name>\n data: <json>\n\n"
+  const sendEvent = (name: string, payload?: any) => {
     if (finished) return;
-    if (evt.type === "control" && (evt as any).name === "done") {
-      sawDone = true;
+    res.write(`event: ${name}\n`);
+    res.write(`data: ${payload === undefined ? "{}" : JSON.stringify(payload)}\n\n`);
+    if (name === "done") sawDone = true;
+  };
+
+  // Converte eventos do orquestrador em nomes SSE esperados pelo front
+  const forwardEvent = (evt: EcoStreamEvent) => {
+    if (finished) return;
+
+    switch (evt.type) {
+      case "control": {
+        const name = (evt as any).name;
+        if (name === "prompt_ready") {
+          sendEvent("prompt_ready", { ok: true });
+        } else if (name === "done") {
+          sendEvent("done", (evt as any).meta ?? { done: true });
+        }
+        return;
+      }
+
+      case "delta":
+      case "token":
+      case "chunk": {
+        const delta =
+          (evt as any).delta ??
+          (evt as any).content ??
+          (evt as any).text ??
+          (evt as any).message;
+        if (typeof delta === "string" && delta.length > 0) {
+          if (!firstTokenSent) {
+            sendEvent("first_token", { delta });
+            firstTokenSent = true;
+          } else {
+            sendEvent("chunk", { delta });
+          }
+        }
+        return;
+      }
+
+      case "meta":
+      case "meta_pending":
+      case "meta-pending": {
+        const metadata = (evt as any).metadata ?? evt;
+        sendEvent(evt.type === "meta" ? "meta" : "meta_pending", { metadata });
+        return;
+      }
+
+      case "memory_saved": {
+        const memory = (evt as any).memory ?? (evt as any).memoria ?? evt;
+        sendEvent("memory_saved", memory);
+        return;
+      }
+
+      case "latency": {
+        const value = (evt as any).value ?? (evt as any).latencyMs;
+        sendEvent("latency", { value });
+        return;
+      }
+
+      case "error": {
+        const errorPayload =
+          (evt as any).error ?? { message: (evt as any).message || "Erro desconhecido" };
+        sendEvent("error", { error: errorPayload });
+        return;
+      }
+
+      // Se algum produtor já enviar exatamente esses types
+      case "prompt_ready": {
+        sendEvent("prompt_ready", { ok: true });
+        return;
+      }
+      case "first_token": {
+        const delta =
+          (evt as any).delta ?? (evt as any).content ?? (evt as any).text ?? "";
+        if (typeof delta === "string" && delta) {
+          firstTokenSent = true;
+          sendEvent("first_token", { delta });
+        }
+        return;
+      }
+      case "done": {
+        sendEvent("done", (evt as any).meta ?? { done: true });
+        return;
+      }
+
+      default: {
+        // Silenciosamente ignora outros tipos
+        return;
+      }
     }
-    res.write(`data: ${JSON.stringify(evt)}\n\n`);
   };
 
   req.on("close", () => {
     clearInterval(ping);
-    if (!sawDone) {
-      writeEvent({ type: "control", name: "done", meta: { finishReason: "client_closed" } as any });
-    }
+    if (!sawDone) sendEvent("done", { finishReason: "client_closed" });
     endSafely();
   });
 
@@ -88,7 +172,8 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
       sessionMeta,
     } = (req.body ?? {}) as Record<string, any>;
 
-    writeEvent({ type: "control", name: "prompt_ready" } as any);
+    // Sinaliza prontidão
+    sendEvent("prompt_ready", { ok: true });
 
     const bearer =
       req.headers.authorization?.startsWith("Bearer ")
@@ -96,10 +181,10 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
         : undefined;
 
     const stream: EcoStreamHandler = {
-      onEvent: (event) => writeEvent(event),
+      onEvent: (event) => forwardEvent(event),
     };
 
-    // monta params de forma defensiva — só adiciona campos presentes
+    // Monta params defensivamente
     const params: Record<string, unknown> = {
       messages: Array.isArray(mensagens) ? mensagens : [],
       stream,
@@ -118,26 +203,16 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
       (typeof guestId === "string" && guestId.trim()) ? guestId : guestIdFromMiddleware;
     if (typeof guestIdToSend === "string") params.guestId = guestIdToSend;
 
-    // passa como any para não conflitar com diferenças locais de tipos
     await getEcoResponse(params as any);
 
     if (!sawDone) {
-      writeEvent({
-        type: "control",
-        name: "done",
-        meta: { finishReason: "fallback" } as any,
-      });
+      // Fallback garantido
+      sendEvent("done", { finishReason: "fallback" });
     }
   } catch (err: any) {
-    const errorObj = err instanceof Error ? err : new Error(err?.message || "Erro desconhecido");
-    writeEvent({ type: "error", error: errorObj } as any);
-    if (!sawDone) {
-      writeEvent({
-        type: "control",
-        name: "done",
-        meta: { finishReason: "error" } as any,
-      });
-    }
+    const message = err instanceof Error ? err.message : (err?.message || "Erro desconhecido");
+    sendEvent("error", { error: { message } });
+    if (!sawDone) sendEvent("done", { finishReason: "error" });
   } finally {
     clearInterval(ping);
     setTimeout(endSafely, 10);
