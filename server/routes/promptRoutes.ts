@@ -54,7 +54,7 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
   if (typeof (res as any).flushHeaders === "function") (res as any).flushHeaders();
 
   let finished = false;
-  let sentDone = false;
+  let sawDone = false;
 
   const endSafely = () => {
     if (finished) return;
@@ -64,13 +64,13 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
     } catch {}
   };
 
-  // Método único para escrever qualquer evento SSE
-  const sseSend = (event: EcoStreamEvent) => {
+  // escritor único de eventos SSE (no formato do seu EcoStreamEvent)
+  const writeEvent = (evt: EcoStreamEvent) => {
     if (finished) return;
-    // se o pipeline não enviar 'done', teremos fallback no finally
-    if (event?.type === "done") sentDone = true;
-    // A API do front espera { type, payload } como JSON por linha de evento
-    res.write(`data: ${JSON.stringify(event)}\n\n`);
+    if (evt?.type === "control" && (evt as any).name === "done") {
+      sawDone = true;
+    }
+    res.write(`data: ${JSON.stringify(evt)}\n\n`);
   };
 
   // se o cliente fechar a conexão, encerramos o stream
@@ -81,16 +81,16 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
     const {
       mensagens,
       nome_usuario,
-      clientHour,  // <- este existe no GetEcoParams
-      // clientTz,  // <- NÃO existe no GetEcoParams (removido)
+      clientHour,     // <- existe em GetEcoParams
+      // clientTz,     // <- NÃO existe em GetEcoParams (não enviar)
       isGuest,
       guestId,
       usuario_id,
       sessionMeta,
     } = (req.body ?? {}) as Record<string, any>;
 
-    // Envia evento inicial
-    sseSend({ type: "prompt_ready", payload: { ok: true } });
+    // Envia evento inicial no formato do seu tipo (control + name)
+    writeEvent({ type: "control", name: "prompt_ready", timings: undefined });
 
     // Token Bearer (se houver)
     const bearer =
@@ -98,41 +98,38 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
         ? req.headers.authorization.slice(7)
         : undefined;
 
-    // Implementa EcoStreamHandler corretamente: SOMENTE onEvent e close
+    // Implementa EcoStreamHandler APENAS com onEvent
     const stream: EcoStreamHandler = {
-      onEvent: (evt) => {
-        // evt já vem no formato { type, payload, ... }
-        sseSend(evt);
+      onEvent: (event) => {
+        // O orquestrador emitirá EcoStreamEvent já no formato correto;
+        // apenas repassamos para o cliente via SSE.
+        writeEvent(event);
       },
-      close: () => endSafely(),
     };
 
-    // Chama o orquestrador no modo streaming
+    // Chama o orquestrador em modo streaming
     await getEcoResponse({
       messages: mensagens,
       userId: usuario_id,
       userName: nome_usuario,
       accessToken: bearer,
-      clientHour,                // OK no tipo
+      clientHour,               // OK no tipo
       sessionMeta,
       isGuest: Boolean(isGuest),
       guestId: guestId ?? guestIdFromMiddleware ?? null,
-      stream,                   // EcoStreamHandler com onEvent/close
+      stream,                   // EcoStreamHandler com onEvent
     });
 
     // Caso extraordinário: pipeline não mandou 'done'
-    if (!sentDone) {
-      sseSend({
-        type: "done",
-        payload: { response: { content: "" }, metadata: { fallbackDone: true } },
-      });
+    if (!sawDone) {
+      writeEvent({ type: "control", name: "done", meta: { finishReason: "fallback" } });
     }
   } catch (err: any) {
     const msg = err?.message || "Erro interno ao gerar resposta da Eco.";
-    // envia erro e mesmo assim finaliza com done
-    sseSend({ type: "error", payload: { error: msg } });
-    if (!sentDone) {
-      sseSend({ type: "done", payload: { error: msg } });
+    // envia erro e, mesmo assim, finalize com done no formato correto
+    writeEvent({ type: "error", error: err instanceof Error ? err : new Error(msg) });
+    if (!sawDone) {
+      writeEvent({ type: "control", name: "done", meta: { finishReason: "error" } });
     }
   } finally {
     setTimeout(endSafely, 10);
