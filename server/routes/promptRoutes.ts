@@ -8,10 +8,7 @@ const router = Router();
 
 console.log("Backend: promptRoutes carregado.");
 
-/**
- * GET /api/prompt-preview
- * Retorna o prompt final com base no estado atual (para testes/debug).
- */
+/** GET /api/prompt-preview */
 router.get("/prompt-preview", async (req: Request, res: Response) => {
   try {
     await getPromptEcoPreview(req, res);
@@ -23,18 +20,14 @@ router.get("/prompt-preview", async (req: Request, res: Response) => {
   }
 });
 
-/**
- * POST /api/ask-eco
- * Stream SSE com resposta da Eco — garante envio de 'done' sempre.
- */
+/** POST /api/ask-eco — stream SSE */
 router.post("/ask-eco", async (req: Request, res: Response) => {
-  // Cabeçalhos essenciais p/ SSE
+  // SSE headers
   res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
   res.setHeader("Cache-Control", "no-cache, no-transform");
   res.setHeader("Connection", "keep-alive");
   res.setHeader("X-Accel-Buffering", "no");
 
-  // CORS (reforço; o app já cuida globalmente)
   const origin = (req.headers.origin as string) || "*";
   res.setHeader("Access-Control-Allow-Origin", origin);
   res.setHeader(
@@ -43,23 +36,18 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
   );
   res.setHeader("Vary", "Origin");
 
-  // guest-id normalizado pelo middleware (se houver)
   const guestIdFromMiddleware: string | undefined = (req as any)?.guest?.id || undefined;
   if (guestIdFromMiddleware) {
     res.setHeader("x-guest-id", guestIdFromMiddleware);
   }
 
-  // flush imediato (alguns proxies só “abrem” após isso)
   // @ts-ignore
   if (typeof (res as any).flushHeaders === "function") (res as any).flushHeaders();
 
-  // keep-alive ping
   const ping = setInterval(() => {
     try {
       res.write(`: ping ${Date.now()}\n\n`);
-    } catch {
-      // ignore
-    }
+    } catch {}
   }, 20_000);
 
   let finished = false;
@@ -70,9 +58,7 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
     finished = true;
     try {
       res.end();
-    } catch {
-      // ignore
-    }
+    } catch {}
   };
 
   const writeEvent = (evt: EcoStreamEvent) => {
@@ -85,7 +71,6 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
 
   req.on("close", () => {
     clearInterval(ping);
-    // fecha com done se ainda não fechou
     if (!sawDone) {
       writeEvent({ type: "control", name: "done", meta: { finishReason: "client_closed" } as any });
     }
@@ -93,58 +78,49 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
   });
 
   try {
-    // Extrai body
     const {
       mensagens,
       nome_usuario,
       usuario_id,
       clientHour,
       isGuest,
-      guestId,       // pode vir undefined
-      sessionMeta,   // deve ser um objeto válido p/ passar adiante
+      guestId,
+      sessionMeta,
     } = (req.body ?? {}) as Record<string, any>;
 
-    // Evento inicial
     writeEvent({ type: "control", name: "prompt_ready" } as any);
 
-    // Bearer (opcional)
     const bearer =
       req.headers.authorization?.startsWith("Bearer ")
         ? req.headers.authorization.slice(7)
         : undefined;
 
-    // Handler de stream
     const stream: EcoStreamHandler = {
-      onEvent: (event) => {
-        writeEvent(event);
-      },
+      onEvent: (event) => writeEvent(event),
     };
 
-    // sessionMeta só se for objeto plain
-    const metaToSend =
-      sessionMeta && typeof sessionMeta === "object" && !Array.isArray(sessionMeta)
-        ? (sessionMeta as Record<string, any>)
-        : undefined;
-
-    // guestId precisa ser string | undefined (NÃO null)
-    const guestIdToSend: string | undefined =
-      typeof guestId === "string" && guestId.trim()
-        ? guestId
-        : guestIdFromMiddleware;
-
-    await getEcoResponse({
+    // monta params de forma defensiva — só adiciona campos presentes
+    const params: Record<string, unknown> = {
       messages: Array.isArray(mensagens) ? mensagens : [],
-      userId: typeof usuario_id === "string" ? usuario_id : undefined,
-      userName: typeof nome_usuario === "string" ? nome_usuario : undefined,
-      accessToken: bearer,
-      clientHour: typeof clientHour === "number" ? clientHour : undefined,
-      sessionMeta: metaToSend,          // ✅ sem clientTz ad-hoc
+      stream,
       isGuest: Boolean(isGuest),
-      guestId: guestIdToSend,           // ✅ string | undefined
-      stream,                           // ✅ EcoStreamHandler com onEvent
-    });
+    };
 
-    // fallback: garante 'done' mesmo que pipeline não tenha enviado
+    if (typeof bearer === "string") params.accessToken = bearer;
+    if (typeof clientHour === "number") params.clientHour = clientHour;
+    if (sessionMeta && typeof sessionMeta === "object" && !Array.isArray(sessionMeta)) {
+      params.sessionMeta = sessionMeta;
+    }
+    if (typeof nome_usuario === "string") params.userName = nome_usuario;
+    if (typeof usuario_id === "string") params.userId = usuario_id;
+
+    const guestIdToSend =
+      (typeof guestId === "string" && guestId.trim()) ? guestId : guestIdFromMiddleware;
+    if (typeof guestIdToSend === "string") params.guestId = guestIdToSend;
+
+    // passa como any para não conflitar com diferenças locais de tipos
+    await getEcoResponse(params as any);
+
     if (!sawDone) {
       writeEvent({
         type: "control",
