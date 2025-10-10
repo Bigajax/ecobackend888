@@ -1,3 +1,4 @@
+// server/services/ConversationOrchestrator.ts
 import {
   ensureEnvs,
   now,
@@ -31,6 +32,7 @@ import type {
   EcoStreamEvent,
 } from "./conversation/types";
 
+// Reexport para compatibilidade
 export { getEcoResponse as getEcoResponseOtimizado };
 export type { EcoStreamEvent, EcoStreamHandler, EcoStreamingResult, EcoLatencyMarks };
 
@@ -45,6 +47,11 @@ export async function getEcoResponse(
   }
 ): Promise<EcoStreamingResult>;
 
+/**
+ * Orquestrador principal da Eco (modo full e streaming).
+ * - Se `stream` vier, usa pipeline de streaming e emite eventos.
+ * - Se não vier, retorna resposta completa (full).
+ */
 export async function getEcoResponse({
   messages,
   userId,
@@ -61,9 +68,11 @@ export async function getEcoResponse({
   activationTracer,
   isGuest = false,
   guestId = null,
-}: GetEcoParams & { promptOverride?: string; metaFromBuilder?: any; stream?: EcoStreamHandler }): Promise<
-  GetEcoResult | EcoStreamingResult
-> {
+}: GetEcoParams & {
+  promptOverride?: string;
+  metaFromBuilder?: any;
+  stream?: EcoStreamHandler;
+}): Promise<GetEcoResult | EcoStreamingResult> {
   ensureEnvs();
 
   if (!Array.isArray(messages) || messages.length === 0) {
@@ -78,11 +87,14 @@ export async function getEcoResponse({
   const streamHandler = stream ?? null;
   const timings: EcoLatencyMarks = {};
 
+  // Supabase somente quando NÃO for guest e houver token
   const supabase = !isGuest && accessToken ? supabaseWithBearer(accessToken) : null;
+
   const hasAssistantBeforeInThread = thread
     .slice(0, -1)
     .some((msg) => mapRoleForOpenAI(msg.role) === "assistant");
 
+  // Pré-atalhos (saudações, respostas curtas, etc.)
   const preLLM = await handlePreLLMShortcuts(
     {
       thread,
@@ -110,6 +122,7 @@ export async function getEcoResponse({
     return preLLM.result;
   }
 
+  // Decisão sobre memória e modo de conversa
   const ecoDecision = computeEcoDecision(ultimaMsg);
   activationTracer?.setMemoryDecision(
     ecoDecision.saveMemory,
@@ -138,6 +151,7 @@ export async function getEcoResponse({
     });
   }
 
+  // Fast lane (somente quando não for streaming)
   if (routeDecision.mode === "fast" && !streamHandler) {
     const inicioFast = now();
     const fast = await runFastLaneLLM({
@@ -163,6 +177,7 @@ export async function getEcoResponse({
     return fast.response;
   }
 
+  // Montagem de contexto (prompts, memórias, etc.)
   timings.contextBuildStart = now();
   log.info("// LATENCY: context_build_start", { at: timings.contextBuildStart });
 
@@ -205,8 +220,9 @@ export async function getEcoResponse({
   });
 
   const principalModel = process.env.ECO_CLAUDE_MODEL || "anthropic/claude-3-5-sonnet";
-  activationTracer?.setModel(principalModel);
+  activationTracer?.setModel?.(principalModel);
 
+  // STREAMING
   if (streamHandler) {
     return executeStreamingLLM({
       prompt,
@@ -227,6 +243,7 @@ export async function getEcoResponse({
     });
   }
 
+  // FULL
   return executeFullLLM({
     prompt,
     maxTokens,

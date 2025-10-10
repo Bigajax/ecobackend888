@@ -1,6 +1,7 @@
 // server/routes/promptRoutes.ts
 import { Router, type Request, type Response } from "express";
 import { getPromptEcoPreview } from "../controllers/promptController";
+import { getEcoResponse } from "../services/ConversationOrchestrator";
 
 const router = Router();
 
@@ -23,16 +24,16 @@ router.get("/prompt-preview", async (req: Request, res: Response) => {
 
 /**
  * POST /api/ask-eco
- * Stream SSE com resposta da Eco. Garante envio de 'done' sempre.
+ * Stream SSE com resposta da Eco — garante envio de 'done' sempre.
  */
 router.post("/ask-eco", async (req: Request, res: Response) => {
-  // Configuração essencial para SSE
+  // HEADERS essenciais para SSE
   res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
   res.setHeader("Cache-Control", "no-cache, no-transform");
   res.setHeader("Connection", "keep-alive");
   res.setHeader("X-Accel-Buffering", "no");
 
-  // CORS de segurança
+  // CORS (reforço; createApp já cuida globalmente)
   const origin = (req.headers.origin as string) || "*";
   res.setHeader("Access-Control-Allow-Origin", origin);
   res.setHeader(
@@ -41,16 +42,18 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
   );
   res.setHeader("Vary", "Origin");
 
-  // devolve guest id (se existir)
+  // devolve guest id se o middleware tiver setado
   if ((req as any).guest?.id) {
     res.setHeader("x-guest-id", (req as any).guest.id);
   }
 
-  // inicia o stream
+  // flush inicial
   // @ts-ignore
   if (typeof (res as any).flushHeaders === "function") (res as any).flushHeaders();
 
   let finished = false;
+  let sentDone = false;
+
   const endSafely = () => {
     if (finished) return;
     finished = true;
@@ -60,18 +63,17 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
   };
 
   // helpers SSE
-  const send = (type: string, payload: unknown) => {
+  const sseSend = (type: string, payload: unknown) => {
     if (finished) return;
+    if (type === "done") sentDone = true;
     res.write(`data: ${JSON.stringify({ type, payload })}\n\n`);
   };
-  const sendError = (message: string) => send("error", { error: String(message) });
-  const sendDone = (payload: unknown = {}) => send("done", payload);
 
-  // encerra se o cliente fechar
+  // fecha se cliente desconectar
   req.on("close", () => endSafely());
 
   try {
-    // corpo recebido
+    // Extrai parâmetros do body
     const {
       mensagens,
       nome_usuario,
@@ -80,37 +82,45 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
       isGuest,
       guestId,
       usuario_id,
+      sessionMeta,
     } = (req.body ?? {}) as Record<string, any>;
 
-    // confirma início
-    send("prompt_ready", { ok: true });
+    // evento inicial
+    sseSend("prompt_ready", { ok: true });
 
-    // ==========================================
-    // TODO: substitua pelo fluxo real da LLM.
-    // Exemplo simples de stream:
-    await new Promise((r) => setTimeout(r, 80));
-    send("first_token", { delta: "Olá" });
-    await new Promise((r) => setTimeout(r, 80));
-    send("chunk", { delta: ", tudo " });
-    await new Promise((r) => setTimeout(r, 80));
-    send("chunk", { delta: "bem?" });
-    // ==========================================
+    // token de acesso (se houver)
+    const bearer = req.headers.authorization?.startsWith("Bearer ")
+      ? req.headers.authorization.slice(7)
+      : undefined;
 
-    const metadata = {
-      userName: nome_usuario ?? null,
-      guest: Boolean(isGuest),
-      guestId: guestId ?? (req as any).guest?.id ?? null,
-      tz: clientTz ?? null,
-      hour: clientHour ?? null,
-      userId: usuario_id ?? null,
+    // Wrapper do handler de stream para garantir 'done' em último caso
+    const stream = {
+      send: (type: string, payload: unknown) => sseSend(type, payload),
+      close: () => endSafely(),
     };
 
-    // ✅ sempre finaliza corretamente
-    sendDone({ response: { content: "Fluxo finalizado com sucesso." }, metadata });
+    // Chama o orquestrador em modo streaming
+    await getEcoResponse({
+      messages: mensagens,
+      userId: usuario_id,
+      userName: nome_usuario,
+      accessToken: bearer,
+      clientHour,
+      clientTz,
+      sessionMeta,
+      isGuest: Boolean(isGuest),
+      guestId: guestId ?? (req as any).guest?.id ?? null,
+      stream,
+    });
+
+    // Se por qualquer motivo o pipeline não tiver enviado 'done', envia aqui
+    if (!sentDone) {
+      sseSend("done", { response: { content: "" }, metadata: { fallbackDone: true } });
+    }
   } catch (err: any) {
     const msg = err?.message || "Erro interno ao gerar resposta da Eco.";
-    sendError(msg);
-    sendDone({ error: msg });
+    sseSend("error", { error: msg });
+    if (!sentDone) sseSend("done", { error: msg });
   } finally {
     setTimeout(endSafely, 10);
   }
