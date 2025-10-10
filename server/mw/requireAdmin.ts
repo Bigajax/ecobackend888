@@ -1,30 +1,30 @@
 import type { NextFunction, Request, Response } from "express";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { ensureSupabaseConfigured } from "../lib/supabaseAdmin";
+import { getSupabaseAdmin, getSupabaseConfigError } from "../lib/supabaseAdmin";
 
 declare module "express-serve-static-core" {
   interface Request {
     supabaseAdmin?: SupabaseClient;
+    supabaseAdminError?: Error;
   }
 }
 
 export function requireAdmin(
   req: Request,
-  res: Response,
+  _res: Response,
   next: NextFunction
 ): void {
-  try {
-    const client = ensureSupabaseConfigured();
+  const client = getSupabaseAdmin();
+  if (client) {
     req.supabaseAdmin = client;
-    next();
-  } catch (error) {
-    res.status(500).json({
-      type: "about:blank",
-      title: "Admin configuration missing",
-      detail: "SUPABASE_URL ou SERVICE_ROLE ausentes no servidor.",
-      status: 500,
-    });
+  } else {
+    const configurationError = getSupabaseConfigError();
+    if (configurationError) {
+      req.supabaseAdminError = configurationError;
+    }
   }
+
+  next();
 }
 
 export default requireAdmin;
