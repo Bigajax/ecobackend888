@@ -5,6 +5,10 @@ const matrizPromptBaseV2: MatrizPromptBaseV2 = {
   /* ============== base ============== */
   baseModules: {
     core: [
+      // Prelúdio (ordem 0): missão, restrições, amplitude e confidencialidade
+      "DEVELOPER_PROMPT.txt",
+
+      // Identidade e demais núcleos
       "IDENTIDADE.txt",
       "MODULACAO_TOM_REGISTRO.txt",
       "LINGUAGEM_NATURAL.txt",
@@ -38,7 +42,9 @@ const matrizPromptBaseV2: MatrizPromptBaseV2 = {
   } as Record<Nivel, { specific: string[]; inherits: Camada[] }>),
 
   /* ============== compat legado (limpo) ============== */
+  // Mantemos a ordem aqui para garantir precedência no merge final.
   alwaysInclude: [
+    "DEVELOPER_PROMPT.txt",
     "PRINCIPIOS_CHAVE.txt",
     "ECO_ESTRUTURA_DE_RESPOSTA.txt",
   ],
@@ -52,6 +58,12 @@ const matrizPromptBaseV2: MatrizPromptBaseV2 = {
 
   /* ============== regras semânticas (condições) ============== */
   condicoesEspeciais: ({
+    // Prelúdio: sempre incluir; sem gates de intensidade/nível.
+    "DEVELOPER_PROMPT.txt": {
+      descricao: "Prelúdio de missão, restrições, amplitude e confidencialidade (ordem 0).",
+      regra: "nivel>=1",
+    },
+
     "ESCALA_ABERTURA_1a3.txt": {
       descricao: "Mapa de abertura 1–3 para calibrar tom/ritmo",
       regra: "nivel>=1",
@@ -181,6 +193,9 @@ const matrizPromptBaseV2: MatrizPromptBaseV2 = {
   /* ============== prioridade (budget) ============== */
   limites: {
     prioridade: [
+      // Precedência absoluta
+      "DEVELOPER_PROMPT.txt",
+
       // Segurança
       "DETECCAOCRISE.txt",
 
@@ -231,6 +246,19 @@ const matrizPromptBaseV2: MatrizPromptBaseV2 = {
       "BLOCO_TECNICO_MEMORIA.txt",
     ],
   },
+};
+
+/**
+ * (Opcional) Pesos de ordenação absoluta para o builder.
+ * Se o seu merge final aceitar esse mapa, use:
+ *   items.sort((a,b) => (ordemAbsoluta[a] ?? 999) - (ordemAbsoluta[b] ?? 999))
+ */
+export const ordemAbsoluta: Record<string, number> = {
+  "DEVELOPER_PROMPT.txt": 0,
+  "IDENTIDADE.txt": 2,
+  "PRINCIPIOS_CHAVE.txt": 3,
+  "ANTISALDO_MIN.txt": 5,
+  "LINGUAGEM_NATURAL.txt": 15,
 };
 
 export { matrizPromptBaseV2 };

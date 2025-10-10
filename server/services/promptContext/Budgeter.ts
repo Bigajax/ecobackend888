@@ -6,6 +6,7 @@
  * - Deduplica módulos.
  * - Anota cortes com motivo (+tokens que faltaram).
  * - Permite reservar tokens para separadores e margem final.
+ * - **NOVO**: suporta `pinned` (itens fixos no início) e `orderWeights` (pesos absolutos).
  *
  * OBS: Exporta a classe `Budgeter` (named export) para compatibilidade com imports:
  *   import { Budgeter } from './Budgeter';
@@ -13,7 +14,7 @@
  */
 
 export type BudgetInput = {
-  /** Lista de módulos (nomes) em ordem de prioridade desejada */
+  /** Lista de módulos (nomes) em ordem de prioridade desejada (baseline) */
   ordered: string[];
   /** Função que retorna a contagem de tokens de um módulo (já cacheada no ModuleStore) */
   tokenOf: (name: string) => number;
@@ -23,6 +24,19 @@ export type BudgetInput = {
   sepTokens?: number;
   /** Reserva de margem para evitar estouro (default: 0) */
   safetyMarginTokens?: number;
+
+  /**
+   * **NOVO**: Módulos fixos que devem ser considerados primeiro.
+   * São deduplicados e movidos para o início antes do planejamento.
+   * Ex.: ["DEVELOPER_PROMPT.txt"]
+   */
+  pinned?: string[];
+
+  /**
+   * **NOVO**: Pesos absolutos para ordenação estável (menor = maior prioridade).
+   * É aplicado após `pinned` e antes da ordem original de `ordered`.
+   */
+  orderWeights?: Record<string, number>;
 };
 
 export type BudgetResult = {
@@ -51,6 +65,15 @@ function coalesceSep(sep?: number): number {
   return Math.floor(sep);
 }
 
+/** Comparator estável por pesos absolutos com fallback 999 */
+function byWeights(a: string, b: string, weights?: Record<string, number>): number {
+  const wa = weights?.[a];
+  const wb = weights?.[b];
+  const fa = Number.isFinite(wa as number) ? (wa as number) : 999;
+  const fb = Number.isFinite(wb as number) ? (wb as number) : 999;
+  return fa - fb;
+}
+
 /**
  * Calcula o custo incremental de adicionar um módulo (tokens do módulo + separador).
  * Observação: assumimos 1 separador por módulo incluído, como no comportamento atual.
@@ -59,10 +82,29 @@ function moduleCost(tokens: number, sep: number): number {
   return tokens + sep;
 }
 
+/** Monta a lista final de avaliação: pinned → ordered (com pesos) → dedup */
+function buildEvaluationList(
+  ordered: string[],
+  pinned: string[] | undefined,
+  weights: Record<string, number> | undefined
+): string[] {
+  const base = uniqueStable(ordered.slice());
+  const pins = uniqueStable((pinned ?? []).slice());
+  // Remove pins que já estejam no base (dedup posterior preserva primeira ocorrência)
+  const merged = [...pins, ...base];
+  // Ordena: pins preservam sua própria ordem; o restante ordena por pesos absolutos
+  // Estratégia: fatiamos pins + resto, aplicamos sort por pesos só no resto.
+  const pinSet = new Set(pins);
+  const rest = merged.filter((n) => !pinSet.has(n));
+  rest.sort((a, b) => byWeights(a, b, weights));
+  return uniqueStable([...pins, ...rest]);
+}
+
 /**
  * Aplica orçamento (versão funcional pura).
  * Estratégia:
- *   - Percorre `ordered` deduplicado.
+ *   - Constrói lista de avaliação com `pinned` e `orderWeights`.
+ *   - Percorre lista deduplicada.
  *   - Inclui módulo se couber no orçamento restante (considerando safetyMargin).
  *   - Caso contrário, adiciona em `cut` com anotação de +tokens que faltaram.
  */
@@ -72,9 +114,11 @@ export function budgetModules({
   budgetTokens,
   sepTokens,
   safetyMarginTokens = 0,
+  pinned,
+  orderWeights,
 }: BudgetInput): BudgetResult {
   const sep = coalesceSep(sepTokens);
-  const list = uniqueStable(ordered);
+  const list = buildEvaluationList(ordered, pinned, orderWeights);
 
   const used: string[] = [];
   const cut: string[] = [];
@@ -112,6 +156,8 @@ export type BudgetLog = {
   budgetTokens: number;
   sepTokens: number;
   safetyMarginTokens: number;
+  pinned: string[];
+  orderWeights?: Record<string, number>;
 };
 
 export function debugBudgetInfo(
@@ -119,7 +165,9 @@ export function debugBudgetInfo(
   priority: string[],
   budgetTokens: number,
   sepTokens = 1,
-  safetyMarginTokens = 0
+  safetyMarginTokens = 0,
+  pinned: string[] = [],
+  orderWeights?: Record<string, number>
 ): BudgetLog {
   return {
     ordered,
@@ -128,11 +176,13 @@ export function debugBudgetInfo(
     budgetTokens,
     sepTokens: coalesceSep(sepTokens),
     safetyMarginTokens,
+    pinned: uniqueStable(pinned),
+    orderWeights,
   };
 }
 
 /* ==================================================================== */
-/*  CLASSE Budgeter (compat com "new Budgeter(...)")                     */
+/*  CLASSE Budgeter (compat com "new Budgeter(...)")                    */
 /* ==================================================================== */
 
 export class Budgeter {
@@ -140,23 +190,31 @@ export class Budgeter {
   private budgetTokens: number;
   private sepTokens: number;
   private safetyMarginTokens: number;
+  private pinned: string[];
+  private orderWeights?: Record<string, number>;
 
   /**
    * @param maxTokens Orçamento total (exclui overhead de sistema)
    * @param tokenOf Função para obter tokens por módulo
    * @param sepTokens Tokens por separador (default 1)
    * @param safetyMarginTokens Reserva de segurança (default 0)
+   * @param pinned Módulos fixos a serem avaliados primeiro (default [])
+   * @param orderWeights Pesos absolutos de ordenação (default undefined)
    */
   constructor(
     maxTokens: number,
     tokenOf: (name: string) => number,
     sepTokens = 1,
-    safetyMarginTokens = 0
+    safetyMarginTokens = 0,
+    pinned: string[] = [],
+    orderWeights?: Record<string, number>
   ) {
     this.budgetTokens = Math.max(0, maxTokens | 0);
     this.tokenOf = tokenOf;
     this.sepTokens = coalesceSep(sepTokens);
     this.safetyMarginTokens = Math.max(0, safetyMarginTokens | 0);
+    this.pinned = uniqueStable(pinned);
+    this.orderWeights = orderWeights;
   }
 
   /**
@@ -169,35 +227,39 @@ export class Budgeter {
       budgetTokens: this.budgetTokens,
       sepTokens: this.sepTokens,
       safetyMarginTokens: this.safetyMarginTokens,
+      pinned: this.pinned,
+      orderWeights: this.orderWeights,
     });
   }
 
-  /**
-   * Atualiza o orçamento total.
-   */
+  /** Atualiza o orçamento total. */
   setBudgetTokens(v: number) {
     this.budgetTokens = Math.max(0, v | 0);
   }
 
-  /**
-   * Atualiza o custo de separador.
-   */
+  /** Atualiza o custo de separador. */
   setSepTokens(v: number) {
     this.sepTokens = coalesceSep(v);
   }
 
-  /**
-   * Atualiza a margem de segurança.
-   */
+  /** Atualiza a margem de segurança. */
   setSafetyMarginTokens(v: number) {
     this.safetyMarginTokens = Math.max(0, v | 0);
   }
 
-  /**
-   * Atualiza a função de custo por módulo (tokens).
-   */
+  /** Atualiza a função de custo por módulo (tokens). */
   setTokenOf(fn: (name: string) => number) {
     this.tokenOf = fn;
+  }
+
+  /** Define/atualiza módulos fixos. */
+  setPinned(list: string[]) {
+    this.pinned = uniqueStable(list ?? []);
+  }
+
+  /** Define/atualiza pesos absolutos. */
+  setOrderWeights(weights?: Record<string, number>) {
+    this.orderWeights = weights;
   }
 
   /**

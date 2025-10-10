@@ -19,11 +19,13 @@ import {
   MEMORY_POLICY_EXPLICIT,
 } from "./promptIdentity";
 
+// ⬇️ prioridade absoluta (inclui DEVELOPER_PROMPT=0)
+import { ordemAbsoluta } from "./matrizPromptBaseV2";
+
 function collectTagsFromMemories(mems: SimilarMemory[] | undefined): string[] {
   if (!Array.isArray(mems)) return [];
   const seen = new Set<string>();
   const out: string[] = [];
-
   for (const memory of mems) {
     const tags = Array.isArray(memory?.tags) ? memory!.tags : [];
     for (const raw of tags) {
@@ -35,7 +37,6 @@ function collectTagsFromMemories(mems: SimilarMemory[] | undefined): string[] {
       if (out.length >= 6) return out;
     }
   }
-
   return out;
 }
 
@@ -43,7 +44,6 @@ function renderDecBlock(dec: DecSnapshot): string {
   const viva = dec.vivaSteps.length ? dec.vivaSteps.join(" → ") : "none";
   const tags = dec.tags.length ? dec.tags.join(", ") : "none";
   const domain = dec.domain ?? "none";
-
   return [
     "DEC:",
     `  intensity: ${dec.intensity}`,
@@ -59,7 +59,6 @@ function renderDecBlock(dec: DecSnapshot): string {
 
 /* -------------------------------------------------------------------------- */
 /*  INTENT RESOLVER — mapeia texto de entrada -> módulos extras               */
-/*  Mantém o front agnóstico; funciona com as QuickSuggestions definidas      */
 /* -------------------------------------------------------------------------- */
 function inferIntentModules(texto: string): string[] {
   const t = (texto || "").toLowerCase();
@@ -71,7 +70,6 @@ function inferIntentModules(texto: string): string[] {
     /emo[cç]?[aã]o forte do passado/.test(t) ||
     /lembran[çc]a/.test(t) ||
     /🔄|🌊/.test(texto);
-
   if (wantsRevisit) {
     return [
       "eco_memoria_revisitar_passado",
@@ -111,6 +109,22 @@ function inferIntentModules(texto: string): string[] {
 
   return [];
 }
+
+/* ---------- helpers de ordenação absoluta ---------- */
+const ABS_FIRST = "DEVELOPER_PROMPT.txt";
+const byAbsoluteOrder = (a: string, b: string) =>
+  (ordemAbsoluta[a] ?? (a === ABS_FIRST ? 0 : 999)) -
+  (ordemAbsoluta[b] ?? (b === ABS_FIRST ? 0 : 999));
+
+const ensureDeveloperPromptFirst = (list: string[]) => {
+  const set = new Set(list);
+  if (!set.has(ABS_FIRST)) list.unshift(ABS_FIRST);
+  // ordena pelo mapa de pesos (fallback 999)
+  list.sort(byAbsoluteOrder);
+  // remove duplicatas preservando a primeira ocorrência
+  const seen = new Set<string>();
+  return list.filter((x) => (seen.has(x) ? false : (seen.add(x), true)));
+};
 
 export interface ContextBuildResult {
   base: string;
@@ -182,17 +196,24 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
   // 🔎 módulos inferidos pelas intents dos QuickSuggestions
   const intentModules = inferIntentModules(texto);
 
-  // Ordem: seleção base -> +intents (sem duplicar)
-  const modulesRaw = toUnique([...toUnique(baseSelection.raw), ...intentModules]);
+  // Ordem: seleção base -> +intents -> força DEVELOPER_PROMPT primeiro
+  const modulesRaw = ensureDeveloperPromptFirst(
+    toUnique([...toUnique(baseSelection.raw), ...intentModules])
+  );
 
-  const modulesAfterGating = baseSelection.posGating
-    ? toUnique([...toUnique(baseSelection.posGating), ...intentModules])
-    : modulesRaw;
+  const modulesAfterGating = ensureDeveloperPromptFirst(
+    baseSelection.posGating
+      ? toUnique([...toUnique(baseSelection.posGating), ...intentModules])
+      : modulesRaw
+  );
 
-  const ordered = baseSelection.priorizado?.length
-    ? toUnique([...toUnique(baseSelection.priorizado), ...intentModules])
-    : modulesAfterGating;
+  const ordered = ensureDeveloperPromptFirst(
+    baseSelection.priorizado?.length
+      ? toUnique([...toUnique(baseSelection.priorizado), ...intentModules])
+      : modulesAfterGating
+  );
 
+  // 🔢 carrega candidatos respeitando a ordem absoluta
   const candidates = await ModuleCatalog.load(ordered);
   const selection = Selector.applyModuleMetadata({
     dec: DEC,
@@ -207,15 +228,22 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
     meta: module.meta,
   }));
 
+  // ⚖️ planeja com Budgeter suportando pinned + weights
   const budgetResult = planBudget({
-    ordered: selection.orderedNames,
+    ordered: selection.orderedNames.sort(byAbsoluteOrder),
     candidates: modulesWithTokens,
+    pinned: [ABS_FIRST],
+    orderWeights: ordemAbsoluta,
   });
 
   const usedSet = new Set(budgetResult.used);
 
-  const finalRegular = selection.regular.filter((module) => usedSet.has(module.name));
-  const finalFooters = selection.footers.filter((module) => usedSet.has(module.name));
+  const finalRegular = selection.regular
+    .filter((m) => usedSet.has(m.name))
+    .sort((a, b) => byAbsoluteOrder(a.name, b.name));
+  const finalFooters = selection.footers
+    .filter((m) => usedSet.has(m.name))
+    .sort((a, b) => byAbsoluteOrder(a.name, b.name));
 
   const debugMap = selection.debug;
   for (const module of modulesWithTokens) {
@@ -287,7 +315,6 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
 
   const askedAboutMemory =
     /\b(lembr(a|ou)|record(a|a-se)|mem[oó]ria(s)?|conversas? anteriores?)\b/i.test(texto);
-
   const hasMemories = Array.isArray(memsSemelhantesNorm) && memsSemelhantesNorm.length > 0;
 
   if (askedAboutMemory && hasMemories) {
@@ -300,7 +327,7 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
     );
   }
 
-  // 🔁 Sempre injete bloco de memórias — mesmo vazio — para evitar o disclaimer do LLM
+  // 🔁 Sempre injete bloco de memórias — mesmo vazio
   const memRecallBlock =
     formatMemRecall(memsSemelhantesNorm) ||
     "MEMORIAS_RELEVANTES:\n(nenhuma encontrada desta vez)";
@@ -326,9 +353,11 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
   if (isDebug()) {
     log.debug("[ContextBuilder] módulos base", {
       nivel,
-      ordered: selection.orderedNames,
-      incluiEscala: selection.orderedNames.includes("ESCALA_ABERTURA_1a3.txt"),
-      addByIntent: intentModules,
+      ordered,
+      orderedAfterBudget: budgetResult.used,
+      incluiDeveloperPrompt: ordered[0] === ABS_FIRST,
+      incluiEscala: ordered.includes("ESCALA_ABERTURA_1a3.txt"),
+      addByIntent: inferIntentModules(texto),
     });
     const tokensContexto = ModuleCatalog.tokenCountOf("__INLINE__:ctx", texto);
     const overheadTokens = ModuleCatalog.tokenCountOf("__INLINE__:ovh", instructionText);
