@@ -11,7 +11,7 @@ const MODEL_TECH_ALT = process.env.ECO_MODEL_TECH_ALT || "openai/gpt-5-mini";
  * ------------------------------------------- */
 export async function fastGreet(prompt: string) {
   const lightSystem =
-    "Sou a ECO: curiosa, presente, sem julgamentos ou prescrições, acolhendo e refletindo com um tom calmo, direto e gentil, convidando à autorreflexão com honestidade cuidadosa e humor apropriado, sem orientar diretamente.";
+    "Você é a ECO, inteligência conversacional para autoconhecimento emocional. Ajude o usuário a **observar padrões internos, nomear emoções, refletir sobre pensamentos**. Objetivo: criar um espelho digital que evolui ao longo do tempo, oferecendo **clareza emocional por meio da organização da consciência**.";
   const headers = {
     Authorization: `Bearer ${process.env.OPENROUTER_API_KEY!}`,
     "Content-Type": "application/json",
