@@ -157,8 +157,15 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
     }
   }, 20_000);
 
+  const isWritable = () => {
+    if (state.closed || state.done) return false;
+    if ((res as any).writableEnded || (res as any).writableFinished) return false;
+    if ((res as any).destroyed) return false;
+    return true;
+  };
+
   const safeWrite = (payload: string) => {
-    if (state.done || state.closed) return;
+    if (!isWritable()) return;
     try {
       res.write(payload);
     } catch (error) {
@@ -193,12 +200,17 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
       finishReason: state.finishReason || reason || "unknown",
       sawChunk: state.sawChunk,
     });
+    state.done = true;
+    if (state.closed) {
+      clearInterval(heartbeat);
+      return;
+    }
+
     try {
-      res.write("data: [DONE]\\n\\n");
+      res.write("data: [DONE]\n\n");
     } catch (error) {
       state.closed = true;
     }
-    state.done = true;
     try {
       res.end();
     } catch {
@@ -210,11 +222,14 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
   sendReady();
 
   req.on("close", () => {
+    if (state.done) return;
     state.closed = true;
-    if (!state.done) {
-      sendError("client_closed");
-      sendDone("client_closed");
-    }
+    state.done = true;
+    clearInterval(heartbeat);
+    log.warn("[ask-eco] SSE client closed", {
+      origin,
+      guestId: guestIdFromMiddleware ?? guestIdToSend ?? null,
+    });
   });
 
   const forwardEvent = (rawEvt: EcoStreamEvent | any) => {
