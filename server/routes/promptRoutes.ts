@@ -2,6 +2,7 @@
 import { Router, type Request, type Response } from "express";
 import { getPromptEcoPreview } from "../controllers/promptController";
 import { getEcoResponse } from "../services/ConversationOrchestrator";
+import { log } from "../services/promptContext/logger";
 import type { EcoStreamHandler, EcoStreamEvent } from "../services/conversation/types";
 
 const router = Router();
@@ -69,205 +70,208 @@ function extractTextLoose(payload: any): string | undefined {
 
 /** POST /api/ask-eco — stream SSE */
 router.post("/ask-eco", async (req: Request, res: Response) => {
-  // Headers SSE
+  const accept = String(req.headers.accept || "").toLowerCase();
+  const wantsStream = !accept || accept.includes("text/event-stream") || accept.includes("*/*");
+
+  const origin = (req.headers.origin as string) || "*";
+  const guestIdFromMiddleware: string | undefined = (req as any)?.guest?.id || undefined;
+
+  const {
+    mensagens,
+    nome_usuario,
+    usuario_id,
+    clientHour,
+    isGuest,
+    guestId,
+    sessionMeta,
+  } = (req.body ?? {}) as Record<string, any>;
+
+  const bearer =
+    req.headers.authorization?.startsWith("Bearer ")
+      ? req.headers.authorization.slice(7)
+      : undefined;
+
+  const params: Record<string, unknown> = {
+    messages: Array.isArray(mensagens) ? mensagens : [],
+    isGuest: Boolean(isGuest),
+  };
+
+  if (typeof bearer === "string") params.accessToken = bearer;
+  if (typeof clientHour === "number") params.clientHour = clientHour;
+  if (sessionMeta && typeof sessionMeta === "object" && !Array.isArray(sessionMeta)) {
+    params.sessionMeta = sessionMeta;
+  }
+  if (typeof nome_usuario === "string") params.userName = nome_usuario;
+  if (typeof usuario_id === "string") params.userId = usuario_id;
+
+  const guestIdToSend =
+    typeof guestId === "string" && guestId.trim() ? guestId : guestIdFromMiddleware;
+  if (typeof guestIdToSend === "string") params.guestId = guestIdToSend;
+
+  if (!wantsStream) {
+    try {
+      const result = await getEcoResponse(params as any);
+      const text = extractTextLoose(result) ?? "";
+      log.info("[ask-eco] fallback JSON response", {
+        mode: "json",
+        hasContent: text.length > 0,
+      });
+      return res.status(200).json({ content: text || null, raw: result });
+    } catch (error: any) {
+      const message = error instanceof Error ? error.message : String(error?.message ?? error);
+      log.error("[ask-eco] fallback JSON error", { message });
+      return res.status(500).json({ error: message });
+    }
+  }
+
+  // fix: ensure SSE headers and initial handshake before LLM call
   res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
   res.setHeader("Cache-Control", "no-cache, no-transform");
   res.setHeader("Connection", "keep-alive");
   res.setHeader("X-Accel-Buffering", "no");
-
-  const origin = (req.headers.origin as string) || "*";
   res.setHeader("Access-Control-Allow-Origin", origin);
+  res.setHeader("Access-Control-Allow-Credentials", "true");
   res.setHeader(
     "Access-Control-Allow-Headers",
     "Content-Type, Authorization, X-Requested-With, Accept, Origin, X-Guest-Id, X-Guest-Mode"
   );
   res.setHeader("Access-Control-Expose-Headers", "X-Guest-Id, Content-Type, Cache-Control");
   res.setHeader("Vary", "Origin");
-
-  // Propaga guest id (se houver)
-  const guestIdFromMiddleware: string | undefined = (req as any)?.guest?.id || undefined;
   if (guestIdFromMiddleware) res.setHeader("x-guest-id", guestIdFromMiddleware);
 
-  // @ts-ignore
-  if (typeof (res as any).flushHeaders === "function") (res as any).flushHeaders();
+  const flush = (res as any).flushHeaders;
+  if (typeof flush === "function") flush.call(res);
 
-  // Heartbeat
-  const ping = setInterval(() => {
+  const state = {
+    done: false,
+    sawChunk: false,
+    finishReason: "",
+    closed: false,
+  };
+
+  const heartbeat = setInterval(() => {
     try {
       res.write(`: ping ${Date.now()}\n\n`);
-    } catch {}
+    } catch (error) {
+      clearInterval(heartbeat);
+    }
   }, 20_000);
 
-  let finished = false;
-  let sawDone = false;
-  let firstTokenSent = false;
-
-  const endSafely = () => {
-    if (finished) return;
-    finished = true;
-    try { res.end(); } catch {}
-  };
-
-  /** Envia SSE como:
-   *  event: <name>
-   *  data: {"type":"<name>", ...}
-   */
-  const sendEvent = (name: string, payload?: any) => {
-    if (finished) return;
-    const dataObj =
-      payload && typeof payload === "object" && !Array.isArray(payload)
-        ? { type: name, ...payload }
-        : payload === undefined
-        ? { type: name }
-        : { type: name, value: payload };
-    res.write(`event: ${name}\n`);
-    res.write(`data: ${JSON.stringify(dataObj)}\n\n`);
-    if (name === "done") sawDone = true;
-  };
-
-  // Traduz eventos internos -> SSE esperados pelo front
-  const forwardEvent = (rawEvt: EcoStreamEvent | any) => {
-    if (finished) return;
-    const evt = rawEvt as any;
-    const t = String(evt?.type || "");
-
-    switch (t) {
-      case "control": {
-        const name = evt?.name;
-        if (name === "prompt_ready") sendEvent("prompt_ready", { ok: true });
-        else if (name === "done") sendEvent("done", evt?.meta ?? { done: true });
-        return;
-      }
-
-      case "delta":
-      case "token":
-      case "chunk": {
-        const delta = evt?.delta ?? evt?.content ?? evt?.text ?? evt?.message;
-        if (typeof delta === "string" && delta.length > 0) {
-          if (!firstTokenSent) {
-            sendEvent("first_token", { delta });
-            firstTokenSent = true;
-          } else {
-            sendEvent("chunk", { delta });
-          }
-        }
-        return;
-      }
-
-      case "meta":
-      case "meta_pending":
-      case "meta-pending": {
-        const metadata = evt?.metadata ?? evt;
-        sendEvent(t === "meta" ? "meta" : "meta_pending", { metadata });
-        return;
-      }
-
-      case "memory_saved": {
-        const memory = evt?.memory ?? evt?.memoria ?? evt;
-        sendEvent("memory_saved", memory);
-        return;
-      }
-
-      case "latency": {
-        const value = evt?.value ?? evt?.latencyMs;
-        sendEvent("latency", { value });
-        return;
-      }
-
-      case "error": {
-        const errorPayload = evt?.error ?? { message: evt?.message || "Erro desconhecido" };
-        sendEvent("error", { error: errorPayload });
-        return;
-      }
-
-      // já no formato certo
-      case "prompt_ready":
-        sendEvent("prompt_ready", { ok: true });
-        return;
-
-      case "first_token": {
-        const delta = evt?.delta ?? evt?.content ?? evt?.text ?? "";
-        if (typeof delta === "string" && delta) {
-          firstTokenSent = true;
-          sendEvent("first_token", { delta });
-        }
-        return;
-      }
-
-      case "done":
-        sendEvent("done", evt?.meta ?? { done: true });
-        return;
-
-      default:
-        return; // ignora
+  const safeWrite = (payload: string) => {
+    if (state.done || state.closed) return;
+    try {
+      res.write(payload);
+    } catch (error) {
+      state.closed = true;
     }
   };
+
+  const sendReady = () => {
+    log.info("[ask-eco] SSE ready", {
+      origin,
+      guestId: guestIdFromMiddleware ?? guestIdToSend ?? null,
+    });
+    safeWrite("event: ready\ndata: {}\n\n");
+  };
+
+  const sendChunk = (piece: string) => {
+    if (!piece || typeof piece !== "string") return;
+    state.sawChunk = true;
+    log.info("[ask-eco] SSE chunk", { size: piece.length });
+    safeWrite(`data: ${JSON.stringify({ delta: { content: piece } })}\n\n`);
+  };
+
+  const sendError = (message: string) => {
+    log.error("[ask-eco] SSE error", { message });
+    safeWrite(`event: error\ndata: ${JSON.stringify({ message })}\n\n`);
+  };
+
+  const sendDone = (reason: string | null | undefined) => {
+    if (state.done) return;
+    state.finishReason = reason ?? state.finishReason ?? "unknown";
+    log.info("[ask-eco] SSE done", {
+      finishReason: state.finishReason || reason || "unknown",
+      sawChunk: state.sawChunk,
+    });
+    try {
+      res.write("data: [DONE]\\n\\n");
+    } catch (error) {
+      state.closed = true;
+    }
+    state.done = true;
+    try {
+      res.end();
+    } catch {
+      /* noop */
+    }
+    clearInterval(heartbeat);
+  };
+
+  sendReady();
 
   req.on("close", () => {
-    clearInterval(ping);
-    if (!sawDone) sendEvent("done", { finishReason: "client_closed" });
-    endSafely();
+    state.closed = true;
+    if (!state.done) {
+      sendError("client_closed");
+      sendDone("client_closed");
+    }
   });
 
-  try {
-    const {
-      mensagens,
-      nome_usuario,
-      usuario_id,
-      clientHour,
-      isGuest,
-      guestId,
-      sessionMeta,
-    } = (req.body ?? {}) as Record<string, any>;
+  const forwardEvent = (rawEvt: EcoStreamEvent | any) => {
+    if (state.done || state.closed) return;
+    const evt = rawEvt as any;
+    const type = String(evt?.type || "");
 
-    // Sinaliza prontidão
-    sendEvent("prompt_ready", { ok: true });
-
-    const bearer =
-      req.headers.authorization?.startsWith("Bearer ")
-        ? req.headers.authorization.slice(7)
-        : undefined;
-
-    const stream: EcoStreamHandler = { onEvent: (event) => forwardEvent(event) };
-
-    // Monta params defensivamente
-    const params: Record<string, unknown> = {
-      messages: Array.isArray(mensagens) ? mensagens : [],
-      stream,
-      isGuest: Boolean(isGuest),
-    };
-
-    if (typeof bearer === "string") params.accessToken = bearer;
-    if (typeof clientHour === "number") params.clientHour = clientHour;
-    if (sessionMeta && typeof sessionMeta === "object" && !Array.isArray(sessionMeta)) {
-      params.sessionMeta = sessionMeta;
+    switch (type) {
+      case "control": {
+        const name = evt?.name;
+        if (name === "done") {
+          sendDone(evt?.meta?.finishReason ?? evt?.finishReason ?? "done");
+        }
+        return;
+      }
+      case "chunk":
+      case "delta":
+      case "token": {
+        const delta = evt?.delta ?? evt?.content ?? evt?.text ?? evt?.message;
+        if (typeof delta === "string" && delta.trim()) {
+          sendChunk(delta);
+        }
+        return;
+      }
+      case "done": {
+        sendDone(evt?.meta?.finishReason ?? evt?.finishReason ?? "done");
+        return;
+      }
+      case "error": {
+        const message =
+          typeof evt?.message === "string"
+            ? evt.message
+            : evt?.error?.message || "Erro desconhecido";
+        sendError(message);
+        sendDone("error");
+        return;
+      }
+      default:
+        return;
     }
-    if (typeof nome_usuario === "string") params.userName = nome_usuario;
-    if (typeof usuario_id === "string") params.userId = usuario_id;
+  };
 
-    const guestIdToSend =
-      (typeof guestId === "string" && guestId.trim()) ? guestId : guestIdFromMiddleware;
-    if (typeof guestIdToSend === "string") params.guestId = guestIdToSend;
+  try {
+    const stream: EcoStreamHandler = { onEvent: (event) => forwardEvent(event) };
+    const result = await getEcoResponse({ ...params, stream } as any);
 
-    // === Chamada ao orquestrador ===
-    const result = await getEcoResponse(params as any);
-
-    // Se ninguém emitiu "done"/tokens (ex.: atalho/full sem stream),
-    // fazemos o BRIDGE-FALLBACK: extraímos texto do retorno e emitimos.
-    if (!sawDone) {
+    if (!state.done) {
       const text = extractTextLoose(result);
       if (typeof text === "string" && text.trim()) {
-        sendEvent("first_token", { delta: text });
+        sendChunk(text);
       }
-      sendEvent("done", { finishReason: text ? "bridge_fallback" : "fallback" });
+      sendDone(text ? "bridge_fallback" : "fallback");
     }
-  } catch (err: any) {
-    const message = err instanceof Error ? err.message : (err?.message || "Erro desconhecido");
-    sendEvent("error", { error: { message } });
-    if (!sawDone) sendEvent("done", { finishReason: "error" });
-  } finally {
-    clearInterval(ping);
-    setTimeout(endSafely, 10);
+  } catch (error: any) {
+    const message = error instanceof Error ? error.message : String(error?.message ?? error);
+    sendError(message || "Erro desconhecido");
+    sendDone("error");
   }
 });
 

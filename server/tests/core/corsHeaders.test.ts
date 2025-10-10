@@ -45,7 +45,7 @@ test("OPTIONS /api/ask-eco expõe cabeçalhos de convidado", async () => {
       },
     });
 
-    assert.equal(response.status, 204, "preflight deve responder 204");
+    assert.equal(response.status, 200, "preflight deve responder 200");
     const allowHeaders = response.headers.get("access-control-allow-headers") ?? "";
     assert.match(
       allowHeaders,

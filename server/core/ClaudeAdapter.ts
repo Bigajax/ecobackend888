@@ -50,7 +50,7 @@ export interface ClaudeStreamCallbacks {
   onError?: (error: Error) => void | Promise<void>;
 }
 
-const DEFAULT_TIMEOUT_MS = 12_000;
+const DEFAULT_TIMEOUT_MS = 30_000; // fix: extend LLM timeout to avoid premature stream aborts
 
 class ClaudeTimeoutError extends Error {
   constructor(timeoutMs: number) {

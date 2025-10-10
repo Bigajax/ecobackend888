@@ -10,7 +10,7 @@ const MODEL_FALLBACK_MAIN = "openai/gpt-5-chat";
 export async function callOpenRouterChat(
   payload: any,
   headers: Record<string, string>,
-  timeoutMs = 12000
+  timeoutMs = 30000 // fix: extend HTTP timeout to match SSE expectations
 ) {
   try {
     const resp = await axios.post(
