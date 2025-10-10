@@ -64,10 +64,10 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
     } catch {}
   };
 
-  // escritor único de eventos SSE (no formato do seu EcoStreamEvent)
+  // escritor único de eventos SSE no formato EcoStreamEvent
   const writeEvent = (evt: EcoStreamEvent) => {
     if (finished) return;
-    if (evt?.type === "control" && (evt as any).name === "done") {
+    if (evt.type === "control" && (evt as any).name === "done") {
       sawDone = true;
     }
     res.write(`data: ${JSON.stringify(evt)}\n\n`);
@@ -81,15 +81,15 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
     const {
       mensagens,
       nome_usuario,
-      clientHour,     // <- existe em GetEcoParams
-      // clientTz,     // <- NÃO existe em GetEcoParams (não enviar)
+      clientHour,   // OK em GetEcoParams
+      // clientTz,   // NÃO existe em GetEcoParams
       isGuest,
       guestId,
       usuario_id,
       sessionMeta,
     } = (req.body ?? {}) as Record<string, any>;
 
-    // Envia evento inicial no formato do seu tipo (control + name)
+    // Envia evento inicial
     writeEvent({ type: "control", name: "prompt_ready", timings: undefined });
 
     // Token Bearer (se houver)
@@ -98,11 +98,10 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
         ? req.headers.authorization.slice(7)
         : undefined;
 
-    // Implementa EcoStreamHandler APENAS com onEvent
+    // Implementa EcoStreamHandler: somente onEvent(event)
     const stream: EcoStreamHandler = {
       onEvent: (event) => {
-        // O orquestrador emitirá EcoStreamEvent já no formato correto;
-        // apenas repassamos para o cliente via SSE.
+        // repassa exatamente o EcoStreamEvent que vier do orquestrador
         writeEvent(event);
       },
     };
@@ -122,14 +121,25 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
 
     // Caso extraordinário: pipeline não mandou 'done'
     if (!sawDone) {
-      writeEvent({ type: "control", name: "done", meta: { finishReason: "fallback" } });
+      writeEvent({
+        type: "control",
+        name: "done",
+        meta: { finishReason: "fallback" },
+        timings: undefined,
+      });
     }
   } catch (err: any) {
-    const msg = err?.message || "Erro interno ao gerar resposta da Eco.";
-    // envia erro e, mesmo assim, finalize com done no formato correto
-    writeEvent({ type: "error", error: err instanceof Error ? err : new Error(msg) });
+    const errorObj = err instanceof Error ? err : new Error(err?.message || "Erro desconhecido");
+    // envia erro no formato do tipo
+    writeEvent({ type: "error", error: errorObj });
+    // e garante done
     if (!sawDone) {
-      writeEvent({ type: "control", name: "done", meta: { finishReason: "error" } });
+      writeEvent({
+        type: "control",
+        name: "done",
+        meta: { finishReason: "error" },
+        timings: undefined,
+      });
     }
   } finally {
     setTimeout(endSafely, 10);
