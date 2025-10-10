@@ -2,7 +2,7 @@
 import { Router, type Request, type Response } from "express";
 import { getPromptEcoPreview } from "../controllers/promptController";
 import { getEcoResponse } from "../services/ConversationOrchestrator";
-import type { EcoStreamHandler } from "../services/conversation/types";
+import type { EcoStreamHandler, EcoStreamEvent } from "../services/conversation/types";
 
 const router = Router();
 
@@ -34,7 +34,7 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
   res.setHeader("Connection", "keep-alive");
   res.setHeader("X-Accel-Buffering", "no");
 
-  // CORS (reforço; createApp já cuida globalmente)
+  // CORS (reforço; o createApp já cuida globalmente)
   const origin = (req.headers.origin as string) || "*";
   res.setHeader("Access-Control-Allow-Origin", origin);
   res.setHeader(
@@ -43,12 +43,13 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
   );
   res.setHeader("Vary", "Origin");
 
-  // devolve guest id se o middleware tiver setado
-  if ((req as any).guest?.id) {
-    res.setHeader("x-guest-id", (req as any).guest.id);
+  // Devolve guest id (se o middleware tiver setado/normalizado)
+  const guestIdFromMiddleware = (req as any).guest?.id;
+  if (guestIdFromMiddleware) {
+    res.setHeader("x-guest-id", guestIdFromMiddleware);
   }
 
-  // flush inicial
+  // Flush inicial (alguns proxies só abrem o stream após isso)
   // @ts-ignore
   if (typeof (res as any).flushHeaders === "function") (res as any).flushHeaders();
 
@@ -63,73 +64,76 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
     } catch {}
   };
 
-  // helper básico para escrever eventos SSE
-  const sseSend = (type: string, payload: unknown) => {
+  // Método único para escrever qualquer evento SSE
+  const sseSend = (event: EcoStreamEvent) => {
     if (finished) return;
-    if (type === "done") sentDone = true;
-    res.write(`data: ${JSON.stringify({ type, payload })}\n\n`);
+    // se o pipeline não enviar 'done', teremos fallback no finally
+    if (event?.type === "done") sentDone = true;
+    // A API do front espera { type, payload } como JSON por linha de evento
+    res.write(`data: ${JSON.stringify(event)}\n\n`);
   };
 
-  // fecha se cliente desconectar
+  // se o cliente fechar a conexão, encerramos o stream
   req.on("close", () => endSafely());
 
   try {
-    // Extrai parâmetros do body
+    // Extrai o corpo conforme o front envia
     const {
       mensagens,
       nome_usuario,
-      clientHour,   // <- este existe no GetEcoParams
-      // clientTz,   // <- NÃO existe no GetEcoParams (removido do call)
+      clientHour,  // <- este existe no GetEcoParams
+      // clientTz,  // <- NÃO existe no GetEcoParams (removido)
       isGuest,
       guestId,
       usuario_id,
       sessionMeta,
     } = (req.body ?? {}) as Record<string, any>;
 
-    // evento inicial
-    sseSend("prompt_ready", { ok: true });
+    // Envia evento inicial
+    sseSend({ type: "prompt_ready", payload: { ok: true } });
 
-    // Token de acesso (se houver)
-    const bearer = req.headers.authorization?.startsWith("Bearer ")
-      ? req.headers.authorization.slice(7)
-      : undefined;
+    // Token Bearer (se houver)
+    const bearer =
+      req.headers.authorization?.startsWith("Bearer ")
+        ? req.headers.authorization.slice(7)
+        : undefined;
 
-    // Implementa EcoStreamHandler: onEvent é obrigatório
+    // Implementa EcoStreamHandler corretamente: SOMENTE onEvent e close
     const stream: EcoStreamHandler = {
       onEvent: (evt) => {
-        // evt: { type, payload, ... }
-        const type = (evt as any)?.type ?? "chunk";
-        const payload = (evt as any)?.payload ?? evt;
-        sseSend(type, payload);
-      },
-      send: (type: string, payload: unknown) => {
-        sseSend(type, payload);
+        // evt já vem no formato { type, payload, ... }
+        sseSend(evt);
       },
       close: () => endSafely(),
     };
 
-    // Chama o orquestrador em modo streaming (sem clientTz para bater com o tipo)
+    // Chama o orquestrador no modo streaming
     await getEcoResponse({
       messages: mensagens,
       userId: usuario_id,
       userName: nome_usuario,
       accessToken: bearer,
-      clientHour,          // OK
-      // clientTz,          // REMOVIDO para satisfazer o tipo
+      clientHour,                // OK no tipo
       sessionMeta,
       isGuest: Boolean(isGuest),
-      guestId: guestId ?? (req as any).guest?.id ?? null,
-      stream,              // EcoStreamHandler com onEvent/send/close
+      guestId: guestId ?? guestIdFromMiddleware ?? null,
+      stream,                   // EcoStreamHandler com onEvent/close
     });
 
-    // Se por qualquer motivo o pipeline não tiver enviado 'done', envia aqui
+    // Caso extraordinário: pipeline não mandou 'done'
     if (!sentDone) {
-      sseSend("done", { response: { content: "" }, metadata: { fallbackDone: true } });
+      sseSend({
+        type: "done",
+        payload: { response: { content: "" }, metadata: { fallbackDone: true } },
+      });
     }
   } catch (err: any) {
     const msg = err?.message || "Erro interno ao gerar resposta da Eco.";
-    sseSend("error", { error: msg });
-    if (!sentDone) sseSend("done", { error: msg });
+    // envia erro e mesmo assim finaliza com done
+    sseSend({ type: "error", payload: { error: msg } });
+    if (!sentDone) {
+      sseSend({ type: "done", payload: { error: msg } });
+    }
   } finally {
     setTimeout(endSafely, 10);
   }
