@@ -5,20 +5,16 @@ import { getEcoResponse } from "../services/ConversationOrchestrator";
 import { log } from "../services/promptContext/logger";
 import type { EcoStreamHandler, EcoStreamEvent } from "../services/conversation/types";
 
-function sanitizeOutput(text?: string): string {
-  if (!text) return "";
-
-  return text
-    .replace(/```(?:json)?[\s\S]*?```/gi, "") // remove blocos ```json
-    .replace(/\{[\s\S]*?\}\s*$/g, "")        // remove possível payload JSON final
-    .trim();
-
-  const cleaned = text
+/** Sanitiza a saída removendo blocos ```json``` e JSON final pendurado */
+function sanitizeOutput(input?: string): string {
+  const txt = input ?? "";
+  return txt
+    // remove blocos ```json ... ```
     .replace(/```(?:json)?[\s\S]*?```/gi, "")
+    // remove possível payload JSON final
     .replace(/\{[\s\S]*?\}\s*$/g, "")
     .trim();
-  return cleaned;
-
+}
 
 const router = Router();
 
@@ -36,7 +32,7 @@ router.get("/prompt-preview", async (req: Request, res: Response) => {
   }
 });
 
-/** Helper para extrair texto de qualquer payload possível */
+/** Extrai texto de payloads em formatos variados (defensivo) */
 function extractTextLoose(payload: any): string | undefined {
   if (!payload) return undefined;
   if (typeof payload === "string" && payload.trim()) return payload.trim();
@@ -44,6 +40,7 @@ function extractTextLoose(payload: any): string | undefined {
   const tryList = (val: any): string | undefined => {
     if (!val) return undefined;
     if (typeof val === "string" && val.trim()) return val.trim();
+
     if (Array.isArray(val)) {
       for (const v of val) {
         const t = tryList(v);
@@ -51,25 +48,49 @@ function extractTextLoose(payload: any): string | undefined {
       }
     } else if (typeof val === "object") {
       const keysTextFirst = [
-        "text","content","texto","output_text","outputText","output",
-        "answer","reply","resposta","respostaFinal","fala","speech","message","delta",
+        "text",
+        "content",
+        "texto",
+        "output_text",
+        "outputText",
+        "output",
+        "answer",
+        "reply",
+        "resposta",
+        "respostaFinal",
+        "fala",
+        "speech",
+        "message",
+        "delta",
       ];
       for (const k of keysTextFirst) {
-        const t = tryList(val[k]);
+        const t = tryList((val as any)[k]);
         if (t) return t;
       }
+
       const paths = [
-        ["response","text"],["response","content"],["response","message"],
-        ["result","text"],["result","content"],["result","message"],
-        ["payload","text"],["payload","content"],["payload","message"],
+        ["response", "text"],
+        ["response", "content"],
+        ["response", "message"],
+        ["result", "text"],
+        ["result", "content"],
+        ["result", "message"],
+        ["payload", "text"],
+        ["payload", "content"],
+        ["payload", "message"],
       ] as const;
       for (const p of paths) {
         const t = tryList((val as any)[p[0]]?.[p[1]]);
         if (t) return t;
       }
+
       if (Array.isArray((val as any).choices)) {
         for (const c of (val as any).choices) {
-          const t = tryList(c.delta) || tryList(c.message) || tryList(c.text) || tryList(c.content);
+          const t =
+            tryList((c as any).delta) ||
+            tryList((c as any).message) ||
+            tryList((c as any).text) ||
+            tryList((c as any).content);
           if (t) return t;
         }
       }
@@ -80,7 +101,7 @@ function extractTextLoose(payload: any): string | undefined {
   return tryList(payload);
 }
 
-/** POST /api/ask-eco — stream SSE */
+/** POST /api/ask-eco — stream SSE (ou JSON se cliente não pedir SSE) */
 router.post("/ask-eco", async (req: Request, res: Response) => {
   const accept = String(req.headers.accept || "").toLowerCase();
   const wantsStream = !accept || accept.includes("text/event-stream"); // só stream se pedir explicitamente
@@ -122,17 +143,18 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
     return res.status(400).json({ error: "Campo 'text' ou 'mensagens' é obrigatório" });
   }
 
-  if (typeof bearer === "string") params.accessToken = bearer;
-  if (typeof clientHour === "number") params.clientHour = clientHour;
+  if (typeof bearer === "string") (params as any).accessToken = bearer;
+  if (typeof clientHour === "number") (params as any).clientHour = clientHour;
+
   if (sessionMeta && typeof sessionMeta === "object" && !Array.isArray(sessionMeta)) {
-    params.sessionMeta = sessionMeta;
+    (params as any).sessionMeta = sessionMeta;
   }
-  if (typeof nome_usuario === "string") params.userName = nome_usuario;
-  if (typeof usuario_id === "string") params.userId = usuario_id;
+  if (typeof nome_usuario === "string") (params as any).userName = nome_usuario;
+  if (typeof usuario_id === "string") (params as any).userId = usuario_id;
 
   const guestIdToSend =
     typeof guestId === "string" && guestId.trim() ? guestId : guestIdFromMiddleware;
-  if (typeof guestIdToSend === "string") params.guestId = guestIdToSend;
+  if (typeof guestIdToSend === "string") (params as any).guestId = guestIdToSend;
 
   // Modo JSON (sem stream): executa e devolve conteúdo agregado
   if (!wantsStream) {
@@ -152,7 +174,9 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
     }
   }
 
-  // SSE headers (CORS já vem do corsMiddleware; aqui só reforço útil p/ proxies)
+  // ===== SSE =====
+
+  // Headers SSE (CORS vem do middleware global; aqui reforço útil p/ proxies)
   res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
   res.setHeader("Cache-Control", "no-cache, no-transform");
   res.setHeader("Connection", "keep-alive");
@@ -169,14 +193,6 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
     finishReason: "" as string | undefined,
     clientClosed: false,
   };
-
-  const heartbeat = setInterval(() => {
-    try {
-      res.write(`:ka\n\n`);
-    } catch {
-      clearInterval(heartbeat);
-    }
-  }, 15_000);
 
   const isWritable = () => {
     if (state.clientClosed || state.done) return false;
@@ -199,6 +215,8 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
       origin,
       guestId: guestIdFromMiddleware ?? guestIdToSend ?? null,
     });
+    // prelude + evento ready
+    safeWrite(": ok\n\n");
     safeWrite("event: ready\ndata: {}\n\n");
   };
 
@@ -225,10 +243,7 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
     });
     state.done = true;
 
-    if (state.clientClosed) {
-      clearInterval(heartbeat);
-      return;
-    }
+    if (state.clientClosed) return;
     try {
       res.write("data: [DONE]\n\n");
     } catch {
@@ -236,9 +251,19 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
     }
     try {
       res.end();
-    } catch {/* noop */}
-    clearInterval(heartbeat);
+    } catch {
+      /* noop */
+    }
   };
+
+  // Heartbeat a cada 15s
+  const heartbeat = setInterval(() => {
+    try {
+      safeWrite(`: ping ${Date.now()}\n\n`);
+    } catch {
+      // se der exceção, na próxima checagem writable paramos
+    }
+  }, 15_000);
 
   sendReady();
 
@@ -314,6 +339,7 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
 
     if (!state.done) {
       if (!state.sawChunk) {
+        // Fallback: se não veio stream, tenta extrair texto do result
         const textOut = sanitizeOutput(extractTextLoose(result) ?? "");
         if (textOut) sendChunk(textOut);
         sendDone(textOut ? "fallback_no_stream" : "fallback_empty");
@@ -333,6 +359,8 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
     log.error("[ask-eco] pipeline error", { message, code, details });
     sendError(code ? `${code}: ${message}` : message || "Erro desconhecido");
     sendDone("error");
+  } finally {
+    clearInterval(heartbeat);
   }
 });
 
