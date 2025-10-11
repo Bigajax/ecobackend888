@@ -1,25 +1,28 @@
 // server/app/middlewares/cors.ts
+// CORS policy summary:
+// - Allowed origins come from PROD + LOCAL defaults and CORS_ALLOW_ORIGINS env (see bootstrap/cors).
+// - Methods exposed: GET, POST, OPTIONS, HEAD and common REST verbs for flexibility.
+// - Allowed headers mirror ALLOWED_HEADERS (JSON + auth + X-Guest-* custom headers).
+// - OPTIONS requests are answered here without authentication and logged for observability.
 import type { Express, Response, Request, NextFunction } from "express";
 import {
+  ALLOWED_HEADERS,
   ALLOWED_METHODS,
   allowList,
   corsMiddleware,
   isAllowedOrigin,
 } from "../../../bootstrap/cors";
+import { log } from "../../../services/promptContext/logger";
 
 /**
  * Acrescente seus headers customizados aqui.
  * Mantém sincronizado com o front (x-guest-id/x-guest-mode) e quaisquer outros que você use.
  */
-const GUEST_ALLOWED_HEADERS = [
-  "Content-Type",
-  "Authorization",
-  "X-Requested-With",
-  "Accept",
-  "Origin",
-  "X-Guest-Id",
-  "X-Guest-Mode",
-];
+const ALLOWED_METHODS_HEADER = Array.from(new Set([...ALLOWED_METHODS, "PUT", "PATCH", "DELETE"]))
+  .filter(Boolean)
+  .join(",");
+
+const ALLOWED_HEADERS_HEADER = ALLOWED_HEADERS.join(", ");
 
 export function applyCors(app: Express) {
   // Ajuda caches/proxies a variar por Origin e cabeçalhos do preflight
@@ -36,16 +39,24 @@ export function applyCors(app: Express) {
     if (req.method !== "OPTIONS") return next();
 
     const origin = req.headers.origin;
+    const route = req.originalUrl || req.url;
+
     if (isAllowedOrigin(origin) && origin) {
       res.setHeader("Access-Control-Allow-Origin", origin);
       res.setHeader("Access-Control-Allow-Credentials", "true");
     }
 
-    res.setHeader("Access-Control-Allow-Methods", ALLOWED_METHODS.join(","));
-    res.setHeader("Access-Control-Allow-Headers", GUEST_ALLOWED_HEADERS.join(", "));
+    res.setHeader("Access-Control-Allow-Methods", ALLOWED_METHODS_HEADER);
+    res.setHeader("Access-Control-Allow-Headers", ALLOWED_HEADERS_HEADER);
     // fix: align OPTIONS preflight with SSE caching directives
     res.setHeader("Cache-Control", "no-cache, no-transform");
     res.setHeader("X-Accel-Buffering", "no");
+
+    log.info("[CORS] Preflight served", {
+      method: req.method,
+      route,
+      origin: origin ?? "<none>",
+    });
 
     return res.status(200).end();
   });

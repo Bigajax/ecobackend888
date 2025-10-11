@@ -54,7 +54,7 @@ const VERCEL_SUFFIX = ".vercel.app";
 /** ============================
  *  CONFIG BÁSICA
  *  ============================ */
-export const ALLOWED_METHODS = ["GET", "POST", "OPTIONS", "HEAD"] as const;
+export const ALLOWED_METHODS = ["GET", "POST", "OPTIONS", "HEAD", "PUT", "PATCH", "DELETE"] as const;
 
 export const ALLOWED_HEADERS = [
   "Content-Type",
