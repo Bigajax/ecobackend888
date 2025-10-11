@@ -6,14 +6,6 @@ export interface MemoryInsertPayload {
   [key: string]: unknown;
 }
 
-export type MemoryRow = {
-  id: string;
-  texto: string | null;
-  intensidade: number;
-  tags: string[];
-  usuario_id: string;
-  created_at: string;
-} & Record<string, unknown>;
 
 export interface MemoryRepository {
   save(table: string, payload: MemoryInsertPayload): Promise<MemoryRow>;

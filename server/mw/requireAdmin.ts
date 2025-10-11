@@ -13,9 +13,7 @@ export function requireAdmin(req: Request, res: Response, next: NextFunction) {
     return next();
   } catch (err) {
     const e = err as Error;
-    const isConfigError = e instanceof SupabaseConfigError;
-    return res.status(500).json({
-      code: isConfigError ? "SUPABASE_ADMIN_NOT_CONFIGURED" : "INTERNAL_ERROR",
+
     });
   }
 }

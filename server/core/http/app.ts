@@ -166,7 +166,7 @@ export function createApp(): Express {
   app.use(express.json({ limit: "1mb" }));
   app.use(express.urlencoded({ extended: true }));
 
-  // Logging
+
   app.use(requestLogger);
 
   // Guest identity (somente anotação, sem autorização de persistência)

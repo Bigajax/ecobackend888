@@ -10,10 +10,7 @@ interface ControllerDependencies {
   repository?: MemoryRepository;
 }
 
-const unauthorizedResponse = {
-  code: "UNAUTHORIZED",
-  message: "Missing or invalid token",
-} as const;
+
 
 function getBearerToken(req: Request): string | null {
   const auth = req.headers.authorization;
@@ -35,23 +32,6 @@ async function resolveUserId(admin: SupabaseClient, token: string): Promise<stri
 export class MemoryController {
   constructor(private readonly service: MemoryService) {}
 
-  static create(deps: ControllerDependencies = {}): MemoryController {
-    if (deps.service) {
-      return new MemoryController(deps.service);
-    }
-    const repository = deps.repository ?? new SupabaseMemoryRepository();
-    const service = new MemoryService(repository);
-    return new MemoryController(service);
-  }
-
-  private getAdmin(req: Request): SupabaseClient | null {
-    return req.admin ?? null;
-  }
-
-  private async requireAuthenticatedUser(req: Request, res: Response): Promise<string | null> {
-    const admin = this.getAdmin(req);
-    if (!admin) {
-      res.status(500).json({ code: "SUPABASE_ADMIN_NOT_CONFIGURED" });
       return null;
     }
 
@@ -64,13 +44,13 @@ export class MemoryController {
     try {
       const userId = await resolveUserId(admin, token);
       if (!userId) {
-        res.status(401).json(unauthorizedResponse);
+
         return null;
       }
       return userId;
     } catch (err) {
       console.error("[MemoryController] Failed to validate JWT", err);
-      res.status(500).json({ code: "INTERNAL_ERROR" });
+
       return null;
     }
   }
@@ -81,6 +61,7 @@ export class MemoryController {
       if (!userId) return;
 
       const {
+
         texto,
         intensidade,
         tags = [],
@@ -89,7 +70,7 @@ export class MemoryController {
         contexto,
         dominio_vida,
         padrao_comportamental,
-        salvar_memoria = true,
+
         nivel_abertura,
         analise_resumo,
         categoria = "emocional",
@@ -102,30 +83,7 @@ export class MemoryController {
         });
       }
 
-      try {
-        const result = await this.service.registerMemory(userId, {
-          texto,
-          tags,
-          intensidade,
-          mensagem_id,
-          emocao_principal,
-          contexto,
-          dominio_vida,
-          padrao_comportamental,
-          salvar_memoria,
-          nivel_abertura,
-          analise_resumo,
-          categoria,
-        });
 
-        return res.status(201).json(result);
-      } catch (serviceErr) {
-        console.error("[MemoryController] service error", serviceErr);
-        return res.status(500).json({ code: "INTERNAL_ERROR" });
-      }
-    } catch (error) {
-      console.error("[MemoryController.registerMemory] error", error);
-      return res.status(500).json({ code: "INTERNAL_ERROR" });
     }
   };
 
@@ -152,7 +110,7 @@ export class MemoryController {
       return res.status(200).json({ success: true, memories });
     } catch (error) {
       console.error("[MemoryController.listMemories] error", error);
-      return res.status(500).json({ code: "INTERNAL_ERROR" });
+
     }
   };
 
@@ -171,9 +129,7 @@ export class MemoryController {
       if (texto.length < 20) threshold = Math.min(threshold, 0.1);
 
       if (!texto) {
-        return res
-          .status(400)
-          .json({ code: "BAD_REQUEST", message: "texto is required" });
+
       }
       if (texto.length < 3) {
         return res.status(200).json({ success: true, similares: [] });
@@ -187,7 +143,7 @@ export class MemoryController {
       return res.status(200).json({ success: true, similares });
     } catch (error) {
       console.error("[MemoryController.findSimilar] error", error);
-      return res.status(500).json({ code: "INTERNAL_ERROR" });
+
     }
   };
 }
