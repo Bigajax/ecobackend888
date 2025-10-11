@@ -1,30 +1,23 @@
-import type { NextFunction, Request, Response } from "express";
-import type { SupabaseClient } from "@supabase/supabase-js";
-import { getSupabaseAdmin, getSupabaseConfigError } from "../lib/supabaseAdmin";
+import type { Request, Response, NextFunction } from "express";
+import { ensureSupabaseConfigured, SupabaseConfigError } from "../lib/supabaseAdmin";
 
 declare module "express-serve-static-core" {
   interface Request {
-    supabaseAdmin?: SupabaseClient;
-    supabaseAdminError?: Error;
+    admin?: ReturnType<typeof ensureSupabaseConfigured>;
   }
 }
 
-export function requireAdmin(
-  req: Request,
-  _res: Response,
-  next: NextFunction
-): void {
-  const client = getSupabaseAdmin();
-  if (client) {
-    req.supabaseAdmin = client;
-  } else {
-    const configurationError = getSupabaseConfigError();
-    if (configurationError) {
-      req.supabaseAdminError = configurationError;
-    }
+export function requireAdmin(req: Request, res: Response, next: NextFunction) {
+  try {
+    req.admin = ensureSupabaseConfigured();
+    return next();
+  } catch (err) {
+    const e = err as Error;
+    const isConfigError = e instanceof SupabaseConfigError;
+    return res.status(500).json({
+      code: isConfigError ? "SUPABASE_ADMIN_NOT_CONFIGURED" : "INTERNAL_ERROR",
+    });
   }
-
-  next();
 }
 
 export default requireAdmin;

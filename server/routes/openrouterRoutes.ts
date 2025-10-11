@@ -162,7 +162,7 @@ router.post("/ask-eco", async (req: GuestAwareRequest, res: Response) => {
 
   try {
     if (!identity.isGuest) {
-      const supabaseClient = (req as any).supabaseAdmin ?? ensureSupabaseConfigured();
+      const supabaseClient = (req as any).admin ?? ensureSupabaseConfigured();
       const { data, error } = await supabaseClient.auth.getUser(identity.token!);
       if (error || !data?.user) {
         activationTracer.addError("auth", "Token inválido ou usuário não encontrado.");

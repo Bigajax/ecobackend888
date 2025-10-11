@@ -188,7 +188,7 @@ export function guestSessionMiddleware(req: Request, res: Response, next: NextFu
   const rateKey = `${ip}:${guestId}`;
   const bucket = touchRateBucket(rateKey);
   if (bucket.count > rateLimitConfig.limit) {
-    return res.status(429).json({ error: "Limite de requisições do modo convidado excedido." });
+    return res.status(429).json({ code: "RATE_LIMITED" });
   }
 
   const interactionsUsed = getGuestInteractionCount(guestId);
