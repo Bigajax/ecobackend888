@@ -36,47 +36,6 @@ import type {
 export { getEcoResponse as getEcoResponseOtimizado };
 export type { EcoStreamEvent, EcoStreamHandler, EcoStreamingResult, EcoLatencyMarks };
 
-// ---- util local: tenta extrair um texto de uma resposta "full" de atalhos ----
-function extractTextLoose(payload: any): string | undefined {
-  if (!payload) return undefined;
-
-  // formatos que costumam aparecer nos atalhos/finalizer
-  const candidates: unknown[] = [
-    payload.text,
-    payload.content,
-    payload.message,
-    payload.response?.text,
-    payload.response?.content,
-    payload.response?.message,
-    payload.result?.text,
-    payload.result?.content,
-    payload.result?.message,
-    payload.delta,
-  ];
-
-  for (const c of candidates) {
-    if (typeof c === "string" && c.trim()) return c;
-  }
-
-  // varre algumas chaves comuns de forma defensiva
-  const tryKeys = [
-    "texto",
-    "output_text",
-    "output",
-    "answer",
-    "reply",
-    "resposta",
-    "fala",
-    "speech",
-  ];
-  for (const k of tryKeys) {
-    const v = (payload as any)?.[k] ?? (payload as any)?.response?.[k];
-    if (typeof v === "string" && v.trim()) return v;
-  }
-
-  return undefined;
-}
-
 export async function getEcoResponse(
   params: GetEcoParams & { promptOverride?: string; metaFromBuilder?: any }
 ): Promise<GetEcoResult>;
@@ -161,29 +120,6 @@ export async function getEcoResponse({
   );
 
   if (preLLM) {
-    // Se estamos em STREAMING, precisamos emitir tokens também aqui.
-    if (streamHandler && typeof streamHandler.onEvent === "function") {
-      const text = extractTextLoose(preLLM.result) ?? "";
-      if (text.trim()) {
-        // emite como "first_token" seguido de "done" (simples/compatível)
-        streamHandler.onEvent({ type: "chunk", delta: text } as any);
-      } else {
-        // ainda assim, dá um meta para o front conseguir logar
-        streamHandler.onEvent({
-          type: "meta",
-          metadata: { note: "preLLM without text" },
-        } as any);
-      }
-      streamHandler.onEvent({
-        type: "control",
-        name: "done",
-        meta: { finishReason: "shortcuts" },
-      } as any);
-      // Em modo streaming, o valor de retorno não é consumido
-      return { ok: true } as any;
-    }
-
-    // Sem streaming: devolve o objeto "full" como já era antes
     return preLLM.result;
   }
 
