@@ -1,7 +1,5 @@
-// routes/openrouterRoutes.ts
 import crypto from "node:crypto";
 import express, { type Request, type Response } from "express";
-
 
 import {
   getEcoResponse,
@@ -24,11 +22,10 @@ import {
   type GuestSessionMeta,
 } from "../core/http/middlewares/guestSession";
 
-// montar contexto e log
 import { log } from "../services/promptContext/logger";
 import { now } from "../utils";
 import { RESPONSE_CACHE } from "../services/CacheService";
-import requireAdmin from "../mw/requireAdmin";
+// import requireAdmin from "../mw/requireAdmin"; // ⚠️ não usar neste endpoint para permitir guest
 import { ensureSupabaseConfigured } from "../lib/supabaseAdmin";
 import {
   ActivationTracer,
@@ -57,7 +54,6 @@ const buildResponseCacheKey = (userId: string, ultimaMsg: string) => {
 
 const router = express.Router();
 
-// log seguro
 const safeLog = (s: string) =>
   process.env.NODE_ENV === "production" ? (s || "").slice(0, 60) + "…" : s || "";
 
@@ -144,16 +140,18 @@ const getMensagemTipo = (
   return previousUserMessages > 0 ? "continuacao" : "inicial";
 };
 
-// normalizador
+// 🔧 normalizador — agora aceita também { text: "..." }
 function normalizarMensagens(body: any): Array<{ role: string; content: any }> | null {
-  const { messages, mensagens, mensagem } = body || {};
+  const { messages, mensagens, mensagem, text } = body || {};
   if (Array.isArray(messages)) return messages;
   if (Array.isArray(mensagens)) return mensagens;
   if (mensagem) return [{ role: "user", content: mensagem }];
+  if (text) return [{ role: "user", content: text }];
   return null;
 }
 
-router.post("/ask-eco", requireAdmin, async (req: GuestAwareRequest, res: Response) => {
+// ⚠️ NÃO usamos requireAdmin aqui para permitir chamadas guest (curl/Vercel)
+router.post("/ask-eco", async (req: GuestAwareRequest, res: Response) => {
   const t0 = now();
   const promptReadyImmediate =
     req.body?.promptReadyImmediate === true ||
@@ -178,8 +176,6 @@ router.post("/ask-eco", requireAdmin, async (req: GuestAwareRequest, res: Respon
   res.on("close", commitTrace);
 
   // ----------- DETECÇÃO ROBUSTA DE GUEST / USER -----------
-  // Preferência: middleware popula req.guest / req.userId.
-  // Fallbacks: headers/body.
   const headerGuestId =
     (req.headers["x-guest-id"] as string | undefined)?.trim() ||
     (req.headers["X-Guest-Id"] as string | undefined)?.trim();
@@ -188,10 +184,9 @@ router.post("/ask-eco", requireAdmin, async (req: GuestAwareRequest, res: Respon
   const bodyGuestId = typeof req.body?.guestId === "string" ? req.body.guestId.trim() : "";
 
   const authHeader = req.headers.authorization;
-  const hasBearer = typeof authHeader === "string" && /^Bearer\s+/i.test(authHeader.trim());
+  const hasBearer = typeof authHeader === "string" && /^Bearer\s+/i.test(authHeader?.trim() || "");
   const token = hasBearer ? authHeader!.trim().replace(/^Bearer\s+/i, "") : undefined;
 
-  // Se veio Bearer válido, tratamos como user; caso contrário, se houver qualquer guestId/flag, tratamos como guest.
   let isGuest = false;
   let guestId: string | null = null;
 
@@ -201,7 +196,6 @@ router.post("/ask-eco", requireAdmin, async (req: GuestAwareRequest, res: Respon
     isGuest = true;
     guestId = (req.guest?.id || headerGuestId || bodyGuestId || "").trim() || null;
   } else {
-    // Sem token e sem guestId declarado → gera um guestId efêmero
     isGuest = true;
     guestId = `guest_${crypto.randomUUID()}`;
   }
@@ -215,6 +209,7 @@ router.post("/ask-eco", requireAdmin, async (req: GuestAwareRequest, res: Respon
     typeof rawStreamQuery !== "undefined" || typeof rawStreamBody !== "undefined";
   const streamDisabled = isStreamDisabled(rawStreamQuery) || isStreamDisabled(rawStreamBody);
   const respondAsStream = !streamDisabled && (!isGuest ? true : hasStreamPreference);
+
   let sseStarted = false;
   let streamClosed = false;
   let sendSseRef: ((payload: Record<string, unknown>) => void) | null = null;
@@ -267,7 +262,7 @@ router.post("/ask-eco", requireAdmin, async (req: GuestAwareRequest, res: Respon
     }
   }
 
-  // ----------- GUARD DE AUTENTICAÇÃO -----------
+  // ----------- GUARD DE AUTENTICAÇÃO (apenas users) -----------
   if (!isGuest) {
     if (!hasBearer || !token) {
       activationTracer.addError("auth", "Token de acesso ausente.");
@@ -287,7 +282,6 @@ router.post("/ask-eco", requireAdmin, async (req: GuestAwareRequest, res: Respon
     }
   }
 
-  // Define o "userId" que o pipeline vai usar (diferencia convidados)
   const pipelineUserId = isGuest ? `guest:${guestId!}` : String(usuarioIdBody);
   if (!pipelineUserId) {
     activationTracer.addError("validation", "Usuário inválido.");
@@ -329,7 +323,6 @@ router.post("/ask-eco", requireAdmin, async (req: GuestAwareRequest, res: Respon
         ...(debugRequested ? { trace: activationTracer.snapshot() } : {}),
       });
     }
-    // Se o middleware usa req.guest, atualiza contagem (opcional)
     if (req.guest) {
       req.guest.interactionsUsed = guestInteractionCount;
     }
@@ -338,7 +331,7 @@ router.post("/ask-eco", requireAdmin, async (req: GuestAwareRequest, res: Respon
   try {
     // ----------- VALIDAÇÃO DO TOKEN QUANDO USER -----------
     if (!isGuest) {
-      const supabaseClient = req.supabaseAdmin ?? ensureSupabaseConfigured();
+      const supabaseClient = (req as any).supabaseAdmin ?? ensureSupabaseConfigured();
       const { data, error } = await supabaseClient.auth.getUser(token!);
       if (error || !data?.user) {
         activationTracer.addError("auth", "Token inválido ou usuário não encontrado.");
@@ -351,7 +344,6 @@ router.post("/ask-eco", requireAdmin, async (req: GuestAwareRequest, res: Respon
     }
 
     // ----------- SSE BOOTSTRAP -----------
-
     const stopHeartbeat = () => {
       if (heartbeatTimer) {
         clearInterval(heartbeatTimer);
@@ -737,7 +729,7 @@ router.post("/ask-eco", requireAdmin, async (req: GuestAwareRequest, res: Respon
       messages: mensagensParaIA,
       userId: pipelineUserId,
       userName: nome_usuario,
-      accessToken: token, // pode ser undefined no guest; seu orquestrador deve tolerar
+      accessToken: token,
       sessionMeta,
       stream: streamHandler,
       isGuest,
@@ -750,17 +742,9 @@ router.post("/ask-eco", requireAdmin, async (req: GuestAwareRequest, res: Respon
     }
 
     setImmediate(() => {
-      Promise.allSettled([resposta.finalize()])
-        .then((settled) => {
-          settled.forEach((result) => {
-            if (result.status === "rejected") {
-              log.warn("⚠️ Pós-processamento /ask-eco falhou:", result.reason);
-            }
-          });
-        })
-        .catch((finalErr) => {
-          log.warn("⚠️ Pós-processamento /ask-eco rejeitado:", finalErr);
-        });
+      Promise.allSettled([resposta.finalize()]).catch((finalErr) => {
+        log.warn("⚠️ Pós-processamento /ask-eco rejeitado:", finalErr);
+      });
     });
 
     if (!doneNotified && !streamClosed) {
@@ -861,39 +845,32 @@ router.post("/ask-eco", requireAdmin, async (req: GuestAwareRequest, res: Respon
 
     return;
   } catch (err: any) {
-    log.error("❌ Erro no /ask-eco:", { message: err?.message, stack: err?.stack });
+    log.error("❌ Erro no /ask-eco:", {
+      message: err?.message,
+      stack: (err?.stack || "").split("\n").slice(0, 4).join(" ⏎ "),
+    });
     const message = err?.message || "Erro interno ao processar a requisição.";
-    activationTracer.addError("ask-eco", message);
-    // Se já iniciou SSE, devolve como evento amigável
-    if (sseStarted || res.headersSent) {
-      sendSseRef?.({ type: "error", message });
-      const at = now();
-      const donePayload: Record<string, unknown> = {
-        type: "done",
-        meta: { fallback: true, reason: "error" },
-        at,
-        sinceStartMs: at - t0,
-        timings: latestTimings,
-      };
-      if (debugRequested) {
-        donePayload.trace = activationTracer.snapshot();
-      }
-      sendSseRef?.(donePayload);
-      if (!streamClosed) {
-        endStreamRef?.();
-      }
-      (res as any).end?.();
+    // se SSE já começou, finaliza como evento
+    if ((res as any).headersSent) {
+      try {
+        (res as any).write?.(`data: ${JSON.stringify({ type: "error", message })}\n\n`);
+        (res as any).write?.(
+          `data: ${JSON.stringify({ type: "done", meta: { fallback: true, reason: "error" } })}\n\n`
+        );
+      } catch {}
+      try {
+        (res as any).end?.();
+      } catch {}
       return;
     }
     return res.status(200).json({
       ok: false,
       error: { message, statusCode: 500 },
-      ...(debugRequested ? { trace: activationTracer.snapshot() } : {}),
     });
   }
 });
 
-router.get("/debug/trace/:id", requireAdmin, (req: GuestAwareRequest, res: Response) => {
+router.get("/debug/trace/:id", (req: Request, res: Response) => {
   const traceId = req.params.id;
   if (!traceId) {
     return res.status(400).json({

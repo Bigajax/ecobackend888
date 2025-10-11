@@ -1,12 +1,15 @@
 // server/bootstrap/cors.ts
 import cors from "cors";
 
-/** Origens conhecidas */
+/** ============================
+ *  ORIGENS CONHECIDAS
+ *  ============================ */
 const PROD_ORIGINS = [
   "https://ecofrontend888.vercel.app",
-  // fix: allow Vercel preview domain for SSE streaming during QA
+  // Permite domínios de preview Vercel (builds temporários)
   "https://ecofrontend888-geviqh5x7-rafaels-projects-f3ef53c3.vercel.app",
 ] as const;
+
 const LOCAL_ORIGINS = [
   "http://localhost:3000",
   "http://127.0.0.1:3000",
@@ -14,6 +17,9 @@ const LOCAL_ORIGINS = [
   "http://127.0.0.1:5173",
 ] as const;
 
+/** ============================
+ *  HELPERS
+ *  ============================ */
 const toOriginKey = (origin: string) => {
   try {
     const url = new URL(origin);
@@ -23,6 +29,17 @@ const toOriginKey = (origin: string) => {
   }
 };
 
+const resolveHostname = (origin: string) => {
+  try {
+    return new URL(origin).hostname.toLowerCase();
+  } catch {
+    return origin.replace(/^https?:\/\//i, "").split("/")[0]?.toLowerCase() ?? "";
+  }
+};
+
+/** ============================
+ *  LISTAS ESTÁTICAS E AMBIENTE
+ *  ============================ */
 const EXTRA_ORIGINS = (process.env.CORS_ALLOW_ORIGINS || "")
   .split(",")
   .map((s) => s.trim())
@@ -34,14 +51,9 @@ const STATIC_ALLOW_LIST = new Set<string>(
 
 const VERCEL_SUFFIX = ".vercel.app";
 
-const resolveHostname = (origin: string) => {
-  try {
-    return new URL(origin).hostname.toLowerCase();
-  } catch {
-    return origin.replace(/^https?:\/\//i, "").split("/")[0]?.toLowerCase() ?? "";
-  }
-};
-
+/** ============================
+ *  CONFIG BÁSICA
+ *  ============================ */
 export const ALLOWED_METHODS = ["GET", "POST", "OPTIONS", "HEAD"] as const;
 
 export const ALLOWED_HEADERS = [
@@ -54,24 +66,26 @@ export const ALLOWED_HEADERS = [
   "X-Guest-Mode",
   "X-Title",
   "HTTP-Referer",
-  // Alguns ambientes/proxies checam estes no preflight
+  // Alguns proxies verificam estes no preflight
   "User-Agent",
   "Sec-Fetch-Mode",
   "Sec-Fetch-Site",
   "Sec-Fetch-Dest",
 ] as const;
 
-/** Cabeçalhos que o browser poderá enxergar via fetch() */
 export const EXPOSE_HEADERS = [
   "X-Guest-Id",
   "Content-Type",
   "Cache-Control",
 ] as const;
 
+/** ============================
+ *  CHECAGEM DE ORIGIN
+ *  ============================ */
 export const allowList = STATIC_ALLOW_LIST;
 
 export const isAllowedOrigin = (origin?: string | null): boolean => {
-  // Permite chamadas sem Origin (ex: curl, extensões, apps nativos)
+  // Permite chamadas sem Origin (ex: curl, apps nativos, extensões)
   if (!origin) return true;
 
   const normalized = toOriginKey(origin);
@@ -83,20 +97,27 @@ export const isAllowedOrigin = (origin?: string | null): boolean => {
   return false;
 };
 
+/** ============================
+ *  MIDDLEWARE DE CORS
+ *  ============================ */
 export const corsMiddleware = cors({
   origin(origin, callback) {
-    if (isAllowedOrigin(origin)) {
+    const ok = isAllowedOrigin(origin);
+    if (ok) {
+      if (process.env.ECO_DEBUG === "1") {
+        console.debug(`[CORS] ✅ Allow: ${origin || "<sem origin>"}`);
+      }
       callback(null, true);
-      return;
+    } else {
+      console.warn(`[CORS] ❌ Blocked origin: ${origin || "<desconhecido>"}`);
+      callback(new Error("CORS não permitido para este domínio"));
     }
-    console.warn(`[CORS] Bloqueado origin: ${origin || "<desconhecido>"}`);
-    callback(new Error("CORS não permitido para este domínio"));
   },
   credentials: true,
   methods: [...ALLOWED_METHODS],
   allowedHeaders: [...ALLOWED_HEADERS],
   exposedHeaders: [...EXPOSE_HEADERS],
-  // 20 minutos de cache para preflight
+  // cache do preflight por 20 min
   maxAge: 1200,
   optionsSuccessStatus: 204,
 });

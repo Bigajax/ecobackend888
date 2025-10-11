@@ -36,8 +36,20 @@ function extractTextLoose(payload: any): string | undefined {
       }
     } else if (typeof val === "object") {
       const keysTextFirst = [
-        "text", "content", "texto", "output_text", "outputText", "output",
-        "answer", "reply", "resposta", "respostaFinal", "fala", "speech", "message", "delta"
+        "text",
+        "content",
+        "texto",
+        "output_text",
+        "outputText",
+        "output",
+        "answer",
+        "reply",
+        "resposta",
+        "respostaFinal",
+        "fala",
+        "speech",
+        "message",
+        "delta",
       ];
       for (const k of keysTextFirst) {
         const t = tryList(val[k]);
@@ -45,19 +57,24 @@ function extractTextLoose(payload: any): string | undefined {
       }
       // paths comuns
       const paths = [
-        ["response","text"], ["response","content"], ["response","message"],
-        ["result","text"], ["result","content"], ["result","message"],
-        ["payload","text"], ["payload","content"], ["payload","message"],
+        ["response", "text"],
+        ["response", "content"],
+        ["response", "message"],
+        ["result", "text"],
+        ["result", "content"],
+        ["result", "message"],
+        ["payload", "text"],
+        ["payload", "content"],
+        ["payload", "message"],
       ] as const;
       for (const p of paths) {
-        const t = tryList(val[p[0]]?.[p[1]]);
+        const t = tryList((val as any)[p[0]]?.[p[1]]);
         if (t) return t;
       }
       // choices estilo OpenAI/Claude
-      if (Array.isArray(val.choices)) {
-        for (const c of val.choices) {
-          const t =
-            tryList(c.delta) || tryList(c.message) || tryList(c.text) || tryList(c.content);
+      if (Array.isArray((val as any).choices)) {
+        for (const c of (val as any).choices) {
+          const t = tryList(c.delta) || tryList(c.message) || tryList(c.text) || tryList(c.content);
           if (t) return t;
         }
       }
@@ -84,6 +101,8 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
     isGuest,
     guestId,
     sessionMeta,
+    // suporte a payload simples: { "text": "..." }
+    text,
   } = (req.body ?? {}) as Record<string, any>;
 
   const bearer =
@@ -91,10 +110,22 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
       ? req.headers.authorization.slice(7)
       : undefined;
 
+  // Montagem de params base
   const params: Record<string, unknown> = {
     messages: Array.isArray(mensagens) ? mensagens : [],
     isGuest: Boolean(isGuest),
   };
+
+  // Se não vier "mensagens" mas vier "text", monte uma última mensagem de usuário
+  if ((!Array.isArray(mensagens) || mensagens.length === 0) && typeof text === "string" && text.trim()) {
+    (params as any).messages = [{ role: "user", content: text.trim() }];
+  }
+
+  // Validação mínima para evitar 500 opaco
+  const hasMessages = Array.isArray((params as any).messages) && (params as any).messages.length > 0;
+  if (!hasMessages && wantsStream) {
+    return res.status(400).json({ error: "Campo 'text' ou 'mensagens' é obrigatório" });
+  }
 
   if (typeof bearer === "string") params.accessToken = bearer;
   if (typeof clientHour === "number") params.clientHour = clientHour;
@@ -108,15 +139,16 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
     typeof guestId === "string" && guestId.trim() ? guestId : guestIdFromMiddleware;
   if (typeof guestIdToSend === "string") params.guestId = guestIdToSend;
 
+  // Modo JSON (sem stream): executa e devolve conteúdo agregado
   if (!wantsStream) {
     try {
       const result = await getEcoResponse(params as any);
-      const text = extractTextLoose(result) ?? "";
+      const textOut = extractTextLoose(result) ?? "";
       log.info("[ask-eco] fallback JSON response", {
         mode: "json",
-        hasContent: text.length > 0,
+        hasContent: textOut.length > 0,
       });
-      return res.status(200).json({ content: text || null, raw: result });
+      return res.status(200).json({ content: textOut || null, raw: result });
     } catch (error: any) {
       const message = error instanceof Error ? error.message : String(error?.message ?? error);
       log.error("[ask-eco] fallback JSON error", { message });
@@ -124,17 +156,11 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
     }
   }
 
-  // fix: ensure SSE headers and initial handshake before LLM call
+  // SSE headers (CORS padrão já vem do corsMiddleware do app)
   res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
   res.setHeader("Cache-Control", "no-cache, no-transform");
   res.setHeader("Connection", "keep-alive");
   res.setHeader("X-Accel-Buffering", "no");
-  res.setHeader("Access-Control-Allow-Origin", origin);
-  res.setHeader("Access-Control-Allow-Credentials", "true");
-  res.setHeader(
-    "Access-Control-Allow-Headers",
-    "Content-Type, Authorization, X-Requested-With, Accept, Origin, X-Guest-Id, X-Guest-Mode"
-  );
   res.setHeader("Access-Control-Expose-Headers", "X-Guest-Id, Content-Type, Cache-Control");
   res.setHeader("Vary", "Origin");
   if (guestIdFromMiddleware) res.setHeader("x-guest-id", guestIdFromMiddleware);
@@ -145,14 +171,14 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
   const state = {
     done: false,
     sawChunk: false,
-    finishReason: "",
+    finishReason: "" as string | undefined,
     clientClosed: false,
   };
 
   const heartbeat = setInterval(() => {
     try {
       res.write(`:ka\n\n`);
-    } catch (error) {
+    } catch {
       clearInterval(heartbeat);
     }
   }, 15_000);
@@ -168,7 +194,7 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
     if (!isWritable()) return;
     try {
       res.write(payload);
-    } catch (error) {
+    } catch {
       state.clientClosed = true;
     }
   };
@@ -193,14 +219,15 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
     safeWrite(`event: error\ndata: ${JSON.stringify({ message })}\n\n`);
   };
 
-  const sendDone = (reason: string | null | undefined) => {
+  const sendDone = (reason?: string | null) => {
     if (state.done) return;
     state.finishReason = reason ?? state.finishReason ?? "unknown";
     log.info("[ask-eco] SSE done", {
-      finishReason: state.finishReason || reason || "unknown",
+      finishReason: state.finishReason || "unknown",
       sawChunk: state.sawChunk,
     });
     state.done = true;
+
     if (state.clientClosed) {
       clearInterval(heartbeat);
       return;
@@ -208,7 +235,7 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
 
     try {
       res.write("data: [DONE]\n\n");
-    } catch (error) {
+    } catch {
       state.clientClosed = true;
     }
     try {
@@ -267,8 +294,19 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
         sendDone("error");
         return;
       }
-      default:
+      default: {
+        // Alguns adapters não setam "type", mas enviam { text|content|delta }
+        const delta =
+          evt?.delta?.content ??
+          evt?.delta ??
+          evt?.content ??
+          evt?.text ??
+          evt?.message;
+        if (typeof delta === "string" && delta.trim()) {
+          sendChunk(delta);
+        }
         return;
+      }
     }
   };
 
@@ -277,15 +315,19 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
     const result = await getEcoResponse({ ...params, stream } as any);
 
     if (!state.done) {
-      const text = extractTextLoose(result);
-      if (typeof text === "string" && text.trim()) {
-        sendChunk(text);
+      const textOut = extractTextLoose(result);
+      if (typeof textOut === "string" && textOut.trim()) {
+        sendChunk(textOut);
       }
-      sendDone(text ? "bridge_fallback" : "fallback");
+      sendDone(textOut ? "bridge_fallback" : "fallback");
     }
   } catch (error: any) {
+    // log mais informativo para decifrar 500 do adapter
     const message = error instanceof Error ? error.message : String(error?.message ?? error);
-    sendError(message || "Erro desconhecido");
+    const code = (error?.code || error?.status || error?.name || "").toString();
+    const details = (error?.response?.data ?? error?.response ?? error?.data ?? error?.stack ?? null);
+    log.error("[ask-eco] pipeline error", { message, code, details });
+    sendError(code ? `${code}: ${message}` : (message || "Erro desconhecido"));
     sendDone("error");
   }
 });
