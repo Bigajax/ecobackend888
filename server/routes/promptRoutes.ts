@@ -5,6 +5,15 @@ import { getEcoResponse } from "../services/ConversationOrchestrator";
 import { log } from "../services/promptContext/logger";
 import type { EcoStreamHandler, EcoStreamEvent } from "../services/conversation/types";
 
+function sanitizeOutput(text?: string): string {
+  if (!text) return "";
+  const cleaned = text
+    .replace(/```(?:json)?[\s\S]*?```/gi, "")
+    .replace(/\{[\s\S]*?\}\s*$/g, "")
+    .trim();
+  return cleaned;
+}
+
 const router = Router();
 
 console.log("Backend: promptRoutes carregado.");
@@ -174,7 +183,7 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
   if (!wantsStream) {
     try {
       const result = await getEcoResponse(params as any);
-      const textOut = extractTextLoose(result) ?? "";
+      const textOut = sanitizeOutput(extractTextLoose(result) ?? "");
       log.info("[ask-eco] JSON response", {
         mode: "json",
         hasContent: textOut.length > 0,
@@ -352,11 +361,13 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
     const result = await getEcoResponse({ ...params, stream } as any);
 
     if (!state.done) {
-      const textOut = extractTextLoose(result);
-      if (typeof textOut === "string" && textOut.trim()) {
-        sendChunk(textOut);
+      if (!state.sawChunk) {
+        const textOut = sanitizeOutput(extractTextLoose(result) ?? "");
+        if (textOut) sendChunk(textOut);
+        sendDone(textOut ? "fallback_no_stream" : "fallback_empty");
+      } else {
+        sendDone("stream_done");
       }
-      sendDone(textOut ? "bridge_fallback" : "fallback");
     }
   } catch (error: any) {
     // log mais informativo para decifrar 500 do adapter
