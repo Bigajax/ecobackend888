@@ -74,7 +74,8 @@ function extractTextLoose(payload: any): string | undefined {
       // choices estilo OpenAI/Claude
       if (Array.isArray((val as any).choices)) {
         for (const c of (val as any).choices) {
-          const t = tryList(c.delta) || tryList(c.message) || tryList(c.text) || tryList(c.content);
+          const t =
+            tryList(c.delta) || tryList(c.message) || tryList(c.text) || tryList(c.content);
           if (t) return t;
         }
       }
@@ -85,47 +86,77 @@ function extractTextLoose(payload: any): string | undefined {
   return tryList(payload);
 }
 
+/** Normaliza o corpo para um array de mensagens {role, content} */
+function normalizeMessages(body: any): Array<{ role: string; content: string }> {
+  const { messages, mensagens, mensagem, text } = body || {};
+
+  let arr: any[] | null = null;
+
+  if (Array.isArray(messages)) arr = messages;
+  else if (Array.isArray(mensagens)) arr = mensagens;
+  else if (typeof mensagem === "string" && mensagem.trim()) arr = [{ role: "user", content: mensagem }];
+  else if (typeof text === "string" && text.trim()) arr = [{ role: "user", content: text }];
+
+  if (!arr) return [];
+
+  return arr
+    .map((m) => {
+      const role = typeof m?.role === "string" ? m.role : "user";
+      const content =
+        typeof m?.content === "string"
+          ? m.content
+          : m?.content != null
+          ? String(m.content)
+          : "";
+      return { role, content };
+    })
+    .filter((m) => m.content.trim().length > 0);
+}
+
 /** POST /api/ask-eco — stream SSE */
 router.post("/ask-eco", async (req: Request, res: Response) => {
+  // SSE só se cliente PEDIR explicitamente
   const accept = String(req.headers.accept || "").toLowerCase();
-  const wantsStream = !accept || accept.includes("text/event-stream") || accept.includes("*/*");
+  const wantsStream = accept.includes("text/event-stream");
 
   const origin = (req.headers.origin as string) || "*";
   const guestIdFromMiddleware: string | undefined = (req as any)?.guest?.id || undefined;
 
+  const body = (req.body ?? {}) as Record<string, any>;
+  const mensagens = normalizeMessages(body);
+
   const {
-    mensagens,
     nome_usuario,
     usuario_id,
     clientHour,
     isGuest,
     guestId,
     sessionMeta,
-    // suporte a payload simples: { "text": "..." }
-    text,
-  } = (req.body ?? {}) as Record<string, any>;
+  } = body;
 
   const bearer =
     req.headers.authorization?.startsWith("Bearer ")
       ? req.headers.authorization.slice(7)
       : undefined;
 
+  // Validação mínima para evitar 500 opaco
+  if (!Array.isArray(mensagens) || mensagens.length === 0) {
+    return res.status(400).json({
+      error:
+        "Corpo inválido. Envie 'mensagens' (array de {role, content}) ou 'text'/'mensagem' (string).",
+      exemplo: {
+        mensagens: [{ role: "user", content: "Olá!" }],
+        OU: { text: "Olá!" },
+        OU2: { mensagem: "Olá!" },
+      },
+    });
+  }
+
   // Montagem de params base
   const params: Record<string, unknown> = {
-    messages: Array.isArray(mensagens) ? mensagens : [],
+    messages: mensagens,
     isGuest: Boolean(isGuest),
   };
-
-  // Se não vier "mensagens" mas vier "text", monte uma última mensagem de usuário
-  if ((!Array.isArray(mensagens) || mensagens.length === 0) && typeof text === "string" && text.trim()) {
-    (params as any).messages = [{ role: "user", content: text.trim() }];
-  }
-
-  // Validação mínima para evitar 500 opaco
-  const hasMessages = Array.isArray((params as any).messages) && (params as any).messages.length > 0;
-  if (!hasMessages && wantsStream) {
-    return res.status(400).json({ error: "Campo 'text' ou 'mensagens' é obrigatório" });
-  }
 
   if (typeof bearer === "string") params.accessToken = bearer;
   if (typeof clientHour === "number") params.clientHour = clientHour;
@@ -144,23 +175,29 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
     try {
       const result = await getEcoResponse(params as any);
       const textOut = extractTextLoose(result) ?? "";
-      log.info("[ask-eco] fallback JSON response", {
+      log.info("[ask-eco] JSON response", {
         mode: "json",
         hasContent: textOut.length > 0,
       });
       return res.status(200).json({ content: textOut || null, raw: result });
     } catch (error: any) {
       const message = error instanceof Error ? error.message : String(error?.message ?? error);
-      log.error("[ask-eco] fallback JSON error", { message });
-      return res.status(500).json({ error: message });
+      log.error("[ask-eco] JSON error", { message });
+      return res.status(500).json({ error: message || "Erro interno" });
     }
   }
 
-  // SSE headers (CORS padrão já vem do corsMiddleware do app)
+  // SSE headers (adiciona reflect do Origin para stream estável sob proxies)
   res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
   res.setHeader("Cache-Control", "no-cache, no-transform");
   res.setHeader("Connection", "keep-alive");
   res.setHeader("X-Accel-Buffering", "no");
+  res.setHeader("Access-Control-Allow-Origin", origin);
+  res.setHeader("Access-Control-Allow-Credentials", "true");
+  res.setHeader(
+    "Access-Control-Allow-Headers",
+    "Content-Type, Authorization, X-Requested-With, Accept, Origin, X-Guest-Id, X-Guest-Mode"
+  );
   res.setHeader("Access-Control-Expose-Headers", "X-Guest-Id, Content-Type, Cache-Control");
   res.setHeader("Vary", "Origin");
   if (guestIdFromMiddleware) res.setHeader("x-guest-id", guestIdFromMiddleware);
@@ -325,9 +362,14 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
     // log mais informativo para decifrar 500 do adapter
     const message = error instanceof Error ? error.message : String(error?.message ?? error);
     const code = (error?.code || error?.status || error?.name || "").toString();
-    const details = (error?.response?.data ?? error?.response ?? error?.data ?? error?.stack ?? null);
+    const details =
+      (error?.response?.data ??
+        error?.response ??
+        error?.data ??
+        error?.stack ??
+        null);
     log.error("[ask-eco] pipeline error", { message, code, details });
-    sendError(code ? `${code}: ${message}` : (message || "Erro desconhecido"));
+    sendError(code ? `${code}: ${message}` : message || "Erro desconhecido");
     sendDone("error");
   }
 });
