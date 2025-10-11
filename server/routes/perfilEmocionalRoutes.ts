@@ -72,7 +72,7 @@ router.get("/", async (req: Request, res: Response) => {
         .json({ success: false, error: "userId ausente. Envie ?usuario_id= ou Bearer JWT." });
     }
 
-    const supabase = req.supabaseAdmin ?? ensureSupabaseConfigured();
+    const supabase = req.admin ?? ensureSupabaseConfigured();
     const data = await carregarPerfil(supabase, userId);
 
     return res.status(200).json({
@@ -98,7 +98,7 @@ router.get("/:userId", async (req: Request, res: Response) => {
   }
 
   try {
-    const supabase = req.supabaseAdmin ?? ensureSupabaseConfigured();
+    const supabase = req.admin ?? ensureSupabaseConfigured();
     const data = await carregarPerfil(supabase, userId);
 
     return res.status(200).json({
@@ -122,7 +122,7 @@ router.post("/update", async (req: Request, res: Response) => {
   }
 
   try {
-    const supabase = req.supabaseAdmin ?? ensureSupabaseConfigured();
+    const supabase = req.admin ?? ensureSupabaseConfigured();
     const resultado = await updateEmotionalProfile(userId, { supabase });
     return res.status(resultado.success ? 200 : 500).json(resultado);
   } catch (err: any) {

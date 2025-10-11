@@ -1,14 +1,17 @@
-import type { ListMemoriesOptions, MemoryInsert, MemoryRow, MemoryTable } from "../../adapters/supabaseMemoryRepository";
-import { insertMemory, listMemories } from "../../adapters/supabaseMemoryRepository";
-
-export class MemoryRepository {
-  async save(table: MemoryTable, payload: MemoryInsert) {
-    return insertMemory(table, payload);
-  }
-
-  async list(userId: string, options: ListMemoriesOptions) {
-    return listMemories(userId, options);
-  }
+export interface MemoryInsertPayload {
+  texto?: string;
+  intensidade: number;
+  tags: string[];
+  usuario_id: string;
+  [key: string]: unknown;
 }
 
-export type { MemoryInsert, MemoryRow };
+export type MemoryRow = MemoryInsertPayload & {
+  id: string;
+  created_at?: string;
+};
+
+export interface MemoryRepository {
+  save(table: string, payload: MemoryInsertPayload): Promise<MemoryRow>;
+  list(params: { usuario_id: string; tags?: string[]; limit?: number }): Promise<MemoryRow[]>;
+}

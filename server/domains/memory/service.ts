@@ -124,7 +124,8 @@ export class MemoryService {
   }
 
   async listMemories(userId: string, input: ListMemoriesInput): Promise<MemoryRow[]> {
-    const records = await this.repository.list(userId, {
+    const records = await this.repository.list({
+      usuario_id: userId,
       tags: input.tags ?? [],
       limit: input.limit,
     });
