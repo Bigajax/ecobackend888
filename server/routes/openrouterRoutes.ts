@@ -13,8 +13,10 @@ import { guestSessionConfig } from "../core/http/middlewares/guestSession";
 import { log } from "../services/promptContext/logger";
 import { now } from "../utils";
 // import requireAdmin from "../mw/requireAdmin"; // ⚠️ não usar neste endpoint para permitir guest
+import { supabaseWithBearer } from "../adapters/SupabaseAdapter";
 import { ensureSupabaseConfigured } from "../lib/supabaseAdmin";
 import { ActivationTracer, getActivationTrace, saveActivationTrace } from "../core/activationTracer";
+import { registrarMensagem } from "../services/mensagemService";
 
 import {
   attachGuestToSessionMeta,
@@ -74,6 +76,9 @@ router.post("/ask-eco", async (req: GuestAwareRequest, res: Response) => {
 
   const identity = resolveGuestIdentity(req);
 
+  let authenticatedUserId: string | null = null;
+  let userSupabaseClient: any = null;
+
   let mensagensParaIA = mensagensBrutas;
   if (identity.isGuest) {
     try {
@@ -131,7 +136,7 @@ router.post("/ask-eco", async (req: GuestAwareRequest, res: Response) => {
   const guestMeta = attachGuestToSessionMeta(sessionMeta, identity.isGuest ? identity.guestId : null);
   sessionMeta = guestMeta.sessionMeta;
   const distinctId = guestMeta.distinctId ?? (identity.isGuest ? identity.guestId ?? undefined : undefined);
-  const analyticsUserId = identity.isGuest ? undefined : usuarioIdBody;
+  let analyticsUserId: string | undefined = identity.isGuest ? undefined : usuarioIdBody;
 
   let guestInteractionCount: number | null = null;
   if (identity.isGuest && identity.guestId) {
@@ -172,11 +177,49 @@ router.post("/ask-eco", async (req: GuestAwareRequest, res: Response) => {
           ...(debugRequested ? { trace: activationTracer.snapshot() } : {}),
         });
       }
+
+      authenticatedUserId = data.user.id;
+      analyticsUserId = authenticatedUserId ?? analyticsUserId;
+
+      try {
+        userSupabaseClient = supabaseWithBearer(identity.token!);
+      } catch (clientError) {
+        const message = clientError instanceof Error ? clientError.message : String(clientError);
+        log.warn("[mensagem] Falha ao criar cliente autenticado do Supabase:", message);
+      }
     }
 
     const ultimaMsg = String(mensagensParaIA.at(-1)?.content ?? "");
     const trimmedUltimaMsg = ultimaMsg.trim();
     log.info("🗣️ Última mensagem:", safeLog(ultimaMsg));
+
+    const usuarioParaMensagem = authenticatedUserId ?? (typeof usuarioIdBody === "string" ? usuarioIdBody : null);
+    const conteudoParaSalvar = trimmedUltimaMsg || ultimaMsg;
+    if (
+      !identity.isGuest &&
+      userSupabaseClient &&
+      usuarioParaMensagem &&
+      typeof conteudoParaSalvar === "string" &&
+      conteudoParaSalvar.trim().length > 0
+    ) {
+      try {
+        const registro = await registrarMensagem(userSupabaseClient, {
+          usuario_id: usuarioParaMensagem,
+          conteudo: conteudoParaSalvar,
+          salvar_memoria: false,
+        });
+        const lastIndex = mensagensParaIA.length - 1;
+        if (lastIndex >= 0 && mensagensParaIA[lastIndex]) {
+          mensagensParaIA[lastIndex] = {
+            ...mensagensParaIA[lastIndex],
+            id: registro.id,
+          } as typeof mensagensParaIA[number];
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        log.warn("[mensagem] Falha ao registrar mensagem no Supabase:", message);
+      }
+    }
 
     if (identity.isGuest && identity.guestId && guestInteractionCount != null) {
       if (guestInteractionCount === 1) {

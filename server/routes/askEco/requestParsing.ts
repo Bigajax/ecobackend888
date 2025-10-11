@@ -77,7 +77,7 @@ export const resolveStreamPreference = (
 const stripHtml = (text: string): string => text.replace(/<[^>]*>/g, " ");
 const normalizeWhitespace = (text: string): string => text.replace(/\s+/g, " ").trim();
 
-export type NormalizedMessage = { role: string; content: any };
+export type NormalizedMessage = { id?: string; role: string; content: any };
 
 export const sanitizeGuestMessages = (
   messages: Array<{ role?: string; content?: any }>

@@ -300,6 +300,24 @@ export class ResponseFinalizer {
         ultimaMsg,
         decision: ecoDecision,
       });
+
+      if (lastMessageId && supabase) {
+        const intensidadeRounded = Math.max(0, Math.round(ecoDecision.intensity));
+        const shouldSaveMemory = ecoDecision.saveMemory && intensidadeRounded >= 7;
+        const sentimentoRaw = blocoParaSalvar?.emocao_principal;
+        const updates: Record<string, unknown> = { salvar_memoria: shouldSaveMemory };
+
+        if (typeof sentimentoRaw === "string" && sentimentoRaw.trim()) {
+          updates.sentimento = sentimentoRaw.trim();
+        }
+
+        try {
+          await supabase.from("mensagem").update(updates).eq("id", lastMessageId);
+        } catch (updateError) {
+          const message = updateError instanceof Error ? updateError.message : String(updateError);
+          log.warn("[mensagem] Falha ao atualizar mensagem:", message);
+        }
+      }
     } catch (e) {
       log.warn("⚠️ Pós-processo falhou:", (e as Error).message);
     }
