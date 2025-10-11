@@ -146,19 +146,19 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
     done: false,
     sawChunk: false,
     finishReason: "",
-    closed: false,
+    clientClosed: false,
   };
 
   const heartbeat = setInterval(() => {
     try {
-      res.write(`: ping ${Date.now()}\n\n`);
+      res.write(`:ka\n\n`);
     } catch (error) {
       clearInterval(heartbeat);
     }
-  }, 20_000);
+  }, 15_000);
 
   const isWritable = () => {
-    if (state.closed || state.done) return false;
+    if (state.clientClosed || state.done) return false;
     if ((res as any).writableEnded || (res as any).writableFinished) return false;
     if ((res as any).destroyed) return false;
     return true;
@@ -169,7 +169,7 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
     try {
       res.write(payload);
     } catch (error) {
-      state.closed = true;
+      state.clientClosed = true;
     }
   };
 
@@ -201,7 +201,7 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
       sawChunk: state.sawChunk,
     });
     state.done = true;
-    if (state.closed) {
+    if (state.clientClosed) {
       clearInterval(heartbeat);
       return;
     }
@@ -209,7 +209,7 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
     try {
       res.write("data: [DONE]\n\n");
     } catch (error) {
-      state.closed = true;
+      state.clientClosed = true;
     }
     try {
       res.end();
@@ -223,7 +223,7 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
 
   req.on("close", () => {
     if (state.done) return;
-    state.closed = true;
+    state.clientClosed = true;
     state.done = true;
     clearInterval(heartbeat);
     log.warn("[ask-eco] SSE client closed", {
@@ -233,7 +233,7 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
   });
 
   const forwardEvent = (rawEvt: EcoStreamEvent | any) => {
-    if (state.done || state.closed) return;
+    if (state.done || state.clientClosed) return;
     const evt = rawEvt as any;
     const type = String(evt?.type || "");
 
