@@ -7,10 +7,18 @@ import type { EcoStreamHandler, EcoStreamEvent } from "../services/conversation/
 
 function sanitizeOutput(text?: string): string {
   if (!text) return "";
+<<<<<<< HEAD
   return text
     .replace(/```(?:json)?[\s\S]*?```/gi, "") // remove blocos ```json
     .replace(/\{[\s\S]*?\}\s*$/g, "")        // remove possível payload JSON final
     .trim();
+=======
+  const cleaned = text
+    .replace(/```(?:json)?[\s\S]*?```/gi, "")
+    .replace(/\{[\s\S]*?\}\s*$/g, "")
+    .trim();
+  return cleaned;
+>>>>>>> 7e3db21f6c93a3855d4bcdcfa1cfffea784bc6d6
 }
 
 const router = Router();
