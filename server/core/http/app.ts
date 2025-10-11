@@ -91,6 +91,14 @@ export function createApp(): Express {
   // 4) Demais middlewares
   app.use(express.json({ limit: "1mb" }));
   app.use(express.urlencoded({ extended: true }));
+
+  // Guest identity (somente anotação, sem autorização de persistência)
+  app.use((req, _res, next) => {
+    const guestId = req.header("X-Guest-Id");
+    (req as any).guestId = typeof guestId === "string" && guestId.trim() ? guestId.trim() : undefined;
+    next();
+  });
+
   app.use(requestLogger);
 
   // Popula req.guest e aplica rate-limit do modo convidado
