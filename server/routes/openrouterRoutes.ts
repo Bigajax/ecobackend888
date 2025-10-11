@@ -31,6 +31,7 @@ import {
   ActivationTracer,
   saveActivationTrace,
   getActivationTrace,
+  type ActivationTraceSnapshot,
 } from "../core/activationTracer";
 
 const CACHE_TTL_MS = 60_000;
@@ -889,5 +890,361 @@ router.get("/debug/trace/:id", (req: Request, res: Response) => {
 
   return res.status(200).json({ ok: true, trace });
 });
+
+router.get("/debug/trace-viewer", requireAdmin, (req: GuestAwareRequest, res: Response) => {
+  if (!process.env.ECO_TRACE_DEBUG) {
+    res.status(403).send("Trace Viewer desativado");
+    return;
+  }
+
+  const traceIdParam = typeof req.query.id === "string" ? req.query.id.trim() : "";
+  const trace = traceIdParam ? getActivationTrace(traceIdParam) : null;
+
+  res.setHeader("Content-Type", "text/html; charset=utf-8");
+  res.status(200).send(buildTraceViewerHtml(traceIdParam, trace));
+});
+
+function buildTraceViewerHtml(traceId: string, trace: ActivationTraceSnapshot | null): string {
+  const hasTrace = Boolean(trace);
+  const message = !traceId
+    ? "Forneça um traceId para visualizar os dados."
+    : hasTrace
+    ? ""
+    : "Trace não encontrado";
+
+  const promptReadyMs = trace?.latency.promptReadyMs ?? 0;
+  const firstTokenMs = trace?.latency.firstTokenMs ?? 0;
+  const totalMs = trace?.latency.totalMs ?? 0;
+
+  const summaryTable = hasTrace
+    ? renderTable(
+        [
+          ["Trace ID", trace.traceId],
+          ["User ID", trace.userId ?? "—"],
+          ["Modelo", trace.model ?? "—"],
+          ["Cache", trace.cacheStatus ?? "—"],
+          ["Início", trace.startedAt ?? "—"],
+          ["Fim", trace.finishedAt ?? "—"],
+        ],
+        ["Campo", "Valor"]
+      )
+    : "";
+
+  const heuristicsSection = renderSection(
+    "Heurísticas",
+    hasTrace
+      ? trace.heuristics.length
+        ? renderTable(
+            trace.heuristics.map(({ key, evidence }) => [
+              key,
+              typeof evidence === "undefined"
+                ? "—"
+                : rawCell(`<pre>${escapeHtml(JSON.stringify(evidence, null, 2))}</pre>`),
+            ]),
+            ["Chave", "Evidência"]
+          )
+        : "<p class=\"empty\">Nenhuma heurística registrada.</p>"
+      : "<p class=\"empty\">Carregue um trace para visualizar.</p>"
+  );
+
+  const modulesSection = renderSection(
+    "Módulos",
+    hasTrace
+      ? trace.modules.length
+        ? renderTable(
+            trace.modules.map(({ name, reason, mode }) => [
+              name,
+              reason ?? "—",
+              mode ?? "—",
+            ]),
+            ["Nome", "Razão", "Modo"]
+          )
+        : "<p class=\"empty\">Nenhum módulo registrado.</p>"
+      : "<p class=\"empty\">Carregue um trace para visualizar.</p>"
+  );
+
+  const embeddingSection = renderSection(
+    "Embedding Result",
+    hasTrace && trace.embeddingResult
+      ? renderTable([
+          ["Hits", trace.embeddingResult.hits ?? "—"],
+          ["Similaridade", valueOrDash(trace.embeddingResult.similarity)],
+          ["Limite", valueOrDash(trace.embeddingResult.threshold)],
+        ])
+      : hasTrace
+      ? "<p class=\"empty\">Sem dados de embedding.</p>"
+      : "<p class=\"empty\">Carregue um trace para visualizar.</p>"
+  );
+
+  const memorySection = renderSection(
+    "Memory Decision",
+    hasTrace && trace.memoryDecision
+      ? renderTable([
+          ["Salvar", trace.memoryDecision.willSave === null ? "—" : trace.memoryDecision.willSave ? "Sim" : "Não"],
+          ["Intensidade", valueOrDash(trace.memoryDecision.intensity)],
+          ["Motivo", trace.memoryDecision.reason ?? "—"],
+        ])
+      : hasTrace
+      ? "<p class=\"empty\">Nenhuma decisão registrada.</p>"
+      : "<p class=\"empty\">Carregue um trace para visualizar.</p>"
+  );
+
+  const latencySection = renderSection(
+    "Latência",
+    hasTrace
+      ? renderTable(
+          [
+            ["Prompt Ready (ms)", valueOrDash(trace.latency.promptReadyMs)],
+            ["Primeiro Token (ms)", valueOrDash(trace.latency.firstTokenMs)],
+            ["Total (ms)", valueOrDash(trace.latency.totalMs)],
+          ]
+        )
+      : "<p class=\"empty\">Carregue um trace para visualizar.</p>"
+  );
+
+  const errorsSection = renderSection(
+    "Erros",
+    hasTrace && trace.errors.length
+      ? renderTable(
+          trace.errors.map(({ where, message }) => [where, message]),
+          ["Local", "Mensagem"]
+        )
+      : hasTrace
+      ? "<p class=\"empty\">Nenhum erro registrado.</p>"
+      : "<p class=\"empty\">Carregue um trace para visualizar.</p>"
+  );
+
+  const sequenceDiagram = `sequenceDiagram
+  participant C as Client
+  participant E as /ask-eco
+  participant O as getEcoResponse
+  participant P as prepareContext
+  participant B as ContextBuilder
+  participant M as LLM
+  C->>E: POST /ask-eco
+  E->>O: getEcoResponse()
+  O->>P: prepareContext()
+  P->>B: montarContextoEco()
+  B->>M: prompt
+  M-->>E: tokens + done
+  E-->>C: resposta final`;
+
+  const timelineDiagram = `gantt
+  dateFormat  X
+  title  Latência
+  section Tempo
+  PromptReady :a1, 0, ${promptReadyMs}
+  FirstToken  :a2, 0, ${firstTokenMs}
+  Total       :a3, 0, ${totalMs}`;
+
+  return `<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Eco – Activation Trace Viewer</title>
+    <link rel="preconnect" href="https://cdn.jsdelivr.net" />
+    <style>
+      :root {
+        color-scheme: light;
+      }
+      body {
+        margin: 0;
+        padding: 0;
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        background: #f6f7f9;
+        color: #1c1c1c;
+      }
+      .container {
+        max-width: 960px;
+        margin: 0 auto;
+        padding: 32px 16px 64px;
+      }
+      header {
+        margin-bottom: 24px;
+      }
+      h1 {
+        margin: 0 0 12px;
+        font-size: 1.8rem;
+      }
+      form {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin-bottom: 24px;
+      }
+      input[type="text"] {
+        flex: 1;
+        min-width: 220px;
+        padding: 10px 12px;
+        font-size: 1rem;
+        border-radius: 8px;
+        border: 1px solid #c5c7ce;
+        background: #fff;
+      }
+      button {
+        padding: 10px 16px;
+        font-size: 1rem;
+        border-radius: 8px;
+        border: none;
+        cursor: pointer;
+        background: #2d63ff;
+        color: #fff;
+      }
+      .message {
+        margin-bottom: 16px;
+        color: #d23f31;
+        font-weight: 600;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+      th,
+      td {
+        padding: 8px 10px;
+        border-bottom: 1px solid #e0e3eb;
+        text-align: left;
+        vertical-align: top;
+      }
+      th {
+        font-weight: 600;
+        color: #384260;
+      }
+      tr:last-child td {
+        border-bottom: none;
+      }
+      .empty {
+        color: #6b7280;
+        font-style: italic;
+      }
+      pre {
+        margin: 0;
+        padding: 8px;
+        background: #f1f4f8;
+        border-radius: 6px;
+        white-space: pre-wrap;
+        word-break: break-word;
+        font-size: 0.9rem;
+      }
+      .panels {
+        display: grid;
+        gap: 16px;
+      }
+      details.panel {
+        background: #fff;
+        border-radius: 12px;
+        border: 1px solid #e0e3eb;
+        box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+        padding: 0 16px 12px;
+      }
+      details.panel > summary {
+        cursor: pointer;
+        font-weight: 600;
+        padding: 16px 0 12px;
+        list-style: none;
+      }
+      details.panel[open] > summary {
+        border-bottom: 1px solid #e0e3eb;
+        margin-bottom: 12px;
+      }
+      .mermaid {
+        background: #fff;
+        border-radius: 12px;
+        border: 1px solid #e0e3eb;
+        padding: 16px;
+        margin-top: 24px;
+      }
+      .summary-card {
+        background: #fff;
+        border-radius: 12px;
+        border: 1px solid #e0e3eb;
+        box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+        padding: 16px;
+        margin-bottom: 24px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <header>
+        <h1>Eco – Activation Trace Viewer</h1>
+        <form method="get" action="/debug/trace-viewer">
+          <input type="text" name="id" placeholder="Trace ID" value="${escapeHtml(traceId)}" />
+          <button type="submit">Carregar</button>
+        </form>
+        ${message ? `<div class="message">${escapeHtml(message)}</div>` : ""}
+      </header>
+      ${summaryTable ? `<div class="summary-card">${summaryTable}</div>` : ""}
+      <div class="panels">
+        ${heuristicsSection}
+        ${modulesSection}
+        ${embeddingSection}
+        ${memorySection}
+        ${latencySection}
+        ${errorsSection}
+      </div>
+      <div class="mermaid">${escapeHtml(sequenceDiagram)}</div>
+      <div class="mermaid">${escapeHtml(timelineDiagram)}</div>
+    </div>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+    <script>mermaid.initialize({ startOnLoad: true, theme: "neutral" });</script>
+  </body>
+</html>`;
+}
+
+function renderSection(title: string, content: string): string {
+  return `<details class="panel" open>
+  <summary>${escapeHtml(title)}</summary>
+  <div class="panel-body">${content}</div>
+</details>`;
+}
+
+type TableCell = string | number | null | { raw: string };
+
+function renderTable(rows: TableCell[][], headers?: string[]): string {
+  const thead = headers
+    ? `<thead><tr>${headers.map((header) => `<th>${escapeHtml(header)}</th>`).join("")}</tr></thead>`
+    : "";
+  const body = rows
+    .map(
+      (cells) =>
+        `<tr>${cells
+          .map((cell) => `<td>${normalizeCell(cell)}</td>`)
+          .join("")}</tr>`
+    )
+    .join("");
+  return `<table>${thead}<tbody>${body}</tbody></table>`;
+}
+
+function normalizeCell(cell: TableCell): string {
+  if (cell === null || typeof cell === "undefined") {
+    return "—";
+  }
+  if (typeof cell === "object" && "raw" in cell) {
+    return cell.raw;
+  }
+  return escapeHtml(String(cell));
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function valueOrDash(value: number | string | null | undefined): TableCell {
+  if (value === null || typeof value === "undefined") {
+    return "—";
+  }
+  return rawCell(escapeHtml(String(value)));
+}
+
+function rawCell(html: string): { raw: string } {
+  return { raw: html };
+}
 
 export default router;
