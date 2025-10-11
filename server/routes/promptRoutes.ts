@@ -5,6 +5,7 @@ import { getPromptEcoPreview } from "../controllers/promptController";
 import { getEcoResponse } from "../services/ConversationOrchestrator";
 import { log } from "../services/promptContext/logger";
 import type { EcoStreamHandler, EcoStreamEvent } from "../services/conversation/types";
+import { EXPOSE_HEADERS_HEADER } from "../bootstrap/cors";
 
 /** Sanitiza a saída removendo blocos ```json``` e JSON final pendurado */
 function sanitizeOutput(input?: string): string {
@@ -226,20 +227,18 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
 
   // ===== SSE =====
 
-  const allowedOrigin = process.env.PUBLIC_APP_URL ?? "https://ecofrontend888.vercel.app";
-  const headers: Record<string, string> = {
-    "Content-Type": "text/event-stream; charset=utf-8",
-    "Cache-Control": "no-cache, no-transform",
-    Connection: "keep-alive",
-    "Access-Control-Allow-Origin": allowedOrigin,
-    "Access-Control-Allow-Credentials": "true",
-    "X-Accel-Buffering": "no",
-    "Access-Control-Expose-Headers": "X-Guest-Id, Content-Type, Cache-Control",
-    Vary: "Origin",
-  };
-  if (guestIdFromMiddleware) headers["x-guest-id"] = guestIdFromMiddleware;
+  res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
+  res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no");
+  res.setHeader("Content-Encoding", "identity");
+  res.setHeader("Access-Control-Expose-Headers", EXPOSE_HEADERS_HEADER);
+  res.setHeader("Vary", "Origin");
+  if (guestIdFromMiddleware) {
+    res.setHeader("x-guest-id", guestIdFromMiddleware);
+  }
 
-  res.writeHead(200, headers);
+  res.status(200);
   (res as any).flushHeaders?.();
 
   const state = {
@@ -312,7 +311,7 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
   };
 
   heartbeat = setInterval(() => {
-    safeWrite(`:hb ${Date.now()}\n\n`);
+    safeWrite(`event: ping\ndata: "${Date.now()}"\n\n`);
   }, 20_000);
 
   sendMetaReady();

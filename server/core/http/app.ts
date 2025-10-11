@@ -16,7 +16,11 @@ import { applyCors, ensureCorsHeaders } from "./middlewares/cors";
 import { requestLogger } from "./middlewares/logger";
 import { normalizeQuery } from "./middlewares/queryNormalizer";
 import { ModuleCatalog } from "../../domains/prompts/ModuleCatalog";
-import { ALLOWED_HEADERS } from "../../bootstrap/cors";
+import {
+  ALLOWED_HEADERS_HEADER,
+  ALLOWED_METHODS_HEADER,
+  EXPOSE_HEADERS_HEADER,
+} from "../../bootstrap/cors";
 
 import promptRoutes from "../../routes/promptRoutes";
 import profileRoutes from "../../routes/perfilEmocionalRoutes";
@@ -103,12 +107,6 @@ function apiRateLimiter(req: Request, res: Response, next: NextFunction) {
   return next();
 }
 
-/**
- * Mantém estes headers sincronizados com o front-end e com o middleware de CORS.
- * Se preferir, exporte-os de ./middlewares/cors e importe aqui.
- */
-const ALLOWED_HEADERS_HEADER = ALLOWED_HEADERS.join(", ");
-
 export function createApp(): Express {
   const app = express();
 
@@ -121,36 +119,38 @@ export function createApp(): Express {
   // 2) PRE-FLIGHTS globais úteis para clientes que chamam /api/*
   app.options("/api/*", (req: Request, res: Response) => {
     ensureCorsHeaders(res, req.headers.origin as string | undefined);
-    res.setHeader(
-      "Access-Control-Allow-Methods",
-      "GET,POST,PUT,PATCH,DELETE,OPTIONS"
-    );
+    res.setHeader("Access-Control-Allow-Methods", ALLOWED_METHODS_HEADER);
     res.setHeader("Access-Control-Allow-Headers", ALLOWED_HEADERS_HEADER);
-    // fix: mirror 200 OK for OPTIONS with SSE headers already provided upstream
+    res.setHeader("Access-Control-Expose-Headers", EXPOSE_HEADERS_HEADER);
+    res.setHeader("Access-Control-Allow-Credentials", "false");
     res.setHeader("Cache-Control", "no-cache, no-transform");
     res.setHeader("X-Accel-Buffering", "no");
-    return res.status(200).end();
+    return res.status(204).end();
   });
 
   // Alias sem /api (se algum cliente usar diretam. /ask-eco)
   app.options("/ask-eco", (req: Request, res: Response) => {
     ensureCorsHeaders(res, req.headers.origin as string | undefined);
-    res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+    res.setHeader("Access-Control-Allow-Methods", ALLOWED_METHODS_HEADER);
     res.setHeader("Access-Control-Allow-Headers", ALLOWED_HEADERS_HEADER);
+    res.setHeader("Access-Control-Expose-Headers", EXPOSE_HEADERS_HEADER);
+    res.setHeader("Access-Control-Allow-Credentials", "false");
     res.setHeader("Cache-Control", "no-cache, no-transform");
     res.setHeader("X-Accel-Buffering", "no");
-    return res.status(200).end();
+    return res.status(204).end();
   });
 
   // 3) Entrada dedicada ao endpoint SSE (garante cabeçalhos corretos)
   const sseEntry = (req: Request, res: Response, next: NextFunction) => {
     if (req.method === "OPTIONS") {
       ensureCorsHeaders(res, req.headers.origin as string | undefined);
-      res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+      res.setHeader("Access-Control-Allow-Methods", ALLOWED_METHODS_HEADER);
       res.setHeader("Access-Control-Allow-Headers", ALLOWED_HEADERS_HEADER);
+      res.setHeader("Access-Control-Expose-Headers", EXPOSE_HEADERS_HEADER);
+      res.setHeader("Access-Control-Allow-Credentials", "false");
       res.setHeader("Cache-Control", "no-cache, no-transform");
       res.setHeader("X-Accel-Buffering", "no");
-      return res.status(200).end();
+      return res.status(204).end();
     }
     ensureCorsHeaders(res, req.headers.origin as string | undefined);
     res.setHeader("Vary", "Origin");
@@ -171,8 +171,6 @@ export function createApp(): Express {
   app.use(express.urlencoded({ extended: true }));
 
 
-  app.use(requestLogger);
-
   // Guest identity (somente anotação, sem autorização de persistência)
   app.use((req, _res, next) => {
     const guestId = req.header("X-Guest-Id");
@@ -185,6 +183,8 @@ export function createApp(): Express {
 
   // Popula req.guest e aplica regras específicas de sessão convidada (telemetria)
   app.use(guestSessionMiddleware);
+
+  app.use(requestLogger);
 
   app.use(normalizeQuery);
 
