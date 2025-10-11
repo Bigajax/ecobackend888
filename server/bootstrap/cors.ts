@@ -6,8 +6,9 @@ import cors from "cors";
  *  ============================ */
 const PROD_ORIGINS = [
   "https://ecofrontend888.vercel.app",
-  // Permite domínios de preview Vercel (builds temporários)
+  // Permite domínios de preview Vercel (builds temporários conhecidos)
   "https://ecofrontend888-geviqh5x7-rafaels-projects-f3ef53c3.vercel.app",
+  "https://ecofrontend888-git-main-rafaels-projects-f3ef53c3.vercel.app",
 ] as const;
 
 const LOCAL_ORIGINS = [
@@ -54,30 +55,34 @@ const VERCEL_SUFFIX = ".vercel.app";
 /** ============================
  *  CONFIG BÁSICA
  *  ============================ */
-export const ALLOWED_METHODS = ["GET", "POST", "OPTIONS", "HEAD", "PUT", "PATCH", "DELETE"] as const;
+export const ALLOWED_METHODS = [
+  "GET",
+  "POST",
+  "PUT",
+  "PATCH",
+  "DELETE",
+  "OPTIONS",
+  "HEAD",
+] as const;
 
 export const ALLOWED_HEADERS = [
-  "Content-Type",
-  "Authorization",
-  "Accept",
-  "Origin",
-  "X-Requested-With",
-  "X-Guest-Id",
-  "X-Guest-Mode",
-  "X-Title",
-  "HTTP-Referer",
-  // Alguns proxies verificam estes no preflight
-  "User-Agent",
-  "Sec-Fetch-Mode",
-  "Sec-Fetch-Site",
-  "Sec-Fetch-Dest",
+  "authorization",
+  "content-type",
+  "x-guest-id",
+  "x-requested-with",
 ] as const;
 
 export const EXPOSE_HEADERS = [
-  "X-Guest-Id",
-  "Content-Type",
-  "Cache-Control",
+  "content-encoding",
+  "content-type",
+  "content-length",
+  "range",
+  "content-range",
 ] as const;
+
+export const ALLOWED_METHODS_HEADER = ALLOWED_METHODS.join(", ");
+export const ALLOWED_HEADERS_HEADER = ALLOWED_HEADERS.join(", ");
+export const EXPOSE_HEADERS_HEADER = EXPOSE_HEADERS.join(", ");
 
 /** ============================
  *  CHECAGEM DE ORIGIN
@@ -113,7 +118,7 @@ export const corsMiddleware = cors({
       callback(new Error("CORS não permitido para este domínio"));
     }
   },
-  credentials: true,
+  credentials: false,
   methods: [...ALLOWED_METHODS],
   allowedHeaders: [...ALLOWED_HEADERS],
   exposedHeaders: [...EXPOSE_HEADERS],
