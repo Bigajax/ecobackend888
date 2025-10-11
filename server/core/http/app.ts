@@ -1,4 +1,6 @@
 // server/core/http/app.ts
+import { createHash } from "node:crypto";
+
 import express, {
   type Express,
   type Request,
@@ -23,6 +25,78 @@ import { log } from "../../services/promptContext/logger";
 import { isSupabaseConfigured } from "../../lib/supabaseAdmin";
 import { guestSessionMiddleware } from "./middlewares/guestSession";
 import guestRoutes from "../../routes/guestRoutes";
+
+declare module "express-serve-static-core" {
+  interface Request {
+    guestId?: string;
+  }
+}
+
+const RATE_LIMIT_WINDOW_MS = Number(process.env.API_RATE_LIMIT_WINDOW_MS ?? 60_000);
+const RATE_LIMIT_MAX_REQUESTS = Number(process.env.API_RATE_LIMIT_MAX_REQUESTS ?? 60);
+const RATE_LIMIT_EXCLUSIONS = new Set(["/", "/healthz", "/readyz"]);
+
+type RateBucket = { count: number; resetAt: number };
+
+const rateBuckets = new Map<string, RateBucket>();
+
+function hashToken(token: string): string {
+  return createHash("sha256").update(token).digest("hex").slice(0, 32);
+}
+
+function getRateLimitKey(req: Request): string {
+  const authHeader = req.headers.authorization;
+  if (typeof authHeader === "string") {
+    const normalized = authHeader.trim();
+    if (/^Bearer\s+/i.test(normalized)) {
+      const token = normalized.replace(/^Bearer\s+/i, "").trim();
+      if (token) {
+        return `auth:${hashToken(token)}`;
+      }
+    }
+  }
+
+  const guestId = req.guest?.id || req.guestId;
+  if (typeof guestId === "string" && guestId.trim()) {
+    return `guest:${guestId.trim()}`;
+  }
+
+  return `ip:${req.ip}`;
+}
+
+function touchBucket(key: string, now: number): RateBucket {
+  const existing = rateBuckets.get(key);
+  if (!existing || existing.resetAt <= now) {
+    const fresh: RateBucket = { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS };
+    rateBuckets.set(key, fresh);
+    return fresh;
+  }
+
+  existing.count += 1;
+  return existing;
+}
+
+function apiRateLimiter(req: Request, res: Response, next: NextFunction) {
+  if (req.method === "OPTIONS") {
+    return next();
+  }
+
+  if (RATE_LIMIT_EXCLUSIONS.has(req.path)) {
+    return next();
+  }
+
+  const now = Date.now();
+  const key = getRateLimitKey(req);
+  const bucket = touchBucket(key, now);
+
+  if (bucket.count > RATE_LIMIT_MAX_REQUESTS) {
+    const retryAfterSeconds = Math.max(Math.ceil((bucket.resetAt - now) / 1000), 1);
+    res.setHeader("Retry-After", retryAfterSeconds.toString());
+    return res.status(429).json({ code: "RATE_LIMITED" });
+  }
+
+  return next();
+}
 
 /**
  * Mantém estes headers sincronizados com o front-end e com o middleware de CORS.
@@ -65,7 +139,7 @@ export function createApp(): Express {
   });
 
   // 3) Entrada dedicada ao endpoint SSE (garante cabeçalhos corretos)
-    const sseEntry = (req: Request, res: Response, next: NextFunction) => {
+  const sseEntry = (req: Request, res: Response, next: NextFunction) => {
     if (req.method === "OPTIONS") {
       ensureCorsHeaders(res, req.headers.origin as string | undefined);
       res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
@@ -92,16 +166,20 @@ export function createApp(): Express {
   app.use(express.json({ limit: "1mb" }));
   app.use(express.urlencoded({ extended: true }));
 
-  // Guest identity (somente anotação, sem autorização de persistência)
-  app.use((req, _res, next) => {
-    const guestId = req.header("X-Guest-Id");
-    (req as any).guestId = typeof guestId === "string" && guestId.trim() ? guestId.trim() : undefined;
-    next();
-  });
 
   app.use(requestLogger);
 
-  // Popula req.guest e aplica rate-limit do modo convidado
+  // Guest identity (somente anotação, sem autorização de persistência)
+  app.use((req, _res, next) => {
+    const guestId = req.header("X-Guest-Id");
+    req.guestId = typeof guestId === "string" && guestId.trim() ? guestId.trim() : undefined;
+    next();
+  });
+
+  // Rate limit simples baseado em JWT ou guestId
+  app.use(apiRateLimiter);
+
+  // Popula req.guest e aplica regras específicas de sessão convidada (telemetria)
   app.use(guestSessionMiddleware);
 
   app.use(normalizeQuery);

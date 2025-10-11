@@ -13,9 +13,7 @@ export function requireAdmin(req: Request, res: Response, next: NextFunction) {
     return next();
   } catch (err) {
     const e = err as Error;
-    return res.status(500).json({
-      error: "SUPABASE_ADMIN_NOT_CONFIGURED",
-      message: e.message,
+
     });
   }
 }
