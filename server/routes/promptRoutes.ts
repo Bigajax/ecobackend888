@@ -1,4 +1,5 @@
 // server/routes/promptRoutes.ts
+import { randomUUID } from "node:crypto";
 import { Router, type Request, type Response } from "express";
 import { getPromptEcoPreview } from "../controllers/promptController";
 import { getEcoResponse } from "../services/ConversationOrchestrator";
@@ -101,6 +102,34 @@ function extractTextLoose(payload: any): string | undefined {
   return tryList(payload);
 }
 
+function getGuestIdFromCookies(req: Request): string | undefined {
+  const cookieGuestId = (req as any)?.cookies?.guest_id;
+  if (typeof cookieGuestId === "string" && cookieGuestId.trim()) {
+    return cookieGuestId.trim();
+  }
+
+  const rawCookie = req.headers.cookie;
+  if (!rawCookie) return undefined;
+
+  for (const piece of rawCookie.split(";")) {
+    const [key, ...rest] = piece.split("=");
+    if (!key) continue;
+    if (key.trim() === "guest_id") {
+      try {
+        const value = rest.join("=");
+        const decoded = decodeURIComponent(value ?? "");
+        if (decoded.trim()) {
+          return decoded.trim();
+        }
+      } catch {
+        /* ignore decode errors */
+      }
+    }
+  }
+
+  return undefined;
+}
+
 /** POST /api/ask-eco — stream SSE (ou JSON se cliente não pedir SSE) */
 router.post("/ask-eco", async (req: Request, res: Response) => {
   const accept = String(req.headers.accept || "").toLowerCase();
@@ -108,6 +137,8 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
 
   const origin = (req.headers.origin as string) || "*";
   const guestIdFromMiddleware: string | undefined = (req as any)?.guest?.id || undefined;
+  const guestIdFromHeader = req.get("X-Guest-Id")?.trim();
+  const guestIdFromCookie = getGuestIdFromCookies(req);
 
   const {
     mensagens,
@@ -152,9 +183,28 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
   if (typeof nome_usuario === "string") (params as any).userName = nome_usuario;
   if (typeof usuario_id === "string") (params as any).userId = usuario_id;
 
-  const guestIdToSend =
-    typeof guestId === "string" && guestId.trim() ? guestId : guestIdFromMiddleware;
+  const resolveGuestId = (...candidates: (string | null | undefined)[]): string | undefined => {
+    for (const candidate of candidates) {
+      if (typeof candidate === "string") {
+        const trimmed = candidate.trim();
+        if (trimmed) return trimmed;
+      }
+    }
+    return undefined;
+  };
+
+  const guestIdToSend = resolveGuestId(
+    typeof guestId === "string" ? guestId : undefined,
+    guestIdFromHeader,
+    guestIdFromCookie,
+    guestIdFromMiddleware
+  );
   if (typeof guestIdToSend === "string") (params as any).guestId = guestIdToSend;
+
+  const guestIdForLogs =
+    resolveGuestId(guestIdFromHeader, guestIdFromCookie, guestIdToSend, guestIdFromMiddleware) ??
+    `temp_${randomUUID()}`;
+  log.info("[ask-eco] start", { guestId: guestIdForLogs, origin });
 
   // Modo JSON (sem stream): executa e devolve conteúdo agregado
   if (!wantsStream) {
@@ -176,15 +226,20 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
 
   // ===== SSE =====
 
-  // Headers SSE (CORS vem do middleware global; aqui reforço útil p/ proxies)
-  res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
-  res.setHeader("Cache-Control", "no-cache, no-transform");
-  res.setHeader("Connection", "keep-alive");
-  res.setHeader("X-Accel-Buffering", "no");
-  res.setHeader("Access-Control-Expose-Headers", "X-Guest-Id, Content-Type, Cache-Control");
-  res.setHeader("Vary", "Origin");
-  if (guestIdFromMiddleware) res.setHeader("x-guest-id", guestIdFromMiddleware);
+  const allowedOrigin = process.env.PUBLIC_APP_URL ?? "https://ecofrontend888.vercel.app";
+  const headers: Record<string, string> = {
+    "Content-Type": "text/event-stream; charset=utf-8",
+    "Cache-Control": "no-cache, no-transform",
+    Connection: "keep-alive",
+    "Access-Control-Allow-Origin": allowedOrigin,
+    "Access-Control-Allow-Credentials": "true",
+    "X-Accel-Buffering": "no",
+    "Access-Control-Expose-Headers": "X-Guest-Id, Content-Type, Cache-Control",
+    Vary: "Origin",
+  };
+  if (guestIdFromMiddleware) headers["x-guest-id"] = guestIdFromMiddleware;
 
+  res.writeHead(200, headers);
   (res as any).flushHeaders?.();
 
   const state = {
@@ -194,8 +249,10 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
     clientClosed: false,
   };
 
+  let heartbeat: NodeJS.Timeout | null = null;
+
   const isWritable = () => {
-    if (state.clientClosed || state.done) return false;
+    if (state.clientClosed) return false;
     if ((res as any).writableEnded || (res as any).writableFinished) return false;
     if ((res as any).destroyed) return false;
     return true;
@@ -210,14 +267,12 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
     }
   };
 
-  const sendReady = () => {
+  const sendMetaReady = () => {
     log.info("[ask-eco] SSE ready", {
       origin,
       guestId: guestIdFromMiddleware ?? guestIdToSend ?? null,
     });
-    // prelude + evento ready
-    safeWrite(": ok\n\n");
-    safeWrite("event: ready\ndata: {}\n\n");
+    safeWrite(`event: meta\ndata: ${JSON.stringify({ type: "prompt_ready" })}\n\n`);
   };
 
   const sendChunk = (piece: string) => {
@@ -226,7 +281,7 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
     if (!cleaned) return;
     state.sawChunk = true;
     log.info("[ask-eco] SSE chunk", { size: cleaned.length });
-    safeWrite(`data: ${JSON.stringify({ delta: { content: cleaned } })}\n\n`);
+    safeWrite(`event: chunk\ndata: ${JSON.stringify({ text: cleaned })}\n\n`);
   };
 
   const sendError = (message: string) => {
@@ -237,45 +292,44 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
   const sendDone = (reason?: string | null) => {
     if (state.done) return;
     state.finishReason = reason ?? state.finishReason ?? "unknown";
+    state.done = true;
+    if (heartbeat) {
+      clearInterval(heartbeat);
+      heartbeat = null;
+    }
     log.info("[ask-eco] SSE done", {
       finishReason: state.finishReason || "unknown",
       sawChunk: state.sawChunk,
     });
-    state.done = true;
-
-    if (state.clientClosed) return;
-    try {
-      res.write("data: [DONE]\n\n");
-    } catch {
-      state.clientClosed = true;
-    }
-    try {
-      res.end();
-    } catch {
-      /* noop */
+    if (!state.clientClosed) {
+      safeWrite(`event: done\ndata: {}\n\n`);
+      try {
+        res.end();
+      } catch {
+        /* noop */
+      }
     }
   };
 
-  // Heartbeat a cada 15s
-  const heartbeat = setInterval(() => {
-    try {
-      safeWrite(`: ping ${Date.now()}\n\n`);
-    } catch {
-      // se der exceção, na próxima checagem writable paramos
-    }
-  }, 15_000);
+  heartbeat = setInterval(() => {
+    safeWrite(`:hb ${Date.now()}\n\n`);
+  }, 20_000);
 
-  sendReady();
+  sendMetaReady();
 
   req.on("close", () => {
-    if (state.done) return;
+    if (state.clientClosed) return;
     state.clientClosed = true;
-    state.done = true;
-    clearInterval(heartbeat);
-    log.warn("[ask-eco] SSE client closed", {
-      origin,
-      guestId: guestIdFromMiddleware ?? guestIdToSend ?? null,
-    });
+    if (heartbeat) {
+      clearInterval(heartbeat);
+      heartbeat = null;
+    }
+    if (!state.done) {
+      log.warn("[ask-eco] SSE client closed", {
+        origin,
+        guestId: guestIdFromMiddleware ?? guestIdToSend ?? null,
+      });
+    }
   });
 
   const forwardEvent = (rawEvt: EcoStreamEvent | any) => {
@@ -285,8 +339,7 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
 
     switch (type) {
       case "control": {
-        const name = evt?.name;
-        if (name === "done") {
+        if (evt?.name === "done") {
           sendDone(evt?.meta?.finishReason ?? evt?.finishReason ?? "done");
         }
         return;
@@ -339,9 +392,10 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
 
     if (!state.done) {
       if (!state.sawChunk) {
-        // Fallback: se não veio stream, tenta extrair texto do result
         const textOut = sanitizeOutput(extractTextLoose(result) ?? "");
-        if (textOut) sendChunk(textOut);
+        if (textOut) {
+          sendChunk(textOut);
+        }
         sendDone(textOut ? "fallback_no_stream" : "fallback_empty");
       } else {
         sendDone("stream_done");
@@ -360,7 +414,10 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
     sendError(code ? `${code}: ${message}` : message || "Erro desconhecido");
     sendDone("error");
   } finally {
-    clearInterval(heartbeat);
+    if (heartbeat) {
+      clearInterval(heartbeat);
+      heartbeat = null;
+    }
   }
 });
 
