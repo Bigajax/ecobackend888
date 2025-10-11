@@ -1,4 +1,8 @@
 // server/core/http/app.ts
+// CORS/Streaming notes:
+// - Allowed origins resolved via bootstrap/cors (PROD + LOCAL + CORS_ALLOW_ORIGINS env).
+// - Methods enabled: GET/POST/OPTIONS/HEAD plus REST verbs; headers mirror ALLOWED_HEADERS (JSON/auth/X-Guest-*).
+// - OPTIONS never requires auth and is answered before other middlewares.
 import { createHash } from "node:crypto";
 
 import express, {
@@ -12,6 +16,7 @@ import { applyCors, ensureCorsHeaders } from "./middlewares/cors";
 import { requestLogger } from "./middlewares/logger";
 import { normalizeQuery } from "./middlewares/queryNormalizer";
 import { ModuleCatalog } from "../../domains/prompts/ModuleCatalog";
+import { ALLOWED_HEADERS } from "../../bootstrap/cors";
 
 import promptRoutes from "../../routes/promptRoutes";
 import profileRoutes from "../../routes/perfilEmocionalRoutes";
@@ -102,8 +107,7 @@ function apiRateLimiter(req: Request, res: Response, next: NextFunction) {
  * Mantém estes headers sincronizados com o front-end e com o middleware de CORS.
  * Se preferir, exporte-os de ./middlewares/cors e importe aqui.
  */
-const GUEST_ALLOWED_HEADERS =
-  "Content-Type, Authorization, X-Requested-With, Accept, Origin, X-Guest-Id, X-Guest-Mode";
+const ALLOWED_HEADERS_HEADER = ALLOWED_HEADERS.join(", ");
 
 export function createApp(): Express {
   const app = express();
@@ -121,7 +125,7 @@ export function createApp(): Express {
       "Access-Control-Allow-Methods",
       "GET,POST,PUT,PATCH,DELETE,OPTIONS"
     );
-    res.setHeader("Access-Control-Allow-Headers", GUEST_ALLOWED_HEADERS);
+    res.setHeader("Access-Control-Allow-Headers", ALLOWED_HEADERS_HEADER);
     // fix: mirror 200 OK for OPTIONS with SSE headers already provided upstream
     res.setHeader("Cache-Control", "no-cache, no-transform");
     res.setHeader("X-Accel-Buffering", "no");
@@ -132,7 +136,7 @@ export function createApp(): Express {
   app.options("/ask-eco", (req: Request, res: Response) => {
     ensureCorsHeaders(res, req.headers.origin as string | undefined);
     res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
-    res.setHeader("Access-Control-Allow-Headers", GUEST_ALLOWED_HEADERS);
+    res.setHeader("Access-Control-Allow-Headers", ALLOWED_HEADERS_HEADER);
     res.setHeader("Cache-Control", "no-cache, no-transform");
     res.setHeader("X-Accel-Buffering", "no");
     return res.status(200).end();
@@ -143,7 +147,7 @@ export function createApp(): Express {
     if (req.method === "OPTIONS") {
       ensureCorsHeaders(res, req.headers.origin as string | undefined);
       res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
-      res.setHeader("Access-Control-Allow-Headers", GUEST_ALLOWED_HEADERS);
+      res.setHeader("Access-Control-Allow-Headers", ALLOWED_HEADERS_HEADER);
       res.setHeader("Cache-Control", "no-cache, no-transform");
       res.setHeader("X-Accel-Buffering", "no");
       return res.status(200).end();
