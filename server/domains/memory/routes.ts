@@ -1,7 +1,7 @@
 import { Router, type Request, type Response, type NextFunction } from "express";
 import requireAdmin from "../../mw/requireAdmin";
 import { createMemoryController } from "./controller";
-import { ensureCorsHeaders } from "../../core/http/middlewares/cors";
+import { ensureCorsHeaders } from "../../middleware/cors";
 
 const router = Router();
 

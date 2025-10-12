@@ -1,6 +1,6 @@
 // server/core/http/app.ts
 // CORS/Streaming notes:
-// - Allowed origins resolved via bootstrap/cors (PROD + LOCAL + CORS_ALLOW_ORIGINS env).
+// - Allowed origins resolved via middleware/cors (static whitelist + Vercel previews).
 // - Methods enabled: GET/POST/OPTIONS/HEAD plus REST verbs; headers mirror ALLOWED_HEADERS (JSON/auth/X-Guest-*).
 // - OPTIONS never requires auth and is answered before other middlewares.
 import { createHash } from "node:crypto";
@@ -12,15 +12,16 @@ import express, {
   type NextFunction,
 } from "express";
 
-import { applyCors, ensureCorsHeaders } from "./middlewares/cors";
+import {
+  corsMiddleware,
+  ensureCorsHeaders,
+  ALLOWED_HEADERS_HEADER,
+  ALLOWED_METHODS_HEADER,
+  EXPOSED_HEADERS_HEADER,
+} from "../../middleware/cors";
 import { requestLogger } from "./middlewares/logger";
 import { normalizeQuery } from "./middlewares/queryNormalizer";
 import { ModuleCatalog } from "../../domains/prompts/ModuleCatalog";
-import {
-  ALLOWED_HEADERS_HEADER,
-  ALLOWED_METHODS_HEADER,
-  EXPOSE_HEADERS_HEADER,
-} from "../../bootstrap/cors";
 
 import promptRoutes from "../../routes/promptRoutes";
 import profileRoutes from "../../routes/perfilEmocionalRoutes";
@@ -114,50 +115,20 @@ export function createApp(): Express {
   app.set("trust proxy", 1);
 
   // 1) CORS sempre primeiro
-  applyCors(app);
+  app.use(corsMiddleware);
 
   // 2) PRE-FLIGHTS globais úteis para clientes que chamam /api/*
-  app.options("/api/*", (req: Request, res: Response) => {
+  app.options("*", corsMiddleware, (req: Request, res: Response) => {
     ensureCorsHeaders(res, req.headers.origin as string | undefined);
-    res.setHeader("Access-Control-Expose-Headers", EXPOSE_HEADERS_HEADER);
+    res.setHeader("Access-Control-Expose-Headers", EXPOSED_HEADERS_HEADER);
+    res.setHeader("Access-Control-Allow-Methods", ALLOWED_METHODS_HEADER);
+    res.setHeader("Access-Control-Allow-Headers", ALLOWED_HEADERS_HEADER);
     res.setHeader("Cache-Control", "no-cache, no-transform");
     res.setHeader("X-Accel-Buffering", "no");
     return res.status(204).end();
   });
 
-  // Alias sem /api (se algum cliente usar diretam. /ask-eco)
-  app.options("/ask-eco", (req: Request, res: Response) => {
-    ensureCorsHeaders(res, req.headers.origin as string | undefined);
-    res.setHeader("Access-Control-Expose-Headers", EXPOSE_HEADERS_HEADER);
-    res.setHeader("Cache-Control", "no-cache, no-transform");
-    res.setHeader("X-Accel-Buffering", "no");
-    return res.status(204).end();
-  });
-
-  // 3) Entrada dedicada ao endpoint SSE (garante cabeçalhos corretos)
-  const sseEntry = (req: Request, res: Response, next: NextFunction) => {
-    if (req.method === "OPTIONS") {
-      ensureCorsHeaders(res, req.headers.origin as string | undefined);
-      res.setHeader("Access-Control-Expose-Headers", EXPOSE_HEADERS_HEADER);
-      res.setHeader("Cache-Control", "no-cache, no-transform");
-      res.setHeader("X-Accel-Buffering", "no");
-      return res.status(204).end();
-    }
-    ensureCorsHeaders(res, req.headers.origin as string | undefined);
-    res.setHeader("Vary", "Origin");
-    if (req.method === "POST") {
-      // Boas práticas p/ streaming via fetch/SSE
-      res.setHeader("Cache-Control", "no-cache, no-transform");
-      res.setHeader("X-Accel-Buffering", "no");
-    }
-    return next();
-  };
-
-  // Aplica a entrada SSE nos dois caminhos aceitos
-  app.all("/api/ask-eco", sseEntry);
-  app.all("/ask-eco", sseEntry);
-
-  // 4) Demais middlewares
+  // 3) Demais middlewares
   app.use(express.json({ limit: "1mb" }));
   app.use(express.urlencoded({ extended: true }));
 
