@@ -119,10 +119,7 @@ export function createApp(): Express {
   // 2) PRE-FLIGHTS globais úteis para clientes que chamam /api/*
   app.options("/api/*", (req: Request, res: Response) => {
     ensureCorsHeaders(res, req.headers.origin as string | undefined);
-    res.setHeader("Access-Control-Allow-Methods", ALLOWED_METHODS_HEADER);
-    res.setHeader("Access-Control-Allow-Headers", ALLOWED_HEADERS_HEADER);
     res.setHeader("Access-Control-Expose-Headers", EXPOSE_HEADERS_HEADER);
-    res.setHeader("Access-Control-Allow-Credentials", "false");
     res.setHeader("Cache-Control", "no-cache, no-transform");
     res.setHeader("X-Accel-Buffering", "no");
     return res.status(204).end();
@@ -131,10 +128,7 @@ export function createApp(): Express {
   // Alias sem /api (se algum cliente usar diretam. /ask-eco)
   app.options("/ask-eco", (req: Request, res: Response) => {
     ensureCorsHeaders(res, req.headers.origin as string | undefined);
-    res.setHeader("Access-Control-Allow-Methods", ALLOWED_METHODS_HEADER);
-    res.setHeader("Access-Control-Allow-Headers", ALLOWED_HEADERS_HEADER);
     res.setHeader("Access-Control-Expose-Headers", EXPOSE_HEADERS_HEADER);
-    res.setHeader("Access-Control-Allow-Credentials", "false");
     res.setHeader("Cache-Control", "no-cache, no-transform");
     res.setHeader("X-Accel-Buffering", "no");
     return res.status(204).end();
@@ -144,10 +138,7 @@ export function createApp(): Express {
   const sseEntry = (req: Request, res: Response, next: NextFunction) => {
     if (req.method === "OPTIONS") {
       ensureCorsHeaders(res, req.headers.origin as string | undefined);
-      res.setHeader("Access-Control-Allow-Methods", ALLOWED_METHODS_HEADER);
-      res.setHeader("Access-Control-Allow-Headers", ALLOWED_HEADERS_HEADER);
       res.setHeader("Access-Control-Expose-Headers", EXPOSE_HEADERS_HEADER);
-      res.setHeader("Access-Control-Allow-Credentials", "false");
       res.setHeader("Cache-Control", "no-cache, no-transform");
       res.setHeader("X-Accel-Buffering", "no");
       return res.status(204).end();
