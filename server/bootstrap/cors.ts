@@ -105,6 +105,9 @@ export const isAllowedOrigin = (origin?: string | null): boolean => {
 /** ============================
  *  MIDDLEWARE DE CORS
  *  ============================ */
+export const CORS_ALLOW_CREDENTIALS =
+  String(process.env.ECO_CORS_CREDENTIALS ?? "false").toLowerCase() === "true";
+
 export const corsMiddleware = cors({
   origin(origin, callback) {
     const ok = isAllowedOrigin(origin);
@@ -118,7 +121,7 @@ export const corsMiddleware = cors({
       callback(new Error("CORS não permitido para este domínio"));
     }
   },
-  credentials: false,
+  credentials: CORS_ALLOW_CREDENTIALS,
   methods: [...ALLOWED_METHODS],
   allowedHeaders: [...ALLOWED_HEADERS],
   exposedHeaders: [...EXPOSE_HEADERS],

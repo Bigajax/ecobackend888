@@ -6,6 +6,7 @@ import { getEcoResponse } from "../services/ConversationOrchestrator";
 import { log } from "../services/promptContext/logger";
 import type { EcoStreamHandler, EcoStreamEvent } from "../services/conversation/types";
 import { EXPOSE_HEADERS_HEADER } from "../bootstrap/cors";
+import { attachCors, createHttpError, isHttpError } from "../utils/http";
 
 /** Sanitiza a saída removendo blocos ```json``` e JSON final pendurado */
 function sanitizeOutput(input?: string): string {
@@ -21,6 +22,9 @@ function sanitizeOutput(input?: string): string {
 const router = Router();
 
 console.log("Backend: promptRoutes carregado.");
+
+const REQUIRE_GUEST_ID =
+  String(process.env.ECO_REQUIRE_GUEST_ID ?? "false").toLowerCase() === "true";
 
 /** GET /api/prompt-preview */
 router.get("/prompt-preview", async (req: Request, res: Response) => {
@@ -131,292 +135,383 @@ function getGuestIdFromCookies(req: Request): string | undefined {
   return undefined;
 }
 
+type NormalizedMessage = { id?: string; role: string; content: string };
+
+function normalizeMessages(payload: unknown): { messages: NormalizedMessage[]; shape: string } {
+  const body = payload && typeof payload === "object" ? (payload as Record<string, any>) : {};
+  const result: NormalizedMessage[] = [];
+  let shape: "text" | "mensagem" | "mensagens" | "invalid" = "invalid";
+
+  const sourceArray: unknown = Array.isArray(body.messages)
+    ? body.messages
+    : Array.isArray(body.mensagens)
+    ? body.mensagens
+    : undefined;
+
+  if (Array.isArray(sourceArray)) {
+    shape = "mensagens";
+    for (const raw of sourceArray) {
+      if (!raw || typeof raw !== "object") continue;
+      const roleValue = (raw as any).role;
+      const contentValue =
+        (raw as any).content ??
+        (raw as any).text ??
+        (raw as any).mensagem ??
+        (raw as any).message ??
+        (raw as any).delta ??
+        (raw as any).value;
+      const role = typeof roleValue === "string" && roleValue.trim() ? roleValue.trim() : "user";
+      let content: string = "";
+      if (typeof contentValue === "string") {
+        content = contentValue;
+      } else if (contentValue != null) {
+        try {
+          content = JSON.stringify(contentValue);
+        } catch {
+          content = String(contentValue);
+        }
+      }
+      const normalized: NormalizedMessage = { role, content };
+      if (typeof (raw as any).id === "string") {
+        normalized.id = (raw as any).id;
+      }
+      result.push(normalized);
+    }
+    return { messages: result, shape };
+  }
+
+  const singleText = typeof body.text === "string" && body.text.trim();
+  if (singleText) {
+    shape = "text";
+    result.push({ role: "user", content: body.text });
+    return { messages: result, shape };
+  }
+
+  const singleMensagem = typeof body.mensagem === "string" && body.mensagem.trim();
+  if (singleMensagem) {
+    shape = "mensagem";
+    result.push({ role: "user", content: body.mensagem });
+    return { messages: result, shape };
+  }
+
+  return { messages: result, shape };
+}
+
+function resolveGuestId(
+  ...candidates: Array<string | null | undefined>
+): string | undefined {
+  for (const candidate of candidates) {
+    if (typeof candidate === "string") {
+      const trimmed = candidate.trim();
+      if (trimmed) return trimmed;
+    }
+  }
+  return undefined;
+}
+
 /** POST /api/ask-eco — stream SSE (ou JSON se cliente não pedir SSE) */
 router.post("/ask-eco", async (req: Request, res: Response) => {
   const accept = String(req.headers.accept || "").toLowerCase();
-  const wantsStream = !accept || accept.includes("text/event-stream"); // só stream se pedir explicitamente
+  const wantsStream = accept.includes("text/event-stream");
+  const origin = (req.headers.origin as string) || undefined;
 
-  const origin = (req.headers.origin as string) || "*";
   const guestIdFromMiddleware: string | undefined = (req as any)?.guest?.id || undefined;
   const guestIdFromHeader = req.get("X-Guest-Id")?.trim();
   const guestIdFromCookie = getGuestIdFromCookies(req);
 
+  const body = req.body && typeof req.body === "object" ? (req.body as Record<string, any>) : {};
   const {
-    mensagens,
     nome_usuario,
     usuario_id,
     clientHour,
     isGuest,
     guestId,
     sessionMeta,
-    text, // suporte a payload simples: { "text": "..." }
-  } = (req.body ?? {}) as Record<string, any>;
+  } = body;
 
-  const bearer =
-    req.headers.authorization?.startsWith("Bearer ")
-      ? req.headers.authorization.slice(7)
-      : undefined;
+  const normalized = normalizeMessages(body);
+  const payloadShape = normalized.shape;
 
-  // Montagem de params base
-  const params: Record<string, unknown> = {
-    messages: Array.isArray(mensagens) ? mensagens : [],
-    isGuest: Boolean(isGuest),
-  };
-
-  // Se não vier "mensagens" mas vier "text", monte a última mensagem de usuário
-  if ((!Array.isArray(mensagens) || mensagens.length === 0) && typeof text === "string" && text.trim()) {
-    (params as any).messages = [{ role: "user", content: text.trim() }];
-  }
-
-  // Validação mínima
-  const hasMessages =
-    Array.isArray((params as any).messages) && (params as any).messages.length > 0;
-  if (!hasMessages) {
-    return res.status(400).json({ error: "Campo 'text' ou 'mensagens' é obrigatório" });
-  }
-
-  if (typeof bearer === "string") (params as any).accessToken = bearer;
-  if (typeof clientHour === "number") (params as any).clientHour = clientHour;
-
-  if (sessionMeta && typeof sessionMeta === "object" && !Array.isArray(sessionMeta)) {
-    (params as any).sessionMeta = sessionMeta;
-  }
-  if (typeof nome_usuario === "string") (params as any).userName = nome_usuario;
-  if (typeof usuario_id === "string") (params as any).userId = usuario_id;
-
-  const resolveGuestId = (...candidates: (string | null | undefined)[]): string | undefined => {
-    for (const candidate of candidates) {
-      if (typeof candidate === "string") {
-        const trimmed = candidate.trim();
-        if (trimmed) return trimmed;
-      }
-    }
-    return undefined;
-  };
-
-  const guestIdToSend = resolveGuestId(
+  const guestIdResolved = resolveGuestId(
     typeof guestId === "string" ? guestId : undefined,
     guestIdFromHeader,
     guestIdFromCookie,
     guestIdFromMiddleware
   );
-  if (typeof guestIdToSend === "string") (params as any).guestId = guestIdToSend;
 
-  const guestIdForLogs =
-    resolveGuestId(guestIdFromHeader, guestIdFromCookie, guestIdToSend, guestIdFromMiddleware) ??
-    `temp_${randomUUID()}`;
-  log.info("[ask-eco] start", { guestId: guestIdForLogs, origin });
-
-  // Modo JSON (sem stream): executa e devolve conteúdo agregado
-  if (!wantsStream) {
-    try {
-      const result = await getEcoResponse(params as any);
-      const textOut = sanitizeOutput(extractTextLoose(result) ?? "");
-      log.info("[ask-eco] JSON response", {
-        mode: "json",
-        hasContent: textOut.length > 0,
-      });
-      // NÃO retornamos 'raw' para não vazar metadados/blocos
-      return res.status(200).json({ content: textOut || null });
-    } catch (error: any) {
-      const message = error instanceof Error ? error.message : String(error?.message ?? error);
-      log.error("[ask-eco] JSON error", { message });
-      return res.status(500).json({ error: message || "Erro interno" });
-    }
-  }
-
-  // ===== SSE =====
-
-  res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
-  res.setHeader("Cache-Control", "no-cache, no-transform");
-  res.setHeader("Connection", "keep-alive");
-  res.setHeader("X-Accel-Buffering", "no");
-  res.setHeader("Content-Encoding", "identity");
-  res.setHeader("Access-Control-Expose-Headers", EXPOSE_HEADERS_HEADER);
-  res.setHeader("Vary", "Origin");
-  if (guestIdFromMiddleware) {
-    res.setHeader("x-guest-id", guestIdFromMiddleware);
-  }
-
-  res.status(200);
-  (res as any).flushHeaders?.();
-
-  const state = {
-    done: false,
-    sawChunk: false,
-    finishReason: "" as string | undefined,
-    clientClosed: false,
-  };
-
-  let heartbeat: NodeJS.Timeout | null = null;
-
-  const isWritable = () => {
-    if (state.clientClosed) return false;
-    if ((res as any).writableEnded || (res as any).writableFinished) return false;
-    if ((res as any).destroyed) return false;
-    return true;
-  };
-
-  const safeWrite = (payload: string) => {
-    if (!isWritable()) return;
-    try {
-      res.write(payload);
-    } catch {
-      state.clientClosed = true;
-    }
-  };
-
-  const sendMetaReady = () => {
-    log.info("[ask-eco] SSE ready", {
-      origin,
-      guestId: guestIdFromMiddleware ?? guestIdToSend ?? null,
-    });
-    safeWrite(`event: meta\ndata: ${JSON.stringify({ type: "prompt_ready" })}\n\n`);
-  };
-
-  const sendChunk = (piece: string) => {
-    if (!piece || typeof piece !== "string") return;
-    const cleaned = sanitizeOutput(piece);
-    if (!cleaned) return;
-    state.sawChunk = true;
-    log.info("[ask-eco] SSE chunk", { size: cleaned.length });
-    safeWrite(`event: chunk\ndata: ${JSON.stringify({ text: cleaned })}\n\n`);
-  };
-
-  const sendError = (message: string) => {
-    log.error("[ask-eco] SSE error", { message });
-    safeWrite(`event: error\ndata: ${JSON.stringify({ message })}\n\n`);
-  };
-
-  const sendDone = (reason?: string | null) => {
-    if (state.done) return;
-    state.finishReason = reason ?? state.finishReason ?? "unknown";
-    state.done = true;
-    if (heartbeat) {
-      clearInterval(heartbeat);
-      heartbeat = null;
-    }
-    log.info("[ask-eco] SSE done", {
-      finishReason: state.finishReason || "unknown",
-      sawChunk: state.sawChunk,
-    });
-    if (!state.clientClosed) {
-      safeWrite(`event: done\ndata: {}\n\n`);
-      try {
-        res.end();
-      } catch {
-        /* noop */
-      }
-    }
-  };
-
-  heartbeat = setInterval(() => {
-    safeWrite(`event: ping\ndata: "${Date.now()}"\n\n`);
-  }, 20_000);
-
-  sendMetaReady();
-
-  req.on("close", () => {
-    if (state.clientClosed) return;
-    state.clientClosed = true;
-    if (heartbeat) {
-      clearInterval(heartbeat);
-      heartbeat = null;
-    }
-    if (!state.done) {
-      log.warn("[ask-eco] SSE client closed", {
-        origin,
-        guestId: guestIdFromMiddleware ?? guestIdToSend ?? null,
-      });
-    }
+  const hasGuestId = Boolean(guestIdResolved);
+  log.info("[ask-eco] request", {
+    origin: origin ?? null,
+    mode: wantsStream ? "sse" : "json",
+    hasGuestId,
+    payloadShape,
   });
 
-  const forwardEvent = (rawEvt: EcoStreamEvent | any) => {
-    if (state.done || state.clientClosed) return;
-    const evt = rawEvt as any;
-    const type = String(evt?.type || "");
-
-    switch (type) {
-      case "control": {
-        if (evt?.name === "done") {
-          sendDone(evt?.meta?.finishReason ?? evt?.finishReason ?? "done");
-        }
-        return;
-      }
-      case "chunk":
-      case "delta":
-      case "token": {
-        const delta =
-          evt?.delta?.content ??
-          evt?.delta ??
-          evt?.content ??
-          evt?.text ??
-          evt?.message;
-        if (typeof delta === "string" && delta.trim()) {
-          sendChunk(delta);
-        }
-        return;
-      }
-      case "done": {
-        sendDone(evt?.meta?.finishReason ?? evt?.finishReason ?? "done");
-        return;
-      }
-      case "error": {
-        const message =
-          typeof evt?.message === "string"
-            ? evt.message
-            : evt?.error?.message || "Erro desconhecido";
-        sendError(message);
-        sendDone("error");
-        return;
-      }
-      default: {
-        const delta =
-          evt?.delta?.content ??
-          evt?.delta ??
-          evt?.content ??
-          evt?.text ??
-          evt?.message;
-        if (typeof delta === "string" && delta.trim()) {
-          sendChunk(delta);
-        }
-        return;
-      }
-    }
-  };
-
   try {
-    const stream: EcoStreamHandler = { onEvent: (event) => forwardEvent(event) };
-    const result = await getEcoResponse({ ...params, stream } as any);
+    if (!normalized.messages.length) {
+      throw createHttpError(400, "BAD_REQUEST", "Payload inválido (text/mensagem/mensagens)");
+    }
 
-    if (!state.done) {
-      if (!state.sawChunk) {
+    const hasUserMessage = normalized.messages.some(
+      (msg) => msg.role === "user" && typeof msg.content === "string" && msg.content.trim()
+    );
+
+    if (!hasUserMessage) {
+      throw createHttpError(400, "BAD_REQUEST", "Inclua ao menos uma mensagem de usuário válida");
+    }
+
+    if (REQUIRE_GUEST_ID && !hasGuestId) {
+      throw createHttpError(400, "MISSING_GUEST_ID", "Informe X-Guest-Id");
+    }
+
+    const bearer =
+      req.headers.authorization?.startsWith("Bearer ")
+        ? req.headers.authorization.slice(7)
+        : undefined;
+
+    const params: Record<string, unknown> = {
+      messages: normalized.messages,
+      isGuest: Boolean(isGuest),
+    };
+
+    if (typeof bearer === "string" && bearer.trim()) {
+      (params as any).accessToken = bearer.trim();
+    }
+    if (typeof clientHour === "number" && Number.isFinite(clientHour)) {
+      (params as any).clientHour = clientHour;
+    }
+    if (sessionMeta && typeof sessionMeta === "object" && !Array.isArray(sessionMeta)) {
+      (params as any).sessionMeta = sessionMeta;
+    }
+    if (typeof nome_usuario === "string" && nome_usuario.trim()) {
+      (params as any).userName = nome_usuario.trim();
+    }
+    if (typeof usuario_id === "string" && usuario_id.trim()) {
+      (params as any).userId = usuario_id.trim();
+    }
+    if (guestIdResolved) {
+      (params as any).guestId = guestIdResolved;
+    }
+
+    const guestIdForLogs =
+      resolveGuestId(guestIdFromHeader, guestIdFromCookie, guestIdResolved, guestIdFromMiddleware) ??
+      `temp_${randomUUID()}`;
+
+    // JSON mode
+    if (!wantsStream) {
+      try {
+        const result = await getEcoResponse(params as any);
         const textOut = sanitizeOutput(extractTextLoose(result) ?? "");
-        if (textOut) {
-          sendChunk(textOut);
+        attachCors(res, origin);
+        log.info("[ask-eco] response", {
+          mode: "json",
+          hasContent: textOut.length > 0,
+          guestId: guestIdForLogs,
+        });
+        return res.status(200).json({ content: textOut || null });
+      } catch (error) {
+        if (isHttpError(error)) {
+          log.warn("[ask-eco] json_error", { code: (error as any).body?.code, status: error.status });
+          attachCors(res, origin);
+          return res.status(error.status).json((error as any).body);
         }
-        sendDone(textOut ? "fallback_no_stream" : "fallback_empty");
-      } else {
-        sendDone("stream_done");
+        const traceId = randomUUID();
+        log.error("[ask-eco] json_unexpected", { trace_id: traceId, message: (error as Error)?.message });
+        attachCors(res, origin);
+        return res.status(500).json({ code: "INTERNAL_ERROR", trace_id: traceId });
       }
     }
-  } catch (error: any) {
-    const message = error instanceof Error ? error.message : String(error?.message ?? error);
-    const code = (error?.code || error?.status || error?.name || "").toString();
-    const details =
-      (error?.response?.data ??
-        error?.response ??
-        error?.data ??
-        error?.stack ??
-        null);
-    log.error("[ask-eco] pipeline error", { message, code, details });
-    sendError(code ? `${code}: ${message}` : message || "Erro desconhecido");
-    sendDone("error");
-  } finally {
-    if (heartbeat) {
-      clearInterval(heartbeat);
-      heartbeat = null;
+
+    // SSE mode
+    attachCors(res, origin);
+    res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+    res.setHeader("Cache-Control", "no-cache, no-transform");
+    res.setHeader("Connection", "keep-alive");
+    res.setHeader("X-Accel-Buffering", "no");
+    res.setHeader("Content-Encoding", "identity");
+    res.setHeader("Access-Control-Expose-Headers", EXPOSE_HEADERS_HEADER);
+    if (guestIdFromMiddleware) {
+      res.setHeader("x-guest-id", guestIdFromMiddleware);
     }
+
+    res.status(200);
+    (res as any).flushHeaders?.();
+
+    const state = {
+      done: false,
+      sawChunk: false,
+      finishReason: "" as string | undefined,
+      clientClosed: false,
+    };
+
+    let heartbeat: NodeJS.Timeout | null = null;
+
+    const isWritable = () => {
+      if (state.clientClosed) return false;
+      if ((res as any).writableEnded || (res as any).writableFinished) return false;
+      if ((res as any).destroyed) return false;
+      return true;
+    };
+
+    const safeWrite = (payload: string) => {
+      if (!isWritable()) return;
+      try {
+        res.write(payload);
+      } catch {
+        state.clientClosed = true;
+      }
+    };
+
+    const sendDone = (reason?: string | null) => {
+      if (state.done) return;
+      state.finishReason = reason ?? state.finishReason ?? "unknown";
+      state.done = true;
+      if (heartbeat) {
+        clearInterval(heartbeat);
+        heartbeat = null;
+      }
+      log.info("[ask-eco] sse_done", {
+        finishReason: state.finishReason || "unknown",
+        sawChunk: state.sawChunk,
+        guestId: guestIdForLogs,
+      });
+      if (!state.clientClosed) {
+        safeWrite(`event: done\ndata: {}\n\n`);
+        try {
+          res.end();
+        } catch {
+          /* ignore */
+        }
+      }
+    };
+
+    const sendErrorEvent = (payload: Record<string, unknown>) => {
+      log.error("[ask-eco] sse_error", { ...payload, guestId: guestIdForLogs });
+      safeWrite(`event: error\ndata: ${JSON.stringify(payload)}\n\n`);
+    };
+
+    const sendChunk = (piece: string) => {
+      if (!piece || typeof piece !== "string") return;
+      const cleaned = sanitizeOutput(piece);
+      if (!cleaned) return;
+      state.sawChunk = true;
+      safeWrite(`event: chunk\ndata: ${JSON.stringify({ text: cleaned })}\n\n`);
+    };
+
+    safeWrite(`event: meta\ndata: ${JSON.stringify({ type: "prompt_ready" })}\n\n`);
+
+    heartbeat = setInterval(() => {
+      safeWrite(`event: ping\ndata: "${Date.now()}"\n\n`);
+    }, 20_000);
+
+    req.on("close", () => {
+      if (state.clientClosed) return;
+      state.clientClosed = true;
+      if (heartbeat) {
+        clearInterval(heartbeat);
+        heartbeat = null;
+      }
+      if (!state.done) {
+        log.warn("[ask-eco] sse_client_closed", {
+          origin,
+          guestId: guestIdForLogs,
+        });
+      }
+    });
+
+    const forwardEvent = (rawEvt: EcoStreamEvent | any) => {
+      if (state.done || state.clientClosed) return;
+      const evt = rawEvt as any;
+      const type = String(evt?.type || "");
+
+      switch (type) {
+        case "control": {
+          if (evt?.name === "done") {
+            sendDone(evt?.meta?.finishReason ?? evt?.finishReason ?? "done");
+          }
+          return;
+        }
+        case "chunk":
+        case "delta":
+        case "token": {
+          const delta =
+            evt?.delta?.content ??
+            evt?.delta ??
+            evt?.content ??
+            evt?.text ??
+            evt?.message;
+          if (typeof delta === "string" && delta.trim()) {
+            sendChunk(delta);
+          }
+          return;
+        }
+        case "done": {
+          sendDone(evt?.meta?.finishReason ?? evt?.finishReason ?? "done");
+          return;
+        }
+        case "error": {
+          const message =
+            typeof evt?.message === "string"
+              ? evt.message
+              : evt?.error?.message || "Erro desconhecido";
+          sendErrorEvent({ message });
+          sendDone("error");
+          return;
+        }
+        default: {
+          const delta =
+            evt?.delta?.content ??
+            evt?.delta ??
+            evt?.content ??
+            evt?.text ??
+            evt?.message;
+          if (typeof delta === "string" && delta.trim()) {
+            sendChunk(delta);
+          }
+          return;
+        }
+      }
+    };
+
+    try {
+      const stream: EcoStreamHandler = { onEvent: (event) => forwardEvent(event) };
+      const result = await getEcoResponse({ ...params, stream } as any);
+
+      if (!state.done) {
+        if (!state.sawChunk) {
+          const textOut = sanitizeOutput(extractTextLoose(result) ?? "");
+          if (textOut) {
+            sendChunk(textOut);
+          }
+          sendDone(textOut ? "fallback_no_stream" : "fallback_empty");
+        } else {
+          sendDone("stream_done");
+        }
+      }
+    } catch (error) {
+      if (isHttpError(error)) {
+        sendErrorEvent({ ...error.body, status: error.status });
+      } else {
+        const traceId = randomUUID();
+        log.error("[ask-eco] sse_unexpected", { trace_id: traceId, message: (error as Error)?.message });
+        sendErrorEvent({ code: "INTERNAL_ERROR", trace_id: traceId });
+      }
+      sendDone("error");
+    } finally {
+      if (heartbeat) {
+        clearInterval(heartbeat);
+        heartbeat = null;
+      }
+    }
+  } catch (error) {
+    if (isHttpError(error)) {
+      attachCors(res, origin);
+      return res.status(error.status).json(error.body);
+    }
+    const traceId = randomUUID();
+    log.error("[ask-eco] validation_unexpected", { trace_id: traceId, message: (error as Error)?.message });
+    attachCors(res, origin);
+    return res.status(500).json({ code: "INTERNAL_ERROR", trace_id: traceId });
   }
 });
 
