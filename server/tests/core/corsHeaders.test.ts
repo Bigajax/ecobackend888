@@ -27,7 +27,7 @@ async function closeServer(server: Server) {
   });
 }
 
-test("OPTIONS /api/ask-eco expõe cabeçalhos de convidado", async () => {
+test("OPTIONS /api/ask-eco responde 204 com allowlist padrão", async () => {
   const app = createApp();
   const server = app.listen(0);
 
@@ -39,24 +39,30 @@ test("OPTIONS /api/ask-eco expõe cabeçalhos de convidado", async () => {
     const response = await fetch(`http://127.0.0.1:${port}/api/ask-eco`, {
       method: "OPTIONS",
       headers: {
-        Origin: "http://localhost:3000",
+        Origin: "https://ecofrontend888.vercel.app",
         "Access-Control-Request-Method": "POST",
-        "Access-Control-Request-Headers": "Content-Type, X-Guest-Id, X-Guest-Mode",
+        "Access-Control-Request-Headers": "Content-Type, X-Guest-Id",
       },
     });
 
-    assert.equal(response.status, 200, "preflight deve responder 200");
+    assert.equal(response.status, 204, "preflight deve responder 204");
+    assert.equal(
+      response.headers.get("access-control-allow-origin"),
+      "https://ecofrontend888.vercel.app",
+      "deve ecoar a origin permitida",
+    );
+    assert.equal(
+      response.headers.get("access-control-allow-credentials"),
+      "true",
+      "preflight deve sinalizar credenciais",
+    );
     const allowHeaders = response.headers.get("access-control-allow-headers") ?? "";
     assert.match(
       allowHeaders,
       /x-guest-id/i,
       "deve expor X-Guest-Id no preflight do modo convidado",
     );
-    assert.match(
-      allowHeaders,
-      /x-guest-mode/i,
-      "deve expor X-Guest-Mode no preflight do modo convidado",
-    );
+    assert.match(allowHeaders, /cache-control/i, "deve incluir Cache-Control conforme allow list");
   } finally {
     await closeServer(server);
   }

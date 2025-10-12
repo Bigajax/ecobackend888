@@ -5,8 +5,7 @@ import { getPromptEcoPreview } from "../controllers/promptController";
 import { getEcoResponse } from "../services/ConversationOrchestrator";
 import { log } from "../services/promptContext/logger";
 import type { EcoStreamHandler, EcoStreamEvent } from "../services/conversation/types";
-import { EXPOSE_HEADERS_HEADER } from "../bootstrap/cors";
-import { attachCors, createHttpError, isHttpError } from "../utils/http";
+import { createHttpError, isHttpError } from "../utils/http";
 
 /** Sanitiza a saída removendo blocos ```json``` e JSON final pendurado */
 function sanitizeOutput(input?: string): string {
@@ -302,7 +301,6 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
       try {
         const result = await getEcoResponse(params as any);
         const textOut = sanitizeOutput(extractTextLoose(result) ?? "");
-        attachCors(res, origin);
         log.info("[ask-eco] response", {
           mode: "json",
           hasContent: textOut.length > 0,
@@ -312,27 +310,18 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
       } catch (error) {
         if (isHttpError(error)) {
           log.warn("[ask-eco] json_error", { code: (error as any).body?.code, status: error.status });
-          attachCors(res, origin);
           return res.status(error.status).json((error as any).body);
         }
         const traceId = randomUUID();
         log.error("[ask-eco] json_unexpected", { trace_id: traceId, message: (error as Error)?.message });
-        attachCors(res, origin);
         return res.status(500).json({ code: "INTERNAL_ERROR", trace_id: traceId });
       }
     }
 
     // SSE mode
-    attachCors(res, origin);
     res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
-    res.setHeader("Cache-Control", "no-cache, no-transform");
+    res.setHeader("Cache-Control", "no-cache");
     res.setHeader("Connection", "keep-alive");
-    res.setHeader("X-Accel-Buffering", "no");
-    res.setHeader("Content-Encoding", "identity");
-    res.setHeader("Access-Control-Expose-Headers", EXPOSE_HEADERS_HEADER);
-    if (guestIdFromMiddleware) {
-      res.setHeader("x-guest-id", guestIdFromMiddleware);
-    }
 
     res.status(200);
     (res as any).flushHeaders?.();
@@ -505,12 +494,10 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
     }
   } catch (error) {
     if (isHttpError(error)) {
-      attachCors(res, origin);
       return res.status(error.status).json(error.body);
     }
     const traceId = randomUUID();
     log.error("[ask-eco] validation_unexpected", { trace_id: traceId, message: (error as Error)?.message });
-    attachCors(res, origin);
     return res.status(500).json({ code: "INTERNAL_ERROR", trace_id: traceId });
   }
 });

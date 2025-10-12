@@ -22,7 +22,7 @@ import dotenv from "dotenv";
 })();
 
 import { createApp } from "./core/http/app";
-import { getAllowList } from "./core/http/middlewares/cors";
+import { getStaticCorsWhitelist } from "./middleware/cors";
 import { configureModuleStore } from "./bootstrap/modules";
 import registrarTodasHeuristicas from "./services/registrarTodasHeuristicas";
 import registrarModulosFilosoficos from "./services/registrarModulosFilosoficos";
@@ -36,7 +36,8 @@ async function start() {
   const PORT = Number(process.env.PORT || 3001);
   app.listen(PORT, async () => {
     log.info(`Servidor Express rodando na porta ${PORT}`);
-    log.info("CORS allowlist:", Array.from(getAllowList()).join(", "));
+    log.info("CORS allowlist (static):", getStaticCorsWhitelist().join(", "));
+    log.info("CORS preview pattern:", ".vercel.app");
     log.info("Boot", {
       ECO_LOG_LEVEL: process.env.ECO_LOG_LEVEL ?? "(unset)",
       ECO_DEBUG: process.env.ECO_DEBUG ?? "(unset)",

@@ -1,24 +1,4 @@
-import type { Response } from "express";
-
-import {
-  CORS_ALLOW_CREDENTIALS,
-  EXPOSE_HEADERS_HEADER,
-  isAllowedOrigin,
-} from "../bootstrap/cors";
-
 export const MAX_ERROR_DETAIL_BYTES = 1024 * 2; // 2 KiB
-
-export function attachCors(res: Response, origin?: string | null): void {
-  res.setHeader("Vary", "Origin");
-  if (origin && isAllowedOrigin(origin)) {
-    res.setHeader("Access-Control-Allow-Origin", origin);
-  }
-  res.setHeader(
-    "Access-Control-Allow-Credentials",
-    CORS_ALLOW_CREDENTIALS ? "true" : "false"
-  );
-  res.setHeader("Access-Control-Expose-Headers", EXPOSE_HEADERS_HEADER);
-}
 
 export class HttpError extends Error {
   status: number;
