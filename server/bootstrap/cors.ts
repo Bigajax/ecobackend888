@@ -4,19 +4,9 @@ import cors from "cors";
 /** ============================
  *  ORIGENS CONHECIDAS
  *  ============================ */
-const PROD_ORIGINS = [
-  "https://ecofrontend888.vercel.app",
-  // Permite domínios de preview Vercel (builds temporários conhecidos)
-  "https://ecofrontend888-geviqh5x7-rafaels-projects-f3ef53c3.vercel.app",
-  "https://ecofrontend888-git-main-rafaels-projects-f3ef53c3.vercel.app",
-] as const;
+const PROD_ORIGINS = ["https://ecofrontend888.vercel.app"] as const;
 
-const LOCAL_ORIGINS = [
-  "http://localhost:3000",
-  "http://127.0.0.1:3000",
-  "http://localhost:5173",
-  "http://127.0.0.1:5173",
-] as const;
+const LOCAL_ORIGINS = ["http://localhost:5173"] as const;
 
 /** ============================
  *  HELPERS
@@ -30,27 +20,14 @@ const toOriginKey = (origin: string) => {
   }
 };
 
-const resolveHostname = (origin: string) => {
-  try {
-    return new URL(origin).hostname.toLowerCase();
-  } catch {
-    return origin.replace(/^https?:\/\//i, "").split("/")[0]?.toLowerCase() ?? "";
-  }
-};
-
 /** ============================
  *  LISTAS ESTÁTICAS E AMBIENTE
  *  ============================ */
-const EXTRA_ORIGINS = (process.env.CORS_ALLOW_ORIGINS || "")
-  .split(",")
-  .map((s) => s.trim())
-  .filter(Boolean);
+const EXTRA_ORIGINS: string[] = [];
 
 const STATIC_ALLOW_LIST = new Set<string>(
   [...PROD_ORIGINS, ...LOCAL_ORIGINS, ...EXTRA_ORIGINS].map(toOriginKey)
 );
-
-const VERCEL_SUFFIX = ".vercel.app";
 
 /** ============================
  *  CONFIG BÁSICA
@@ -62,14 +39,18 @@ export const ALLOWED_METHODS = [
   "PATCH",
   "DELETE",
   "OPTIONS",
-  "HEAD",
 ] as const;
 
 export const ALLOWED_HEADERS = [
-  "authorization",
-  "content-type",
-  "x-guest-id",
-  "x-requested-with",
+  "Content-Type",
+  "Authorization",
+  "X-Guest-Id",
+  "X-Requested-With",
+  "Accept",
+  "Accept-Language",
+  "Cache-Control",
+  "Pragma",
+  "Range",
 ] as const;
 
 export const EXPOSE_HEADERS = [
@@ -83,6 +64,7 @@ export const EXPOSE_HEADERS = [
 export const ALLOWED_METHODS_HEADER = ALLOWED_METHODS.join(", ");
 export const ALLOWED_HEADERS_HEADER = ALLOWED_HEADERS.join(", ");
 export const EXPOSE_HEADERS_HEADER = EXPOSE_HEADERS.join(", ");
+export const PREFLIGHT_MAX_AGE_SECONDS = 600;
 
 /** ============================
  *  CHECAGEM DE ORIGIN
@@ -90,23 +72,16 @@ export const EXPOSE_HEADERS_HEADER = EXPOSE_HEADERS.join(", ");
 export const allowList = STATIC_ALLOW_LIST;
 
 export const isAllowedOrigin = (origin?: string | null): boolean => {
-  // Permite chamadas sem Origin (ex: curl, apps nativos, extensões)
   if (!origin) return true;
 
   const normalized = toOriginKey(origin);
-  if (allowList.has(normalized)) return true;
-
-  const hostname = resolveHostname(origin);
-  if (hostname && hostname.endsWith(VERCEL_SUFFIX)) return true;
-
-  return false;
+  return allowList.has(normalized);
 };
 
 /** ============================
  *  MIDDLEWARE DE CORS
  *  ============================ */
-export const CORS_ALLOW_CREDENTIALS =
-  String(process.env.ECO_CORS_CREDENTIALS ?? "false").toLowerCase() === "true";
+export const CORS_ALLOW_CREDENTIALS = true;
 
 export const corsMiddleware = cors({
   origin(origin, callback) {
@@ -125,7 +100,7 @@ export const corsMiddleware = cors({
   methods: [...ALLOWED_METHODS],
   allowedHeaders: [...ALLOWED_HEADERS],
   exposedHeaders: [...EXPOSE_HEADERS],
-  // cache do preflight por 20 min
-  maxAge: 1200,
+  // cache do preflight por 10 min
+  maxAge: 600,
   optionsSuccessStatus: 204,
 });

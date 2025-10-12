@@ -1,15 +1,15 @@
 // server/app/middlewares/cors.ts
 // CORS policy summary:
-// - Allowed origins come from PROD + LOCAL defaults and CORS_ALLOW_ORIGINS env (see bootstrap/cors).
-// - Methods expostos: GET, POST, PUT, PATCH, DELETE, OPTIONS e HEAD.
-// - Allowed headers: authorization, content-type, x-guest-id, x-requested-with.
-// - OPTIONS requests are answered here without authentication and logged for observability.
+// - Allowed origins: https://ecofrontend888.vercel.app e http://localhost:5173 (ver bootstrap/cors).
+// - Métodos liberados: GET, POST, PUT, PATCH, DELETE e OPTIONS.
+// - Allowed headers sincronizados com o front (authorization/x-guest-id/accept/etc.).
+// - OPTIONS requests são respondidas aqui sem autenticação e com log para observabilidade.
 import type { Express, Response, Request, NextFunction } from "express";
 import {
   ALLOWED_HEADERS_HEADER,
-  ALLOWED_METHODS,
   ALLOWED_METHODS_HEADER,
   EXPOSE_HEADERS_HEADER,
+  PREFLIGHT_MAX_AGE_SECONDS,
   allowList,
   corsMiddleware,
   isAllowedOrigin,
@@ -20,13 +20,13 @@ import { log } from "../../../services/promptContext/logger";
  * Acrescente seus headers customizados aqui.
  * Mantém sincronizado com o front (x-guest-id/x-guest-mode) e quaisquer outros que você use.
  */
+const VARY_HEADER_VALUE =
+  "Origin, Access-Control-Request-Method, Access-Control-Request-Headers";
+
 export function applyCors(app: Express) {
   // Ajuda caches/proxies a variar por Origin e cabeçalhos do preflight
   app.use((req: Request, res: Response, next: NextFunction) => {
-    res.setHeader(
-      "Vary",
-      "Origin, Access-Control-Request-Method, Access-Control-Request-Headers"
-    );
+    res.setHeader("Vary", VARY_HEADER_VALUE);
     next();
   });
 
@@ -37,14 +37,16 @@ export function applyCors(app: Express) {
     const origin = req.headers.origin;
     const route = req.originalUrl || req.url;
 
-    if (isAllowedOrigin(origin) && origin) {
-      res.setHeader("Access-Control-Allow-Origin", origin);
+    const allowedOrigin = isAllowedOrigin(origin) && origin ? origin : undefined;
+    if (allowedOrigin) {
+      res.setHeader("Access-Control-Allow-Origin", allowedOrigin);
     }
 
     res.setHeader("Access-Control-Allow-Methods", ALLOWED_METHODS_HEADER);
     res.setHeader("Access-Control-Allow-Headers", ALLOWED_HEADERS_HEADER);
     res.setHeader("Access-Control-Expose-Headers", EXPOSE_HEADERS_HEADER);
-    res.setHeader("Access-Control-Allow-Credentials", "false");
+    res.setHeader("Access-Control-Allow-Credentials", "true");
+    res.setHeader("Access-Control-Max-Age", `${PREFLIGHT_MAX_AGE_SECONDS}`);
     res.setHeader("Cache-Control", "no-cache, no-transform");
     res.setHeader("X-Accel-Buffering", "no");
 
@@ -52,7 +54,9 @@ export function applyCors(app: Express) {
       method: req.method,
       route,
       origin: origin ?? "<none>",
-      allowed: isAllowedOrigin(origin),
+      allowed: Boolean(allowedOrigin),
+      allowHeaders: ALLOWED_HEADERS_HEADER,
+      allowMethods: ALLOWED_METHODS_HEADER,
     });
 
     return res.status(204).end();
@@ -61,11 +65,16 @@ export function applyCors(app: Express) {
   // CORS padrão (para requisições não-OPTIONS)
   app.use((req: Request, res: Response, next: NextFunction) => {
     const origin = req.headers.origin;
-    if (isAllowedOrigin(origin) && origin) {
-      res.setHeader("Access-Control-Allow-Origin", origin);
+    const allowedOrigin = isAllowedOrigin(origin) && origin ? origin : undefined;
+    if (allowedOrigin) {
+      res.setHeader("Access-Control-Allow-Origin", allowedOrigin);
     }
-    res.setHeader("Access-Control-Allow-Credentials", "false");
+    res.setHeader("Access-Control-Allow-Credentials", "true");
     res.setHeader("Access-Control-Expose-Headers", EXPOSE_HEADERS_HEADER);
+    res.setHeader("Access-Control-Allow-Methods", ALLOWED_METHODS_HEADER);
+    res.setHeader("Access-Control-Allow-Headers", ALLOWED_HEADERS_HEADER);
+    res.setHeader("Access-Control-Max-Age", `${PREFLIGHT_MAX_AGE_SECONDS}`);
+    res.setHeader("Vary", VARY_HEADER_VALUE);
     next();
   });
 
@@ -75,14 +84,20 @@ export function applyCors(app: Express) {
 }
 
 /** Usa os mesmos critérios do preflight para garantir CORS em respostas 404/500 etc. */
-export function ensureCorsHeaders(res: Response, origin?: string | null) {
-  if (isAllowedOrigin(origin) && origin) {
-    res.setHeader("Access-Control-Allow-Origin", origin);
+export function ensureCorsHeaders(
+  res: Response,
+  origin?: string | null
+) {
+  const allowedOrigin = isAllowedOrigin(origin) && origin ? origin : undefined;
+  if (allowedOrigin) {
+    res.setHeader("Access-Control-Allow-Origin", allowedOrigin);
   }
-  res.setHeader("Access-Control-Allow-Credentials", "false");
+  res.setHeader("Access-Control-Allow-Credentials", "true");
   res.setHeader("Access-Control-Expose-Headers", EXPOSE_HEADERS_HEADER);
-  // NÃO setamos Allow-Headers/Methods aqui para não poluir respostas normais;
-  // os preflights já cobrem isso.
+  res.setHeader("Access-Control-Allow-Methods", ALLOWED_METHODS_HEADER);
+  res.setHeader("Access-Control-Allow-Headers", ALLOWED_HEADERS_HEADER);
+  res.setHeader("Access-Control-Max-Age", `${PREFLIGHT_MAX_AGE_SECONDS}`);
+  res.setHeader("Vary", VARY_HEADER_VALUE);
 }
 
 export function getAllowList() {
