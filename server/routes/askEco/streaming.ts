@@ -213,12 +213,6 @@ export class StreamSession {
       this.markLatestTimings(event.timings);
       const at = now();
       this.emitLatency("prompt_ready", at, this.latestTimings);
-      this.dispatchEvent({
-        type: "prompt_ready",
-        at,
-        sinceStartMs: at - this.startTime,
-        timings: this.latestTimings,
-      });
       return;
     }
     if (event.name === "first_token") {

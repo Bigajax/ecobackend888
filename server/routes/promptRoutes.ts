@@ -548,7 +548,6 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
     // abertura do stream
     safeWrite(`event: ping\ndata: {}\n\n`);
     sendMeta({ type: "prompt_ready" });
-    sendToken("__prompt_ready__");
 
     const scheduleTimeoutFallback = () => {
       clearTimeoutGuard();
