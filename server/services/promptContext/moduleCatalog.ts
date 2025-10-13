@@ -24,9 +24,7 @@ type ParsedModule = { body: string; meta: ModuleFrontMatter };
 function parseValue(raw: string): string | number | boolean | null | (string | number | boolean | null)[] {
   const value = raw.trim();
   if (!value) return "";
-  if (/^".*"$/.test(value) || /^'.*'$/.test(value)) {
-    return value.slice(1, -1);
-  }
+  if (/^".*"$/.test(value) || /^'.*'$/.test(value)) return value.slice(1, -1);
   if (value === "true") return true;
   if (value === "false") return false;
   if (value === "null" || value === "~") return null;
@@ -122,49 +120,129 @@ function parseFrontMatter(content: string): ParsedModule {
 
 const STRICT_MISSING = process.env.ECO_STRICT_MODULES === "1";
 
+/* -------------------------- util: normalizador -------------------------- */
+function stripDiacritics(s: string): string {
+  return s.normalize("NFD").replace(/\p{Diacritic}/gu, "");
+}
+function normalizeKey(name: string): string {
+  return stripDiacritics(name).toLowerCase();
+}
+
+/* -------------------------- caches simples ----------------------------- */
+const parsedCache = new Map<string, ParsedModule>();   // chave: nome real do arquivo
+const tokenCache = new Map<string, number>();          // chave: nome real do arquivo + hash simples
+
 export class ModuleCatalog {
+  /** Mapa de resolução tolerante (case/diacríticos) -> nome real */
+  private static relaxedIndex: Map<string, string> | null = null;
+
   static async ensureReady() {
     const anyStore = ModuleStore as unknown as { bootstrap?: () => Promise<void> };
     if (typeof anyStore.bootstrap === "function") {
       await anyStore.bootstrap();
+    } else {
+      await ModuleStore.buildFileIndexOnce();
+    }
+    await this.buildRelaxedIndexIfPossible();
+  }
+
+  private static async buildRelaxedIndexIfPossible() {
+    // Usa listagem se a store expuser; caso contrário, fica null e segue no modo "exato".
+    const anyStore = ModuleStore as unknown as { listNames?: () => Promise<string[]> };
+    if (typeof anyStore.listNames !== "function") {
+      this.relaxedIndex = null;
       return;
     }
-    await ModuleStore.buildFileIndexOnce();
+    const names = await anyStore.listNames();
+    const map = new Map<string, string>();
+    for (const n of names) {
+      map.set(normalizeKey(n), n);
+    }
+    this.relaxedIndex = map;
+  }
+
+  /** Resolve nome exato ou tolerante (case/diacríticos) para o nome real no FS */
+  private static async resolveName(name: string): Promise<string> {
+    // tenta direto primeiro
+    const direct = await ModuleStore.read(name);
+    if (direct && direct.trim()) return name;
+
+    // tenta índice tolerante, se disponível
+    if (this.relaxedIndex) {
+      const key = normalizeKey(name);
+      const resolved = this.relaxedIndex.get(key);
+      if (resolved) return resolved;
+    }
+
+    // fallback: mantém o nome original (vai cair nos logs/STRICT)
+    return name;
   }
 
   static async load(names: string[]): Promise<ModuleCandidate[]> {
     const uniqueNames = Array.from(new Set(names));
+
+    const resolvedNames = await Promise.all(uniqueNames.map((n) => this.resolveName(n)));
+
     const candidates = await Promise.all(
-      uniqueNames.map(async (name) => {
-        const raw = await this.require(name);
-        const parsed = parseFrontMatter(raw);
-        const tokens = ModuleStore.tokenCountOf(name, parsed.body);
-        return { name, text: parsed.body, tokens, meta: parsed.meta } as ModuleCandidate;
+      resolvedNames.map(async (resolvedRealName, i) => {
+        const requested = uniqueNames[i]; // para debug
+        const raw = await this.require(resolvedRealName, requested);
+        const parsed = parsedCache.get(resolvedRealName) ?? parseFrontMatter(raw);
+        parsedCache.set(resolvedRealName, parsed);
+
+        const tokenKey = `${resolvedRealName}::${parsed.body.length}`;
+        const tokens =
+          tokenCache.get(tokenKey) ?? ModuleStore.tokenCountOf(resolvedRealName, parsed.body);
+        tokenCache.set(tokenKey, tokens);
+
+        return {
+          name: resolvedRealName,
+          text: parsed.body,
+          tokens,
+          meta: parsed.meta,
+        } as ModuleCandidate;
       })
     );
 
-    const candidateMap = new Map(candidates.map((candidate) => [candidate.name, candidate]));
-
-    return names.map((name) => {
-      const candidate = candidateMap.get(name);
-      if (!candidate) {
-        throw new Error(`Unexpected missing module candidate for ${name}`);
-      }
+    // Mantém a ordem de "names" (pedido original), resolvendo pelo nome real
+    const candidateMap = new Map(candidates.map((c) => [c.name, c]));
+    return resolvedNames.map((real) => {
+      const candidate = candidateMap.get(real);
+      if (!candidate) throw new Error(`Unexpected missing module candidate for ${real}`);
       return candidate;
     });
   }
 
   static tokenCountOf(name: string, text: string): number {
-    return ModuleStore.tokenCountOf(name, text);
+    const tokenKey = `${name}::${text.length}`;
+    if (tokenCache.has(tokenKey)) return tokenCache.get(tokenKey)!;
+    const t = ModuleStore.tokenCountOf(name, text);
+    tokenCache.set(tokenKey, t);
+    return t;
   }
 
-  private static async require(name: string): Promise<string> {
-    const found = await ModuleStore.read(name);
+  private static async require(realName: string, requestedName?: string): Promise<string> {
+    const found = await ModuleStore.read(realName);
     if (found && found.trim()) return found;
 
-    const msg = `[ContextBuilder] módulo ausente: ${name}`;
+    const msg = `[ContextBuilder] módulo ausente: ${requestedName ?? realName} (resolved: ${realName})`;
     if (STRICT_MISSING) throw new Error(msg);
     if (isDebug()) log.debug(msg + " — usando vazio (dev/relaxado)");
     return "";
+  }
+
+  /* ---------- opcional: health-check para pré-boot ---------- */
+  static async assertKnown(expected: string[]) {
+    const anyStore = ModuleStore as unknown as { listNames?: () => Promise<string[]> };
+    if (typeof anyStore.listNames !== "function") return;
+
+    const existing = new Set((await anyStore.listNames()).map((n) => normalizeKey(n)));
+    const missing = expected.filter((n) => !existing.has(normalizeKey(n)));
+
+    if (missing.length) {
+      log.warn("[ECO] Módulos ausentes (por nome/acentos):", { missing });
+    } else if (isDebug()) {
+      log.debug("[ECO] Todos os módulos esperados foram localizados.");
+    }
   }
 }
