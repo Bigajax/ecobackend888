@@ -1,10 +1,9 @@
-// server/core/http/app.ts
 // CORS/Streaming notes:
-// - Allowed origins resolved via middleware/cors (static whitelist + Vercel previews).
-// - Methods enabled: GET/POST/OPTIONS/HEAD plus REST verbs; headers mirror ALLOWED_HEADERS (JSON/auth/X-Guest-*).
-// - OPTIONS never requires auth and is answered before other middlewares.
-import { createHash } from "node:crypto";
+// - Allowed origins resolvidos via middleware/cors (whitelist estática + previews *.vercel.app).
+// - Métodos liberados: GET/POST/OPTIONS/HEAD + REST verbs; headers espelham BASE_OPTIONS.allowedHeaders.
+// - OPTIONS nunca exige auth e responde antes dos demais middlewares.
 
+import { createHash } from "node:crypto";
 import express, {
   type Express,
   type Request,
@@ -39,10 +38,9 @@ declare module "express-serve-static-core" {
 
 const RATE_LIMIT_WINDOW_MS = Number(process.env.API_RATE_LIMIT_WINDOW_MS ?? 60_000);
 const RATE_LIMIT_MAX_REQUESTS = Number(process.env.API_RATE_LIMIT_MAX_REQUESTS ?? 60);
-const RATE_LIMIT_EXCLUSIONS = new Set(["/", "/healthz", "/readyz"]);
+const RATE_LIMIT_EXCLUSIONS = new Set(["/", "/healthz", "/readyz", "/debug/modules"]);
 
 type RateBucket = { count: number; resetAt: number };
-
 const rateBuckets = new Map<string, RateBucket>();
 
 function hashToken(token: string): string {
@@ -55,17 +53,11 @@ function getRateLimitKey(req: Request): string {
     const normalized = authHeader.trim();
     if (/^Bearer\s+/i.test(normalized)) {
       const token = normalized.replace(/^Bearer\s+/i, "").trim();
-      if (token) {
-        return `auth:${hashToken(token)}`;
-      }
+      if (token) return `auth:${hashToken(token)}`;
     }
   }
-
-  const guestId = req.guest?.id || req.guestId;
-  if (typeof guestId === "string" && guestId.trim()) {
-    return `guest:${guestId.trim()}`;
-  }
-
+  const guestId = (req as any).guest?.id || req.guestId;
+  if (typeof guestId === "string" && guestId.trim()) return `guest:${guestId.trim()}`;
   return `ip:${req.ip}`;
 }
 
@@ -76,19 +68,14 @@ function touchBucket(key: string, now: number): RateBucket {
     rateBuckets.set(key, fresh);
     return fresh;
   }
-
   existing.count += 1;
   return existing;
 }
 
 function apiRateLimiter(req: Request, res: Response, next: NextFunction) {
-  if (req.method === "OPTIONS") {
-    return next();
-  }
-
-  if (RATE_LIMIT_EXCLUSIONS.has(req.path)) {
-    return next();
-  }
+  // Nunca limite preflight
+  if (req.method === "OPTIONS") return next();
+  if (RATE_LIMIT_EXCLUSIONS.has(req.path)) return next();
 
   const now = Date.now();
   const key = getRateLimitKey(req);
@@ -99,8 +86,7 @@ function apiRateLimiter(req: Request, res: Response, next: NextFunction) {
     res.setHeader("Retry-After", retryAfterSeconds.toString());
     return res.status(429).json({ code: "RATE_LIMITED" });
   }
-
-  return next();
+  next();
 }
 
 export function createApp(): Express {
@@ -109,44 +95,36 @@ export function createApp(): Express {
   app.disable("x-powered-by");
   app.set("trust proxy", 1);
 
-  // 1) CORS sempre primeiro
+  // 1) CORS SEMPRE primeiro (lida e finaliza OPTIONS rapidamente)
   app.use(corsMiddleware);
 
-  // 3) Demais middlewares
+  // 2) Parsers (não executam em OPTIONS)
   app.use(express.json({ limit: "1mb" }));
   app.use(express.urlencoded({ extended: true }));
 
-
-  // Guest identity (gera e propaga X-Guest-Id/Set-Cookie quando necessário)
+  // 3) Identidade guest (gera/propaga X-Guest-Id / cookie)
   app.use(ensureGuestIdentity);
 
-  // Rate limit simples baseado em JWT ou guestId
+  // 4) Rate limit simples baseado em JWT/guest/ip
   app.use(apiRateLimiter);
 
-  // Popula req.guest e aplica regras específicas de sessão convidada (telemetria)
+  // 5) Sessão convidado + logs + normalização de query
   app.use(guestSessionMiddleware);
-
   app.use(requestLogger);
-
   app.use(normalizeQuery);
 
-  // 5) Healthchecks e debug
-  app.get("/", (_req: Request, res: Response) => res.status(200).send("OK"));
-
-  app.get("/healthz", (_req: Request, res: Response) =>
+  // 6) Healthchecks e debug
+  app.get("/", (_req, res) => res.status(200).send("OK"));
+  app.get("/healthz", (_req, res) =>
     res.status(200).json({ status: "ok", timestamp: new Date().toISOString() })
   );
-
-  app.get("/readyz", (_req: Request, res: Response) => {
+  app.get("/readyz", (_req, res) => {
     if (!isSupabaseConfigured()) {
-      return res
-        .status(503)
-        .json({ status: "degraded", reason: "no-admin-config" });
+      return res.status(503).json({ status: "degraded", reason: "no-admin-config" });
     }
     return res.status(200).json({ status: "ready" });
   });
-
-  app.get("/debug/modules", (_req: Request, res: Response) => {
+  app.get("/debug/modules", (_req, res) => {
     const stats = ModuleCatalog.stats();
     res.json({
       roots: stats.roots,
@@ -157,7 +135,7 @@ export function createApp(): Express {
     });
   });
 
-  // 6) Rotas (prefixo /api) — o promptRoutes contém POST /api/ask-eco (SSE)
+  // 7) Rotas (prefixo /api) — /api/ask-eco (SSE) vive em promptRoutes
   app.use("/api", promptRoutes);
   app.use("/api/memorias", memoryRoutes);
   app.use("/api/memories", memoryRoutes);
@@ -171,31 +149,30 @@ export function createApp(): Express {
   app.use("/api/v1/relatorio-emocional", relatorioRoutes);
   app.use("/api/feedback", feedbackRoutes);
 
-  // Aliases sem /api (se algum cliente legado consome)
+  // Aliases sem /api (clientes legados)
   app.use("/memorias", memoryRoutes);
   app.use("/memories", memoryRoutes);
   app.use("/perfil-emocional", profileRoutes);
   app.use("/relatorio-emocional", relatorioRoutes);
 
-  // 7) 404
-  app.use((req: Request, res: Response) => {
+  // 8) 404
+  app.use((req, res) => {
     res.status(404).json({ error: "Rota não encontrada", path: req.originalUrl });
   });
 
-  // 8) 500
-  app.use(
-    (err: any, req: Request, res: Response, _next: NextFunction) => {
-      if (req.method === "OPTIONS") return res.status(200).end();
+  // 9) 500
+  app.use((err: any, req: Request, res: Response, _next: NextFunction) => {
+    // Garantia: não deixe OPTIONS cair aqui
+    if (req.method === "OPTIONS") return res.status(204).end();
 
-      log.error("Erro não tratado:", {
-        message: err?.message,
-        stack: err?.stack,
-        name: err?.name,
-      });
+    log.error("Erro não tratado:", {
+      message: err?.message,
+      stack: err?.stack,
+      name: err?.name,
+    });
 
-      return res.status(500).json({ error: "Erro interno" });
-    }
-  );
+    return res.status(500).json({ error: "Erro interno" });
+  });
 
   return app;
 }
