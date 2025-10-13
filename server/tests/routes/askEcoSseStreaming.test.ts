@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
+import { STREAM_TIMEOUT_MESSAGE } from "../../routes/askEco/streaming";
 
 const Module = require("node:module");
 
@@ -166,4 +167,64 @@ test("SSE streaming emits tokens, done and disables compression", async () => {
   const tokenCount = (output.match(/event: token/g) ?? []).length;
   assert.equal(tokenCount, 2, "should emit two token events");
   assert.ok(/event: done/.test(output), "should emit done event");
+});
+
+test("SSE streaming triggers timeout fallback when orchestrator stalls", async () => {
+  const previousTimeout = process.env.ECO_SSE_TIMEOUT_MS;
+  process.env.ECO_SSE_TIMEOUT_MS = "10";
+
+  const router = await loadRouterWithStubs("../../routes/promptRoutes", {
+    "../services/ConversationOrchestrator": {
+      getEcoResponse: async (params: any) => {
+        if (params.stream?.onEvent) {
+          // não emite nenhum chunk para disparar fallback
+        }
+        return new Promise((resolve) => setTimeout(() => resolve({ raw: "" }), 50));
+      },
+    },
+    "../services/promptContext/logger": {
+      log: {
+        info: () => {},
+        warn: () => {},
+        error: () => {},
+        debug: () => {},
+      },
+    },
+  });
+
+  const handler = getRouteHandler(router, "/ask-eco");
+
+  const req = new MockRequest(
+    {
+      stream: true,
+      messages: [{ role: "user", content: "Olá" }],
+    },
+    {
+      accept: "text/event-stream",
+      "content-type": "application/json",
+    }
+  );
+  req.guest = { id: "guest-timeout" };
+  req.guestId = "guest-timeout";
+
+  const res = new MockResponse();
+
+  try {
+    await handler(req as any, res as any);
+
+    const output = res.chunks.join("");
+    assert.match(output, /event: first_token/, "fallback should emit first_token event");
+    assert.match(
+      output,
+      new RegExp(STREAM_TIMEOUT_MESSAGE.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")),
+      "fallback chunk should contain timeout message"
+    );
+    assert.match(output, /event: done/, "fallback should complete stream");
+  } finally {
+    if (previousTimeout === undefined) {
+      delete process.env.ECO_SSE_TIMEOUT_MS;
+    } else {
+      process.env.ECO_SSE_TIMEOUT_MS = previousTimeout;
+    }
+  }
 });
