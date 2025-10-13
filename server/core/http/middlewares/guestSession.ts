@@ -1,8 +1,7 @@
-import { randomUUID } from "node:crypto";
 import { type NextFunction, type Request, type Response } from "express";
 
-const UUID_V4_REGEX =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+import { UUID_V4 } from "../guestIdentity";
+import { log } from "../../../services/promptContext/logger";
 
 const DEFAULT_RATE_LIMIT = { limit: 30, windowMs: 60_000 };
 const rateBuckets = new Map<string, { count: number; resetAt: number }>();
@@ -108,29 +107,6 @@ export const blockGuestId = (guestId: string): void => {
   }
 };
 
-const GUEST_ID_PREFIX = "guest_";
-
-const createGuestId = (): string => `${GUEST_ID_PREFIX}${randomUUID()}`;
-
-const sanitizeGuestId = (raw: string | undefined): string | null => {
-  if (!raw) return null;
-  const trimmed = raw.trim();
-  if (!trimmed) return null;
-
-  if (UUID_V4_REGEX.test(trimmed)) {
-    return trimmed;
-  }
-
-  if (trimmed.toLowerCase().startsWith(GUEST_ID_PREFIX)) {
-    const candidate = trimmed.slice(GUEST_ID_PREFIX.length);
-    if (UUID_V4_REGEX.test(candidate)) {
-      return `${GUEST_ID_PREFIX}${candidate}`;
-    }
-  }
-
-  return null;
-};
-
 const getClientIp = (req: Request): string => {
   const forwarded = getHeaderString(req.headers["x-forwarded-for"]);
   if (forwarded) {
@@ -166,18 +142,12 @@ export function guestSessionMiddleware(req: Request, res: Response, next: NextFu
     return next();
   }
 
-  const rawGuestId = getHeaderString(req.headers["x-guest-id"]);
-  const normalizedRawGuestId = rawGuestId?.trim();
-  let guestId = sanitizeGuestId(normalizedRawGuestId ?? undefined);
-  let generatedGuestId = false;
+  const candidate = typeof req.guestId === "string" ? req.guestId : getHeaderString(req.headers["x-guest-id"]);
+  const guestId = typeof candidate === "string" && UUID_V4.test(candidate.trim()) ? candidate.trim() : undefined;
 
   if (!guestId) {
-    if (normalizedRawGuestId && normalizedRawGuestId.length > 0) {
-      return res.status(400).json({ error: "Guest ID inválido." });
-    }
-
-    guestId = createGuestId();
-    generatedGuestId = true;
+    log.warn("[guest-session] missing guest id for guest-mode request", { path: req.path });
+    return next();
   }
 
   if (blockedGuests.has(guestId)) {
@@ -204,10 +174,7 @@ export function guestSessionMiddleware(req: Request, res: Response, next: NextFu
     },
   };
 
-  if (generatedGuestId) {
-    res.setHeader("x-guest-id", guestId);
-    (req.headers as Record<string, string>)["x-guest-id"] = guestId;
-  }
+  res.setHeader("X-Guest-Id", guestId);
 
   return next();
 }

@@ -214,7 +214,8 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
   const wantsStream = accept.includes("text/event-stream");
   const origin = (req.headers.origin as string) || undefined;
 
-  const guestIdFromMiddleware: string | undefined = (req as any)?.guest?.id || undefined;
+  const guestIdFromSession: string | undefined = (req as any)?.guest?.id || undefined;
+  const guestIdFromRequest = typeof req.guestId === "string" ? req.guestId : undefined;
   const guestIdFromHeader = req.get("X-Guest-Id")?.trim();
   const guestIdFromCookie = getGuestIdFromCookies(req);
 
@@ -235,14 +236,20 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
     typeof guestId === "string" ? guestId : undefined,
     guestIdFromHeader,
     guestIdFromCookie,
-    guestIdFromMiddleware
+    guestIdFromRequest,
+    guestIdFromSession
   );
 
-  const hasGuestId = Boolean(guestIdResolved);
+  const identityKey = req.user?.id ?? guestIdResolved ?? guestIdFromRequest ?? null;
+  const hasGuestId = Boolean(identityKey);
+  const userMode = req.user?.id ? "authenticated" : "guest";
+
   log.info("[ask-eco] request", {
     origin: origin ?? null,
     mode: wantsStream ? "sse" : "json",
     hasGuestId,
+    userMode,
+    identityKey,
     payloadShape,
   });
 
@@ -292,9 +299,22 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
       (params as any).guestId = guestIdResolved;
     }
 
+    if (identityKey && typeof (params as any).distinctId !== "string") {
+      (params as any).distinctId = identityKey;
+    }
+    if (identityKey && typeof (params as any).userId !== "string") {
+      (params as any).userId = identityKey;
+    }
+
     const guestIdForLogs =
-      resolveGuestId(guestIdFromHeader, guestIdFromCookie, guestIdResolved, guestIdFromMiddleware) ??
-      `temp_${randomUUID()}`;
+      resolveGuestId(
+        guestIdFromHeader,
+        guestIdFromCookie,
+        guestIdResolved,
+        guestIdFromRequest,
+        guestIdFromSession,
+        identityKey
+      ) ?? `temp_${randomUUID()}`;
 
     // JSON mode
     if (!wantsStream) {
