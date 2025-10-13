@@ -386,6 +386,19 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
       clientClosed: false,
     };
 
+    const metrics = {
+      startAt: Date.now(),
+      promptReadyAt: null as number | null,
+      firstTokenAt: null as number | null,
+      chunksCount: 0,
+      bytesCount: 0,
+    };
+
+    let chunkIndex = 0;
+    let firstTokenDispatched = false;
+    let llmStatusSent = false;
+    let promptReadySent = false;
+
     let heartbeat: NodeJS.Timeout | null = null;
 
     const isWritable = () => {
@@ -405,6 +418,31 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
       }
     };
 
+    const emitMeta = (data: Record<string, unknown>) => {
+      safeWrite(`event: meta\ndata: ${JSON.stringify(data)}\n\n`);
+    };
+
+    const emitLlmStatusMeta = (finishReason?: string | null) => {
+      if (llmStatusSent) return;
+      const endAt = Date.now();
+      const baseline = metrics.promptReadyAt ?? metrics.startAt;
+      const metaPayload = {
+        type: "llm_status",
+        firstTokenLatencyMs:
+          metrics.firstTokenAt != null ? metrics.firstTokenAt - baseline : null,
+        totalDurationMs: endAt - baseline,
+        chunksCount: metrics.chunksCount,
+        bytesCount: metrics.bytesCount,
+        finishReason: finishReason ?? state.finishReason ?? null,
+      };
+      llmStatusSent = true;
+      log.info("[ask-eco] sse_meta_status", {
+        guestId: guestIdForLogs,
+        ...metaPayload,
+      });
+      emitMeta(metaPayload);
+    };
+
     const sendDone = (reason?: string | null) => {
       if (state.done) return;
       state.finishReason = reason ?? state.finishReason ?? "unknown";
@@ -413,9 +451,18 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
         clearInterval(heartbeat);
         heartbeat = null;
       }
+      emitLlmStatusMeta(state.finishReason);
+      const baseline = metrics.promptReadyAt ?? metrics.startAt;
+      const totalDurationMs = Date.now() - baseline;
+      const firstTokenLatencyMs =
+        metrics.firstTokenAt != null ? metrics.firstTokenAt - baseline : null;
       log.info("[ask-eco] sse_done", {
         finishReason: state.finishReason || "unknown",
         sawChunk: state.sawChunk,
+        chunksCount: metrics.chunksCount,
+        bytesCount: metrics.bytesCount,
+        firstTokenLatencyMs,
+        totalDurationMs,
         guestId: guestIdForLogs,
       });
       if (!state.clientClosed) {
@@ -428,7 +475,8 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
       }
     };
 
-    const sendErrorEvent = (payload: Record<string, unknown>) => {
+    const sendErrorEvent = (message: string, extra?: Record<string, unknown>) => {
+      const payload = { code: "LLM_FAIL", message, ...(extra ?? {}) };
       log.error("[ask-eco] sse_error", { ...payload, guestId: guestIdForLogs });
       safeWrite(`event: error\ndata: ${JSON.stringify(payload)}\n\n`);
     };
@@ -437,12 +485,39 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
       if (!piece || typeof piece !== "string") return;
       const cleaned = sanitizeOutput(piece);
       if (!cleaned) return;
+      const index = chunkIndex;
+      chunkIndex += 1;
       state.sawChunk = true;
-      safeWrite(`event: token\ndata: ${JSON.stringify({ text: cleaned })}\n\n`);
+      metrics.chunksCount += 1;
+      metrics.bytesCount += Buffer.byteLength(cleaned, "utf8");
+      if (!firstTokenDispatched) {
+        firstTokenDispatched = true;
+        if (!metrics.firstTokenAt) {
+          metrics.firstTokenAt = Date.now();
+        }
+        const latencyMs =
+          metrics.firstTokenAt != null
+            ? metrics.firstTokenAt - (metrics.promptReadyAt ?? metrics.startAt)
+            : null;
+        log.info("[ask-eco] sse_first_token", {
+          guestId: guestIdForLogs,
+          latencyMs,
+        });
+        safeWrite(`event: first_token\ndata: ${JSON.stringify({ text: cleaned, index })}\n\n`);
+      } else {
+        safeWrite(`event: chunk\ndata: ${JSON.stringify({ text: cleaned, index })}\n\n`);
+      }
     };
 
+    log.info("[ask-eco] sse_start", {
+      guestId: guestIdForLogs,
+      stream: true,
+    });
+
     safeWrite(`event: ping\ndata: {}\n\n`);
-    safeWrite(`event: meta\ndata: ${JSON.stringify({ type: "prompt_ready" })}\n\n`);
+    metrics.promptReadyAt = Date.now();
+    emitMeta({ type: "prompt_ready" });
+    promptReadySent = true;
 
     heartbeat = setInterval(() => {
       safeWrite(`event: ping\ndata: "${Date.now()}"\n\n`);
@@ -470,7 +545,42 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
 
       switch (type) {
         case "control": {
-          if (evt?.name === "done") {
+          const controlName = evt?.name;
+          if (controlName === "prompt_ready") {
+            metrics.promptReadyAt = Date.now();
+            if (!promptReadySent) {
+              emitMeta({ type: "prompt_ready" });
+              promptReadySent = true;
+            }
+            return;
+          }
+          if (controlName === "first_token") {
+            if (!metrics.firstTokenAt) {
+              metrics.firstTokenAt = Date.now();
+              log.info("[ask-eco] sse_first_token_control", {
+                guestId: guestIdForLogs,
+              });
+            }
+            return;
+          }
+          if (controlName === "reconnect") {
+            emitMeta({ type: "reconnect", attempt: evt?.attempt ?? 0 });
+            return;
+          }
+          if (controlName === "meta_pending") {
+            emitMeta({ type: "meta_pending" });
+            return;
+          }
+          if (controlName === "meta") {
+            emitMeta({ type: "stream_meta", meta: evt?.meta ?? null });
+            return;
+          }
+          if (controlName === "memory_saved") {
+            emitMeta({ type: "memory_saved", meta: evt?.meta ?? null });
+            return;
+          }
+          if (controlName === "done") {
+            emitLlmStatusMeta(evt?.meta?.finishReason ?? evt?.finishReason ?? "done");
             sendDone(evt?.meta?.finishReason ?? evt?.finishReason ?? "done");
           }
           return;
@@ -490,6 +600,7 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
           return;
         }
         case "done": {
+          emitLlmStatusMeta(evt?.meta?.finishReason ?? evt?.finishReason ?? "done");
           sendDone(evt?.meta?.finishReason ?? evt?.finishReason ?? "done");
           return;
         }
@@ -498,7 +609,7 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
             typeof evt?.message === "string"
               ? evt.message
               : evt?.error?.message || "Erro desconhecido";
-          sendErrorEvent({ message });
+          sendErrorEvent(message);
           sendDone("error");
           return;
         }
@@ -519,6 +630,7 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
 
     try {
       const stream: EcoStreamHandler = { onEvent: (event) => forwardEvent(event) };
+      log.info("[ask-eco] sse_llm_request", { guestId: guestIdForLogs, mode: "stream" });
       const result = await getEcoResponse({ ...params, stream } as any);
 
       if (!state.done) {
@@ -534,11 +646,16 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
       }
     } catch (error) {
       if (isHttpError(error)) {
-        sendErrorEvent({ ...error.body, status: error.status });
+        const body = (error as any)?.body ?? {};
+        const message =
+          typeof body?.message === "string" && body.message.trim()
+            ? body.message.trim()
+            : `Falha ao obter resposta da LLM (status ${error.status})`;
+        sendErrorEvent(message, { status: error.status });
       } else {
         const traceId = randomUUID();
         log.error("[ask-eco] sse_unexpected", { trace_id: traceId, message: (error as Error)?.message });
-        sendErrorEvent({ code: "INTERNAL_ERROR", trace_id: traceId });
+        sendErrorEvent("Erro interno ao processar a resposta da LLM.", { trace_id: traceId });
       }
       sendDone("error");
     } finally {
