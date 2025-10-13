@@ -249,6 +249,7 @@ export async function getEcoResponse({
         timings,
         isGuest,
         guestId: guestId ?? undefined,
+        thread,
       });
     }
 
