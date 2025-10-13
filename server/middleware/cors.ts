@@ -54,8 +54,72 @@ const delegate: CorsOptionsDelegate<Request> = (req, callback) => {
 
 const corsInstance = cors(delegate);
 
+export function getStaticCorsWhitelist(): string[] {
+  return Array.from(STATIC_ALLOWLIST);
+}
+
+function setVaryHeader(res: Response, value: string) {
+  const existing = res.getHeader("Vary");
+  if (!existing) {
+    res.setHeader("Vary", value);
+    return;
+  }
+
+  const current = Array.isArray(existing)
+    ? existing.map((piece) => piece.split(",").map((v) => v.trim())).flat()
+    : String(existing)
+        .split(",")
+        .map((piece) => piece.trim())
+        .filter(Boolean);
+
+  if (!current.includes(value)) {
+    res.setHeader("Vary", [...current, value].join(", "));
+  }
+}
+
+function applyStaticHeaders(res: Response) {
+  if (BASE_OPTIONS.methods) {
+    const methods = Array.isArray(BASE_OPTIONS.methods)
+      ? BASE_OPTIONS.methods.join(", ")
+      : String(BASE_OPTIONS.methods);
+    res.setHeader("Access-Control-Allow-Methods", methods);
+  }
+  if (BASE_OPTIONS.allowedHeaders) {
+    res.setHeader(
+      "Access-Control-Allow-Headers",
+      Array.isArray(BASE_OPTIONS.allowedHeaders)
+        ? BASE_OPTIONS.allowedHeaders.join(", ")
+        : String(BASE_OPTIONS.allowedHeaders)
+    );
+  }
+  if (BASE_OPTIONS.exposedHeaders) {
+    res.setHeader(
+      "Access-Control-Expose-Headers",
+      Array.isArray(BASE_OPTIONS.exposedHeaders)
+        ? BASE_OPTIONS.exposedHeaders.join(", ")
+        : String(BASE_OPTIONS.exposedHeaders)
+    );
+  }
+  if (BASE_OPTIONS.maxAge) {
+    res.setHeader("Access-Control-Max-Age", String(BASE_OPTIONS.maxAge));
+  }
+
+  if (BASE_OPTIONS.credentials) {
+    res.setHeader("Access-Control-Allow-Credentials", "true");
+  }
+}
+
+export function ensureCorsHeaders(res: Response, origin?: string | null) {
+  setVaryHeader(res, "Origin");
+  applyStaticHeaders(res);
+
+  if (origin && isAllowedOrigin(origin)) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+  }
+}
+
 export function corsMiddleware(req: Request, res: Response, next: NextFunction) {
-  res.setHeader("Vary", "Origin");
+  setVaryHeader(res, "Origin");
   corsInstance(req, res, (err) => {
     if (err) {
       log.error("[cors] middleware_error", {
