@@ -37,10 +37,20 @@ type EcoServerEvent =
   | { type: "control"; name: string; timings?: EcoLatencyTimings; meta?: Record<string, unknown>; attempt?: number }
   | Record<string, unknown>;
 
-function normalizeServerEvent(event: EcoServerEvent): EcoClientEvent[] {
-  if (!event || typeof event !== "object") {
-    return [];
-  }
+function normalizeServerEvent(event: EcoServerEvent, rawEventName?: string): EcoClientEvent[] {
+  const sanitizeChunkText = (value: unknown): string | null => {
+    if (typeof value !== "string") {
+      return null;
+    }
+    const text = value.trim();
+    if (!text) {
+      return null;
+    }
+    if (text === "__prompt_ready__" || text === "prompt_ready") {
+      return null;
+    }
+    return text;
+  };
 
   const coerceNumber = (value: unknown): number | undefined => {
     if (typeof value === "number" && Number.isFinite(value)) {
@@ -49,102 +59,136 @@ function normalizeServerEvent(event: EcoServerEvent): EcoClientEvent[] {
     return undefined;
   };
 
-  const asChunkEvent = (delta: unknown, index: unknown): EcoClientEvent[] => {
-    if (typeof delta !== "string" || delta.length === 0) {
+  const emitChunk = (delta: unknown, index: unknown): EcoClientEvent[] => {
+    const text = sanitizeChunkText(delta);
+    if (!text) {
       return [];
     }
     const resolvedIndex = coerceNumber(index) ?? 0;
-    return [{ type: "chunk", delta, index: resolvedIndex }];
+    return [{ type: "chunk", delta: text, index: resolvedIndex }];
   };
 
-  switch (event.type) {
+  if (typeof event === "string") {
+    if (rawEventName === "first_token") {
+      const chunkEvents = emitChunk(event, 0);
+      return chunkEvents.length ? [{ type: "first_token" }, ...chunkEvents] : [{ type: "first_token" }];
+    }
+    return emitChunk(event, 0);
+  }
+
+  if (!event || typeof event !== "object") {
+    if (rawEventName === "first_token") {
+      return [{ type: "first_token" }];
+    }
+    if (rawEventName === "chunk" || rawEventName === "token") {
+      return emitChunk(event, 0);
+    }
+    return [];
+  }
+
+  const asChunkEvent = (delta: unknown, index: unknown): EcoClientEvent[] => emitChunk(delta, index);
+
+  switch ((event as any).type) {
     case "prompt_ready":
       return [
         {
           type: "prompt_ready",
-          at: coerceNumber(event.at),
-          sinceStartMs: coerceNumber(event.sinceStartMs),
-          timings: event.timings,
+          at: coerceNumber((event as any).at),
+          sinceStartMs: coerceNumber((event as any).sinceStartMs),
+          timings: (event as any).timings,
         },
       ];
     case "first_token":
       return [{ type: "first_token" }];
     case "chunk":
-      return asChunkEvent(event.delta ?? event.content, event.index);
+      return asChunkEvent((event as any).delta ?? (event as any).content, (event as any).index);
     case "reconnect":
-      return [{ type: "reconnect", attempt: coerceNumber(event.attempt) }];
+      return [{ type: "reconnect", attempt: coerceNumber((event as any).attempt) }];
     case "done":
       return [
         {
           type: "done",
-          meta: event.meta,
-          at: coerceNumber(event.at),
-          sinceStartMs: coerceNumber(event.sinceStartMs),
-          timings: event.timings,
+          meta: (event as any).meta,
+          at: coerceNumber((event as any).at),
+          sinceStartMs: coerceNumber((event as any).sinceStartMs),
+          timings: (event as any).timings,
         },
       ];
     case "error": {
+      const errPayload = event as any;
       const message =
-        typeof event.message === "string"
-          ? event.message
-          : typeof event.error === "string"
-          ? event.error
-          : event.error && typeof event.error === "object" && typeof event.error.message === "string"
-          ? event.error.message
+        typeof errPayload.message === "string"
+          ? errPayload.message
+          : typeof errPayload.error === "string"
+          ? errPayload.error
+          : errPayload.error && typeof errPayload.error === "object" && typeof errPayload.error.message === "string"
+          ? errPayload.error.message
           : "Erro desconhecido";
       return [{ type: "error", message }];
     }
-    case "latency":
-      if (
-        event.stage === "prompt_ready" ||
-        event.stage === "ttfb" ||
-        event.stage === "ttlc"
-      ) {
+    case "latency": {
+      const latency = event as EcoLatencyEvent;
+      if (latency.stage === "prompt_ready" || latency.stage === "ttfb" || latency.stage === "ttlc") {
         return [
           {
             type: "latency",
-            stage: event.stage,
-            at: coerceNumber(event.at) ?? Date.now(),
-            sinceStartMs: coerceNumber(event.sinceStartMs) ?? 0,
-            timings: event.timings,
+            stage: latency.stage,
+            at: coerceNumber(latency.at) ?? Date.now(),
+            sinceStartMs: coerceNumber(latency.sinceStartMs) ?? 0,
+            timings: latency.timings,
           },
         ];
       }
       return [];
+    }
     case "control": {
-      const { name } = event;
-      if (name === "prompt_ready") {
+      const control = event as { name?: string; timings?: EcoLatencyTimings; meta?: Record<string, unknown>; attempt?: number };
+      if (control.name === "prompt_ready") {
         return [
           {
             type: "prompt_ready",
-            timings: event.timings,
+            timings: control.timings,
           },
         ];
       }
-      if (name === "first_token") {
+      if (control.name === "first_token") {
         return [{ type: "first_token" }];
       }
-      if (name === "reconnect") {
-        return [{ type: "reconnect", attempt: coerceNumber(event.attempt) }];
+      if (control.name === "reconnect") {
+        return [{ type: "reconnect", attempt: coerceNumber(control.attempt) }];
       }
-      if (name === "done") {
+      if (control.name === "done") {
         return [
           {
             type: "done",
-            meta: event.meta,
-            timings: event.timings,
+            meta: control.meta,
+            timings: control.timings,
           },
         ];
       }
-      // Outros eventos de controle (meta/meta_pending/memory_saved) não têm representação direta
-      // no cliente atual, então são ignorados silenciosamente.
       return [];
     }
     default:
-      return [];
+      break;
   }
-}
 
+  if (typeof rawEventName === "string") {
+    const payloadAny = event as any;
+    const fallback = rawEventName.toLowerCase();
+    if (fallback === "first_token") {
+      const chunkEvents = asChunkEvent(
+        payloadAny?.delta ?? payloadAny?.text ?? payloadAny?.content,
+        payloadAny?.index
+      );
+      return chunkEvents.length ? [{ type: "first_token" }, ...chunkEvents] : [{ type: "first_token" }];
+    }
+    if (fallback === "chunk" || fallback === "token") {
+      return asChunkEvent(payloadAny?.delta ?? payloadAny?.text ?? payloadAny?.content, payloadAny?.index);
+    }
+  }
+
+  return [];
+}
 export interface StartEcoStreamParams {
   body: unknown;
   token: string;
@@ -229,7 +273,7 @@ export function startEcoStream({
             if (!entry.data) continue;
             try {
               const payload = JSON.parse(entry.data) as EcoServerEvent;
-              const normalizedEvents = normalizeServerEvent(payload);
+              const normalizedEvents = normalizeServerEvent(payload, entry.event);
               for (const normalized of normalizedEvents) {
                 // LATENCY: entrega cada token/control para renderização imediata.
                 onEvent(normalized);
@@ -249,7 +293,7 @@ export function startEcoStream({
           if (!entry.data) continue;
           try {
             const payload = JSON.parse(entry.data) as EcoServerEvent;
-            const normalizedEvents = normalizeServerEvent(payload);
+            const normalizedEvents = normalizeServerEvent(payload, entry.event);
             for (const normalized of normalizedEvents) {
               onEvent(normalized);
             }
