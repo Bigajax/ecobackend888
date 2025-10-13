@@ -33,8 +33,36 @@ function resolveOpenAIClass(): OpenAIConstructor {
   return OpenAIClass;
 }
 const DEFAULT_MODEL = process.env.EMBEDDING_MODEL || "text-embedding-3-small";
-const EXPECTED_DIM = Number(process.env.EMBEDDING_DIM || (DEFAULT_MODEL === "text-embedding-3-small" ? 1536 : 3072));
+const DEFAULT_DIMENSION = DEFAULT_MODEL === "text-embedding-3-small" ? 1536 : 3072;
 const MAX_CHARS = Number(process.env.EMBEDDING_MAX_CHARS || 8000); // simples proteção
+
+const MAX_EMBEDDING_VECTOR_LENGTH = (() => {
+  const parsed = Number(process.env.MAX_EMBEDDING_VECTOR_LENGTH);
+  if (Number.isFinite(parsed) && parsed > 0) {
+    const normalized = Math.floor(parsed);
+    return Math.min(Math.max(normalized, 32), 65_536);
+  }
+  return 8_192;
+})();
+
+function normalizeDimension(value: unknown, fallback: number): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return Math.max(1, Math.min(Math.floor(fallback), MAX_EMBEDDING_VECTOR_LENGTH));
+  }
+  const normalized = Math.floor(parsed);
+  if (normalized <= 0) {
+    return Math.max(1, Math.min(Math.floor(fallback), MAX_EMBEDDING_VECTOR_LENGTH));
+  }
+  return Math.max(1, Math.min(normalized, MAX_EMBEDDING_VECTOR_LENGTH));
+}
+
+const EXPECTED_DIM = normalizeDimension(
+  process.env.EMBEDDING_DIM ?? DEFAULT_DIMENSION,
+  DEFAULT_DIMENSION
+);
+
+export { MAX_EMBEDDING_VECTOR_LENGTH };
 
 function getOpenAI(): OpenAI {
   if (_openai) return _openai;
@@ -55,20 +83,43 @@ function getOpenAI(): OpenAI {
 
 /** Normaliza vetor para norma-2 = 1 */
 export function unitNorm(vec: number[] | Float32Array): number[] {
+  const length = vec.length;
+  if (!Number.isFinite(length) || length <= 0) {
+    return [];
+  }
+  if (length > MAX_EMBEDDING_VECTOR_LENGTH) {
+    throw new RangeError(
+      `Embedding vector too large (${length} > ${MAX_EMBEDDING_VECTOR_LENGTH}).`
+    );
+  }
+
   let sum = 0;
-  for (let i = 0; i < vec.length; i++) sum += vec[i] * vec[i];
+  for (let i = 0; i < length; i += 1) {
+    const value = Number(vec[i]);
+    if (!Number.isFinite(value)) {
+      throw new RangeError(`Embedding vector contém valor inválido na posição ${i}.`);
+    }
+    sum += value * value;
+  }
+
   const norm = Math.sqrt(sum) || 1;
-  const out = new Array(vec.length);
-  for (let i = 0; i < vec.length; i++) out[i] = vec[i] / norm;
+  const out = new Array<number>(length);
+  for (let i = 0; i < length; i += 1) {
+    const value = Number(vec[i]);
+    out[i] = value / norm;
+  }
   return out;
 }
 
 /** Embedding fake p/ dev sem API */
 function fakeEmbedding(text: string, dim = EXPECTED_DIM || 256): number[] {
+  const safeDim = normalizeDimension(dim, EXPECTED_DIM || 256);
   const te = new TextEncoder();
   const bytes = te.encode(text || "");
-  const v = new Array(dim).fill(0);
-  for (let i = 0; i < bytes.length; i++) v[i % dim] += (bytes[i] - 127) / 127;
+  const v = new Array<number>(safeDim).fill(0);
+  for (let i = 0; i < bytes.length; i += 1) {
+    v[i % safeDim] += (bytes[i] - 127) / 127;
+  }
   return unitNorm(v);
 }
 
@@ -90,15 +141,14 @@ export async function embedTextoCompleto(texto: string, _tag?: string): Promise<
   }
 
   // (opcional) garantir dimensão esperada
-  if (EXPECTED_DIM && emb.length !== EXPECTED_DIM) {
-    // adapta (ou lança erro); aqui vou adaptar por segurança:
-    if (emb.length > EXPECTED_DIM) emb.length = EXPECTED_DIM;
-    else {
-      const filled = emb.slice();
-      while (filled.length < EXPECTED_DIM) filled.push(0);
-      return filled;
+  const vector = emb.slice(0, MAX_EMBEDDING_VECTOR_LENGTH);
+  if (EXPECTED_DIM && vector.length !== EXPECTED_DIM) {
+    if (vector.length > EXPECTED_DIM) {
+      vector.length = EXPECTED_DIM;
+    } else {
+      while (vector.length < EXPECTED_DIM) vector.push(0);
     }
   }
 
-  return emb as number[];
+  return vector as number[];
 }
