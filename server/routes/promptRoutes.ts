@@ -211,7 +211,17 @@ function resolveGuestId(
 /** POST /api/ask-eco — stream SSE (ou JSON se cliente não pedir SSE) */
 router.post("/ask-eco", async (req: Request, res: Response) => {
   const accept = String(req.headers.accept || "").toLowerCase();
-  const wantsStream = accept.includes("text/event-stream");
+  const streamParam = (() => {
+    const fromQuery = (req.query as any)?.stream;
+    if (typeof fromQuery === "string") return fromQuery;
+    if (Array.isArray(fromQuery)) return fromQuery[fromQuery.length - 1];
+    const bodyValue = (req.body as any)?.stream;
+    if (typeof bodyValue === "string") return bodyValue;
+    if (typeof bodyValue === "boolean") return bodyValue ? "true" : "false";
+    return undefined;
+  })();
+  const wantsStreamByFlag = typeof streamParam === "string" && /^(1|true|yes)$/i.test(streamParam.trim());
+  const wantsStream = wantsStreamByFlag || accept.includes("text/event-stream");
   const origin = (req.headers.origin as string) || undefined;
 
   const guestIdFromSession: string | undefined = (req as any)?.guest?.id || undefined;
@@ -240,7 +250,9 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
     guestIdFromSession
   );
 
-  const identityKey = req.user?.id ?? guestIdResolved ?? guestIdFromRequest ?? null;
+  const identityKey =
+    (typeof req.user?.id === "string" && req.user.id.trim() ? req.user.id.trim() : null) ??
+    (typeof req.guestId === "string" && req.guestId.trim() ? req.guestId.trim() : null);
   const hasGuestId = Boolean(identityKey);
   const userMode = req.user?.id ? "authenticated" : "guest";
 
@@ -295,7 +307,9 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
     if (typeof usuario_id === "string" && usuario_id.trim()) {
       (params as any).userId = usuario_id.trim();
     }
-    if (guestIdResolved) {
+    if (typeof req.guestId === "string" && req.guestId.trim()) {
+      (params as any).guestId = req.guestId.trim();
+    } else if (guestIdResolved) {
       (params as any).guestId = guestIdResolved;
     }
 
@@ -339,9 +353,12 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
     }
 
     // SSE mode
-    res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+    res.setHeader("Content-Type", "text/event-stream");
     res.setHeader("Cache-Control", "no-cache");
     res.setHeader("Connection", "keep-alive");
+    res.setHeader("Content-Encoding", "identity");
+    res.setHeader("X-No-Compression", "1");
+    res.setHeader("X-Accel-Buffering", "no");
 
     res.status(200);
     (res as any).flushHeaders?.();
@@ -385,7 +402,7 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
         guestId: guestIdForLogs,
       });
       if (!state.clientClosed) {
-        safeWrite(`event: done\ndata: {}\n\n`);
+        safeWrite(`event: done\ndata: ${JSON.stringify({ reason: state.finishReason || "unknown" })}\n\n`);
         try {
           res.end();
         } catch {
@@ -404,9 +421,10 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
       const cleaned = sanitizeOutput(piece);
       if (!cleaned) return;
       state.sawChunk = true;
-      safeWrite(`event: chunk\ndata: ${JSON.stringify({ text: cleaned })}\n\n`);
+      safeWrite(`event: token\ndata: ${JSON.stringify({ text: cleaned })}\n\n`);
     };
 
+    safeWrite(`event: ping\ndata: {}\n\n`);
     safeWrite(`event: meta\ndata: ${JSON.stringify({ type: "prompt_ready" })}\n\n`);
 
     heartbeat = setInterval(() => {
