@@ -421,8 +421,8 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
     }
 
     // SSE mode
-    res.setHeader("Content-Type", "text/event-stream");
-    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+    res.setHeader("Cache-Control", "no-cache, no-transform");
     res.setHeader("Connection", "keep-alive");
     disableCompressionForSse(res);
     res.setHeader("X-Accel-Buffering", "no");
@@ -472,6 +472,10 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
 
     const sendMeta = (obj: Record<string, unknown>) => {
       safeWrite(`event: meta\ndata: ${JSON.stringify(obj)}\n\n`);
+    };
+
+    const sendToken = (text: string) => {
+      safeWrite(`event: token\ndata: ${JSON.stringify({ text })}\n\n`);
     };
 
     const sendDone = (reason?: string | null) => {
@@ -537,11 +541,14 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
       } else {
         safeWrite(`event: chunk\ndata: ${JSON.stringify(finalText)}\n\n`);
       }
+
+      sendToken(finalText);
     };
 
     // abertura do stream
     safeWrite(`event: ping\ndata: {}\n\n`);
     sendMeta({ type: "prompt_ready" });
+    sendToken("__prompt_ready__");
 
     const scheduleTimeoutFallback = () => {
       clearTimeoutGuard();
