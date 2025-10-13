@@ -22,6 +22,7 @@ import {
 import { requestLogger } from "./middlewares/logger";
 import { normalizeQuery } from "./middlewares/queryNormalizer";
 import { ModuleCatalog } from "../../domains/prompts/ModuleCatalog";
+import { ensureGuestIdentity } from "./guestIdentity";
 
 import promptRoutes from "../../routes/promptRoutes";
 import profileRoutes from "../../routes/perfilEmocionalRoutes";
@@ -133,12 +134,8 @@ export function createApp(): Express {
   app.use(express.urlencoded({ extended: true }));
 
 
-  // Guest identity (somente anotação, sem autorização de persistência)
-  app.use((req, _res, next) => {
-    const guestId = req.header("X-Guest-Id");
-    req.guestId = typeof guestId === "string" && guestId.trim() ? guestId.trim() : undefined;
-    next();
-  });
+  // Guest identity (gera e propaga X-Guest-Id/Set-Cookie quando necessário)
+  app.use(ensureGuestIdentity);
 
   // Rate limit simples baseado em JWT ou guestId
   app.use(apiRateLimiter);
