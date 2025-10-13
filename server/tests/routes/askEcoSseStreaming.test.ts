@@ -153,10 +153,10 @@ test("SSE streaming emits tokens, done and disables compression", async () => {
   await handler(req as any, res as any);
 
   assert.equal(res.statusCode, 200);
-  assert.equal(res.headers.get("content-type"), "text/event-stream");
+  assert.equal(res.headers.get("content-type"), "text/event-stream; charset=utf-8");
   assert.equal(res.headers.get("content-encoding"), "identity");
   assert.equal(res.headers.get("x-no-compression"), "1");
-  assert.equal(res.headers.get("cache-control"), "no-cache");
+  assert.equal(res.headers.get("cache-control"), "no-cache, no-transform");
   assert.equal(res.headers.get("connection"), "keep-alive");
   assert.ok(res.ended, "response should end after done event");
   assert.ok(res.flushed, "safeWrite should flush chunks for SSE");
@@ -165,7 +165,11 @@ test("SSE streaming emits tokens, done and disables compression", async () => {
   const pingCount = (output.match(/event: ping/g) ?? []).length;
   assert.ok(pingCount >= 1, "should emit at least one ping event");
   const tokenCount = (output.match(/event: token/g) ?? []).length;
-  assert.equal(tokenCount, 2, "should emit two token events");
+  assert.ok(tokenCount >= 3, "should emit synthetic and streamed token events");
+  assert.ok(
+    output.includes('event: token\ndata: {"text":"__prompt_ready__"}'),
+    "should emit synthetic token right after prompt_ready"
+  );
   assert.ok(/event: done/.test(output), "should emit done event");
 });
 
