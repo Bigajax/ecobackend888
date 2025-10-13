@@ -25,6 +25,11 @@ console.log("Backend: promptRoutes carregado.");
 const REQUIRE_GUEST_ID =
   String(process.env.ECO_REQUIRE_GUEST_ID ?? "false").toLowerCase() === "true";
 
+type RequestWithIdentity = Request & {
+  guestId?: string | null;
+  user?: { id?: string | null } | null;
+};
+
 function disableCompressionForSse(response: Response) {
   response.setHeader("Content-Encoding", "identity");
   response.setHeader("X-No-Compression", "1");
@@ -216,6 +221,7 @@ function resolveGuestId(
 
 /** POST /api/ask-eco — stream SSE (ou JSON se cliente não pedir SSE) */
 router.post("/ask-eco", async (req: Request, res: Response) => {
+  const reqWithIdentity = req as RequestWithIdentity;
   const accept = String(req.headers.accept || "").toLowerCase();
   const streamParam = (() => {
     const fromQuery = (req.query as any)?.stream;
@@ -231,7 +237,8 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
   const origin = (req.headers.origin as string) || undefined;
 
   const guestIdFromSession: string | undefined = (req as any)?.guest?.id || undefined;
-  const guestIdFromRequest = typeof req.guestId === "string" ? req.guestId : undefined;
+  const guestIdFromRequest =
+    typeof reqWithIdentity.guestId === "string" ? reqWithIdentity.guestId : undefined;
   const guestIdFromHeader = req.get("X-Guest-Id")?.trim();
   const guestIdFromCookie = getGuestIdFromCookies(req);
 
@@ -257,10 +264,14 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
   );
 
   const identityKey =
-    (typeof req.user?.id === "string" && req.user.id.trim() ? req.user.id.trim() : null) ??
-    (typeof req.guestId === "string" && req.guestId.trim() ? req.guestId.trim() : null);
+    (typeof reqWithIdentity.user?.id === "string" && reqWithIdentity.user.id.trim()
+      ? reqWithIdentity.user.id.trim()
+      : null) ??
+    (typeof reqWithIdentity.guestId === "string" && reqWithIdentity.guestId.trim()
+      ? reqWithIdentity.guestId.trim()
+      : null);
   const hasGuestId = Boolean(identityKey);
-  const userMode = req.user?.id ? "authenticated" : "guest";
+  const userMode = reqWithIdentity.user?.id ? "authenticated" : "guest";
 
   log.info("[ask-eco] request", {
     origin: origin ?? null,
@@ -313,8 +324,8 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
     if (typeof usuario_id === "string" && usuario_id.trim()) {
       (params as any).userId = usuario_id.trim();
     }
-    if (typeof req.guestId === "string" && req.guestId.trim()) {
-      (params as any).guestId = req.guestId.trim();
+    if (typeof reqWithIdentity.guestId === "string" && reqWithIdentity.guestId.trim()) {
+      (params as any).guestId = reqWithIdentity.guestId.trim();
     } else if (guestIdResolved) {
       (params as any).guestId = guestIdResolved;
     }

@@ -7,7 +7,17 @@ declare module "express-serve-static-core" {
     [key: string]: unknown;
   }
 
+  interface GuestSessionMeta {
+    id: string;
+    ip: string;
+    interactionsUsed: number;
+    maxInteractions: number;
+    rateLimit: { limit: number; remaining: number; resetAt: number };
+  }
+
   interface Request {
     user?: AuthenticatedUser | null;
+    guestId?: string;
+    guest?: GuestSessionMeta;
   }
 }
