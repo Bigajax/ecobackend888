@@ -540,6 +540,7 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
           }
           return;
         }
+        case "first_token":
         case "chunk":
         case "delta":
         case "token": {

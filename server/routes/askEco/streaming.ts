@@ -178,8 +178,22 @@ export class StreamSession {
   createStreamHandler(): EcoStreamHandler {
     return {
       onEvent: async (event) => {
+        if (event.type === "first_token") {
+          if (typeof event.delta === "string" && event.delta) {
+            this.handleChunk(event.delta);
+          }
+          return;
+        }
         if (event.type === "chunk") {
-          this.handleChunk(event.content, event.index);
+          const delta =
+            typeof event.delta === "string" && event.delta
+              ? event.delta
+              : typeof event.content === "string"
+              ? event.content
+              : "";
+          if (delta) {
+            this.handleChunk(delta, event.index);
+          }
           return;
         }
         if (event.type === "error") {
@@ -242,7 +256,8 @@ export class StreamSession {
     }
   }
 
-  private handleChunk(content: string, index: number) {
+  private handleChunk(content: string, index?: number) {
+    if (!content) return;
     if (!this.firstChunkLogged) {
       this.firstChunkLogged = true;
       const at = now();
@@ -250,9 +265,11 @@ export class StreamSession {
     }
     this.aggregatedText += content;
     this.chunkReceived = true;
-    this.lastChunkIndex = index;
+    const resolvedIndex =
+      typeof index === "number" && Number.isFinite(index) ? index : this.lastChunkIndex + 1;
+    this.lastChunkIndex = resolvedIndex;
     this.clearTimeoutGuard();
-    this.dispatchEvent({ type: "chunk", delta: content, index });
+    this.dispatchEvent({ type: "chunk", delta: content, index: resolvedIndex });
   }
 
   private startSse() {

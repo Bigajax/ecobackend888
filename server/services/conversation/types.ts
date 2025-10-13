@@ -39,7 +39,8 @@ export type EcoStreamEvent =
         intensidade: number;
       };
     }
-  | { type: "chunk"; content: string; index: number }
+  | { type: "first_token"; delta: string }
+  | { type: "chunk"; delta: string; index: number; content?: string }
   | { type: "error"; error: Error };
 
 export interface EcoStreamHandler {

@@ -8,15 +8,17 @@ import {
   EcoLatencyMarks,
   EcoStreamEvent,
 } from "./types";
-import { buildStreamingMetaPayload } from "./responseMetadata";
+import { buildStreamingMetaPayload, buildFinalizedStreamText } from "./responseMetadata";
 import { salvarMemoriaViaRPC } from "./memoryPersistence";
 import { defaultResponseFinalizer, type PrecomputedFinalizeArtifacts } from "./responseFinalizer";
 import type { EcoDecisionResult } from "./ecoDecisionHub";
 
-import type { GetEcoResult } from "../../utils";
+import { executeFullLLM } from "./fullOrchestrator";
+import type { ChatMessage, GetEcoResult } from "../../utils";
 
 const BLOCO_DEADLINE_MS = Number(process.env.ECO_BLOCO_DEADLINE_MS ?? 5000);
 const BLOCO_PENDING_MS = Number(process.env.ECO_BLOCO_PENDING_MS ?? 1000);
+const STREAM_GUARD_MS = Number(process.env.ECO_STREAM_GUARD_MS ?? 4000);
 
 function normalizeBlocoForMeta(
   bloco: any,
@@ -59,6 +61,7 @@ interface StreamingExecutionParams {
   timings: EcoLatencyMarks;
   isGuest?: boolean;
   guestId?: string;
+  thread: ChatMessage[];
 }
 
 export async function executeStreamingLLM({
@@ -77,9 +80,31 @@ export async function executeStreamingLLM({
   timings,
   isGuest = false,
   guestId,
+  thread,
 }: StreamingExecutionParams): Promise<EcoStreamingResult> {
   const supabaseClient = supabase ?? null;
+  const summarizeDelta = (input: string) => {
+    const safe = input ?? "";
+    const normalized = safe.replace(/\s+/g, " ").trim();
+    if (normalized.length <= 60) return normalized;
+    return `${normalized.slice(0, 57)}...`;
+  };
+
   const emitStream = async (event: EcoStreamEvent) => {
+    const payloadForLog: Record<string, unknown> = { type: event.type };
+    if (event.type === "chunk" || event.type === "first_token") {
+      const delta = event.type === "chunk" ? event.delta : event.delta;
+      payloadForLog.delta = summarizeDelta(delta);
+      if (event.type === "chunk" && typeof event.index === "number") {
+        payloadForLog.index = event.index;
+      }
+    } else if (event.type === "control") {
+      payloadForLog.name = event.name;
+    } else if (event.type === "error") {
+      payloadForLog.message = event.error?.message;
+    }
+
+    log.info("[StreamingLLM] emit_event", payloadForLog);
     await streamHandler.onEvent(event);
   };
 
@@ -90,6 +115,8 @@ export async function executeStreamingLLM({
   let finishReason: string | null | undefined;
   let modelFromStream: string | null | undefined;
   let streamFailure: Error | null = null;
+  let ignoreStreamEvents = false;
+  let fallbackResult: EcoStreamingResult | null = null;
 
   let resolveRawForBloco!: (value: string) => void;
   let rejectRawForBloco!: (reason?: unknown) => void;
@@ -243,6 +270,99 @@ export async function executeStreamingLLM({
     })();
   };
 
+  const clearStreamGuard = (timer: NodeJS.Timeout | null) => {
+    if (timer) {
+      clearTimeout(timer);
+    }
+  };
+
+  const deliverFallbackFull = async () => {
+    if (fallbackResult) {
+      return fallbackResult;
+    }
+
+    ignoreStreamEvents = true;
+    log.info("[StreamingLLM] guard_fallback_trigger", { guardMs: STREAM_GUARD_MS });
+
+    const fallbackTimings: EcoLatencyMarks = { ...timings };
+
+    const fullResult = await executeFullLLM({
+      prompt,
+      maxTokens,
+      principalModel,
+      ultimaMsg,
+      userName,
+      decision,
+      ecoDecision,
+      userId,
+      supabase,
+      lastMessageId,
+      sessionMeta,
+      timings: fallbackTimings,
+      thread,
+      isGuest,
+      guestId,
+    });
+
+    const text = buildFinalizedStreamText(fullResult);
+    Object.assign(timings, fallbackTimings);
+    resolveRawForBloco(text);
+    streamedChunks.length = 0;
+    streamedChunks.push(text);
+
+    const tokens = Array.from(text);
+    if (!firstTokenSent) {
+      firstTokenSent = true;
+    }
+    const firstDelta = tokens.shift() ?? "";
+    if (firstDelta) {
+      await emitStream({ type: "first_token", delta: firstDelta });
+    }
+    const rest = tokens.join("");
+    if (rest) {
+      const currentIndex = chunkIndex;
+      chunkIndex += 1;
+      await emitStream({ type: "chunk", delta: rest, index: currentIndex });
+    }
+
+    const doneSnapshot = { ...fallbackTimings };
+    fallbackResult = {
+      raw: text,
+      modelo: "fallback_full",
+      usage: undefined,
+      finalize: async () => fullResult,
+      timings: doneSnapshot,
+    };
+
+    await emitStream({
+      type: "control",
+      name: "done",
+      meta: {
+        finishReason: "fallback_full",
+        length: text.length,
+        modelo: "fallback_full",
+      },
+      timings: doneSnapshot,
+    });
+
+    return fallbackResult;
+  };
+
+  let streamGuardTimer: NodeJS.Timeout | null = null;
+
+  const armStreamGuard = (): Promise<"fallback" | "guard_disabled"> => {
+    if (!Number.isFinite(STREAM_GUARD_MS) || STREAM_GUARD_MS <= 0) {
+      return Promise.resolve<"guard_disabled">("guard_disabled");
+    }
+
+    return new Promise<"fallback">((resolve) => {
+      streamGuardTimer = setTimeout(() => {
+        streamGuardTimer = null;
+        void deliverFallbackFull().then(() => resolve("fallback"));
+      }, STREAM_GUARD_MS);
+    });
+  };
+
   timings.llmStart = now();
   log.info("// LATENCY: llm_request_start", {
     at: timings.llmStart,
@@ -262,27 +382,49 @@ export async function executeStreamingLLM({
     {
       async onChunk({ content }) {
         if (!content) return;
+        if (ignoreStreamEvents) return;
         streamedChunks.push(content);
+        if (streamGuardTimer) {
+          clearStreamGuard(streamGuardTimer);
+          streamGuardTimer = null;
+        }
+        const tokens = Array.from(content);
         if (!firstTokenSent) {
           firstTokenSent = true;
-          await emitStream({ type: "control", name: "first_token" });
+          const firstDelta = tokens.shift() ?? "";
+          if (firstDelta) {
+            await emitStream({ type: "first_token", delta: firstDelta });
+          }
+          const rest = tokens.join("");
+          if (rest) {
+            const currentIndex = chunkIndex;
+            chunkIndex += 1;
+            await emitStream({ type: "chunk", delta: rest, index: currentIndex });
+          }
+          return;
         }
         const currentIndex = chunkIndex;
         chunkIndex += 1;
-        await emitStream({ type: "chunk", content, index: currentIndex });
+        await emitStream({ type: "chunk", delta: content, index: currentIndex, content });
       },
       async onControl(event) {
+        if (ignoreStreamEvents) return;
         if (event.type === "reconnect") {
           await emitStream({ type: "control", name: "reconnect", attempt: event.attempt });
           return;
         }
         if (event.type === "done") {
+          if (streamGuardTimer) {
+            clearStreamGuard(streamGuardTimer);
+            streamGuardTimer = null;
+          }
           usageFromStream = event.usage ?? usageFromStream;
           finishReason = event.finishReason ?? finishReason;
           modelFromStream = event.model ?? modelFromStream;
         }
       },
       async onError(error) {
+        if (ignoreStreamEvents) return;
         streamFailure = error;
         rejectRawForBloco(error);
         await emitStream({ type: "error", error });
@@ -299,9 +441,40 @@ export async function executeStreamingLLM({
 
   await emitStream({ type: "control", name: "prompt_ready", timings: { ...timings } });
 
-  try {
+  let streamCompleted = false;
+
+  const guardPromise = armStreamGuard();
+
+  const raceOutcome = await Promise.race<"stream" | "fallback" | "guard_disabled">([
+    streamPromise.then(() => {
+      streamCompleted = true;
+      return "stream" as const;
+    }),
+    guardPromise,
+  ]);
+
+  if (raceOutcome === "fallback") {
+    void streamPromise.catch(() => undefined);
+    return fallbackResult ?? (await deliverFallbackFull());
+  }
+
+  if (raceOutcome === "guard_disabled") {
     await streamPromise;
+    streamCompleted = true;
+  }
+
+  try {
+    if (!streamCompleted) {
+      await streamPromise;
+      streamCompleted = true;
+    }
   } finally {
+    if (!streamGuardTimer) {
+      // already cleared
+    } else {
+      clearStreamGuard(streamGuardTimer);
+      streamGuardTimer = null;
+    }
     timings.llmEnd = now();
     log.info("// LATENCY: llm_request_end", {
       at: timings.llmEnd,
@@ -365,11 +538,17 @@ export async function executeStreamingLLM({
   };
 
   const doneSnapshot = { ...timings };
+  const finalFinishReason = finishReason ?? "stream_done";
+  log.info("[StreamingLLM] stream_done", {
+    length: raw.length,
+    chunks: chunkIndex,
+    finishReason: finalFinishReason,
+  });
   await emitStream({
     type: "control",
     name: "done",
     meta: {
-      finishReason,
+      finishReason: finalFinishReason,
       usage: usageFromStream,
       modelo: modelFromStream ?? principalModel,
       length: raw.length,
