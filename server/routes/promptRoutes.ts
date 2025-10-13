@@ -129,6 +129,56 @@ function extractTextLoose(payload: any): string | undefined {
   return tryList(payload);
 }
 
+/**
+ * Extrai texto de eventos vindos do orquestrador de streaming.
+ * Os adaptadores nem sempre usam a mesma chave, então varremos uma lista ampla
+ * de campos conhecidos, caindo em `extractTextLoose` para objetos aninhados.
+ */
+function extractEventText(event: unknown): string | undefined {
+  if (!event) return undefined;
+
+  const candidates: unknown[] = [];
+
+  if (typeof event === "string") {
+    candidates.push(event);
+  } else if (typeof event === "object") {
+    const obj = event as Record<string, unknown>;
+    const delta = obj.delta;
+    if (delta !== undefined) {
+      candidates.push(delta);
+      if (typeof delta === "object" && delta !== null) {
+        const deltaObj = delta as Record<string, unknown>;
+        candidates.push(deltaObj.content, deltaObj.text, deltaObj.value);
+        if (Array.isArray(deltaObj.content)) {
+          candidates.push(deltaObj.content.join(""));
+        }
+      }
+    }
+    candidates.push(
+      obj.content,
+      obj.text,
+      obj.message,
+      obj.output,
+      obj.output_text,
+      obj.response,
+      obj.value
+    );
+  }
+
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    if (typeof candidate === "string" && candidate.trim()) {
+      return candidate.trim();
+    }
+    const extracted = extractTextLoose(candidate);
+    if (extracted) {
+      return extracted;
+    }
+  }
+
+  return typeof event === "string" ? event : extractTextLoose(event);
+}
+
 function getGuestIdFromCookies(req: Request): string | undefined {
   const cookieGuestId = (req as any)?.cookies?.guest_id;
   if (typeof cookieGuestId === "string" && cookieGuestId.trim()) {
@@ -469,22 +519,23 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
     const sendChunk = (piece: string) => {
       if (!piece || typeof piece !== "string") return;
       const cleaned = sanitizeOutput(piece);
-      if (!cleaned) return;
+      const finalText = cleaned || piece.trim();
+      if (!finalText) return;
 
       if (!state.sawChunk) {
         clearTimeoutGuard();
       }
       state.sawChunk = true;
       state.chunksCount += 1;
-      state.bytesCount += Buffer.byteLength(cleaned, "utf8");
+      state.bytesCount += Buffer.byteLength(finalText, "utf8");
 
       if (!state.firstSent) {
         state.firstSent = true;
         state.firstTokenAt = Date.now();
-        safeWrite(`event: first_token\ndata: ${JSON.stringify(cleaned)}\n\n`);
+        safeWrite(`event: first_token\ndata: ${JSON.stringify(finalText)}\n\n`);
         sendMeta({ type: "first_token_latency_ms", value: state.firstTokenAt - state.t0 });
       } else {
-        safeWrite(`event: chunk\ndata: ${JSON.stringify(cleaned)}\n\n`);
+        safeWrite(`event: chunk\ndata: ${JSON.stringify(finalText)}\n\n`);
       }
     };
 
@@ -544,14 +595,9 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
         case "chunk":
         case "delta":
         case "token": {
-          const delta =
-            evt?.delta?.content ??
-            evt?.delta ??
-            evt?.content ??
-            evt?.text ??
-            evt?.message;
-          if (typeof delta === "string" && delta.trim()) {
-            sendChunk(delta);
+          const text = extractEventText(evt);
+          if (typeof text === "string" && text) {
+            sendChunk(text);
           }
           return;
         }
@@ -569,14 +615,9 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
           return;
         }
         default: {
-          const delta =
-            evt?.delta?.content ??
-            evt?.delta ??
-            evt?.content ??
-            evt?.text ??
-            evt?.message;
-          if (typeof delta === "string" && delta.trim()) {
-            sendChunk(delta);
+          const text = extractEventText(evt);
+          if (typeof text === "string" && text) {
+            sendChunk(text);
           }
           return;
         }
