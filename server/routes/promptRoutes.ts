@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { Router, type Request, type Response } from "express";
 import { getPromptEcoPreview } from "../controllers/promptController";
 import { getEcoResponse } from "../services/ConversationOrchestrator";
+import { STREAM_TIMEOUT_MESSAGE } from "./askEco/streaming";
 import { log } from "../services/promptContext/logger";
 import type { EcoStreamHandler, EcoStreamEvent } from "../services/conversation/types";
 import { createHttpError, isHttpError } from "../utils/http";
@@ -24,6 +25,17 @@ console.log("Backend: promptRoutes carregado.");
 
 const REQUIRE_GUEST_ID =
   String(process.env.ECO_REQUIRE_GUEST_ID ?? "false").toLowerCase() === "true";
+
+const DEFAULT_STREAM_TIMEOUT_MS = 45_000;
+const streamTimeoutMs = (() => {
+  const raw = process.env.ECO_SSE_TIMEOUT_MS;
+  if (!raw) return DEFAULT_STREAM_TIMEOUT_MS;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return DEFAULT_STREAM_TIMEOUT_MS;
+  }
+  return parsed;
+})();
 
 type RequestWithIdentity = Request & {
   guestId?: string | null;
@@ -382,12 +394,20 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
     };
 
     let heartbeat: NodeJS.Timeout | null = null;
+    let timeoutGuard: NodeJS.Timeout | null = null;
 
     const isWritable = () => {
       if (state.clientClosed) return false;
       if ((res as any).writableEnded || (res as any).writableFinished) return false;
       if ((res as any).destroyed) return false;
       return true;
+    };
+
+    const clearTimeoutGuard = () => {
+      if (timeoutGuard) {
+        clearTimeout(timeoutGuard);
+        timeoutGuard = null;
+      }
     };
 
     const safeWrite = (payload: string) => {
@@ -412,6 +432,7 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
         clearInterval(heartbeat);
         heartbeat = null;
       }
+      clearTimeoutGuard();
 
       // status final
       sendMeta({
@@ -441,6 +462,7 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
     const sendErrorEvent = (payload: Record<string, unknown>) => {
       log.error("[ask-eco] sse_error", { ...payload });
       safeWrite(`event: error\ndata: ${JSON.stringify(payload)}\n\n`);
+      clearTimeoutGuard();
     };
 
     // Emite first_token no primeiro pedaço e chunk nos demais
@@ -449,6 +471,9 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
       const cleaned = sanitizeOutput(piece);
       if (!cleaned) return;
 
+      if (!state.sawChunk) {
+        clearTimeoutGuard();
+      }
       state.sawChunk = true;
       state.chunksCount += 1;
       state.bytesCount += Buffer.byteLength(cleaned, "utf8");
@@ -467,6 +492,23 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
     safeWrite(`event: ping\ndata: {}\n\n`);
     sendMeta({ type: "prompt_ready" });
 
+    const scheduleTimeoutFallback = () => {
+      clearTimeoutGuard();
+      if (!Number.isFinite(streamTimeoutMs) || streamTimeoutMs <= 0) {
+        return;
+      }
+      timeoutGuard = setTimeout(() => {
+        timeoutGuard = null;
+        if (state.done || state.clientClosed || state.sawChunk) {
+          return;
+        }
+        log.warn("[ask-eco] sse_timeout", { timeoutMs: streamTimeoutMs });
+        sendChunk(STREAM_TIMEOUT_MESSAGE);
+        sendDone("timeout");
+      }, streamTimeoutMs);
+    };
+    scheduleTimeoutFallback();
+
     heartbeat = setInterval(() => {
       safeWrite(`event: ping\ndata: "${Date.now()}"\n\n`);
     }, 20_000);
@@ -478,6 +520,7 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
         clearInterval(heartbeat);
         heartbeat = null;
       }
+      clearTimeoutGuard();
       if (!state.done) {
         log.warn("[ask-eco] sse_client_closed", {
           origin,
@@ -568,6 +611,7 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
         clearInterval(heartbeat);
         heartbeat = null;
       }
+      clearTimeoutGuard();
     }
   } catch (error) {
     if (isHttpError(error)) {
