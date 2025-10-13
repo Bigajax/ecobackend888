@@ -25,6 +25,12 @@ console.log("Backend: promptRoutes carregado.");
 const REQUIRE_GUEST_ID =
   String(process.env.ECO_REQUIRE_GUEST_ID ?? "false").toLowerCase() === "true";
 
+function disableCompressionForSse(response: Response) {
+  response.setHeader("Content-Encoding", "identity");
+  response.setHeader("X-No-Compression", "1");
+  (response as any).removeHeader?.("Content-Length");
+}
+
 /** GET /api/prompt-preview */
 router.get("/prompt-preview", async (req: Request, res: Response) => {
   try {
@@ -356,8 +362,7 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
     res.setHeader("Content-Type", "text/event-stream");
     res.setHeader("Cache-Control", "no-cache");
     res.setHeader("Connection", "keep-alive");
-    res.setHeader("Content-Encoding", "identity");
-    res.setHeader("X-No-Compression", "1");
+    disableCompressionForSse(res);
     res.setHeader("X-Accel-Buffering", "no");
 
     res.status(200);
@@ -383,6 +388,7 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
       if (!isWritable()) return;
       try {
         res.write(payload);
+        (res as any).flush?.();
       } catch {
         state.clientClosed = true;
       }
