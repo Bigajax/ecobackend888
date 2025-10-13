@@ -337,16 +337,6 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
       (params as any).userId = identityKey;
     }
 
-    const guestIdForLogs =
-      resolveGuestId(
-        guestIdFromHeader,
-        guestIdFromCookie,
-        guestIdResolved,
-        guestIdFromRequest,
-        guestIdFromSession,
-        identityKey
-      ) ?? `temp_${randomUUID()}`;
-
     // JSON mode
     if (!wantsStream) {
       try {
@@ -355,7 +345,6 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
         log.info("[ask-eco] response", {
           mode: "json",
           hasContent: textOut.length > 0,
-          guestId: guestIdForLogs,
         });
         return res.status(200).json({ content: textOut || null });
       } catch (error) {
@@ -384,6 +373,12 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
       sawChunk: false,
       finishReason: "" as string | undefined,
       clientClosed: false,
+      // novos campos para latência e contadores
+      firstSent: false,
+      t0: Date.now(),
+      firstTokenAt: 0,
+      chunksCount: 0,
+      bytesCount: 0,
     };
 
     let heartbeat: NodeJS.Timeout | null = null;
@@ -405,6 +400,10 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
       }
     };
 
+    const sendMeta = (obj: Record<string, unknown>) => {
+      safeWrite(`event: meta\ndata: ${JSON.stringify(obj)}\n\n`);
+    };
+
     const sendDone = (reason?: string | null) => {
       if (state.done) return;
       state.finishReason = reason ?? state.finishReason ?? "unknown";
@@ -413,11 +412,22 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
         clearInterval(heartbeat);
         heartbeat = null;
       }
+
+      // status final
+      sendMeta({
+        type: "llm_status",
+        firstTokenLatencyMs: state.firstTokenAt ? state.firstTokenAt - state.t0 : null,
+        chunks: state.chunksCount,
+        bytes: state.bytesCount,
+      });
+
       log.info("[ask-eco] sse_done", {
         finishReason: state.finishReason || "unknown",
         sawChunk: state.sawChunk,
-        guestId: guestIdForLogs,
+        chunks: state.chunksCount,
+        bytes: state.bytesCount,
       });
+
       if (!state.clientClosed) {
         safeWrite(`event: done\ndata: ${JSON.stringify({ reason: state.finishReason || "unknown" })}\n\n`);
         try {
@@ -429,20 +439,33 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
     };
 
     const sendErrorEvent = (payload: Record<string, unknown>) => {
-      log.error("[ask-eco] sse_error", { ...payload, guestId: guestIdForLogs });
+      log.error("[ask-eco] sse_error", { ...payload });
       safeWrite(`event: error\ndata: ${JSON.stringify(payload)}\n\n`);
     };
 
+    // Emite first_token no primeiro pedaço e chunk nos demais
     const sendChunk = (piece: string) => {
       if (!piece || typeof piece !== "string") return;
       const cleaned = sanitizeOutput(piece);
       if (!cleaned) return;
+
       state.sawChunk = true;
-      safeWrite(`event: token\ndata: ${JSON.stringify({ text: cleaned })}\n\n`);
+      state.chunksCount += 1;
+      state.bytesCount += Buffer.byteLength(cleaned, "utf8");
+
+      if (!state.firstSent) {
+        state.firstSent = true;
+        state.firstTokenAt = Date.now();
+        safeWrite(`event: first_token\ndata: ${JSON.stringify(cleaned)}\n\n`);
+        sendMeta({ type: "first_token_latency_ms", value: state.firstTokenAt - state.t0 });
+      } else {
+        safeWrite(`event: chunk\ndata: ${JSON.stringify(cleaned)}\n\n`);
+      }
     };
 
+    // abertura do stream
     safeWrite(`event: ping\ndata: {}\n\n`);
-    safeWrite(`event: meta\ndata: ${JSON.stringify({ type: "prompt_ready" })}\n\n`);
+    sendMeta({ type: "prompt_ready" });
 
     heartbeat = setInterval(() => {
       safeWrite(`event: ping\ndata: "${Date.now()}"\n\n`);
@@ -458,7 +481,6 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
       if (!state.done) {
         log.warn("[ask-eco] sse_client_closed", {
           origin,
-          guestId: guestIdForLogs,
         });
       }
     });
@@ -525,7 +547,7 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
         if (!state.sawChunk) {
           const textOut = sanitizeOutput(extractTextLoose(result) ?? "");
           if (textOut) {
-            sendChunk(textOut);
+            sendChunk(textOut); // emite first_token / chunk conforme necessário
           }
           sendDone(textOut ? "fallback_no_stream" : "fallback_empty");
         } else {
