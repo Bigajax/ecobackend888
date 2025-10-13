@@ -1,4 +1,8 @@
-import { embedTextoCompleto, unitNorm } from "../adapters/embeddingService";
+import {
+  embedTextoCompleto,
+  unitNorm,
+  MAX_EMBEDDING_VECTOR_LENGTH,
+} from "../adapters/embeddingService";
 
 function coerceToNumberArray(value: unknown): number[] | null {
   let arr: unknown[] | null = null;
@@ -20,6 +24,7 @@ function coerceToNumberArray(value: unknown): number[] | null {
 
   const nums = arr.map((x) => Number(x));
   if (nums.length < 2) return null;
+  if (nums.length > MAX_EMBEDDING_VECTOR_LENGTH) return null;
   if (nums.some((n) => !Number.isFinite(n))) return null;
   return nums;
 }
@@ -37,7 +42,12 @@ export async function prepareQueryEmbedding(
 
   if (userEmbedding != null) {
     const coerced = coerceToNumberArray(userEmbedding);
-    return coerced ? unitNorm(coerced) : null;
+    if (!coerced) return null;
+    try {
+      return unitNorm(coerced);
+    } catch {
+      return null;
+    }
   }
 
   const normalizedTexto = texto?.trim();
@@ -45,7 +55,12 @@ export async function prepareQueryEmbedding(
 
   const raw = await embedTextoCompleto(normalizedTexto, tag);
   const coerced = coerceToNumberArray(raw);
-  return coerced ? unitNorm(coerced) : null;
+  if (!coerced) return null;
+  try {
+    return unitNorm(coerced);
+  } catch {
+    return null;
+  }
 }
 
 export { coerceToNumberArray };
