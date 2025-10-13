@@ -76,18 +76,27 @@ test("gera guestId automaticamente quando ausente", async () => {
   assert.equal(req.headers["x-guest-id"], req.guest!.id, "req.headers deve refletir guestId gerado");
 });
 
-test("mantém validação de guestId inválido", () => {
+test("gera guestId quando header inválido", async () => {
   const req = createMockReq({ "x-guest-mode": "1", "x-guest-id": "invalid" });
   const ctx = createMockRes();
 
   let nextCalled = false;
-  guestSessionMiddleware(req, ctx.res, () => {
-    nextCalled = true;
+
+  await new Promise<void>((resolve, reject) => {
+    try {
+      guestSessionMiddleware(req, ctx.res, () => {
+        nextCalled = true;
+        resolve();
+      });
+    } catch (error) {
+      reject(error);
+    }
   });
 
-  assert.equal(nextCalled, false, "middleware não deve chamar next para guestId inválido");
-  assert.equal(ctx.statusCode, 400, "deve retornar status 400");
-  assert.deepEqual(ctx.jsonPayload, { error: "Guest ID inválido." });
+  assert.equal(nextCalled, true, "middleware deve seguir o fluxo mesmo com header inválido");
+  assert.ok(req.guest?.id, "espera guestId gerado");
+  assert.match(req.guest!.id, GUEST_UUID_REGEX);
+  assert.equal(ctx.headers.get("x-guest-id"), req.guest!.id);
 });
 
 (async () => {
