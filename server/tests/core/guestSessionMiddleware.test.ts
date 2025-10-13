@@ -13,10 +13,11 @@ function test(name: string, run: () => Promise<void> | void) {
   tests.push({ name, run });
 }
 
-const createMockReq = (headers: Record<string, string | undefined>) => {
+const createMockReq = (headers: Record<string, string | undefined>, guestId?: string) => {
   return {
     headers: { ...headers },
     ip: "127.0.0.1",
+    guestId,
   } as any;
 };
 
@@ -54,11 +55,11 @@ const createMockRes = () => {
   };
 };
 
-const GUEST_UUID_REGEX =
-  /^guest_[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
-test("gera guestId automaticamente quando ausente", async () => {
-  const req = createMockReq({ "x-guest-mode": "1" });
+const UUID_V4_REGEX =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+test("propaga metadados quando guestId presente", async () => {
+  const guestId = "5e0280ac-5bc3-4f7f-8ca0-281d6bf3b37f";
+  const req = createMockReq({ "x-guest-mode": "1", "x-guest-id": guestId }, guestId);
   const { res, headers } = createMockRes();
 
   await new Promise<void>((resolve, reject) => {
@@ -70,14 +71,13 @@ test("gera guestId automaticamente quando ausente", async () => {
   });
 
   assert.ok(req.guest, "espera metadados guest preenchidos");
-  assert.ok(req.guest?.id, "espera guestId gerado");
-  assert.match(req.guest!.id, GUEST_UUID_REGEX, "guestId deve ser um UUID com prefixo guest_");
-  assert.equal(headers.get("x-guest-id"), req.guest!.id, "header x-guest-id deve ser enviado");
-  assert.equal(req.headers["x-guest-id"], req.guest!.id, "req.headers deve refletir guestId gerado");
+  assert.equal(req.guest?.id, guestId);
+  assert.match(req.guest!.id, UUID_V4_REGEX);
+  assert.equal(headers.get("x-guest-id"), guestId);
 });
 
-test("gera guestId quando header inválido", async () => {
-  const req = createMockReq({ "x-guest-mode": "1", "x-guest-id": "invalid" });
+test("continua fluxo quando guestId ausente", async () => {
+  const req = createMockReq({ "x-guest-mode": "1" });
   const ctx = createMockRes();
 
   let nextCalled = false;
@@ -93,10 +93,9 @@ test("gera guestId quando header inválido", async () => {
     }
   });
 
-  assert.equal(nextCalled, true, "middleware deve seguir o fluxo mesmo com header inválido");
-  assert.ok(req.guest?.id, "espera guestId gerado");
-  assert.match(req.guest!.id, GUEST_UUID_REGEX);
-  assert.equal(ctx.headers.get("x-guest-id"), req.guest!.id);
+  assert.equal(nextCalled, true, "middleware deve seguir fluxo sem guestId");
+  assert.equal(req.guest, undefined);
+  assert.equal(ctx.headers.get("x-guest-id"), undefined);
 });
 
 (async () => {

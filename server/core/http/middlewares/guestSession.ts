@@ -1,11 +1,6 @@
 import { type NextFunction, type Request, type Response } from "express";
 
-import {
-  createGuestId,
-  sanitizeGuestId,
-  GUEST_ID_PREFIX,
-  UUID_V4_REGEX,
-} from "../guestIdentity";
+import { UUID_V4 } from "../guestIdentity";
 import { log } from "../../../services/promptContext/logger";
 
 const DEFAULT_RATE_LIMIT = { limit: 30, windowMs: 60_000 };
@@ -147,21 +142,12 @@ export function guestSessionMiddleware(req: Request, res: Response, next: NextFu
     return next();
   }
 
-  const rawGuestId = getHeaderString(req.headers["x-guest-id"]);
-  const normalizedRawGuestId = rawGuestId?.trim();
-  let guestId = sanitizeGuestId(normalizedRawGuestId ?? undefined);
-  let generatedGuestId = false;
+  const candidate = typeof req.guestId === "string" ? req.guestId : getHeaderString(req.headers["x-guest-id"]);
+  const guestId = typeof candidate === "string" && UUID_V4.test(candidate.trim()) ? candidate.trim() : undefined;
 
   if (!guestId) {
-    if (normalizedRawGuestId && normalizedRawGuestId.length > 0) {
-      log.warn("[guest-session] guest id inválido detectado", {
-        header: normalizedRawGuestId,
-        path: req.path,
-      });
-    }
-
-    guestId = createGuestId();
-    generatedGuestId = true;
+    log.warn("[guest-session] missing guest id for guest-mode request", { path: req.path });
+    return next();
   }
 
   if (blockedGuests.has(guestId)) {
@@ -188,10 +174,7 @@ export function guestSessionMiddleware(req: Request, res: Response, next: NextFu
     },
   };
 
-  if (generatedGuestId) {
-    res.setHeader("x-guest-id", guestId);
-    (req.headers as Record<string, string>)["x-guest-id"] = guestId;
-  }
+  res.setHeader("X-Guest-Id", guestId);
 
   return next();
 }

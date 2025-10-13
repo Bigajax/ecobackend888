@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 
 import { ensureGuestIdentity } from "../../core/http/guestIdentity";
 
-const GUEST_UUID_REGEX =
-  /^guest_[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const UUID_V4_REGEX =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 type Headers = Record<string, string | undefined>;
 
@@ -17,6 +17,7 @@ const createMockReq = (headers: Headers = {}) => {
 
 const createMockRes = () => {
   const headerStore = new Map<string, string | string[]>();
+  const cookieStore: Array<{ name: string; value: string; options?: Record<string, unknown> }> = [];
   return {
     setHeader(name: string, value: string | string[]) {
       headerStore.set(name.toLowerCase(), value);
@@ -25,6 +26,11 @@ const createMockRes = () => {
       return headerStore.get(name.toLowerCase());
     },
     headers: headerStore,
+    cookie(name: string, value: string, options?: Record<string, unknown>) {
+      cookieStore.push({ name, value, options });
+      headerStore.set("set-cookie", `${name}=${encodeURIComponent(value)}`);
+    },
+    cookies: cookieStore,
   } as any;
 };
 
@@ -46,7 +52,7 @@ test("gera guestId quando header ausente", () => {
 
   assert.equal(nextCalled, true, "middleware deve continuar fluxo");
   assert.ok(req.guestId, "guestId deve ser definido");
-  assert.match(req.guestId!, GUEST_UUID_REGEX);
+  assert.match(req.guestId!, UUID_V4_REGEX);
   assert.equal((req.headers as any)["x-guest-id"], req.guestId);
   assert.equal(res.getHeader("x-guest-id"), req.guestId);
 
@@ -56,7 +62,7 @@ test("gera guestId quando header ausente", () => {
 });
 
 test("reutiliza guestId do cookie quando header inválido", () => {
-  const existingGuestId = "guest_123e4567-e89b-12d3-a456-426614174000";
+  const existingGuestId = "5e0280ac-5bc3-4f7f-8ca0-281d6bf3b37f";
   const req = createMockReq({
     "x-guest-id": "invalid",
     cookie: `guest_id=${existingGuestId}`,
@@ -73,7 +79,8 @@ test("reutiliza guestId do cookie quando header inválido", () => {
 });
 
 test("não interfere quando requisição autenticada", () => {
-  const req = createMockReq({ authorization: "Bearer token" });
+  const req = createMockReq();
+  (req as any).user = { id: "user-123" };
   const res = createMockRes();
 
   let nextCalled = false;
