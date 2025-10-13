@@ -13,8 +13,8 @@ const matrizPromptBaseV2: MatrizPromptBaseV2 = {
       "MODULACAO_TOM_REGISTRO.txt",
       "LINGUAGEM_NATURAL.txt",
       "ENCERRAMENTO_SENSIVEL.txt",
-      "DETECCAOCRISE.txt",   // sem acento no nome do arquivo
-      "PEDIDOPRATICO.txt",  // sem acento no nome do arquivo
+      "DETECÇÃOCRISE.txt",   // com acento, conforme filesystem
+      "PEDIDOPRÁTICO.txt",   // com acento, conforme filesystem
     ],
     emotional: [],
     advanced: [
@@ -22,12 +22,12 @@ const matrizPromptBaseV2: MatrizPromptBaseV2 = {
       "ESCALA_INTENSIDADE_0a10.txt",
       "METODO_VIVA_ENXUTO.txt",
       "BLOCO_TECNICO_MEMORIA.txt",
-      "USOMEMORIAS.txt",    // padronizado sem acento
+      "USOMEMÓRIAS.txt",     // com acento, conforme filesystem
     ],
   },
 
   /* ============== NV por camada ============== */
-  byNivelV2: ({
+  byNivelV2: (({
     1: {
       specific: [
         "NV1_CORE.txt",
@@ -39,26 +39,25 @@ const matrizPromptBaseV2: MatrizPromptBaseV2 = {
     },
     2: { specific: [], inherits: ["core", "advanced"] },
     3: { specific: [], inherits: ["core", "advanced"] },
-  } as Record<Nivel, { specific: string[]; inherits: Camada[] }>),
+  }) as Record<Nivel, { specific: string[]; inherits: Camada[] }>),
 
   /* ============== compat legado (limpo) ============== */
-  // Mantemos a ordem aqui para garantir precedência no merge final.
   alwaysInclude: [
     "DEVELOPER_PROMPT.txt",
     "PRINCIPIOS_CHAVE.txt",
-    "ECO_ESTRUTURA_DE_RESPOSTA.txt",
+    "ECO_ESTRUTURA_DE_RESPOSTA.txt", // ✅ agora incluído
   ],
   byNivel: { 1: ["ENCERRAMENTO_SENSIVEL.txt"], 2: [], 3: [] },
 
   /* ============== gates mínimos (ajustados) ============== */
   intensidadeMinima: {
-    "BLOCO_TECNICO_MEMORIA.txt": 7,
+    // N/A — quem decide bloco técnico é DEC.hasTechBlock
     // ❌ não gateie VIVA por intensidade
   },
 
   /* ============== regras semânticas (condições) ============== */
   condicoesEspeciais: ({
-    // Prelúdio: sempre incluir; sem gates de intensidade/nível.
+    // Prelúdio
     "DEVELOPER_PROMPT.txt": {
       descricao: "Prelúdio de missão, restrições, amplitude e confidencialidade (ordem 0).",
       regra: "nivel>=1",
@@ -73,7 +72,13 @@ const matrizPromptBaseV2: MatrizPromptBaseV2 = {
       regra: "nivel>=1",
     },
 
-    /* ===== Método VIVA — controlado pelo hub (subset por vivaSteps) ===== */
+    // Estrutura contemplativa (tua versão)
+    "ECO_ESTRUTURA_DE_RESPOSTA.txt": {
+      descricao: "Arquitetura de presença filosófica (espelho, exploração, paradoxo, presença).",
+      regra: "nivel>=1",
+    },
+
+    /* ===== Método VIVA — controlado pelo hub (DEC.vivaSteps) ===== */
     "METODO_VIVA_ENXUTO.txt": {
       descricao: "Aplicar VIVA conforme DEC.vivaSteps; evitar quando pedido_pratico.",
       regra: "nivel>=1 && !pedido_pratico",
@@ -81,7 +86,7 @@ const matrizPromptBaseV2: MatrizPromptBaseV2 = {
 
     "BLOCO_TECNICO_MEMORIA.txt": {
       descricao: "Gerar bloco técnico quando DEC.hasTechBlock=true",
-      regra: "intensidade>=7 && hasTechBlock==true",
+      regra: "hasTechBlock==true",
     },
 
     "ENCERRAMENTO_SENSIVEL.txt": {
@@ -90,17 +95,17 @@ const matrizPromptBaseV2: MatrizPromptBaseV2 = {
     },
 
     /* ===== Segurança (crise) — requer flags ===== */
-    "DETECCAOCRISE.txt": {
+    "DETECÇÃOCRISE.txt": {
       descricao: "Protocolo de segurança: ideação/risco — só com sinais e alta intensidade",
-      regra: "intensidade>=8 && nivel>=3 && (ideacao || desespero || vazio || autodesvalorizacao)",
+      regra: "intensidade>=7 && (ideacao || desespero || vazio || autodesvalorizacao)",
     },
 
-    "PEDIDOPRATICO.txt": {
+    "PEDIDOPRÁTICO.txt": {
       descricao: "Respostas diretas a pedidos factuais/práticos sem forçar reflexão emocional",
       regra: "pedido_pratico && nivel>=1",
     },
 
-    "USOMEMORIAS.txt": {
+    "USOMEMÓRIAS.txt": {
       descricao: "Continuidade: citar suavemente memórias quando fizer sentido",
       regra: "nivel>=1",
     },
@@ -144,20 +149,6 @@ const matrizPromptBaseV2: MatrizPromptBaseV2 = {
       regra: "ignora_regressao_media && nivel>=2 && !pedido_pratico",
     },
 
-    /* ===== Emocionais / vulnerabilidade ===== */
-    "eco_emo_vergonha_combate.txt": {
-      descricao: "Vergonha com defesa/combate",
-      regra: "vergonha && (defesas_ativas || combate) && intensidade>=5 && nivel>=2",
-    },
-    "eco_vulnerabilidade_defesas.txt": {
-      descricao: "Defesas diante da vulnerabilidade",
-      regra: "vulnerabilidade && defesas_ativas && nivel>=2",
-    },
-    "eco_vulnerabilidade_mitos.txt": {
-      descricao: "Mitos da vulnerabilidade",
-      regra: "vulnerabilidade && nivel>=2",
-    },
-
     /* ===== Filosóficos / somáticos ===== */
     "eco_observador_presente.txt": {
       descricao: "Observador presente",
@@ -197,7 +188,7 @@ const matrizPromptBaseV2: MatrizPromptBaseV2 = {
       "DEVELOPER_PROMPT.txt",
 
       // Segurança
-      "DETECCAOCRISE.txt",
+      "DETECÇÃOCRISE.txt",
 
       // NV1
       "NV1_CORE.txt",
@@ -205,19 +196,19 @@ const matrizPromptBaseV2: MatrizPromptBaseV2 = {
       "ANTISALDO_MIN.txt",
 
       // Pedido prático
-      "PEDIDOPRATICO.txt",
+      "PEDIDOPRÁTICO.txt",
 
       // Mapas
       "ESCALA_ABERTURA_1a3.txt",
       "ESCALA_INTENSIDADE_0a10.txt",
 
       // Memórias
-      "USOMEMORIAS.txt",
+      "USOMEMÓRIAS.txt",
 
       // Core
       "PRINCIPIOS_CHAVE.txt",
       "IDENTIDADE.txt",
-      "ECO_ESTRUTURA_DE_RESPOSTA.txt",
+      "ECO_ESTRUTURA_DE_RESPOSTA.txt", // ✅ entra no core agora
       "MODULACAO_TOM_REGISTRO.txt",
       "LINGUAGEM_NATURAL.txt",
       "ENCERRAMENTO_SENSIVEL.txt",
