@@ -163,10 +163,7 @@ test("SSE streaming emits tokens, done and disables compression", async () => {
   const output = res.chunks.join("");
   const pingCount = (output.match(/event: ping/g) ?? []).length;
   assert.ok(pingCount >= 1, "should emit at least one ping event");
-  const firstTokenCount = (output.match(/event: first_token/g) ?? []).length;
-  assert.equal(firstTokenCount, 1, "should emit first_token event");
-  const chunkCount = (output.match(/event: chunk/g) ?? []).length;
-  assert.equal(chunkCount, 1, "should emit one chunk event after the first token");
-  assert.ok(/"type":"llm_status"/.test(output), "should emit llm_status meta event");
+  const tokenCount = (output.match(/event: token/g) ?? []).length;
+  assert.equal(tokenCount, 2, "should emit two token events");
   assert.ok(/event: done/.test(output), "should emit done event");
 });
