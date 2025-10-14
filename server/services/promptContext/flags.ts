@@ -45,6 +45,10 @@ export type Flags = {
   desespero: boolean;
   vazio: boolean;
   autodesvalorizacao: boolean;
+
+  // Decisão dinâmica (preenchida em tempo real)
+  useMemories?: boolean;
+  patternSynthesis?: boolean;
 };
 
 function normalize(t: string): string {
@@ -180,6 +184,9 @@ export function derivarFlags(
     desespero,
     vazio,
     autodesvalorizacao,
+
+    useMemories: false,
+    patternSynthesis: false,
   };
 }
 

@@ -104,16 +104,16 @@ function parseFrontMatter(content: string): ParsedModule {
 
   const meta: ModuleFrontMatter = {};
 
-  if (typeof raw["min_intensity"] === "number") meta.minIntensity = raw["min_intensity"] as number;
-  if (typeof raw["max_intensity"] === "number") meta.maxIntensity = raw["max_intensity"] as number;
-  const opennessList = normalizeArray(raw["openness_in"]);
+  if (typeof raw.minIntensity === "number") meta.minIntensity = raw.minIntensity as number;
+  if (typeof raw.maxIntensity === "number") meta.maxIntensity = raw.maxIntensity as number;
+  const opennessList = normalizeArray(raw.opennessIn);
   if (opennessList.length) meta.opennessIn = opennessList as (1 | 2 | 3)[];
-  if (raw["require_vulnerability"] != null) meta.requireVulnerability = Boolean(raw["require_vulnerability"]);
-  const flagsAny = normalizeStringArray(raw["flags_any"]);
+  if (raw.requireVulnerability != null) meta.requireVulnerability = Boolean(raw.requireVulnerability);
+  const flagsAny = normalizeStringArray(raw.flagsAny);
   if (flagsAny.length) meta.flagsAny = flagsAny;
   if (typeof raw["order"] === "number") meta.order = raw["order"] as number;
-  if (typeof raw["dedupe_key"] === "string") meta.dedupeKey = (raw["dedupe_key"] as string).trim();
-  if (typeof raw["inject_as"] === "string") meta.injectAs = (raw["inject_as"] as string).trim();
+  if (typeof raw.dedupeKey === "string") meta.dedupeKey = (raw.dedupeKey as string).trim();
+  if (typeof raw.injectAs === "string") meta.injectAs = (raw.injectAs as string).trim();
 
   return { body: rest.trimStart(), meta };
 }

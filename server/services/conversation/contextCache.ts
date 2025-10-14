@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { PROMPT_CACHE } from "../CacheService";
 import { ContextBuilder } from "../promptContext";
 import { derivarNivel, detectarSaudacaoBreve } from "../promptContext/Selector";
@@ -51,6 +53,27 @@ export class ContextCache {
       ? params.memoriasSemelhantes.length
       : 0;
 
+    const memoryTagSignature = (() => {
+      if (!Array.isArray(params.memoriasSemelhantes) || params.memoriasSemelhantes.length === 0)
+        return "none";
+      const tags: string[] = [];
+      for (const memoria of params.memoriasSemelhantes) {
+        if (tags.length >= 3) break;
+        const rawTags = Array.isArray(memoria?.tags) ? memoria.tags : [];
+        for (const raw of rawTags) {
+          if (typeof raw !== "string") continue;
+          const normalized = raw.trim().toLowerCase();
+          if (!normalized) continue;
+          tags.push(normalized);
+          if (tags.length >= 3) break;
+        }
+      }
+      if (!tags.length) return "vazio";
+      const signature = tags.slice(0, 3).join("|");
+      const hash = createHash("sha1").update(signature).digest("hex").slice(0, 6);
+      return hash;
+    })();
+
     const vivaFlag = decision?.vivaSteps?.length ? "1" : params.forcarMetodoViva ? "1" : "0";
     const derivadosFlag = params.derivados ? "1" : "0";
     const aberturaFlag = params.aberturaHibrida ? "1" : "0";
@@ -71,7 +94,7 @@ export class ContextCache {
 
     const cacheKey = `ctx:${params.userId || "anon"}:${nivel}:${Math.round(
       intensidade
-    )}:ms${msCount}:v${vivaFlag}:d${derivadosFlag}:a${aberturaFlag}:h${heuristicasFlag}:e${embeddingFlag}`;
+    )}:ms${msCount}:tg${memoryTagSignature}:v${vivaFlag}:d${derivadosFlag}:a${aberturaFlag}:h${heuristicasFlag}:e${embeddingFlag}`;
 
     const cachedBase = this.deps.cache.get(cacheKey);
     if (cachedBase && msCount === 0) {

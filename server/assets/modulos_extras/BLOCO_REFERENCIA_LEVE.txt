@@ -1,0 +1,17 @@
+---
+maxIntensity: 6
+opennessIn: [1, 2]
+injectAs: footer
+dedupeKey: bloco_referencia_leve
+---
+Retorne somente um JSON puro (sem markdown/backticks) com os campos abaixo:
+{
+  "emocao_principal": "...",
+  "intensidade": {{DEC.intensity}},
+  "tags": [...],
+  "dominio_vida": {{DEC.domain}},
+  "nivel_abertura": {{DEC.openness}},
+  "analise_resumo": "...",
+  "salvar_memoria": false
+}
+Use `[]` quando não houver tags e `null` quando `dominio_vida` estiver ausente.
