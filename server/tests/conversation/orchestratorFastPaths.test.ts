@@ -1,8 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { type GetEcoResult } from "../../utils";
-import { extractJson } from "../../utils/text";
+import type { GetEcoResult } from "../../utils";
 
 const Module = require("node:module");
 
@@ -10,201 +9,170 @@ process.env.OPENROUTER_API_KEY ??= "test-key";
 process.env.SUPABASE_URL ??= "http://localhost";
 process.env.SUPABASE_ANON_KEY ??= "anon";
 
-interface OrchestratorStubOptions {
-  microResponse: string | null;
-  greetingResult: { handled: boolean; response?: string };
-  finalizerResult: GetEcoResult;
+interface OrchestratorSetupOptions {
+  planHint: any | null;
+  materializedScore?: number;
 }
 
-function setupOrchestratorTest({
-  microResponse,
-  greetingResult,
-  finalizerResult,
-}: OrchestratorStubOptions) {
+function setupOrchestratorTest({ planHint, materializedScore = 0.85 }: OrchestratorSetupOptions) {
   const originalLoad = Module._load;
-  const finalizeCalls: any[] = [];
   const modulePath = require.resolve("../../services/ConversationOrchestrator");
+  const capturedPrompts: any[][] = [];
 
   Module._load = function patched(request: string, parent: any, isMain: boolean) {
     if (request === "../adapters/SupabaseAdapter") {
       return { supabaseWithBearer: () => ({}) };
     }
+    if (request === "../core/ResponsePlanner") {
+      return {
+        planHints: () => (planHint ? { ...planHint } : null),
+      };
+    }
     if (request === "../core/ResponseGenerator") {
-      return { microReflexoLocal: () => microResponse };
+      return {
+        materializeHints: (hints: any, _text: string) => {
+          if (!hints) return null;
+          return {
+            ...hints,
+            score: materializedScore,
+            soft_opening: "abra leve",
+            mirror_suggestion: "espelhe a fala",
+          };
+        },
+      };
+    }
+    if (request === "./conversation/preLLMPipeline") {
+      return { handlePreLLMShortcuts: async () => null };
     }
     if (request === "./conversation/greeting") {
+      return { defaultGreetingPipeline: { handle: () => ({ handled: false }) } };
+    }
+    if (request === "./conversation/router") {
       return {
-        defaultGreetingPipeline: {
-          handle: () => ({ ...greetingResult }),
+        defaultConversationRouter: {
+          decide: () => ({
+            mode: "full",
+            vivaAtivo: false,
+            lowComplexity: false,
+            hasAssistantBefore: false,
+            nivelRoteador: 2,
+          }),
+        },
+      };
+    }
+    if (request === "./conversation/contextPreparation") {
+      return { prepareConversationContext: async () => ({ systemPrompt: "BASE_PROMPT" }) };
+    }
+    if (request === "./conversation/promptPlan") {
+      return {
+        buildFullPrompt: ({ messages }: { messages: any[] }) => ({
+          prompt: [
+            { role: "system", content: "STYLE\nBASE_PROMPT" },
+            ...messages.map((m) => ({ role: m.role === "assistant" ? "assistant" : "user", content: m.content })),
+          ],
+          maxTokens: 200,
+        }),
+      };
+    }
+    if (request === "./conversation/fullOrchestrator") {
+      return {
+        executeFullLLM: async (params: any) => {
+          capturedPrompts.push(params.prompt);
+          return params.decision?.hasAssistantBefore
+            ? ({ message: "assistido" } as GetEcoResult)
+            : ({ message: "final" } as GetEcoResult);
+        },
+      };
+    }
+    if (request === "./conversation/streamingOrchestrator") {
+      return {
+        executeStreamingLLM: async (params: any) => {
+          capturedPrompts.push(params.prompt);
+          return {
+            raw: "stream",
+            modelo: "stub",
+            usage: null,
+            timings: {},
+            finalize: async () => ({ message: "stream" } as GetEcoResult),
+          };
         },
       };
     }
     if (request === "./conversation/responseFinalizer") {
       return {
         defaultResponseFinalizer: {
-          finalize: async (params: any) => {
-            finalizeCalls.push(params);
-            return finalizerResult;
-          },
+          finalize: async (params: any) => ({ message: params.raw }),
         },
       };
     }
     return originalLoad(request, parent, isMain);
   };
 
-  try {
+  delete require.cache[modulePath];
+  const orchestrator = require(modulePath) as typeof import("../../services/ConversationOrchestrator");
+
+  const cleanup = () => {
+    Module._load = originalLoad;
     delete require.cache[modulePath];
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const orchestrator = require(modulePath) as typeof import("../../services/ConversationOrchestrator");
-    Module._load = originalLoad;
-    return {
-      orchestrator,
-      finalizeCalls,
-      cleanup: () => {
-        delete require.cache[modulePath];
-        Module._load = originalLoad;
-      },
-    };
-  } catch (error) {
-    Module._load = originalLoad;
-    throw error;
-  }
+  };
+
+  return { orchestrator, capturedPrompts, cleanup };
 }
 
-test("micro reflex streaming inclui bloco JSON finalizado", async (t) => {
-  const finalizerResult: GetEcoResult = {
-    message: "Resposta ajustada",
-    intensidade: 0.7,
-    resumo: "Resumo breve",
-    emocao: "alegria",
-    tags: ["apoio"],
-    categoria: "apoio",
-    proactive: null,
+test("injeta eco hints como system quando score alto", async (t) => {
+  process.env.ECO_CAL_MODE = "on";
+  const planHint = {
+    key: "ansiedade",
+    priority: 1,
+    score: 0.82,
+    flags: ["needs_grounding"],
+    emotions: ["ansiedade"],
+    intent: "stabilize",
   };
 
-  const { orchestrator, finalizeCalls, cleanup } = setupOrchestratorTest({
-    microResponse: "resposta micro",
-    greetingResult: { handled: false },
-    finalizerResult,
-  });
+  const { orchestrator, capturedPrompts, cleanup } = setupOrchestratorTest({ planHint });
   t.after(cleanup);
 
-  const events: any[] = [];
-  const streaming = (await orchestrator.getEcoResponse({
-    messages: [{ role: "user", content: "estou cansado" }],
-    userId: "user-1",
-    userName: "Ana",
+  await orchestrator.getEcoResponse({
+    messages: [{ role: "user", content: "estou muito ansiosa" }],
+    userId: "user-hints",
     accessToken: "token",
-    stream: {
-      onEvent: async (event: any) => {
-        events.push(event);
-      },
-    },
-  })) as import("../../services/ConversationOrchestrator").EcoStreamingResult;
+  });
 
-  const chunkEvents = events.filter((e) => e.type === "chunk");
-  assert.strictEqual(chunkEvents.length, 1, "deve emitir exatamente um chunk");
-  const finalText = chunkEvents[0].content as string;
-  assert.ok(finalText.includes("```json"), "chunk final deve conter bloco JSON");
-
-  const payload = extractJson<Record<string, any>>(finalText);
-  assert.ok(payload, "JSON do chunk deve ser parseável");
-  assert.strictEqual(payload?.intensidade, finalizerResult.intensidade);
-  assert.strictEqual(payload?.resumo, finalizerResult.resumo);
-  assert.deepStrictEqual(payload?.tags, finalizerResult.tags);
-  assert.strictEqual(payload?.categoria, finalizerResult.categoria);
-
-  assert.strictEqual(streaming.raw, finalText, "raw deve espelhar o texto final emitido");
-  const resolved = await streaming.finalize();
-  assert.deepStrictEqual(resolved, finalizerResult);
-
-  assert.strictEqual(finalizeCalls.length, 1, "finalizer deve ser chamado uma vez");
-  assert.strictEqual(finalizeCalls[0].modelo, "micro-reflexo");
-  assert.strictEqual(finalizeCalls[0].mode, "fast");
-  assert.strictEqual(finalizeCalls[0].hasAssistantBefore, false);
+  assert.strictEqual(capturedPrompts.length, 1, "deve capturar prompt para execução full");
+  const prompt = capturedPrompts[0];
+  assert.ok(Array.isArray(prompt));
+  const systemMessages = prompt.filter((msg: any) => msg.role === "system");
+  assert.strictEqual(systemMessages.length, 2, "deve haver duas mensagens system");
+  assert.ok(systemMessages[0].content.startsWith("ECO_HINTS"));
+  assert.ok(systemMessages[1].content.includes("BASE_PROMPT"));
 });
 
-test("streaming sem metadados relevantes não inclui bloco JSON", async (t) => {
-  const finalizerResult: GetEcoResult = {
-    message: "Resposta simples",
+test("não injeta eco hints quando score insuficiente", async (t) => {
+  process.env.ECO_CAL_MODE = "on";
+  const planHint = {
+    key: "tristeza",
+    priority: 2,
+    score: 0.5,
+    flags: ["needs_validation"],
+    emotions: ["tristeza"],
+    intent: "hold_space",
   };
 
-  const { orchestrator, cleanup } = setupOrchestratorTest({
-    microResponse: "resposta micro",
-    greetingResult: { handled: false },
-    finalizerResult,
+  const { orchestrator, capturedPrompts, cleanup } = setupOrchestratorTest({
+    planHint,
+    materializedScore: 0.5,
   });
   t.after(cleanup);
 
-  const events: any[] = [];
-  const streaming = (await orchestrator.getEcoResponse({
-    messages: [{ role: "user", content: "estou bem" }],
-    userId: "user-plain",
-    userName: "Carla",
+  await orchestrator.getEcoResponse({
+    messages: [{ role: "user", content: "um pouco triste" }],
+    userId: "user-low",
     accessToken: "token",
-    stream: {
-      onEvent: async (event: any) => {
-        events.push(event);
-      },
-    },
-  })) as import("../../services/ConversationOrchestrator").EcoStreamingResult;
-
-  const chunkEvents = events.filter((e) => e.type === "chunk");
-  assert.strictEqual(chunkEvents.length, 1, "deve emitir exatamente um chunk");
-  const finalText = chunkEvents[0].content as string;
-  assert.strictEqual(finalText, finalizerResult.message);
-  assert.ok(!finalText.includes("```json"), "não deve conter bloco JSON quando não há metadados");
-
-  assert.strictEqual(streaming.raw, finalText, "raw deve corresponder ao texto emitido");
-  const resolved = await streaming.finalize();
-  assert.deepStrictEqual(resolved, finalizerResult);
-});
-
-test("greeting streaming inclui bloco JSON finalizado", async (t) => {
-  const finalizerResult: GetEcoResult = {
-    message: "Oi, bora começar?",
-    emocao: "neutra",
-    tags: [],
-    categoria: null,
-    proactive: null,
-  };
-
-  const { orchestrator, finalizeCalls, cleanup } = setupOrchestratorTest({
-    microResponse: null,
-    greetingResult: { handled: true, response: "Olá!" },
-    finalizerResult,
   });
-  t.after(cleanup);
 
-  const events: any[] = [];
-  const streaming = (await orchestrator.getEcoResponse({
-    messages: [{ role: "user", content: "oi" }],
-    userId: "user-2",
-    userName: "Bruno",
-    accessToken: "token",
-    stream: {
-      onEvent: async (event: any) => {
-        events.push(event);
-      },
-    },
-  })) as import("../../services/ConversationOrchestrator").EcoStreamingResult;
-
-  const chunkEvents = events.filter((e) => e.type === "chunk");
-  assert.strictEqual(chunkEvents.length, 1, "saudação deve emitir único chunk");
-  const finalText = chunkEvents[0].content as string;
-  assert.ok(finalText.includes("```json"));
-
-  const payload = extractJson<Record<string, any>>(finalText);
-  assert.ok(payload);
-  assert.strictEqual(payload?.emocao, finalizerResult.emocao);
-  assert.deepStrictEqual(payload?.tags, finalizerResult.tags);
-
-  assert.strictEqual(streaming.raw, finalText);
-  const resolved = await streaming.finalize();
-  assert.deepStrictEqual(resolved, finalizerResult);
-
-  assert.strictEqual(finalizeCalls.length, 1);
-  assert.strictEqual(finalizeCalls[0].modelo, "greeting");
-  assert.strictEqual(finalizeCalls[0].mode, "fast");
-  assert.strictEqual(finalizeCalls[0].hasAssistantBefore, false);
+  const prompt = capturedPrompts[0];
+  const systemMessages = prompt.filter((msg: any) => msg.role === "system");
+  assert.strictEqual(systemMessages.length, 1, "somente system base deve permanecer");
+  assert.ok(!systemMessages[0].content.startsWith("ECO_HINTS"));
 });

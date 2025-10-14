@@ -58,8 +58,11 @@ test("streaming segue sem derivados e cache é preenchido quando prontos", async
         supabaseWithBearer: () => createSupabaseStub(supabaseDelayMs),
       };
     }
+    if (request === "../core/ResponsePlanner") {
+      return { planHints: () => null };
+    }
     if (request === "../core/ResponseGenerator") {
-      return { microReflexoLocal: () => null };
+      return { materializeHints: () => null };
     }
     if (request === "./conversation/greeting") {
       return {

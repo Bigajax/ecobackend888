@@ -4,7 +4,7 @@ import { Readable } from "node:stream";
 
 import { httpAgent, httpsAgent } from "../adapters/OpenRouterAdapter";
 
-export type Msg = { role: "system" | "user" | "assistant"; content: string };
+export type Msg = { role: "system" | "user" | "assistant"; content: string; name?: string };
 
 /** Tipos mínimos do retorno da OpenRouter (compatível com strict) */
 type ORole = "system" | "user" | "assistant";
@@ -84,7 +84,8 @@ export async function claudeChatCompletion({
     throw new Error("OPENROUTER_API_KEY ausente no ambiente.");
   }
 
-  const system = messages.find((m) => m.role === "system")?.content ?? "";
+  const systemMessages = messages.filter((m) => m.role === "system");
+  const system = systemMessages.map((m) => m.content).join("\n\n");
   const turns: ORMessage[] = messages
     .filter((m) => m.role !== "system")
     .map((m) => ({ role: m.role, content: m.content }));
@@ -189,7 +190,8 @@ export async function streamClaudeChatCompletion(
     throw new Error("OPENROUTER_API_KEY ausente no ambiente.");
   }
 
-  const system = messages.find((m) => m.role === "system")?.content ?? "";
+  const systemMessages = messages.filter((m) => m.role === "system");
+  const system = systemMessages.map((m) => m.content).join("\n\n");
   const turns: ORMessage[] = messages
     .filter((m) => m.role !== "system")
     .map((m) => ({ role: m.role, content: m.content }));

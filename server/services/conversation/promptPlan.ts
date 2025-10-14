@@ -1,7 +1,7 @@
 import { mapRoleForOpenAI, type ChatMessage } from "../../utils";
 import type { RouteDecision } from "./router";
 
-type PromptMessage = { role: "system" | "user" | "assistant"; content: string };
+type PromptMessage = { role: "system" | "user" | "assistant"; content: string; name?: string };
 
 const STYLE_COACH =
   "Preferir plano COACH (30%): acolher (1 linha) • encorajar com leveza • (opcional) até 3 passos curtos • fechar com incentivo.";

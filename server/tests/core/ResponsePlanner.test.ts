@@ -1,22 +1,23 @@
 import test from "node:test";
 import assert from "node:assert";
 
-import { planCuriousFallback } from "../../core/ResponsePlanner";
+import { planHints } from "../../core/ResponsePlanner";
+import { materializeHints } from "../../core/ResponseGenerator";
 
-test("planCuriousFallback cria plano temático quando há pistas emocionais", () => {
-  const { text, plan } = planCuriousFallback("estou muito ansiosa com tudo");
+test("planHints identifica ansiedade e retorna metadados", () => {
+  const hints = planHints("estou muito ansiosa com tudo");
 
-  assert.ok(text.includes("ansiedade"), "texto menciona ansiedade");
-  assert.strictEqual(plan.theme, "ansiedade");
-  assert.ok(plan.acknowledgement.length > 0);
-  assert.ok(plan.exploration.length > 0);
-  assert.ok(plan.invitation.length > 0);
+  assert.ok(hints, "deve produzir hints");
+  assert.strictEqual(hints?.key, "ansiedade");
+  assert.ok(hints!.score >= 0.6, "score deve ser relevante");
+  assert.ok(hints!.flags.includes("needs_grounding"));
 });
 
-test("planCuriousFallback usa plano padrão quando não encontra tema", () => {
-  const { text, plan } = planCuriousFallback("oi");
+test("materializeHints gera instruções curtas a partir do plano", () => {
+  const hints = planHints("andando muito cansado e sem energia")!;
+  const materialized = materializeHints(hints, "andando muito cansado e sem energia");
 
-  assert.strictEqual(plan.theme, undefined);
-  assert.strictEqual(plan.priority, 4);
-  assert.ok(text.includes("Estou aqui, presente"));
+  assert.ok(materialized?.soft_opening);
+  assert.ok(materialized?.mirror_suggestion?.includes("sem energia"));
+  assert.strictEqual(materialized?.key, "cansaco");
 });

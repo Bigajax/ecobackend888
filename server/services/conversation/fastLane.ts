@@ -5,7 +5,6 @@ import {
   type SessionMetadata,
 } from "../../utils";
 import { log } from "../promptContext/logger";
-import { planCuriousFallback } from "../../core/ResponsePlanner";
 import type { FinalizeParams } from "./responseFinalizer";
 import type { EcoDecisionResult } from "./ecoDecisionHub";
 import { detectGenericAutoReply } from "./genericAutoReplyGuard";
@@ -133,7 +132,7 @@ export async function runFastLaneLLM({
     completion = await deps.claudeClient(payload);
   } catch (error: any) {
     log.warn(`[fastLaneLLM] falhou: ${error?.message}`);
-    const { text: fallback } = planCuriousFallback(ultimaMsg);
+    const fallback = FASTLANE_FALLBACK_MESSAGE;
     const response = await deps.responseFinalizer.finalize({
       raw: fallback,
       ultimaMsg,
@@ -204,3 +203,6 @@ export async function runFastLaneLLM({
 }
 
 export type { ClaudeClientParams, ClaudeClientResult };
+export const FASTLANE_FALLBACK_MESSAGE =
+  "Encontrei um problema técnico agora, mas sigo aqui com você. Quer tentar contar de novo o que tá pegando?";
+
