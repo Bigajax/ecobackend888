@@ -20,6 +20,7 @@ import {
   stripRedundantGreeting,
 } from "./helpers";
 import type { GetEcoResult } from "../../utils";
+import type { EcoHints } from "../../utils/types";
 import type { EcoLatencyMarks } from "./types";
 import type { EcoDecisionResult } from "./ecoDecisionHub";
 
@@ -58,6 +59,7 @@ export interface FinalizeParams {
   moduleCandidates?: Array<{ id: string; activated: boolean; rule?: string | null; threshold?: number | null; signals?: string[] }>;
   selectedModules?: string[];
   timingsSnapshot?: EcoLatencyMarks;
+  calHints?: EcoHints | null;
 }
 
 export interface NormalizedEcoResponse {
@@ -372,6 +374,7 @@ export class ResponseFinalizer {
     moduleCandidates,
     selectedModules,
     timingsSnapshot,
+    calHints,
   }: FinalizeParams): Promise<GetEcoResult> {
     const distinctId =
       providedDistinctId ?? sessionMeta?.distinctId ?? guestId ?? userId;
@@ -524,6 +527,16 @@ export class ResponseFinalizer {
       isGuest,
       ecoDecision,
     });
+
+    if (calHints && typeof calHints.score === "number") {
+      response.meta = {
+        ...(response.meta ?? {}),
+        cal_used: calHints.score >= 0.6,
+        cal_key: calHints.key ?? null,
+        cal_flags: calHints.flags ?? [],
+        cal_score: calHints.score,
+      };
+    }
 
     return response;
   }

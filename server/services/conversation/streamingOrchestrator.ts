@@ -15,6 +15,7 @@ import type { EcoDecisionResult } from "./ecoDecisionHub";
 
 import { executeFullLLM } from "./fullOrchestrator";
 import type { ChatMessage, GetEcoResult } from "../../utils";
+import type { EcoHints } from "../../utils/types";
 
 const BLOCO_DEADLINE_MS = Number(process.env.ECO_BLOCO_DEADLINE_MS ?? 5000);
 const BLOCO_PENDING_MS = Number(process.env.ECO_BLOCO_PENDING_MS ?? 1000);
@@ -62,6 +63,7 @@ interface StreamingExecutionParams {
   isGuest?: boolean;
   guestId?: string;
   thread: ChatMessage[];
+  calHints?: EcoHints | null;
 }
 
 export async function executeStreamingLLM({
@@ -81,6 +83,7 @@ export async function executeStreamingLLM({
   isGuest = false,
   guestId,
   thread,
+  calHints,
 }: StreamingExecutionParams): Promise<EcoStreamingResult> {
   const supabaseClient = supabase ?? null;
   const summarizeDelta = (input: string) => {
@@ -302,6 +305,7 @@ export async function executeStreamingLLM({
       thread,
       isGuest,
       guestId,
+      calHints,
     });
 
     const text = buildFinalizedStreamText(fullResult);
@@ -531,6 +535,7 @@ export async function executeStreamingLLM({
           ecoDecision,
           isGuest,
           guestId,
+          calHints,
         });
       })();
     }

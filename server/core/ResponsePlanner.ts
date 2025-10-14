@@ -1,24 +1,10 @@
-import { REFLEXO_PATTERNS, type ReflexaoPlanner } from "./reflexoPatterns";
+import { REFLEXO_PATTERNS, type ReflexoPattern } from "./reflexoPatterns";
+import type { EcoHints } from "../utils/types";
 
-export type ResponsePlan = {
-  theme?: string;
-  priority: number;
-  acknowledgement: string;
-  exploration: string;
-  invitation: string;
-};
-
-export type PlanOptions = {
-  tone?: "warm" | "neutral";     // tom de voz
-  maxQuestionMarks?: number;     // limite de interrogações
-  variations?: number;           // quantas variações textuais sugerir
-};
-
-const DEFAULT_PLANNER: ReflexaoPlanner = {
-  acknowledgement: "Tô aqui com você, presente e sem pressa.",
-  exploration: "Vamos notar com calma o que este momento acende em pensamentos, corpo ou emoções.",
-  invitation: "O que pede um pouco mais de atenção agora pra gente ganhar clareza, sem se cobrar?",
-};
+export interface PlanHintsContext {
+  recentUserInputs?: string[];
+  lastHintKey?: string | null;
+}
 
 function normalize(text: string): string {
   return (text || "")
@@ -29,120 +15,141 @@ function normalize(text: string): string {
     .trim();
 }
 
-function shortReflect(input: string, max = 90): string | null {
-  const t = (input || "").trim().replace(/\s+/g, " ");
-  if (!t) return null;
-  if (t.length <= max) return t;
-  return t.slice(0, max).replace(/[.,;:\-–—\s]+$/, "") + "…";
-}
-
-// hash simples pra variação estável por mensagem (evita soar randômico demais)
-function strHash(s: string): number {
-  let h = 0;
-  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
-  return Math.abs(h);
-}
-
-// garante no máximo N interrogações (evita “interrogatório”)
-function ensureMaxQuestions(text: string, max = 1): string {
-  if (max <= 0) return text.replace(/\?/g, ".");
-  let count = 0;
-  return text.replace(/\?/g, () => (++count <= max ? "?" : "."));
-}
-
-// aplica micro-ajustes de linguagem por tom
-function toneAdjust(text: string, tone: "warm" | "neutral"): string {
-  if (tone === "warm") {
-    // leve calor; 1 emoji no máximo para manter sobriedade
-    let out = text;
-    // adiciona um ✨ discreto após o convite, se couber
-    out = out.replace(/(\s*)([^.!?]*\?)?$/, (m) =>
-      m.includes("✨") ? m : m.trimEnd() + " ✨"
-    );
-    return out;
+function baseScoreForPriority(priority: ReflexoPattern["priority"]): number {
+  switch (priority) {
+    case 1:
+      return 0.78;
+    case 2:
+      return 0.7;
+    default:
+      return 0.62;
   }
-  return text;
 }
 
-export function planCurious(
-  message: string,
-  opts: PlanOptions = {}
-): { texts: string[]; plan: ResponsePlan } {
-  const { tone = "neutral", maxQuestionMarks = 1, variations = 2 } = opts;
+function clampScore(score: number): number {
+  if (!Number.isFinite(score)) return 0;
+  if (score < 0) return 0;
+  if (score > 1) return 1;
+  return Number(score.toFixed(3));
+}
 
-  const normalized = normalize(message);
-  const hits: { key: string; priority: number; planner: ReflexaoPlanner }[] = [];
+function countPatternMatches(text: string, pattern: ReflexoPattern): number {
+  return pattern.patterns.reduce((acc, rx) => (rx.test(text) ? acc + 1 : acc), 0);
+}
 
-  for (const [key, entry] of Object.entries(REFLEXO_PATTERNS)) {
-    if (entry.patterns.some((rx) => rx.test(normalized))) {
-      hits.push({ key, priority: entry.priority, planner: entry.planner });
+function applyPenalties({
+  normalized,
+  raw,
+  pattern,
+  context,
+  baseScore,
+  matchCount,
+}: {
+  normalized: string;
+  raw: string;
+  pattern: ReflexoPattern;
+  context: PlanHintsContext;
+  baseScore: number;
+  matchCount: number;
+}): { score: number; notes: string[] } {
+  const notes: string[] = [];
+  let score = baseScore;
+
+  const length = normalized.length;
+  if (length < 30) {
+    score -= 0.18;
+    notes.push("input_curto");
+  } else if (length < 60) {
+    score -= 0.08;
+    notes.push("input_medio");
+  } else if (length > 240) {
+    score += 0.05;
+    notes.push("input_longo");
+  }
+
+  if (matchCount > 1) {
+    score += Math.min(0.08, matchCount * 0.03);
+    notes.push("multi_match");
+  }
+
+  if (/^oi[!.\s]*$/.test(normalized) || /^ola[!.\s]*$/.test(normalized)) {
+    score -= 0.2;
+    notes.push("cumprimento_simples");
+  }
+
+  const repeated = context.recentUserInputs?.some((prev) => {
+    const normPrev = normalize(prev ?? "");
+    if (!normPrev) return false;
+    const overlap = normPrev.includes(pattern.key);
+    return overlap;
+  });
+  if (repeated) {
+    score -= 0.05;
+    notes.push("tema_repetido");
+  }
+
+  if (context.lastHintKey && context.lastHintKey === pattern.key) {
+    score -= 0.04;
+    notes.push("mesmo_tema_recente");
+  }
+
+  if (/[A-Z]{6,}/.test(raw)) {
+    score += 0.03;
+    notes.push("alta_intensidade_caps");
+  }
+
+  if ((raw.match(/!/g) || []).length >= 3) {
+    score += 0.02;
+    notes.push("alta_intensidade_exclamacao");
+  }
+
+  return { score: clampScore(score), notes };
+}
+
+export function planHints(text: string, ctx: PlanHintsContext = {}): EcoHints | null {
+  const normalized = normalize(text);
+  if (!normalized) return null;
+
+  const matches = REFLEXO_PATTERNS
+    .map((pattern) => ({
+      pattern,
+      matchCount: countPatternMatches(normalized, pattern),
+    }))
+    .filter((entry) => entry.matchCount > 0);
+
+  if (!matches.length) {
+    return null;
+  }
+
+  matches.sort((a, b) => {
+    if (a.pattern.priority !== b.pattern.priority) {
+      return a.pattern.priority - b.pattern.priority;
     }
+    return b.matchCount - a.matchCount;
+  });
+
+  const best = matches[0];
+  const baseScore = baseScoreForPriority(best.pattern.priority);
+  const { score, notes } = applyPenalties({
+    normalized,
+    raw: text,
+    pattern: best.pattern,
+    context: ctx,
+    baseScore,
+    matchCount: best.matchCount,
+  });
+
+  if (score < 0.4) {
+    return null;
   }
 
-  hits.sort((a, b) => a.priority - b.priority);
-  const selected = hits[0];
-
-  const basePlanner = selected?.planner ?? DEFAULT_PLANNER;
-  const plan: ResponsePlan = {
-    theme: selected?.key ?? "neutro",
-    priority: selected?.priority ?? 4,
-    acknowledgement: basePlanner.acknowledgement,
-    exploration: basePlanner.exploration,
-    invitation: basePlanner.invitation,
+  return {
+    key: best.pattern.key,
+    priority: best.pattern.priority,
+    score,
+    flags: [...new Set(best.pattern.defaultFlags)],
+    emotions: best.pattern.emotions,
+    intent: best.pattern.intent,
+    notes,
   };
-
-  const reflect = shortReflect(message);
-
-  // blocos com pequenas variações (ack/explore/invite)
-  const ackVariants = [
-    plan.acknowledgement,
-    "Tô com você aqui, sem pressa e sem julgamento.",
-  ].filter(Boolean);
-
-  const exploreVariants = [
-    plan.exploration,
-    "Se a gente observar um instante, o que aparece no corpo, nos pensamentos ou nas emoções?",
-  ].filter(Boolean);
-
-  const inviteVariants = [
-    plan.invitation,
-    "Qual parte disso pede um pouco mais de espaço agora pra gente ver melhor?",
-  ].filter(Boolean);
-
-  const baseSeed = strHash(message);
-  const pick = <T,>(arr: T[], seedShift: number) => arr[(baseSeed + seedShift) % arr.length];
-
-  // gera até N variações com ordem e conectores levemente diferentes
-  const connectors = [
-    (r?: string) => (r ? `Do que você trouxe: “${r}”.` : ""),
-    (r?: string) => (r ? `Pegando um fio do que você disse — “${r}”.` : ""),
-    (r?: string) => (r ? `Recebo isso: “${r}”.` : ""),
-  ];
-
-  const texts: string[] = [];
-  const count = Math.max(1, Math.min(variations, 3));
-
-  for (let i = 0; i < count; i++) {
-    const ack = pick(ackVariants, i);
-    const conn = pick(connectors, i)(reflect || undefined);
-    const exp = pick(exploreVariants, i + 7);
-    const inv = pick(inviteVariants, i + 13);
-
-    // monta sem excesso de perguntas
-    let text = [ack, conn, exp, inv].filter(Boolean).join(" ");
-    text = ensureMaxQuestions(text, maxQuestionMarks);
-    text = toneAdjust(text, tone);
-
-    // limpeza de duplas pontuações
-    text = text.replace(/\s{2,}/g, " ").replace(/\.\./g, ".");
-    texts.push(text);
-  }
-
-  return { texts, plan };
-}
-
-// wrapper de compatibilidade: retorna somente uma string (primeira variação)
-export function planCuriousFallback(message: string): { text: string; plan: ResponsePlan } {
-  const { texts, plan } = planCurious(message, { tone: "neutral", maxQuestionMarks: 1, variations: 1 });
-  return { text: texts[0], plan };
 }

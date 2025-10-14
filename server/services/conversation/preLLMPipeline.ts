@@ -1,10 +1,6 @@
 import type { GetEcoParams, GetEcoResult, ChatMessage } from "../../utils";
 
-import type {
-  EcoStreamHandler,
-  EcoStreamingResult,
-  EcoLatencyMarks,
-} from "./types";
+import type { EcoStreamHandler, EcoStreamingResult, EcoLatencyMarks } from "./types";
 import { buildFinalizedStreamText } from "./responseMetadata";
 import { computeEcoDecision } from "./ecoDecisionHub";
 
@@ -24,7 +20,6 @@ interface PreLLMShortcutsParams {
 }
 
 interface PreLLMShortcutsDeps {
-  microResponder: typeof import("../../core/ResponseGenerator")["microReflexoLocal"];
   greetingPipeline: typeof import("./greeting")["defaultGreetingPipeline"];
   responseFinalizer: typeof import("./responseFinalizer")["defaultResponseFinalizer"];
   now: typeof import("../../utils")["now"];
@@ -52,45 +47,10 @@ export async function handlePreLLMShortcuts(
     isGuest = false,
     guestId,
   } = params;
-  const { microResponder, greetingPipeline, responseFinalizer, now } = deps;
+  const { greetingPipeline, responseFinalizer, now } = deps;
 
   const startedAt = now();
   const ecoDecision = computeEcoDecision(ultimaMsg);
-  const maybeMicro = microResponder(ultimaMsg);
-  if (maybeMicro) {
-    const finalized = await responseFinalizer.finalize({
-      raw: maybeMicro,
-      ultimaMsg,
-      userName: userName ?? undefined,
-      hasAssistantBefore,
-      userId,
-      supabase,
-      lastMessageId,
-      mode: "fast",
-      startedAt,
-      usageTokens: undefined,
-      modelo: "micro-reflexo",
-      sessionMeta,
-      sessaoId: sessionMeta?.sessaoId ?? undefined,
-      origemSessao: sessionMeta?.origem ?? undefined,
-      ecoDecision,
-      moduleCandidates: ecoDecision.debug.modules,
-      selectedModules: ecoDecision.debug.selectedModules,
-      isGuest,
-      guestId,
-    });
-
-    return streamHandler
-      ? {
-          kind: "stream",
-          result: await emitImmediateStream({
-            streamHandler,
-            finalized,
-            modelo: "micro-reflexo",
-          }),
-        }
-      : { kind: "final", result: finalized };
-  }
 
   const greetingResult = greetingPipeline.handle({
     messages: thread,

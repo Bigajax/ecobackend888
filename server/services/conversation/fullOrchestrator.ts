@@ -6,6 +6,7 @@ import { buildStreamingMetaPayload } from "./responseMetadata";
 import { salvarMemoriaViaRPC } from "./memoryPersistence";
 import { defaultResponseFinalizer } from "./responseFinalizer";
 import type { ChatMessage, GetEcoResult } from "../../utils";
+import type { EcoHints } from "../../utils/types";
 import type { EcoDecisionResult } from "./ecoDecisionHub";
 import type { EcoLatencyMarks } from "./types";
 
@@ -25,6 +26,7 @@ interface FullExecutionParams {
   thread: ChatMessage[];
   isGuest?: boolean;
   guestId?: string;
+  calHints?: EcoHints | null;
 }
 
 export async function executeFullLLM({
@@ -43,6 +45,7 @@ export async function executeFullLLM({
   thread,
   isGuest = false,
   guestId,
+  calHints,
 }: FullExecutionParams): Promise<GetEcoResult> {
   const supabaseClient = supabase ?? null;
   let data: any;
@@ -87,6 +90,7 @@ export async function executeFullLLM({
       timingsSnapshot: timings,
       isGuest,
       guestId,
+      calHints,
     });
   }
 
@@ -118,6 +122,7 @@ export async function executeFullLLM({
     timingsSnapshot: timings,
     isGuest,
     guestId,
+    calHints,
   });
 
   if (!isGuest && supabaseClient) {

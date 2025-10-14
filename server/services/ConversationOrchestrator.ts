@@ -1,8 +1,9 @@
 // server/services/ConversationOrchestrator.ts
 import { now, mapRoleForOpenAI, type GetEcoParams, type GetEcoResult, type ChatMessage } from "../utils";
 import { supabaseWithBearer } from "../adapters/SupabaseAdapter";
-import { microReflexoLocal } from "../core/ResponseGenerator";
 import { claudeChatCompletion } from "../core/ClaudeAdapter";
+import { planHints } from "../core/ResponsePlanner";
+import { materializeHints } from "../core/ResponseGenerator";
 import { log, isDebug } from "./promptContext/logger";
 
 import { defaultGreetingPipeline } from "./conversation/greeting";
@@ -120,7 +121,6 @@ export async function getEcoResponse({
         guestId: guestId ?? undefined,
       },
       {
-        microResponder: microReflexoLocal,
         greetingPipeline: defaultGreetingPipeline,
         responseFinalizer: defaultResponseFinalizer,
         now,
@@ -219,6 +219,51 @@ export async function getEcoResponse({
       messages: thread,
     });
 
+    const calMode = (process.env.ECO_CAL_MODE ?? "on").toLowerCase();
+    const recentUserInputs = thread
+      .slice(0, -1)
+      .filter((msg) => mapRoleForOpenAI(msg.role) === "user")
+      .slice(-3)
+      .map((msg) => msg.content ?? "");
+
+    let lastHintKey: string | null = null;
+    for (let i = thread.length - 1; i >= 0; i--) {
+      const candidate = thread[i];
+      if (!candidate || typeof candidate.content !== "string") continue;
+      if (!candidate.content.includes("ECO_HINTS")) continue;
+      const match = candidate.content.match(/ECO_HINTS\(JSON\):\s*(\{.+?\})\s*\|/);
+      if (!match) continue;
+      try {
+        const parsed = JSON.parse(match[1]!);
+        if (parsed && typeof parsed.key === "string") {
+          lastHintKey = parsed.key;
+          break;
+        }
+      } catch {
+        // ignora parsing falho
+      }
+    }
+
+    const plannedHints = calMode === "off" ? null : planHints(ultimaMsg, {
+      recentUserInputs,
+      lastHintKey,
+    });
+    const hints = calMode === "off" ? null : materializeHints(plannedHints, ultimaMsg);
+
+    if (hints && hints.score >= 0.6) {
+      const hintPayload = `ECO_HINTS(JSON): ${JSON.stringify(hints)} | Use como orientação. Não repita literalmente. Preserve continuidade.`;
+      prompt.unshift({
+        role: "system",
+        name: "eco_hints",
+        content: hintPayload,
+      });
+      if (process.env.ECO_DEBUG === "1") {
+        log.debug?.(
+          `[CAL] key=${hints.key} score=${hints.score.toFixed(2)} flags=[${hints.flags.join(",")}] injected`
+        );
+      }
+    }
+
     timings.contextBuildEnd = now();
     log.info("// LATENCY: context_build_end", {
       at: timings.contextBuildEnd,
@@ -250,6 +295,7 @@ export async function getEcoResponse({
         isGuest,
         guestId: guestId ?? undefined,
         thread,
+        calHints: hints ?? undefined,
       });
     }
 
@@ -270,6 +316,7 @@ export async function getEcoResponse({
       thread,
       isGuest,
       guestId: guestId ?? undefined,
+      calHints: hints ?? undefined,
     });
 
     return resultado;

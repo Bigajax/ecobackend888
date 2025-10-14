@@ -3,6 +3,20 @@ export type AnyRecord = Record<string, any>;
 
 export type ChatMessage = { id?: string; role: string; content: string };
 
+export type EcoHintFlag = string;
+
+export interface EcoHints {
+  key: string;
+  priority: number;
+  score: number;
+  flags: EcoHintFlag[];
+  emotions: string[];
+  intent?: string | null;
+  soft_opening?: string | null;
+  mirror_suggestion?: string | null;
+  notes?: string[];
+}
+
 export type ParalelasResult = { heuristicas: any[]; userEmbedding: number[] };
 
 export type TrendPack = {

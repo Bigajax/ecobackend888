@@ -4,9 +4,9 @@ import assert from "node:assert";
 import {
   detectExplicitAskForSteps,
   runFastLaneLLM,
+  FASTLANE_FALLBACK_MESSAGE,
   type RunFastLaneLLMResult,
 } from "../../services/conversation/fastLane";
-import { planCuriousFallback } from "../../core/ResponsePlanner";
 import { computeEcoDecision } from "../../services/conversation/ecoDecisionHub";
 
 function createDeps(overrides: Partial<{
@@ -108,7 +108,7 @@ test("runFastLaneLLM envia apenas as 3 últimas mensagens do histórico", async 
 test("runFastLaneLLM usa fallback quando o cliente Claude falha", async () => {
   const fallbackError = new Error("claude indisponível");
   const fallbackCalls: any[] = [];
-  const expectedFallback = planCuriousFallback("oi").text;
+  const expectedFallback = FASTLANE_FALLBACK_MESSAGE;
 
   const { deps } = createDeps({
     claudeClient: async () => {
