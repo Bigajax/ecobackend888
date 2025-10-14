@@ -33,28 +33,36 @@ export function composePromptBase({
   ].join(" | ");
 
   const extrasBlock = extras.length
-    ? `\n\n${extras.map((entry) => `• ${entry}`).join("\n")}`
+    ? `\n\n${extras.map((entry) => `• ${entry.trim()}`).filter((entry) => entry.length > 0).join("\n")}`
     : "";
+
+  const cleanedFooter = typeof footer === "string" ? footer.trim() : "";
+  const cleanedMemRecall = typeof memRecallBlock === "string" ? memRecallBlock.trim() : "";
+  const cleanedInstructions = instructionText.trim();
+  const cleanedDec = typeof decBlock === "string" ? decBlock.trim() : "";
+  const cleanedStitched = stitched.trim();
 
   const parts = [
     `// CONTEXTO ECO — NV${nivel}`,
     `// ${header}${extrasBlock}`,
-    "",
-    ...(decBlock ? [decBlock, ""] : []),
-    stitched,
-    "",
-    memRecallBlock || "",
-    "",
-    instructionText,
-    "",
-    ...(footer ? [footer, ""] : []),
+    cleanedDec,
+    cleanedStitched,
+    cleanedMemRecall,
+    cleanedInstructions,
+    cleanedFooter,
     `Mensagem atual: ${CURRENT_MESSAGE_PLACEHOLDER}`,
   ];
 
-  return parts
-    .filter((segment) => typeof segment === "string" && segment.length > 0)
-    .join("\n")
-    .trim();
+  const sanitized = parts
+    .map((segment) => (typeof segment === "string" ? segment.trim() : ""))
+    .filter((segment) => segment.length > 0);
+
+  if (sanitized.length >= 2) {
+    const headerLines = `${sanitized[0]}\n${sanitized[1]}`;
+    sanitized.splice(0, 2, headerLines.trim());
+  }
+
+  return sanitized.join("\n\n").trim();
 }
 
 export function applyCurrentMessage(base: string, texto: string): string {

@@ -24,20 +24,64 @@ import { ordemAbsoluta } from "./matrizPromptBaseV2";
 
 function collectTagsFromMemories(mems: SimilarMemory[] | undefined): string[] {
   if (!Array.isArray(mems)) return [];
-  const seen = new Set<string>();
-  const out: string[] = [];
+  const counter = new Map<string, { label: string; count: number; order: number }>();
+  let order = 0;
   for (const memory of mems) {
-    const tags = Array.isArray(memory?.tags) ? memory!.tags : [];
+    const tags = Array.isArray(memory?.tags) ? memory.tags : [];
     for (const raw of tags) {
       if (typeof raw !== "string") continue;
-      const tag = raw.trim();
-      if (!tag || seen.has(tag)) continue;
-      seen.add(tag);
-      out.push(tag);
-      if (out.length >= 6) return out;
+      const trimmed = raw.trim();
+      if (!trimmed) continue;
+      const key = trimmed.toLowerCase();
+      const existing = counter.get(key);
+      if (existing) {
+        existing.count += 1;
+      } else {
+        counter.set(key, { label: trimmed, count: 1, order: order++ });
+      }
     }
   }
-  return out;
+
+  const sorted = Array.from(counter.values()).sort((a, b) => {
+    if (b.count !== a.count) return b.count - a.count;
+    return a.order - b.order;
+  });
+
+  return sorted.slice(0, 4).map((entry) => entry.label);
+}
+
+function deriveDominantDomain(mems: SimilarMemory[] | undefined): string | null {
+  if (!Array.isArray(mems) || mems.length === 0) return null;
+  const counter = new Map<string, { label: string; count: number; order: number }>();
+  let order = 0;
+  for (const memory of mems) {
+    const rawDomain =
+      typeof memory?.dominio_vida === "string"
+        ? memory.dominio_vida
+        : typeof (memory as any)?.dominio === "string"
+        ? (memory as any).dominio
+        : typeof (memory as any)?.domain === "string"
+        ? (memory as any).domain
+        : typeof (memory as any)?.dominioVida === "string"
+        ? (memory as any).dominioVida
+        : null;
+    const trimmed = rawDomain?.trim();
+    if (!trimmed) continue;
+    const key = trimmed.toLowerCase();
+    const existing = counter.get(key);
+    if (existing) {
+      existing.count += 1;
+    } else {
+      counter.set(key, { label: trimmed, count: 1, order: order++ });
+    }
+  }
+
+  const sorted = Array.from(counter.values()).sort((a, b) => {
+    if (b.count !== a.count) return b.count - a.count;
+    return a.order - b.order;
+  });
+
+  return sorted.length ? sorted[0].label : null;
 }
 
 function renderDecBlock(dec: DecSnapshot): string {
@@ -167,12 +211,20 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
   const nivel = ecoDecision.openness as 1 | 2 | 3;
   const memCount = mems.length;
 
-  const decisionTags = Array.isArray((ecoDecision as any).tags)
+  const decisionTagsRaw = Array.isArray((ecoDecision as any).tags)
     ? ((ecoDecision as any).tags as string[])
     : [];
+  const decisionTags = decisionTagsRaw
+    .map((tag) => (typeof tag === "string" ? tag.trim() : ""))
+    .filter((tag) => tag.length > 0);
   const memoryTags = collectTagsFromMemories(memsSemelhantesNorm);
-  const mergedTags = decisionTags.length > 0 ? decisionTags : memoryTags;
+  const mergedTags = (decisionTags.length > 0 ? decisionTags : memoryTags).slice(0, 4);
   const decisionDomainRaw = (ecoDecision as any).domain;
+  const fallbackDomain = deriveDominantDomain(memsSemelhantesNorm);
+  const resolvedDomain =
+    typeof decisionDomainRaw === "string" && decisionDomainRaw.trim().length
+      ? decisionDomainRaw.trim()
+      : fallbackDomain;
 
   const DEC: DecSnapshot = {
     intensity: ecoDecision.intensity,
@@ -182,7 +234,7 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
     saveMemory: ecoDecision.saveMemory,
     hasTechBlock: ecoDecision.hasTechBlock,
     tags: mergedTags,
-    domain: typeof decisionDomainRaw === "string" ? decisionDomainRaw : null,
+    domain: resolvedDomain ?? null,
     flags: ecoDecision.flags,
   };
 
@@ -199,21 +251,29 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
 
   // 🔎 módulos inferidos pelas intents dos QuickSuggestions
   const intentModules = inferIntentModules(texto);
+  const flagFooters: string[] = [];
+  if (ecoDecision.flags?.useMemories) {
+    flagFooters.push("MEMORIA_COSTURA_REGRAS.txt");
+  }
+  if (ecoDecision.flags?.patternSynthesis) {
+    flagFooters.push("SINTETIZADOR_PADRAO.txt");
+  }
+  const intentAndFlagModules = toUnique([...intentModules, ...flagFooters]);
 
-  // Ordem: seleção base -> +intents -> força DEVELOPER_PROMPT primeiro
+  // Ordem: seleção base -> +intents/footers -> força DEVELOPER_PROMPT primeiro
   const modulesRaw = ensureDeveloperPromptFirst(
-    toUnique([...toUnique(baseSelection.raw), ...intentModules])
+    toUnique([...toUnique(baseSelection.raw), ...intentAndFlagModules])
   );
 
   const modulesAfterGating = ensureDeveloperPromptFirst(
     baseSelection.posGating
-      ? toUnique([...toUnique(baseSelection.posGating), ...intentModules])
+      ? toUnique([...toUnique(baseSelection.posGating), ...intentAndFlagModules])
       : modulesRaw
   );
 
   const ordered = ensureDeveloperPromptFirst(
     baseSelection.priorizado?.length
-      ? toUnique([...toUnique(baseSelection.priorizado), ...intentModules])
+      ? toUnique([...toUnique(baseSelection.priorizado), ...intentAndFlagModules])
       : modulesAfterGating
   );
 

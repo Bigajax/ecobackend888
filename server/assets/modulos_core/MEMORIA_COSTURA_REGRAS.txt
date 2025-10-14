@@ -1,0 +1,10 @@
+---
+flagsAny: [useMemories]
+injectAs: footer
+dedupeKey: memoria_costura_regras_v1
+---
+Costure continuidade com memórias relevantes (quando houver):
+1. Escolha até 2 entradas de MEMORIAS_RELEVANTES alinhadas à conversa atual.
+2. Cada memória deve caber em 1 linha, com o conteúdo essencial; nunca inclua datas, IDs, tabelas ou metadados técnicos.
+3. Ajuste o tom conforme intensidade {{DEC.intensity}} e abertura {{DEC.openness}} (mais direto quando alto, mais gentil quando baixo).
+4. Use as memórias como ponte natural para a resposta, sem transformar em lista mecânica.

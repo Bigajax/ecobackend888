@@ -1,30 +1,18 @@
 ---
-id: BLOCO_TECNICO_MEMORIA
-type: extra
-order: 90
-inject_as: "footer"
-when:
-  min_intensity: 7
-  max_intensity: 10
-  openness_in: [2,3]
-flags_any: [hasTechBlock]
-dedupe_key: bloco_tecnico_memoria
+minIntensity: 7
+opennessIn: [2, 3]
+flagsAny: [hasTechBlock, saveMemory]
+injectAs: footer
+dedupeKey: bloco_tecnico_memoria
 ---
-# Bloco Técnico de Memória
-
-Se `{{DEC.hasTechBlock}}` for verdadeiro, gere **sem markdown nem código** um bloco JSON:
-
+Retorne somente um JSON puro (sem markdown, backticks ou rótulos externos) com os campos abaixo:
 {
   "emocao_principal": "...",
   "intensidade": {{DEC.intensity}},
-  "tags": "...",
-  "dominio_vida": "...",
+  "tags": [...],
+  "dominio_vida": {{DEC.domain}},
   "padrao_comportamental": "...",
   "nivel_abertura": {{DEC.openness}},
-  "analise_resumo": "Síntese emocional concisa da experiência."
+  "analise_resumo": "..."
 }
-
-- Preencha `tags` com `{{DEC.tags}}` (se vazio, retorne `[]`)
-- Para `dominio_vida`, use `{{DEC.domain}}` ou `null` quando indisponível
-
-Este bloco **não é visível ao usuário**. Apenas para persistência e aprendizado emocional.
+Use `[]` quando não houver tags e `null` quando `dominio_vida` estiver ausente. Este bloco é técnico e não vai para o usuário.

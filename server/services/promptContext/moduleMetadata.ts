@@ -149,24 +149,24 @@ function evaluateFrontMatter(
   let threshold: number | null = null;
 
   if (typeof meta.minIntensity === "number" && dec.intensity < meta.minIntensity) {
-    reasons.push(`min_intensity:${meta.minIntensity}`);
+    reasons.push(`minIntensity:${meta.minIntensity}`);
     threshold = meta.minIntensity;
   }
 
   if (typeof meta.maxIntensity === "number" && dec.intensity > meta.maxIntensity) {
-    reasons.push(`max_intensity:${meta.maxIntensity}`);
+    reasons.push(`maxIntensity:${meta.maxIntensity}`);
     threshold = meta.maxIntensity;
   }
 
   if (Array.isArray(meta.opennessIn) && meta.opennessIn.length > 0) {
     const allowed = meta.opennessIn.map((n) => Number(n));
     if (!allowed.includes(dec.openness)) {
-      reasons.push(`openness_in:${allowed.join("/")}`);
+      reasons.push(`opennessIn:${allowed.join("/")}`);
     }
   }
 
   if (meta.requireVulnerability && !dec.isVulnerable) {
-    reasons.push("require_vulnerability");
+    reasons.push("requireVulnerability");
   }
 
   if (Array.isArray(meta.flagsAny) && meta.flagsAny.length > 0) {
@@ -179,7 +179,7 @@ function evaluateFrontMatter(
     });
 
     if (!hasAny) {
-      reasons.push(`flags_any:${meta.flagsAny.join(",")}`);
+      reasons.push(`flagsAny:${meta.flagsAny.join(",")}`);
     }
   }
 
@@ -201,6 +201,10 @@ function buildFlagMap(dec: DecSnapshot): Record<string, boolean> {
     hastechblock: dec.hasTechBlock,
     saveMemory: dec.saveMemory,
     savememory: dec.saveMemory,
+    useMemories: Boolean((dec.flags as Record<string, unknown>)?.useMemories),
+    usememories: Boolean((dec.flags as Record<string, unknown>)?.useMemories),
+    patternSynthesis: Boolean((dec.flags as Record<string, unknown>)?.patternSynthesis),
+    patternsynthesis: Boolean((dec.flags as Record<string, unknown>)?.patternSynthesis),
     isVulnerable: dec.isVulnerable,
     isvulnerable: dec.isVulnerable,
     vulnerable: dec.isVulnerable,

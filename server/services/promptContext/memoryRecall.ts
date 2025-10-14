@@ -3,6 +3,8 @@ import type { TokenEncoder } from "../../utils/text";
 import { getTokenEncoder } from "../../utils/text";
 
 const TOKEN_LIMIT = 350; // orçamento por item (não por bloco)
+const MAX_BLOCK_TOKENS = 600;
+const MAX_ITEMS = 2;
 const ELLIPSIS = "…";
 const FALLBACK_CHARS_PER_TOKEN = 4; // heurística rápida para ausência de encoder
 
@@ -91,7 +93,7 @@ export function formatMemRecall(mems: SimilarMemoryList): string {
     memory?.conteudo ||
     "";
 
-  const linhas = mems.slice(0, 4).map((memory) => {
+  const linhas = mems.slice(0, MAX_ITEMS).map((memory) => {
     const sim =
       typeof memory?.similarity === "number"
         ? memory.similarity
@@ -114,10 +116,21 @@ export function formatMemRecall(mems: SimilarMemoryList): string {
     return `- ${meta}${value}`;
   });
 
-  const blocos = linhas.filter(Boolean);
+  let blocos = linhas.filter(Boolean);
   if (!blocos.length) {
     // Se por algum motivo nenhum item resultou em linha válida, mantenha o cabeçalho
     return `${header}\n(nenhuma encontrada desta vez)`;
+  }
+
+  if (blocos.length > 1) {
+    const encoder = getTokenEncoder();
+    const blockPreview = [header, ...blocos].join("\n");
+    const estimatedTokens = encoder
+      ? encoder.encode(blockPreview).length
+      : Math.ceil(blockPreview.length / FALLBACK_CHARS_PER_TOKEN);
+    if (estimatedTokens > MAX_BLOCK_TOKENS) {
+      blocos = blocos.slice(0, 1);
+    }
   }
 
   // 🔹 Importante: sem instruções que proíbam “lembrar”.

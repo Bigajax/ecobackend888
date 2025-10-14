@@ -9,6 +9,9 @@ export type SimilarMemory = {
   similaridade?: number;
   created_at?: string;
   tags?: string[] | null;
+  dominio_vida?: string | null;
+  dominio?: string | null;
+  dominioVida?: string | null;
 };
 
 export type SimilarMemoryList = SimilarMemory[] | undefined;

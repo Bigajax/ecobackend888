@@ -12,7 +12,7 @@ import { runFastLaneLLM } from "./conversation/fastLane";
 import { buildFullPrompt } from "./conversation/promptPlan";
 import { defaultResponseFinalizer } from "./conversation/responseFinalizer";
 import { firstName } from "./conversation/helpers";
-import { computeEcoDecision } from "./conversation/ecoDecisionHub";
+import { computeEcoDecision, MEMORY_THRESHOLD } from "./conversation/ecoDecisionHub";
 
 import { handlePreLLMShortcuts } from "./conversation/preLLMPipeline";
 import { prepareConversationContext } from "./conversation/contextPreparation";
@@ -133,12 +133,15 @@ export async function getEcoResponse({
 
     // Decisão sobre memória e modo de conversa
     const ecoDecision = computeEcoDecision(ultimaMsg);
+    const crossedThreshold = ecoDecision.intensity >= MEMORY_THRESHOLD;
+    ecoDecision.saveMemory = ecoDecision.saveMemory && !isGuest;
+    ecoDecision.hasTechBlock = ecoDecision.saveMemory;
     activationTracer?.setMemoryDecision(
       ecoDecision.saveMemory,
       ecoDecision.intensity,
-      ecoDecision.saveMemory
-        ? `intensity>=7 (${ecoDecision.intensity.toFixed(1)})`
-        : `intensity<7 (${ecoDecision.intensity.toFixed(1)})`
+      crossedThreshold
+        ? `intensity>=${MEMORY_THRESHOLD} (${ecoDecision.intensity.toFixed(1)})`
+        : `intensity<${MEMORY_THRESHOLD} (${ecoDecision.intensity.toFixed(1)})`
     );
 
     const routeDecision = defaultConversationRouter.decide({

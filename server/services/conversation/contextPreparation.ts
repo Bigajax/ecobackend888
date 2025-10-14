@@ -49,6 +49,26 @@ export async function prepareConversationContext({
     activationTracer,
   });
 
+  const memsSemelhantesList = Array.isArray(context.memsSemelhantes)
+    ? context.memsSemelhantes
+    : [];
+  const hasMemories = memsSemelhantesList.length > 0;
+  const flagBag = (decision.flags = decision.flags ?? ({} as EcoDecisionResult["flags"]));
+  flagBag.useMemories = hasMemories;
+
+  const tagCounter = new Map<string, number>();
+  for (const memoria of memsSemelhantesList) {
+    const rawTags = Array.isArray(memoria?.tags) ? memoria.tags : [];
+    for (const tag of rawTags) {
+      const normalized = typeof tag === "string" ? tag.trim().toLowerCase() : "";
+      if (!normalized) continue;
+      tagCounter.set(normalized, (tagCounter.get(normalized) ?? 0) + 1);
+    }
+  }
+  const hasConvergentTags = Array.from(tagCounter.values()).some((count) => count >= 2);
+  flagBag.patternSynthesis =
+    hasConvergentTags && decision.intensity >= 5 && decision.openness >= 2 ? true : false;
+
   const systemPrompt =
     promptOverride ??
     (await defaultContextCache.build({

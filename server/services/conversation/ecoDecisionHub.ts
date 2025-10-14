@@ -27,6 +27,8 @@ export interface EcoDecisionResult {
   debug: EcoDecisionDebug;
 }
 
+export const MEMORY_THRESHOLD = 7;
+
 const clamp = (value: number, min: number, max: number) =>
   Math.max(min, Math.min(max, value));
 
@@ -97,14 +99,15 @@ export function computeEcoDecision(texto: string, options: EcoDecisionOptions = 
   const { isVulnerable, signals: vulnerabilitySignals } = detectVulnerability(texto, flags);
   const openness = deriveOpenness(intensity, isVulnerable);
   const vivaSteps = deriveVivaSteps(openness);
+  const saveMemory = intensity >= MEMORY_THRESHOLD;
 
   return {
     intensity,
     openness,
     isVulnerable,
     vivaSteps,
-    saveMemory: intensity >= 7,
-    hasTechBlock: intensity >= 7,
+    saveMemory,
+    hasTechBlock: saveMemory,
     tags: [],
     domain: null,
     flags,

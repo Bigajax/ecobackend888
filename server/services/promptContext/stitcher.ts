@@ -86,7 +86,7 @@ function dedupeBySection(text: string): string {
     currentBlock.push(line);
   }
   flush();
-  return out.join("\n");
+  return out.join("\n").trim();
 }
 
 function titleFromName(name: string) {
