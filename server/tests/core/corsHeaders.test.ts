@@ -62,7 +62,11 @@ test("OPTIONS /api/ask-eco responde 204 com allowlist padrão", async () => {
       /x-guest-id/i,
       "deve expor X-Guest-Id no preflight do modo convidado",
     );
-    assert.match(allowHeaders, /cache-control/i, "deve incluir Cache-Control conforme allow list");
+    assert.match(
+      allowHeaders,
+      /x-requested-with/i,
+      "deve incluir X-Requested-With conforme allow list",
+    );
   } finally {
     await closeServer(server);
   }
