@@ -124,8 +124,9 @@ async function seedPublicTables(
 ): Promise<void> {
   const sessionId = `test_session_${Date.now()}`;
   const messageId = `msg_${Date.now()}`;
+  const nowIso = new Date().toISOString();
 
-  const interactionRows = await insertRows(client, "eco_interactions", [
+  const interactionRows = await insertRows(client, "analytics.eco_interactions", [
     {
       user_id: interactionMeta.userId,
       session_id: sessionId,
@@ -135,6 +136,7 @@ async function seedPublicTables(
       tokens_in: 120,
       tokens_out: 340,
       latency_ms: 800,
+      created_at: nowIso,
     },
   ]);
 
@@ -144,7 +146,7 @@ async function seedPublicTables(
   }
   console.log("[eco_interactions] inserted", interactionRows[0]);
 
-  const feedbackRows = await insertRows(client, "eco_feedback", [
+  const feedbackRows = await insertRows(client, "analytics.eco_feedback", [
     {
       interaction_id: interactionId,
       user_id: interactionMeta.userId,
@@ -153,37 +155,44 @@ async function seedPublicTables(
       reason: ["test_run"],
       source: "persistence-script",
       meta: { response_id: interactionMeta.responseId },
+      created_at: nowIso,
     },
   ]);
   console.log("[eco_feedback] inserted ok", feedbackRows[0]);
 
-  const passiveRows = await insertRows(client, "eco_passive_signals", [
+  const passiveRows = await insertRows(client, "analytics.eco_passive_signals", [
     {
       interaction_id: interactionId,
+      user_id: interactionMeta.userId,
+      session_id: sessionId,
       signal: "read_complete",
       value: 1,
+      meta: { script: "persistence" },
+      created_at: nowIso,
     },
   ]);
   console.log("[eco_passive_signals] inserted", passiveRows[0]);
 
-  const moduleUsageRows = await insertRows(client, "eco_module_usages", [
+  const moduleUsageRows = await insertRows(client, "analytics.eco_module_usages", [
     {
       interaction_id: interactionId,
       module_key: "IDENTIDADE",
       tokens: 60,
       position: 1,
+      created_at: nowIso,
     },
     {
       interaction_id: interactionId,
       module_key: "VIVA",
       tokens: 45,
       position: 2,
+      created_at: nowIso,
     },
   ]);
   console.log("[eco_module_usages] inserted", moduleUsageRows.map((row) => row.id));
 
   const banditKey = `test_arm_${Date.now()}`;
-  const banditRows = await upsertRows(client, "eco_bandit_arms", [
+  const banditRows = await upsertRows(client, "analytics.eco_bandit_arms", [
     {
       arm_key: banditKey,
       pulls: 1,
@@ -191,15 +200,17 @@ async function seedPublicTables(
       beta: 0.9,
       reward_sum: 0.72,
       reward_sq_sum: 0.52,
+      last_update: nowIso,
     },
   ]);
   console.log("[eco_bandit_arms] upserted", banditRows[0]);
 
-  const policyRows = await upsertRows(client, "eco_policy_config", [
+  const policyRows = await upsertRows(client, "analytics.eco_policy_config", [
     {
       key: `test_policy_${Date.now()}`,
       tokens_budget: 400,
       config: { version: 1, modules: ["IDENTIDADE", "VIVA"] },
+      updated_at: nowIso,
     },
   ]);
   console.log("[eco_policy_config] upserted", policyRows[0]);
@@ -216,7 +227,7 @@ async function main(): Promise<void> {
   const analyticsClient = supabase.schema("analytics") as unknown as GenericClient;
 
   const analyticsMeta = await seedAnalyticsTables(analyticsClient);
-  await seedPublicTables(supabase, analyticsMeta);
+  await seedPublicTables(analyticsClient, analyticsMeta);
 
   console.log("✅ Persistence smoke test completed");
 }

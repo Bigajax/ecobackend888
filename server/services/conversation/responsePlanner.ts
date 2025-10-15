@@ -281,7 +281,7 @@ async function loadPolicyConfig(
 
   try {
     const { data, error } = await supabase
-      .from("eco_policy_config")
+      .from("analytics.eco_policy_config")
       .select("tokens_budget, config")
       .limit(1)
       .maybeSingle();
@@ -363,7 +363,7 @@ async function loadBanditStats(
 
   try {
     const { data, error } = await supabase
-      .from("eco_bandit_arms")
+      .from("analytics.eco_bandit_arms")
       .select("arm_key, alpha, beta, pulls, reward_sum, reward_sq_sum")
       .in("arm_key", keys);
 

@@ -28,6 +28,7 @@ export async function logInteraction({
   moduleUsages?: ModuleUsageLogInput[];
 }): Promise<string | null> {
   try {
+    const nowIso = new Date().toISOString();
     const payload = {
       user_id: interaction.userId ?? null,
       session_id: interaction.sessionId ?? null,
@@ -46,10 +47,11 @@ export async function logInteraction({
       latency_ms: Number.isFinite(interaction.latencyMs ?? NaN)
         ? Math.trunc(interaction.latencyMs as number)
         : null,
+      created_at: nowIso,
     };
 
     const { data, error } = await supabase
-      .from("eco_interactions")
+      .from("analytics.eco_interactions")
       .insert([payload])
       .select("id")
       .maybeSingle();
@@ -82,6 +84,7 @@ export async function logInteraction({
               Number.isFinite(usage.position ?? NaN) && usage.position != null
                 ? Math.trunc(usage.position as number)
                 : null,
+            created_at: nowIso,
           };
         })
         .filter((row): row is {
@@ -89,11 +92,12 @@ export async function logInteraction({
           module_key: string;
           tokens: number | null;
           position: number | null;
+          created_at: string;
         } => row !== null);
 
       if (rows.length) {
         const { error: moduleError } = await supabase
-          .from("eco_module_usages")
+          .from("analytics.eco_module_usages")
           .insert(rows);
         if (moduleError) {
           log.warn("[interactionLogger] failed to insert eco_module_usages", {
