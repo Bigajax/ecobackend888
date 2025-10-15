@@ -24,7 +24,7 @@ export function originOk(origin?: string | null): boolean {
 }
 
 const DEFAULT_ALLOW_HEADERS =
-  "Accept, Authorization, Cache-Control, Content-Type, X-Guest-Id, X-Requested-With";
+  "Accept, Authorization, Cache-Control, Content-Type, Pragma, X-Guest-Id, X-Requested-With";
 const DEFAULT_ALLOW_METHODS = "GET,POST,OPTIONS";
 const EXPOSE_HEADERS = "X-Guest-Id";
 const MAX_AGE_SECONDS = 86_400; // 24h
