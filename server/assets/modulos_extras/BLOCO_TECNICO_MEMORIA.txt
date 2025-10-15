@@ -3,16 +3,14 @@ minIntensity: 7
 opennessIn: [2, 3]
 flagsAny: [hasTechBlock, saveMemory]
 injectAs: footer
-dedupeKey: bloco_tecnico_memoria
+dedupeKey: blocoTecnicoMemoria
 ---
-Retorne somente um JSON puro (sem markdown, backticks ou rótulos externos) com os campos abaixo:
 {
   "emocao_principal": "...",
   "intensidade": {{DEC.intensity}},
-  "tags": [...],
+  "tags": [],
   "dominio_vida": {{DEC.domain}},
   "padrao_comportamental": "...",
   "nivel_abertura": {{DEC.openness}},
   "analise_resumo": "..."
 }
-Use `[]` quando não houver tags e `null` quando `dominio_vida` estiver ausente. Este bloco é técnico e não vai para o usuário.

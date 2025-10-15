@@ -2,18 +2,13 @@
 id: PEDIDOPRATICO
 type: extra
 order: 45
-inject_as: "inline"
+injectAs: "inline"
 when:
-  min_intensity: 0
-  max_intensity: 6
-  openness_in: [1,2]
+  minIntensity: 0
+  maxIntensity: 6
+  opennessIn: [1, 2]
+dedupeKey: pedidoPratico
 ---
 # Pedido prático
 
-Se a fala tiver foco racional ou busca de orientação, ofereça **clareza objetiva** sem romper o tom reflexivo:
-
-✅ "Podemos olhar pro que depende de você agora."
-✅ "Quer que eu te ajude a organizar os próximos passos?"
-
-Nunca **ordens diretas**. Apenas **convites**.
-Tom pragmático, mas gentil.
+Quando o usuário pede algo direto, responda de forma objetiva e curta. Entregue espelho mínimo, dê o passo solicitado e encerre sem pergunta adicional.

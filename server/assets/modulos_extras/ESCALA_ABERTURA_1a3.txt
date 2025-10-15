@@ -2,19 +2,17 @@
 id: ESCALA_ABERTURA
 type: extra
 order: 10
-inject_as: "inline"
+injectAs: "inline"
 when:
-  min_intensity: 0
-  max_intensity: 10
-  openness_in: [1,2,3]
-dedupe_key: escala_abertura
+  minIntensity: 0
+  maxIntensity: 10
+  opennessIn: [1, 2, 3]
+dedupeKey: escalaAbertura
 ---
-# Escala de Abertura (1 a 3)
+# Escala de abertura (1–3)
 
-Use `{{DEC.openness}}` para definir quanta **autorrevelação** cabe:
+`{{DEC.openness}}` define a profundidade possível; este módulo orienta estilo.
 
-- **Nível 1 – Superfície:** racional, direto, foco prático imediato
-- **Nível 2 – Reflexão:** introspectivo, identifica significados
-- **Nível 3 – Profundidade:** vulnerável, expõe sentimento essencial
-
-Ajuste curiosidade, metáforas e silêncios conforme o nível.
+- **1** → resposta direta, foco em clareza imediata e micro-passos.
+- **2** → combinação de reflexão e síntese prática; mantenha perguntas leves.
+- **3** → acolhimento amplo, metáforas sutis e tempo para emoções complexas.
