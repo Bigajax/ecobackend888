@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { makeResponseFinalizerDepsStub } from "../../../tests/helpers/makeResponseFinalizerDepsStub";
 
 process.env.SUPABASE_URL ??= "http://localhost";
 process.env.SUPABASE_SERVICE_ROLE_KEY ??= "service-role-key";
@@ -31,8 +32,6 @@ const { computeEcoDecision } = require("../../services/conversation/ecoDecisionH
 const { stripRedundantGreeting, stripIdentityCorrection } = helpersModule;
 Module._load = originalLoad;
 
-const noop = () => {};
-
 test("finalize responde rápido mesmo com analisador lento", async (t) => {
   const originalTimeout = process.env.ECO_BLOCO_TIMEOUT_MS;
   process.env.ECO_BLOCO_TIMEOUT_MS = "50";
@@ -51,30 +50,29 @@ test("finalize responde rápido mesmo com analisador lento", async (t) => {
   const sessaoEntrouCalls: any[] = [];
   const trackBlocoCalls: any[] = [];
 
-  const finalizer = new ResponseFinalizer({
-    gerarBlocoTecnicoComCache: () =>
-      new Promise((resolve) => {
-        setTimeout(() => resolve({ intensidade: 0.8 }), 200);
-      }),
-    saveMemoryOrReference: async () => {
-      saveCalls += 1;
-    },
-    trackMensagemEnviada: ((props: any) => {
-      trackMensagemCalls.push(props);
-    }) as any,
-    trackEcoDemorou: noop as any,
-    trackBlocoTecnico: ((payload: any) => {
-      trackBlocoCalls.push(payload);
-    }) as any,
-    identifyUsuario: ((payload: any) => {
-      identifyCalls.push(payload);
-    }) as any,
-    trackSessaoEntrouChat: ((payload: any) => {
-      sessaoEntrouCalls.push(payload);
-    }) as any,
-    trackRespostaQ: noop as any,
-    trackKnapsackDecision: noop as any,
-  });
+  const finalizer = new ResponseFinalizer(
+    makeResponseFinalizerDepsStub({
+      gerarBlocoTecnicoComCache: () =>
+        new Promise((resolve) => {
+          setTimeout(() => resolve({ intensidade: 0.8 }), 200);
+        }),
+      saveMemoryOrReference: async () => {
+        saveCalls += 1;
+      },
+      trackMensagemEnviada: ((props: any) => {
+        trackMensagemCalls.push(props);
+      }) as any,
+      trackBlocoTecnico: ((payload: any) => {
+        trackBlocoCalls.push(payload);
+      }) as any,
+      identifyUsuario: ((payload: any) => {
+        identifyCalls.push(payload);
+      }) as any,
+      trackSessaoEntrouChat: ((payload: any) => {
+        sessaoEntrouCalls.push(payload);
+      }) as any,
+    })
+  );
 
   const start = Date.now();
   const ecoDecision = computeEcoDecision("Oi");
@@ -146,19 +144,15 @@ test("finalize responde rápido mesmo com analisador lento", async (t) => {
 test("trackSessaoEntrouChat só dispara quando não houve assistente antes", async () => {
   const sessaoEntrouCalls: any[] = [];
 
-  const finalizer = new ResponseFinalizer({
-    gerarBlocoTecnicoComCache: async () => null,
-    saveMemoryOrReference: async () => {},
-    trackMensagemEnviada: noop as any,
-    trackEcoDemorou: noop as any,
-    trackBlocoTecnico: noop as any,
-    identifyUsuario: noop as any,
-    trackSessaoEntrouChat: ((payload: any) => {
-      sessaoEntrouCalls.push(payload);
-    }) as any,
-    trackRespostaQ: noop as any,
-    trackKnapsackDecision: noop as any,
-  });
+  const finalizer = new ResponseFinalizer(
+    makeResponseFinalizerDepsStub({
+      gerarBlocoTecnicoComCache: async () => null,
+      saveMemoryOrReference: async () => {},
+      trackSessaoEntrouChat: ((payload: any) => {
+        sessaoEntrouCalls.push(payload);
+      }) as any,
+    })
+  );
 
   await finalizer.finalize({
     raw: "Olá",
@@ -189,19 +183,15 @@ test("trackSessaoEntrouChat só dispara quando não houve assistente antes", asy
 test("identifyUsuario é chamado mesmo quando já houve assistente se houver sessionMeta", async () => {
   const identifyCalls: any[] = [];
 
-  const finalizer = new ResponseFinalizer({
-    gerarBlocoTecnicoComCache: async () => null,
-    saveMemoryOrReference: async () => {},
-    trackMensagemEnviada: noop as any,
-    trackEcoDemorou: noop as any,
-    trackBlocoTecnico: noop as any,
-    identifyUsuario: ((payload: any) => {
-      identifyCalls.push(payload);
-    }) as any,
-    trackSessaoEntrouChat: noop as any,
-    trackRespostaQ: noop as any,
-    trackKnapsackDecision: noop as any,
-  });
+  const finalizer = new ResponseFinalizer(
+    makeResponseFinalizerDepsStub({
+      gerarBlocoTecnicoComCache: async () => null,
+      saveMemoryOrReference: async () => {},
+      identifyUsuario: ((payload: any) => {
+        identifyCalls.push(payload);
+      }) as any,
+    })
+  );
 
   await finalizer.finalize({
     raw: "Olá novamente",
@@ -241,22 +231,17 @@ test("preenche intensidade e resumo quando bloco chega dentro do timeout", async
     }
   });
 
-  const finalizer = new ResponseFinalizer({
-    gerarBlocoTecnicoComCache: async () => ({
-      intensidade: 0.42,
-      analise_resumo: "  resumo alinhado  ",
-      emocao_principal: "alegria",
-      tags: ["tag-a"],
-    }),
-    saveMemoryOrReference: async () => {},
-    trackMensagemEnviada: noop as any,
-    trackEcoDemorou: noop as any,
-    trackBlocoTecnico: noop as any,
-    identifyUsuario: noop as any,
-    trackSessaoEntrouChat: noop as any,
-    trackRespostaQ: noop as any,
-    trackKnapsackDecision: noop as any,
-  });
+  const finalizer = new ResponseFinalizer(
+    makeResponseFinalizerDepsStub({
+      gerarBlocoTecnicoComCache: async () => ({
+        intensidade: 0.42,
+        analise_resumo: "  resumo alinhado  ",
+        emocao_principal: "alegria",
+        tags: ["tag-a"],
+      }),
+      saveMemoryOrReference: async () => {},
+    })
+  );
 
   const ecoDecisionPrompt = computeEcoDecision("Olá!");
   ecoDecisionPrompt.hasTechBlock = true;
@@ -303,17 +288,12 @@ test("stripIdentityCorrection lida com nomes contendo metacaracteres de regex", 
 });
 
 test("finalize remove correção de identidade com nome que contém parênteses", async () => {
-  const finalizer = new ResponseFinalizer({
-    gerarBlocoTecnicoComCache: async () => null,
-    saveMemoryOrReference: async () => {},
-    trackMensagemEnviada: noop as any,
-    trackEcoDemorou: noop as any,
-    trackBlocoTecnico: noop as any,
-    identifyUsuario: noop as any,
-    trackSessaoEntrouChat: noop as any,
-    trackRespostaQ: noop as any,
-    trackKnapsackDecision: noop as any,
-  });
+  const finalizer = new ResponseFinalizer(
+    makeResponseFinalizerDepsStub({
+      gerarBlocoTecnicoComCache: async () => null,
+      saveMemoryOrReference: async () => {},
+    })
+  );
 
   const entrada = "Oi!\nEu sou a Eco, não a Ana(.";
   const resultado = await finalizer.finalize({

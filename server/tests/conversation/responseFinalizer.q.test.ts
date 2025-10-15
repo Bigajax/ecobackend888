@@ -4,30 +4,33 @@ import assert from "node:assert/strict";
 import { ResponseFinalizer } from "../../services/conversation/responseFinalizer";
 import { qualityAnalyticsStore } from "../../services/analytics/analyticsStore";
 import type { EcoDecisionResult } from "../../services/conversation/ecoDecisionHub";
+import { makeResponseFinalizerDepsStub } from "../../../tests/helpers/makeResponseFinalizerDepsStub";
 
 test("finalize calcula Q completo e registra evento", async () => {
   qualityAnalyticsStore.reset();
   const eventos: any[] = [];
 
-  const finalizer = new ResponseFinalizer({
-    gerarBlocoTecnicoComCache: async () => ({
-      analise_resumo: "Resumo",
-      emocao_principal: "alegria",
-      intensidade: 8,
-      tags: ["conexao"],
-    }),
-    saveMemoryOrReference: async () => undefined,
-    trackMensagemEnviada: () => undefined,
-    trackEcoDemorou: () => undefined,
-    trackBlocoTecnico: () => undefined,
-    trackSessaoEntrouChat: () => undefined,
-    identifyUsuario: () => undefined,
-    trackRespostaQ: (payload: any) => {
-      eventos.push(payload);
-    },
-    trackKnapsackDecision: () => undefined,
-    trackBanditArmUpdate: () => undefined,
-  });
+  const finalizer = new ResponseFinalizer(
+    makeResponseFinalizerDepsStub({
+      gerarBlocoTecnicoComCache: async () => ({
+        analise_resumo: "Resumo",
+        emocao_principal: "alegria",
+        intensidade: 8,
+        tags: ["conexao"],
+      }),
+      saveMemoryOrReference: async () => undefined,
+      trackMensagemEnviada: () => undefined,
+      trackEcoDemorou: () => undefined,
+      trackBlocoTecnico: () => undefined,
+      trackSessaoEntrouChat: () => undefined,
+      identifyUsuario: () => undefined,
+      trackRespostaQ: (payload: any) => {
+        eventos.push(payload);
+      },
+      trackKnapsackDecision: () => undefined,
+      trackBanditArmUpdate: () => undefined,
+    })
+  );
 
   const ecoDecision: EcoDecisionResult = {
     intensity: 8,
@@ -95,20 +98,22 @@ test("finalize atualiza bandit quando módulo é usado", async () => {
   qualityAnalyticsStore.reset();
   const banditEvents: any[] = [];
 
-  const finalizer = new ResponseFinalizer({
-    gerarBlocoTecnicoComCache: async () => null,
-    saveMemoryOrReference: async () => undefined,
-    trackMensagemEnviada: () => undefined,
-    trackEcoDemorou: () => undefined,
-    trackBlocoTecnico: () => undefined,
-    trackSessaoEntrouChat: () => undefined,
-    identifyUsuario: () => undefined,
-    trackRespostaQ: () => undefined,
-    trackKnapsackDecision: () => undefined,
-    trackBanditArmUpdate: (payload: any) => {
-      banditEvents.push(payload);
-    },
-  });
+  const finalizer = new ResponseFinalizer(
+    makeResponseFinalizerDepsStub({
+      gerarBlocoTecnicoComCache: async () => null,
+      saveMemoryOrReference: async () => undefined,
+      trackMensagemEnviada: () => undefined,
+      trackEcoDemorou: () => undefined,
+      trackBlocoTecnico: () => undefined,
+      trackSessaoEntrouChat: () => undefined,
+      identifyUsuario: () => undefined,
+      trackRespostaQ: () => undefined,
+      trackKnapsackDecision: () => undefined,
+      trackBanditArmUpdate: (payload: any) => {
+        banditEvents.push(payload);
+      },
+    })
+  );
 
   const ecoDecision: EcoDecisionResult = {
     intensity: 6,
