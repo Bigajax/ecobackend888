@@ -1,6 +1,8 @@
-create type if not exists eco_feedback_vote as enum ('up', 'down');
+create schema if not exists analytics;
 
-create table if not exists eco_interactions (
+create type if not exists analytics.eco_feedback_vote as enum ('up', 'down');
+
+create table if not exists analytics.eco_interactions (
     id uuid primary key default gen_random_uuid(),
     user_id uuid,
     session_id text,
@@ -13,27 +15,30 @@ create table if not exists eco_interactions (
     created_at timestamptz not null default now()
 );
 
-create table if not exists eco_feedback (
+create table if not exists analytics.eco_feedback (
     id uuid primary key default gen_random_uuid(),
-    interaction_id uuid references eco_interactions (id) on delete set null,
+    interaction_id uuid references analytics.eco_interactions (id) on delete cascade,
     user_id uuid,
     session_id text,
-    vote eco_feedback_vote not null,
+    vote analytics.eco_feedback_vote not null,
     reason text[],
     source text,
     meta jsonb,
     created_at timestamptz not null default now()
 );
 
-create table if not exists eco_passive_signals (
+create table if not exists analytics.eco_passive_signals (
     id uuid primary key default gen_random_uuid(),
-    interaction_id uuid references eco_interactions (id) on delete set null,
+    interaction_id uuid references analytics.eco_interactions (id) on delete cascade,
+    user_id uuid,
+    session_id text,
     signal text,
     value float8,
+    meta jsonb,
     created_at timestamptz not null default now()
 );
 
-create table if not exists eco_bandit_arms (
+create table if not exists analytics.eco_bandit_arms (
     arm_key text primary key,
     pulls bigint not null default 0,
     alpha float8 not null default 1,
@@ -43,22 +48,22 @@ create table if not exists eco_bandit_arms (
     last_update timestamptz not null default now()
 );
 
-create table if not exists eco_module_usages (
+create table if not exists analytics.eco_module_usages (
     id uuid primary key default gen_random_uuid(),
-    interaction_id uuid references eco_interactions (id) on delete cascade,
+    interaction_id uuid references analytics.eco_interactions (id) on delete cascade,
     module_key text,
     tokens int,
     position int,
     created_at timestamptz not null default now()
 );
 
-create table if not exists eco_policy_config (
+create table if not exists analytics.eco_policy_config (
     key text primary key,
     tokens_budget int,
     config jsonb,
     updated_at timestamptz not null default now()
 );
 
-create index if not exists eco_feedback_interaction_idx on eco_feedback (interaction_id);
-create index if not exists eco_passive_signals_interaction_idx on eco_passive_signals (interaction_id);
-create index if not exists eco_module_usages_interaction_idx on eco_module_usages (interaction_id);
+create index if not exists eco_feedback_interaction_idx on analytics.eco_feedback (interaction_id);
+create index if not exists eco_passive_signals_interaction_idx on analytics.eco_passive_signals (interaction_id);
+create index if not exists eco_module_usages_interaction_idx on analytics.eco_module_usages (interaction_id);

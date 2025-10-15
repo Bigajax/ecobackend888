@@ -18,7 +18,7 @@ const FeedbackSchema = z.object({
   vote: z.union([z.literal("up"), z.literal("down")]),
   reasons: z.array(z.string().min(1)).optional(),
   source: z.string().min(1).optional(),
-  meta: z.record(z.unknown()).optional(),
+  meta: z.record(z.unknown()).optional().nullable(),
 });
 
 const PassiveSignalSchema = z.object({
@@ -32,6 +32,7 @@ const PassiveSignalSchema = z.object({
   value: z.number().finite().optional(),
   sessionId: z.string().min(1).optional().nullable(),
   userId: z.string().uuid().optional().nullable(),
+  meta: z.record(z.unknown()).optional().nullable(),
 });
 
 type FeedbackPayload = z.infer<typeof FeedbackSchema>;
@@ -98,7 +99,7 @@ async function resolveInteraction(
   try {
     if (messageId) {
       const { data, error } = await supabase
-        .from("eco_interactions")
+        .from("analytics.eco_interactions")
         .select("id, module_combo")
         .eq("message_id", messageId)
         .maybeSingle();
@@ -124,7 +125,7 @@ async function resolveInteraction(
     const cutoff = new Date(Date.now() - TEN_MINUTES_MS).toISOString();
 
     let query = supabase
-      .from("eco_interactions")
+      .from("analytics.eco_interactions")
       .select("id, module_combo, created_at")
       .gte("created_at", cutoff)
       .order("created_at", { ascending: false })
@@ -232,7 +233,7 @@ async function handleFeedback(req: Request, res: Response): Promise<void> {
     const reward = computeReward({ vote: payload.vote, reasons: sanitizedReasons ?? undefined });
 
     const { error: upsertError } = await supabase
-      .from("eco_feedback")
+      .from("analytics.eco_feedback")
       .upsert(
         {
           interaction_id: interactionId,
@@ -243,6 +244,7 @@ async function handleFeedback(req: Request, res: Response): Promise<void> {
           reason: sanitizedReasons,
           source: payload.source ?? null,
           meta: payload.meta ?? null,
+          created_at: new Date().toISOString(),
         },
         { onConflict: "interaction_id" }
       );
@@ -352,7 +354,7 @@ async function handleSignal(req: Request, res: Response): Promise<void> {
     const cutoff = new Date(Date.now() - FIVE_MINUTES_MS).toISOString();
 
     const { data: existing, error: existingError } = await supabase
-      .from("eco_passive_signals")
+      .from("analytics.eco_passive_signals")
       .select("id, created_at, value")
       .eq("interaction_id", interactionId)
       .eq("signal", payload.signal)
@@ -381,10 +383,16 @@ async function handleSignal(req: Request, res: Response): Promise<void> {
         typeof payload.value === "number" && Number.isFinite(payload.value)
           ? payload.value
           : null,
+      user_id: payload.userId ?? null,
+      session_id: payload.sessionId ?? null,
+      meta: payload.meta ?? null,
+      created_at: new Date().toISOString(),
     };
 
+    console.log("[signal]", insertPayload);
+
     const { error: insertError } = await supabase
-      .from("eco_passive_signals")
+      .from("analytics.eco_passive_signals")
       .upsert(insertPayload, { onConflict: "interaction_id, signal" });
 
     if (insertError) {
@@ -437,7 +445,7 @@ async function updateBanditArm(params: {
   if (!supabase) return false;
 
   const { data: existing, error: fetchError } = await supabase
-    .from("eco_bandit_arms")
+    .from("analytics.eco_bandit_arms")
     .select("arm_key, pulls, alpha, beta, reward_sum, reward_sq_sum")
     .eq("arm_key", armKey)
     .maybeSingle();
@@ -464,7 +472,7 @@ async function updateBanditArm(params: {
   };
 
   const { error: upsertError } = await supabase
-    .from("eco_bandit_arms")
+    .from("analytics.eco_bandit_arms")
     .upsert(payload, { onConflict: "arm_key" });
 
   if (upsertError) {
