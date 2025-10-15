@@ -153,6 +153,7 @@ export async function runFastLaneLLM({
       selectedModules: ecoDecision.debug.selectedModules,
       isGuest,
       guestId,
+      promptMessages: payload.messages,
     });
     return { raw: fallback, usage: null, model: "fastlane-fallback", response };
   }
@@ -189,6 +190,15 @@ export async function runFastLaneLLM({
     selectedModules: ecoDecision.debug.selectedModules,
     isGuest,
     guestId,
+    promptMessages: payload.messages,
+    promptTokens:
+      usage && typeof (usage as Record<string, unknown>).prompt_tokens === "number"
+        ? ((usage as Record<string, unknown>).prompt_tokens as number)
+        : undefined,
+    completionTokens:
+      usage && typeof (usage as Record<string, unknown>).completion_tokens === "number"
+        ? ((usage as Record<string, unknown>).completion_tokens as number)
+        : undefined,
   });
 
   if (plan) {

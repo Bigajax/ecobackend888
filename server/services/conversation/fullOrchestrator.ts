@@ -94,6 +94,7 @@ export async function executeFullLLM({
       guestId,
       calHints,
       memsSemelhantes,
+      promptMessages: prompt,
     });
   }
 
@@ -127,6 +128,9 @@ export async function executeFullLLM({
     guestId,
     calHints,
     memsSemelhantes,
+    promptMessages: prompt,
+    promptTokens: data?.usage?.prompt_tokens,
+    completionTokens: data?.usage?.completion_tokens,
   });
 
   if (!isGuest && supabaseClient) {

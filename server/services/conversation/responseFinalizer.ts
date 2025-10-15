@@ -16,6 +16,7 @@ import {
   trackKnapsackDecision,
   trackBanditArmUpdate,
 } from "../../analytics/events/mixpanelEvents";
+import mixpanel from "../../lib/mixpanel";
 import { log } from "../promptContext/logger";
 import {
   firstName,
@@ -38,8 +39,40 @@ import {
   updateArm as updateBanditArm,
   type BanditSelectionMap,
 } from "../orchestrator/bandits/ts";
+import { logInteraction } from "../telemetry/interactionLogger";
+import type { AnySupabase } from "../../adapters/SupabaseAdapter";
+import { createHash } from "node:crypto";
 
 const BANDIT_TOKEN_PENALTY_LAMBDA = 0.01;
+
+type PromptMessage = { role: string; content: string; name?: string };
+
+function computePromptHash(messages?: PromptMessage[]): string | null {
+  if (!Array.isArray(messages) || messages.length === 0) {
+    return null;
+  }
+
+  const canonical = messages.map((msg) => ({
+    role: msg.role,
+    content: typeof msg.content === "string" ? msg.content : "",
+    ...(typeof (msg as { name?: string }).name === "string"
+      ? { name: (msg as { name?: string }).name }
+      : {}),
+  }));
+
+  try {
+    return createHash("sha256").update(JSON.stringify(canonical)).digest("hex");
+  } catch (error) {
+    log.warn("[responseFinalizer] prompt_hash_error", {
+      message: error instanceof Error ? error.message : String(error),
+    });
+    return null;
+  }
+}
+
+function isSupabaseClient(value: unknown): value is AnySupabase {
+  return !!value && typeof (value as AnySupabase).from === "function";
+}
 
 interface ResponseFinalizerDeps {
   gerarBlocoTecnicoComCache: typeof gerarBlocoTecnicoComCache;
@@ -81,6 +114,9 @@ export interface FinalizeParams {
   timingsSnapshot?: EcoLatencyMarks;
   calHints?: EcoHints | null;
   memsSemelhantes?: Array<{ id?: string | null; tags?: string[] | null }>;
+  promptMessages?: PromptMessage[];
+  promptTokens?: number;
+  completionTokens?: number;
 }
 
 export interface NormalizedEcoResponse {
@@ -421,12 +457,18 @@ export class ResponseFinalizer {
     timingsSnapshot,
     calHints,
     memsSemelhantes,
+    promptMessages,
+    promptTokens,
+    completionTokens,
   }: FinalizeParams): Promise<GetEcoResult> {
     const distinctId =
       providedDistinctId ?? sessionMeta?.distinctId ?? guestId ?? userId;
+    const resolvedSessaoId = providedSessaoId ?? sessionMeta?.sessaoId ?? null;
+    const supabaseClient = isSupabaseClient(supabase) ? (supabase as AnySupabase) : null;
+    const promptHash = computePromptHash(promptMessages);
 
     if (!hasAssistantBefore) {
-      const sessaoId = providedSessaoId ?? sessionMeta?.sessaoId ?? undefined;
+      const sessaoId = resolvedSessaoId ?? undefined;
       const origem = origemSessao ?? sessionMeta?.origem ?? undefined;
 
       this.deps.trackSessaoEntrouChat({
@@ -503,6 +545,26 @@ export class ResponseFinalizer {
     const resolvedSelectedModules = Array.isArray(selectedModules)
       ? selectedModules
       : ecoDecision.debug.selectedModules;
+
+    const moduleTokenCache = new Map<string, number | null>();
+    const moduleUsageLogs = resolvedSelectedModules.map((moduleId, index) => {
+      let cached = moduleTokenCache.get(moduleId);
+      if (cached === undefined) {
+        try {
+          const count = ModuleStore.tokenCountOf(moduleId);
+          cached = Number.isFinite(count) ? Number(count) : null;
+        } catch {
+          cached = null;
+        }
+        moduleTokenCache.set(moduleId, cached);
+      }
+
+      return {
+        moduleKey: moduleId,
+        tokens: cached,
+        position: index,
+      };
+    });
 
     const banditRewardRecords: Array<{ pilar: string; arm: string; recompensa: number }> = [];
     const moduleOutcomeRecords: Array<{
@@ -583,7 +645,19 @@ export class ResponseFinalizer {
       memoria_ok: memoriaOk,
       bloco_ok: blocoOk,
     });
-    const tokensTotal = typeof usageTokens === "number" ? usageTokens : undefined;
+    const tokensTotal =
+      typeof usageTokens === "number" && Number.isFinite(usageTokens)
+        ? Number(usageTokens)
+        : undefined;
+    const tokensTotalValue = tokensTotal ?? null;
+    const promptTokenCount =
+      typeof promptTokens === "number" && Number.isFinite(promptTokens)
+        ? Number(promptTokens)
+        : null;
+    const completionTokenCount =
+      typeof completionTokens === "number" && Number.isFinite(completionTokens)
+        ? Number(completionTokens)
+        : null;
 
     const knapsackInfo = ecoDecision.debug.knapsack ?? null;
     let tokensAditivos: number | undefined;
@@ -663,13 +737,20 @@ export class ResponseFinalizer {
       const uniqueModules = Array.from(new Set(resolvedSelectedModules));
       for (const moduleId of uniqueModules) {
         try {
-          const tokens = ModuleStore.tokenCountOf(moduleId);
-          if (!Number.isFinite(tokens) || tokens <= 0) continue;
+          let tokens = moduleTokenCache.get(moduleId);
+          if (tokens === undefined) {
+            const count = ModuleStore.tokenCountOf(moduleId);
+            tokens = Number.isFinite(count) ? Number(count) : null;
+            moduleTokenCache.set(moduleId, tokens);
+          }
+
+          if (!Number.isFinite(tokens) || (tokens ?? 0) <= 0) continue;
+
+          const numericTokens = Number(tokens);
           qualityAnalyticsStore.recordModuleOutcome(moduleId, {
             q,
-            tokens,
+            tokens: numericTokens,
           });
-          const numericTokens = Number(tokens);
           const computedVpt = numericTokens > 0 ? q / numericTokens : null;
           moduleOutcomeRecords.push({
             module_id: moduleId,
@@ -749,7 +830,9 @@ export class ResponseFinalizer {
       estruturado_ok: estruturadoOk,
       memoria_ok: memoriaOk,
       bloco_ok: blocoOk,
-      tokens_total: tokensTotal ?? null,
+      tokens_total: tokensTotalValue,
+      prompt_tokens: promptTokenCount,
+      completion_tokens: completionTokenCount ?? tokensTotalValue,
       tokens_aditivos: tokensAditivos ?? null,
       mem_count: memCount,
       bandit_rewards: banditRewardRecords,
@@ -772,9 +855,73 @@ export class ResponseFinalizer {
           typeof debugTrace.latencyMs === "number" && Number.isFinite(debugTrace.latencyMs)
             ? Number(debugTrace.latencyMs)
             : null,
-        tokens_total: tokensTotal ?? null,
+        tokens_total: tokensTotalValue,
       },
     };
+
+    const latencyMs = Number.isFinite(duracao) ? Math.max(0, Math.round(duracao)) : null;
+
+    if (supabaseClient) {
+      void logInteraction({
+        supabase: supabaseClient,
+        interaction: {
+          userId: userId ?? null,
+          sessionId: resolvedSessaoId,
+          messageId: lastMessageId ?? null,
+          promptHash,
+          moduleCombo: resolvedSelectedModules,
+          tokensIn: promptTokenCount,
+          tokensOut: completionTokenCount ?? tokensTotalValue,
+          latencyMs,
+        },
+        moduleUsages: moduleUsageLogs,
+      }).catch((error) => {
+        log.warn("[responseFinalizer] interaction_log_error", {
+          message: error instanceof Error ? error.message : String(error),
+        });
+      });
+    }
+
+    try {
+      const mixpanelProps: Record<string, unknown> = {
+        latencyMs,
+        mode,
+        hasTechBlock: shouldBuildTechBlock,
+        moduleCount: moduleUsageLogs.length,
+      };
+
+      if (distinctId) {
+        mixpanelProps.distinct_id = distinctId;
+      }
+      if (userId) {
+        mixpanelProps.userId = userId;
+      }
+      if (resolvedSessaoId) {
+        mixpanelProps.sessionId = resolvedSessaoId;
+      }
+      if (lastMessageId) {
+        mixpanelProps.messageId = lastMessageId;
+      }
+      if (promptHash) {
+        mixpanelProps.promptHash = promptHash;
+      }
+      if (promptTokenCount != null) {
+        mixpanelProps.tokensIn = promptTokenCount;
+      }
+      const tokensOutForEvent = completionTokenCount ?? tokensTotalValue;
+      if (tokensOutForEvent != null) {
+        mixpanelProps.tokensOut = tokensOutForEvent;
+      }
+      if (resolvedSelectedModules.length) {
+        mixpanelProps.moduleCombo = resolvedSelectedModules;
+      }
+
+      mixpanel.track("BE:Interaction Logged", mixpanelProps);
+    } catch (error) {
+      log.warn("[responseFinalizer] mixpanel_interaction_log_error", {
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
 
     response.meta = {
       ...(response.meta ?? {}),
