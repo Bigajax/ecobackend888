@@ -22,6 +22,8 @@ import { executeStreamingLLM } from "./conversation/streamingOrchestrator";
 import { executeFullLLM } from "./conversation/fullOrchestrator";
 import type { EcoHints } from "../utils/types";
 import type { RetrieveMode } from "./supabase/memoriaRepository";
+import supabaseAdmin, { ensureSupabaseConfigured } from "../lib/supabaseAdmin";
+import type { ActivationTracer } from "../core/activationTracer";
 
 import type {
   EcoStreamHandler,
@@ -35,6 +37,26 @@ import { createHttpError, extractErrorDetail, isHttpError, resolveErrorStatus } 
 // Reexport para compatibilidade
 export { getEcoResponse as getEcoResponseOtimizado };
 export type { EcoStreamEvent, EcoStreamHandler, EcoStreamingResult, EcoLatencyMarks };
+
+type ResponseAnalyticsMeta = {
+  response_id: string | null;
+  q?: number;
+  estruturado_ok?: boolean;
+  memoria_ok?: boolean;
+  bloco_ok?: boolean;
+  tokens_total?: number | null;
+  tokens_aditivos?: number | null;
+  mem_count?: number;
+  bandit_rewards?: Array<{ pilar: string; arm: string; recompensa: number }>;
+  module_outcomes?: Array<{ module_id: string; tokens: number; q: number; vpt: number | null }>;
+  knapsack?: {
+    budget: number | null;
+    adotados: string[];
+    ganho_estimado: number | null;
+    tokens_aditivos: number | null;
+  } | null;
+  latency?: { ttfb_ms: number | null; ttlc_ms: number | null; tokens_total: number | null };
+};
 
 function inferRetrieveMode({
   ultimaMsg,
@@ -84,6 +106,251 @@ function inferRetrieveMode({
   }
 
   return { mode: "FAST", reason: "default", wordCount, charLength };
+}
+
+function isValidUuid(value: unknown): value is string {
+  if (typeof value !== "string") return false;
+  const normalized = value.trim();
+  if (normalized.length !== value.length) return false;
+  return /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(normalized);
+}
+
+function asNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function asInteger(value: unknown): number | null {
+  const numeric = asNumber(value);
+  if (numeric == null) return null;
+  return Math.round(numeric);
+}
+
+async function persistAnalyticsRecords({
+  result,
+  retrieveMode,
+  activationTracer,
+  userId,
+}: {
+  result: GetEcoResult;
+  retrieveMode: RetrieveMode;
+  activationTracer?: ActivationTracer | null;
+  userId?: string | null;
+}): Promise<void> {
+  if (!result) return;
+
+  const meta = (result.meta ??= {});
+  const analyticsMeta = (meta.analytics ?? null) as ResponseAnalyticsMeta | null;
+  if (!analyticsMeta) return;
+
+  const existingResponseId = analyticsMeta.response_id;
+  const responseId = isValidUuid(existingResponseId) ? existingResponseId : randomUUID();
+  meta.analytics = { ...analyticsMeta, response_id: responseId };
+
+  try {
+    ensureSupabaseConfigured();
+  } catch (error) {
+    if (process.env.ECO_DEBUG === "1") {
+      const message = error instanceof Error ? error.message : String(error);
+      log.debug("[analytics]", { tabela: "skipped", response_id: responseId, motivo: message });
+    }
+    return;
+  }
+
+  const analyticsClient = supabaseAdmin.schema("analytics");
+  const normalizedUserId = isValidUuid(userId) ? userId : null;
+
+  const tracerSnapshot = activationTracer?.snapshot?.();
+  const tracerLatency = tracerSnapshot?.latency ?? {};
+  const ttfbFromTracer =
+    typeof tracerLatency.firstTokenMs === "number" && Number.isFinite(tracerLatency.firstTokenMs)
+      ? Math.max(0, Math.round(tracerLatency.firstTokenMs))
+      : null;
+  const ttlcFromTracer =
+    typeof tracerLatency.totalMs === "number" && Number.isFinite(tracerLatency.totalMs)
+      ? Math.max(0, Math.round(tracerLatency.totalMs))
+      : null;
+
+  const analyticsLatency = analyticsMeta.latency ?? {};
+  const ttfbMs =
+    ttfbFromTracer ??
+    (typeof analyticsLatency.ttfb_ms === "number" && Number.isFinite(analyticsLatency.ttfb_ms)
+      ? Math.max(0, Math.round(analyticsLatency.ttfb_ms))
+      : null);
+
+  let ttlcMs =
+    ttlcFromTracer ??
+    (typeof analyticsLatency.ttlc_ms === "number" && Number.isFinite(analyticsLatency.ttlc_ms)
+      ? Math.max(0, Math.round(analyticsLatency.ttlc_ms))
+      : null);
+
+  if (ttlcMs == null) {
+    const timings = (meta.debug_trace as { timings?: EcoLatencyMarks; latencyMs?: number } | undefined)?.timings;
+    if (timings?.llmStart != null && timings?.llmEnd != null) {
+      const diff = Math.round(timings.llmEnd - timings.llmStart);
+      if (Number.isFinite(diff)) {
+        ttlcMs = Math.max(0, diff);
+      }
+    }
+  }
+
+  if (ttlcMs == null) {
+    const latencyMs = (meta.debug_trace as { latencyMs?: number } | undefined)?.latencyMs;
+    if (typeof latencyMs === "number" && Number.isFinite(latencyMs)) {
+      ttlcMs = Math.max(0, Math.round(latencyMs));
+    }
+  }
+
+  const tokensTotal = asInteger(analyticsMeta.tokens_total);
+  const tokensAditivos = asInteger(analyticsMeta.tokens_aditivos);
+
+  const respostaRow = {
+    response_id: responseId,
+    user_id: normalizedUserId,
+    retrieve_mode: retrieveMode,
+    q: typeof analyticsMeta.q === "number" ? analyticsMeta.q : null,
+    estruturado_ok:
+      typeof analyticsMeta.estruturado_ok === "boolean" ? analyticsMeta.estruturado_ok : null,
+    memoria_ok: typeof analyticsMeta.memoria_ok === "boolean" ? analyticsMeta.memoria_ok : null,
+    bloco_ok: typeof analyticsMeta.bloco_ok === "boolean" ? analyticsMeta.bloco_ok : null,
+    tokens_total: tokensTotal,
+    tokens_aditivos: tokensAditivos,
+    ttfb_ms: ttfbMs,
+    ttlc_ms: ttlcMs,
+  };
+
+  const tasks: Array<Promise<void>> = [];
+
+  const insertRows = async (tabela: string, rows: Array<Record<string, unknown>>) => {
+    if (!rows.length) return;
+    const payload = rows.map((row) => {
+      const normalized: Record<string, unknown> = {};
+      for (const [key, value] of Object.entries(row)) {
+        normalized[key] = value ?? null;
+      }
+      return normalized;
+    });
+    const { error } = await analyticsClient.from(tabela).insert(payload, { returning: "minimal" });
+    if (error) {
+      log.warn("[analytics]", {
+        tabela,
+        response_id: responseId,
+        erro: error.message,
+      });
+      return;
+    }
+    log.debug("[analytics]", { tabela, response_id: responseId });
+  };
+
+  tasks.push(insertRows("resposta_q", [respostaRow]));
+
+  if (Array.isArray(analyticsMeta.bandit_rewards) && analyticsMeta.bandit_rewards.length > 0) {
+    const banditRows = analyticsMeta.bandit_rewards
+      .filter(
+        (reward): reward is { pilar: string; arm: string; recompensa: number } =>
+          Boolean(
+            reward &&
+              typeof reward.pilar === "string" &&
+              reward.pilar &&
+              typeof reward.arm === "string" &&
+              reward.arm &&
+              typeof reward.recompensa === "number" &&
+              Number.isFinite(reward.recompensa)
+          )
+      )
+      .map((reward) => ({
+        response_id: responseId,
+        pilar: reward.pilar,
+        arm: reward.arm,
+        recompensa: reward.recompensa,
+      }));
+    if (banditRows.length) {
+      tasks.push(insertRows("bandit_rewards", banditRows));
+    }
+  }
+
+  if (Array.isArray(analyticsMeta.module_outcomes) && analyticsMeta.module_outcomes.length > 0) {
+    const moduleRows = analyticsMeta.module_outcomes
+      .filter(
+        (entry): entry is { module_id: string; tokens: number; q: number; vpt: number | null } =>
+          Boolean(
+            entry &&
+              typeof entry.module_id === "string" &&
+              entry.module_id &&
+              typeof entry.tokens === "number" &&
+              Number.isFinite(entry.tokens) &&
+              entry.tokens > 0 &&
+              typeof entry.q === "number" &&
+              Number.isFinite(entry.q)
+          )
+      )
+      .map((entry) => ({
+        response_id: responseId,
+        module_id: entry.module_id,
+        tokens: Math.max(0, Math.round(entry.tokens)),
+        q: entry.q,
+        vpt:
+          typeof entry.vpt === "number" && Number.isFinite(entry.vpt)
+            ? entry.vpt
+            : entry.tokens > 0
+            ? entry.q / entry.tokens
+            : null,
+      }));
+    if (moduleRows.length) {
+      tasks.push(insertRows("module_outcomes", moduleRows));
+    }
+  }
+
+  if (analyticsMeta.knapsack) {
+    const knapsack = analyticsMeta.knapsack;
+    const budget = asInteger(knapsack.budget);
+    const ganhoEstimado = asNumber(knapsack.ganho_estimado);
+    const tokensKnapsack = asInteger(knapsack.tokens_aditivos ?? analyticsMeta.tokens_aditivos);
+    const adotados = Array.isArray(knapsack.adotados)
+      ? knapsack.adotados.filter((value) => typeof value === "string")
+      : [];
+    tasks.push(
+      insertRows("knapsack_decision", [
+        {
+          response_id: responseId,
+          budget,
+          adotados,
+          ganho_estimado: ganhoEstimado,
+          tokens_aditivos: tokensKnapsack,
+        },
+      ])
+    );
+  }
+
+  const latencyRow = {
+    response_id: responseId,
+    ttfb_ms: ttfbMs,
+    ttlc_ms: ttlcMs,
+    tokens_total: tokensTotal,
+  };
+  if (latencyRow.ttfb_ms != null || latencyRow.ttlc_ms != null || latencyRow.tokens_total != null) {
+    tasks.push(insertRows("latency_samples", [latencyRow]));
+  }
+
+  await Promise.all(tasks);
+}
+
+async function persistAnalyticsSafe(options: {
+  result: GetEcoResult;
+  retrieveMode: RetrieveMode;
+  activationTracer?: ActivationTracer | null;
+  userId?: string | null;
+}): Promise<void> {
+  try {
+    await persistAnalyticsRecords(options);
+  } catch (error) {
+    if (process.env.ECO_DEBUG === "1") {
+      const responseId =
+        ((options.result?.meta as { analytics?: { response_id?: string | null } } | null)?.analytics?.response_id ??
+          null);
+      const message = error instanceof Error ? error.message : String(error);
+      log.debug("[analytics]", { tabela: "persist_failed", response_id: responseId, motivo: message });
+    }
+  }
 }
 
 export async function getEcoResponse(
@@ -182,7 +449,41 @@ export async function getEcoResponse({
     );
 
     if (preLLM) {
-      return preLLM.result;
+      const retrieveForAnalytics = inferRetrieveMode({
+        ultimaMsg,
+        hints: null,
+        ecoDecision,
+      });
+
+      if (preLLM.kind === "final") {
+        await persistAnalyticsSafe({
+          result: preLLM.result,
+          retrieveMode: retrieveForAnalytics.mode,
+          activationTracer,
+          userId: !isGuest ? userId : null,
+        });
+        return preLLM.result;
+      }
+
+      const originalPreFinalize = preLLM.result.finalize;
+      let preFinalizePromise: Promise<GetEcoResult> | null = null;
+      const finalizeWithAnalytics = async () => {
+        if (!preFinalizePromise) {
+          preFinalizePromise = (async () => {
+            const finalized = await originalPreFinalize();
+            await persistAnalyticsSafe({
+              result: finalized,
+              retrieveMode: retrieveForAnalytics.mode,
+              activationTracer,
+              userId: !isGuest ? userId : null,
+            });
+            return finalized;
+          })();
+        }
+        return preFinalizePromise;
+      };
+
+      return { ...preLLM.result, finalize: finalizeWithAnalytics };
     }
 
     // Decisão sobre memória e modo de conversa
@@ -238,6 +539,13 @@ export async function getEcoResponse({
         isGuest,
         guestId: guestId ?? undefined,
         ecoDecision,
+      });
+
+      await persistAnalyticsSafe({
+        result: fast.response,
+        retrieveMode: retrieveDecision.mode,
+        activationTracer,
+        userId: !isGuest ? userId : null,
       });
 
       return fast.response;
@@ -377,7 +685,7 @@ export async function getEcoResponse({
 
     // STREAMING
     if (streamHandler) {
-      return executeStreamingLLM({
+      const streamingResult = await executeStreamingLLM({
         prompt,
         maxTokens,
         principalModel,
@@ -397,6 +705,26 @@ export async function getEcoResponse({
         calHints: calHints ?? undefined,
         memsSemelhantes,
       });
+
+      const originalFinalize = streamingResult.finalize;
+      let finalizePromise: Promise<GetEcoResult> | null = null;
+      const finalizeWithAnalytics = async () => {
+        if (!finalizePromise) {
+          finalizePromise = (async () => {
+            const finalized = await originalFinalize();
+            await persistAnalyticsSafe({
+              result: finalized,
+              retrieveMode: retrieveDecision.mode,
+              activationTracer,
+              userId: !isGuest ? userId : null,
+            });
+            return finalized;
+          })();
+        }
+        return finalizePromise;
+      };
+
+      return { ...streamingResult, finalize: finalizeWithAnalytics };
     }
 
     // Execução completa (sem stream)
@@ -418,6 +746,13 @@ export async function getEcoResponse({
       guestId: guestId ?? undefined,
       calHints: calHints ?? undefined,
       memsSemelhantes,
+    });
+
+    await persistAnalyticsSafe({
+      result: resultado,
+      retrieveMode: retrieveDecision.mode,
+      activationTracer,
+      userId: !isGuest ? userId : null,
     });
 
     return resultado;

@@ -504,6 +504,14 @@ export class ResponseFinalizer {
       ? selectedModules
       : ecoDecision.debug.selectedModules;
 
+    const banditRewardRecords: Array<{ pilar: string; arm: string; recompensa: number }> = [];
+    const moduleOutcomeRecords: Array<{
+      module_id: string;
+      tokens: number;
+      q: number;
+      vpt: number | null;
+    }> = [];
+
     const debugTrace = {
       inputPreview: ultimaMsg.slice(0, 200),
       intensity: ecoDecision.intensity,
@@ -631,6 +639,11 @@ export class ResponseFinalizer {
           if (!resolvedSelectedModules.includes(moduleId)) continue;
 
           updateBanditArm(selection.pilar, selection.arm, reward);
+          banditRewardRecords.push({
+            pilar: selection.pilar,
+            arm: selection.arm,
+            recompensa: Number(reward),
+          });
           try {
             this.deps.trackBanditArmUpdate({
               distinctId,
@@ -655,6 +668,17 @@ export class ResponseFinalizer {
           qualityAnalyticsStore.recordModuleOutcome(moduleId, {
             q,
             tokens,
+          });
+          const numericTokens = Number(tokens);
+          const computedVpt = numericTokens > 0 ? q / numericTokens : null;
+          moduleOutcomeRecords.push({
+            module_id: moduleId,
+            tokens: numericTokens,
+            q,
+            vpt:
+              computedVpt != null && Number.isFinite(computedVpt)
+                ? Number(computedVpt.toFixed(6))
+                : null,
           });
         } catch {
           // métricas são best-effort
@@ -718,6 +742,44 @@ export class ResponseFinalizer {
         cal_score: calHints.score,
       };
     }
+
+    const analyticsMeta = {
+      response_id: null as string | null,
+      q,
+      estruturado_ok: estruturadoOk,
+      memoria_ok: memoriaOk,
+      bloco_ok: blocoOk,
+      tokens_total: tokensTotal ?? null,
+      tokens_aditivos: tokensAditivos ?? null,
+      mem_count: memCount,
+      bandit_rewards: banditRewardRecords,
+      module_outcomes: moduleOutcomeRecords,
+      knapsack: knapsackInfo
+        ? {
+            budget: Number.isFinite(knapsackInfo.budget) ? Number(knapsackInfo.budget) : null,
+            adotados: Array.isArray(knapsackInfo.adotados)
+              ? knapsackInfo.adotados.filter((value) => typeof value === "string")
+              : [],
+            ganho_estimado: Number.isFinite(knapsackInfo.marginalGain)
+              ? Number(knapsackInfo.marginalGain)
+              : null,
+            tokens_aditivos: tokensAditivos ?? null,
+          }
+        : null,
+      latency: {
+        ttfb_ms: null as number | null,
+        ttlc_ms:
+          typeof debugTrace.latencyMs === "number" && Number.isFinite(debugTrace.latencyMs)
+            ? Number(debugTrace.latencyMs)
+            : null,
+        tokens_total: tokensTotal ?? null,
+      },
+    };
+
+    response.meta = {
+      ...(response.meta ?? {}),
+      analytics: analyticsMeta,
+    };
 
     return response;
   }
