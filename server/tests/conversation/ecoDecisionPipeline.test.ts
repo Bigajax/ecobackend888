@@ -3,8 +3,7 @@ import assert from "node:assert/strict";
 
 import { computeEcoDecision } from "../../services/conversation/ecoDecisionHub";
 import { ResponseFinalizer } from "../../services/conversation/responseFinalizer";
-
-const noop = () => {};
+import { makeResponseFinalizerDepsStub } from "../../../tests/helpers/makeResponseFinalizerDepsStub";
 
 test("Case A: intensidade 3 sem vulnerabilidade gera NV1", () => {
   const texto = "Hoje foi um dia comum, só queria dividir um pouco da rotina.";
@@ -44,19 +43,14 @@ test("Case C: intensidade alta e vulnerável ativa NV3, memória e bloco técnic
   assert.strictEqual(decision.hasTechBlock, true);
 
   const savedPayloads: any[] = [];
-  const finalizer = new ResponseFinalizer({
-    gerarBlocoTecnicoComCache: async () => ({ emocao_principal: "", tags: [] }),
-    saveMemoryOrReference: async (payload: any) => {
-      savedPayloads.push(payload);
-    },
-    trackMensagemEnviada: noop as any,
-    trackEcoDemorou: noop as any,
-    trackBlocoTecnico: noop as any,
-    trackSessaoEntrouChat: noop as any,
-    identifyUsuario: noop as any,
-    trackRespostaQ: noop as any,
-    trackKnapsackDecision: noop as any,
-  });
+  const finalizer = new ResponseFinalizer(
+    makeResponseFinalizerDepsStub({
+      gerarBlocoTecnicoComCache: async () => ({ emocao_principal: "", tags: [] }),
+      saveMemoryOrReference: async (payload: any) => {
+        savedPayloads.push(payload);
+      },
+    })
+  );
 
   const resultado = await finalizer.finalize({
     raw: "Aqui está uma resposta de apoio.",
