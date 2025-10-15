@@ -372,6 +372,12 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
     }
   }
 
+  for (const coreName of MINIMAL_VITAL_SET) {
+    if (!ordered.includes(coreName)) {
+      ordered.push(coreName);
+    }
+  }
+
   // 🔢 carrega candidatos respeitando a ordem absoluta
   const candidates = await ModuleCatalog.load(ordered);
   const selection = Selector.applyModuleMetadata({
