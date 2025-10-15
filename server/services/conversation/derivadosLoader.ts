@@ -32,6 +32,7 @@ interface ParallelFetchLike {
     ultimaMsg: string;
     userId?: string;
     supabase?: any;
+    retrieveMode?: RetrieveMode;
   }): Promise<{
     heuristicas: any[];
     userEmbedding: number[];
