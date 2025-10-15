@@ -5,19 +5,23 @@ import { claudeChatCompletion } from "../core/ClaudeAdapter";
 import { planHints } from "../core/ResponsePlanner";
 import { materializeHints } from "../core/ResponseGenerator";
 import { log, isDebug } from "./promptContext/logger";
+import { trackRetrieveMode } from "../analytics/events/mixpanelEvents";
 
 import { defaultGreetingPipeline } from "./conversation/greeting";
 import { defaultConversationRouter } from "./conversation/router";
 import { runFastLaneLLM } from "./conversation/fastLane";
-import { buildFullPrompt } from "./conversation/promptPlan";
+import { buildFullPrompt, selectBanditArms } from "./conversation/promptPlan";
 import { defaultResponseFinalizer } from "./conversation/responseFinalizer";
 import { firstName } from "./conversation/helpers";
 import { computeEcoDecision, MEMORY_THRESHOLD } from "./conversation/ecoDecisionHub";
+import type { EcoDecisionResult } from "./conversation/ecoDecisionHub";
 
 import { handlePreLLMShortcuts } from "./conversation/preLLMPipeline";
 import { prepareConversationContext } from "./conversation/contextPreparation";
 import { executeStreamingLLM } from "./conversation/streamingOrchestrator";
 import { executeFullLLM } from "./conversation/fullOrchestrator";
+import type { EcoHints } from "../utils/types";
+import type { RetrieveMode } from "./supabase/memoriaRepository";
 
 import type {
   EcoStreamHandler,
@@ -31,6 +35,56 @@ import { createHttpError, extractErrorDetail, isHttpError, resolveErrorStatus } 
 // Reexport para compatibilidade
 export { getEcoResponse as getEcoResponseOtimizado };
 export type { EcoStreamEvent, EcoStreamHandler, EcoStreamingResult, EcoLatencyMarks };
+
+function inferRetrieveMode({
+  ultimaMsg,
+  hints,
+  ecoDecision,
+}: {
+  ultimaMsg: string;
+  hints?: EcoHints | null;
+  ecoDecision: EcoDecisionResult;
+}): { mode: RetrieveMode; reason: string; wordCount: number; charLength: number } {
+  const text = (ultimaMsg ?? "").trim();
+  const charLength = text.length;
+  const wordCount = text ? text.split(/\s+/).filter(Boolean).length : 0;
+  const paragraphCount = text
+    ? text
+        .split(/\n{2,}/)
+        .map((chunk) => chunk.trim())
+        .filter((chunk) => chunk.length > 0).length
+    : 0;
+
+  const hasDeepFlag = Array.isArray(hints?.flags)
+    ? hints!.flags!.some((flag) => /journal|reflex|longform|profundo/i.test(flag))
+    : false;
+
+  if (hasDeepFlag) {
+    return { mode: "DEEP", reason: "hint_flag", wordCount, charLength };
+  }
+
+  if (wordCount >= 150 || charLength >= 700) {
+    return { mode: "DEEP", reason: "long_text", wordCount, charLength };
+  }
+
+  if (paragraphCount >= 3 && wordCount >= 80) {
+    return { mode: "DEEP", reason: "multi_paragraph", wordCount, charLength };
+  }
+
+  if (ecoDecision.intensity >= 7 && ecoDecision.openness >= 2 && wordCount >= 60) {
+    return { mode: "DEEP", reason: "high_intensity", wordCount, charLength };
+  }
+
+  if (wordCount >= 100) {
+    return { mode: "DEEP", reason: "long_words", wordCount, charLength };
+  }
+
+  if (wordCount <= 40 && charLength <= 260) {
+    return { mode: "FAST", reason: "short_text", wordCount, charLength };
+  }
+
+  return { mode: "FAST", reason: "default", wordCount, charLength };
+}
 
 export async function getEcoResponse(
   params: GetEcoParams & { promptOverride?: string; metaFromBuilder?: any }
@@ -189,11 +243,79 @@ export async function getEcoResponse({
       return fast.response;
     }
 
+    const calMode = (process.env.ECO_CAL_MODE ?? "on").toLowerCase();
+    let plannedHints: ReturnType<typeof planHints> | null = null;
+    let calHints: EcoHints | null = null;
+
+    if (calMode !== "off") {
+      const recentUserInputs = thread
+        .slice(0, -1)
+        .filter((msg) => mapRoleForOpenAI(msg.role) === "user")
+        .slice(-3)
+        .map((msg) => msg.content ?? "");
+
+      let lastHintKey: string | null = null;
+      for (let i = thread.length - 1; i >= 0; i -= 1) {
+        const candidate = thread[i];
+        if (!candidate || typeof candidate.content !== "string") continue;
+        if (!candidate.content.includes("ECO_HINTS")) continue;
+        const match = candidate.content.match(/ECO_HINTS\(JSON\):\s*(\{.+?\})\s*\|/);
+        if (!match) continue;
+        try {
+          const parsed = JSON.parse(match[1]!);
+          if (parsed && typeof parsed.key === "string") {
+            lastHintKey = parsed.key;
+            break;
+          }
+        } catch {
+          // ignora parsing falho
+        }
+      }
+
+      plannedHints = planHints(ultimaMsg, {
+        recentUserInputs,
+        lastHintKey,
+      });
+      calHints = materializeHints(plannedHints, ultimaMsg);
+    }
+
+    const retrieveDecision = inferRetrieveMode({
+      ultimaMsg,
+      hints: calHints ?? undefined,
+      ecoDecision,
+    });
+
+    const retrieveDistinctId =
+      sessionMeta?.distinctId ?? (isGuest ? guestId ?? undefined : userId);
+    try {
+      trackRetrieveMode({
+        distinctId: retrieveDistinctId ?? undefined,
+        userId: !isGuest ? userId : undefined,
+        mode: retrieveDecision.mode,
+        reason: retrieveDecision.reason,
+        word_count: retrieveDecision.wordCount,
+        char_length: retrieveDecision.charLength,
+      });
+    } catch (error) {
+      if (isDebug()) {
+        const message = error instanceof Error ? error.message : String(error);
+        log.debug("[RetrieveMode] track_failed", { message });
+      }
+    }
+
+    const banditDistinctId =
+      sessionMeta?.distinctId ?? (isGuest ? guestId ?? undefined : userId);
+    selectBanditArms({
+      decision: ecoDecision,
+      distinctId: banditDistinctId ?? undefined,
+      userId: !isGuest ? userId : undefined,
+    });
+
     // Montagem de contexto (prompts, memórias, etc.)
     timings.contextBuildStart = now();
     log.info("// LATENCY: context_build_start", { at: timings.contextBuildStart });
 
-    const { systemPrompt } = await prepareConversationContext({
+    const { systemPrompt, context } = await prepareConversationContext({
       userId: isGuest ? undefined : userId,
       ultimaMsg,
       supabase,
@@ -213,7 +335,12 @@ export async function getEcoResponse({
       cacheUserId: userId,
       isGuest,
       activationTracer,
+      retrieveMode: retrieveDecision.mode,
     });
+
+    const memsSemelhantes = Array.isArray(context?.memsSemelhantes)
+      ? context.memsSemelhantes
+      : [];
 
     const { prompt, maxTokens } = buildFullPrompt({
       decision: routeDecision,
@@ -222,39 +349,8 @@ export async function getEcoResponse({
       messages: thread,
     });
 
-    const calMode = (process.env.ECO_CAL_MODE ?? "on").toLowerCase();
-    const recentUserInputs = thread
-      .slice(0, -1)
-      .filter((msg) => mapRoleForOpenAI(msg.role) === "user")
-      .slice(-3)
-      .map((msg) => msg.content ?? "");
-
-    let lastHintKey: string | null = null;
-    for (let i = thread.length - 1; i >= 0; i--) {
-      const candidate = thread[i];
-      if (!candidate || typeof candidate.content !== "string") continue;
-      if (!candidate.content.includes("ECO_HINTS")) continue;
-      const match = candidate.content.match(/ECO_HINTS\(JSON\):\s*(\{.+?\})\s*\|/);
-      if (!match) continue;
-      try {
-        const parsed = JSON.parse(match[1]!);
-        if (parsed && typeof parsed.key === "string") {
-          lastHintKey = parsed.key;
-          break;
-        }
-      } catch {
-        // ignora parsing falho
-      }
-    }
-
-    const plannedHints = calMode === "off" ? null : planHints(ultimaMsg, {
-      recentUserInputs,
-      lastHintKey,
-    });
-    const hints = calMode === "off" ? null : materializeHints(plannedHints, ultimaMsg);
-
-    if (hints && hints.score >= 0.6) {
-      const hintPayload = `ECO_HINTS(JSON): ${JSON.stringify(hints)} | Use como orientação. Não repita literalmente. Preserve continuidade.`;
+    if (calHints && calHints.score >= 0.6) {
+      const hintPayload = `ECO_HINTS(JSON): ${JSON.stringify(calHints)} | Use como orientação. Não repita literalmente. Preserve continuidade.`;
       prompt.unshift({
         role: "system",
         name: "eco_hints",
@@ -262,7 +358,7 @@ export async function getEcoResponse({
       });
       if (process.env.ECO_DEBUG === "1") {
         log.debug?.(
-          `[CAL] key=${hints.key} score=${hints.score.toFixed(2)} flags=[${hints.flags.join(",")}] injected`
+          `[CAL] key=${calHints.key} score=${calHints.score.toFixed(2)} flags=[${calHints.flags.join(",")}] injected`
         );
       }
     }
@@ -298,7 +394,8 @@ export async function getEcoResponse({
         isGuest,
         guestId: guestId ?? undefined,
         thread,
-        calHints: hints ?? undefined,
+        calHints: calHints ?? undefined,
+        memsSemelhantes,
       });
     }
 
@@ -319,7 +416,8 @@ export async function getEcoResponse({
       thread,
       isGuest,
       guestId: guestId ?? undefined,
-      calHints: hints ?? undefined,
+      calHints: calHints ?? undefined,
+      memsSemelhantes,
     });
 
     return resultado;

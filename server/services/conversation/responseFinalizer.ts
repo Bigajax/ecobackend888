@@ -12,6 +12,9 @@ import {
   trackBlocoTecnico,
   trackSessaoEntrouChat,
   identifyUsuario,
+  trackRespostaQ,
+  trackKnapsackDecision,
+  trackBanditArmUpdate,
 } from "../../analytics/events/mixpanelEvents";
 import { log } from "../promptContext/logger";
 import {
@@ -19,10 +22,24 @@ import {
   stripIdentityCorrection,
   stripRedundantGreeting,
 } from "./helpers";
+import {
+  checkBlocoTecnico,
+  checkEstrutura,
+  checkMemoria,
+  computeQ,
+} from "../quality/validators";
+import { qualityAnalyticsStore } from "../analytics/analyticsStore";
+import { ModuleStore } from "../promptContext/ModuleStore";
 import type { GetEcoResult } from "../../utils";
 import type { EcoHints } from "../../utils/types";
 import type { EcoLatencyMarks } from "./types";
 import type { EcoDecisionResult } from "./ecoDecisionHub";
+import {
+  updateArm as updateBanditArm,
+  type BanditSelectionMap,
+} from "../orchestrator/bandits/ts";
+
+const BANDIT_TOKEN_PENALTY_LAMBDA = 0.01;
 
 interface ResponseFinalizerDeps {
   gerarBlocoTecnicoComCache: typeof gerarBlocoTecnicoComCache;
@@ -32,6 +49,9 @@ interface ResponseFinalizerDeps {
   trackBlocoTecnico: typeof trackBlocoTecnico;
   trackSessaoEntrouChat: typeof trackSessaoEntrouChat;
   identifyUsuario: typeof identifyUsuario;
+  trackRespostaQ: typeof trackRespostaQ;
+  trackKnapsackDecision: typeof trackKnapsackDecision;
+  trackBanditArmUpdate: typeof trackBanditArmUpdate;
 }
 
 export interface FinalizeParams {
@@ -60,6 +80,7 @@ export interface FinalizeParams {
   selectedModules?: string[];
   timingsSnapshot?: EcoLatencyMarks;
   calHints?: EcoHints | null;
+  memsSemelhantes?: Array<{ id?: string | null; tags?: string[] | null }>;
 }
 
 export interface NormalizedEcoResponse {
@@ -120,6 +141,9 @@ export class ResponseFinalizer {
       trackBlocoTecnico,
       trackSessaoEntrouChat,
       identifyUsuario,
+      trackRespostaQ,
+      trackKnapsackDecision,
+      trackBanditArmUpdate,
     }
   ) {}
 
@@ -127,6 +151,27 @@ export class ResponseFinalizer {
     const raw = process.env.ECO_BLOCO_TIMEOUT_MS;
     const parsed = raw ? Number.parseInt(raw, 10) : Number.NaN;
     return Number.isFinite(parsed) && parsed >= 0 ? parsed : 1000;
+  }
+
+  private collectMemoryAnchors(
+    mems?: Array<{ id?: string | null; tags?: string[] | null }>
+  ): string[] {
+    if (!Array.isArray(mems) || mems.length === 0) return [];
+    const anchors = new Set<string>();
+    for (const memoria of mems) {
+      const rawId = typeof memoria?.id === "string" ? memoria.id.trim() : "";
+      if (rawId) {
+        anchors.add(`id:${rawId}`);
+      }
+      const tags = Array.isArray(memoria?.tags) ? memoria.tags : [];
+      for (const tag of tags) {
+        if (typeof tag !== "string") continue;
+        const trimmed = tag.trim();
+        if (!trimmed) continue;
+        anchors.add(`tag:${trimmed}`);
+      }
+    }
+    return Array.from(anchors);
   }
 
   public gerarBlocoComTimeout({
@@ -375,6 +420,7 @@ export class ResponseFinalizer {
     selectedModules,
     timingsSnapshot,
     calHints,
+    memsSemelhantes,
   }: FinalizeParams): Promise<GetEcoResult> {
     const distinctId =
       providedDistinctId ?? sessionMeta?.distinctId ?? guestId ?? userId;
@@ -454,6 +500,10 @@ export class ResponseFinalizer {
       response.emocao = "indefinida";
     }
 
+    const resolvedSelectedModules = Array.isArray(selectedModules)
+      ? selectedModules
+      : ecoDecision.debug.selectedModules;
+
     const debugTrace = {
       inputPreview: ultimaMsg.slice(0, 200),
       intensity: ecoDecision.intensity,
@@ -463,7 +513,7 @@ export class ResponseFinalizer {
       saveMemory: ecoDecision.saveMemory,
       hasTechBlock: ecoDecision.hasTechBlock,
       moduleCandidates: moduleCandidates ?? ecoDecision.debug.modules,
-      selectedModules: selectedModules ?? ecoDecision.debug.selectedModules,
+      selectedModules: resolvedSelectedModules,
       signals: ecoDecision.debug,
       latencyMs: now() - startedAt,
       timings: timingsSnapshot ?? undefined,
@@ -511,6 +561,137 @@ export class ResponseFinalizer {
       modelo,
       blocoStatus,
     });
+
+    const memoryAnchors = this.collectMemoryAnchors(memsSemelhantes);
+    const memCount = Array.isArray(memsSemelhantes) ? memsSemelhantes.length : 0;
+    const estruturadoOk = checkEstrutura(cleaned);
+    const memoriaOk =
+      memoryAnchors.length > 0
+        ? checkMemoria(response.message ?? cleaned, memoryAnchors)
+        : false;
+    const blocoOk = checkBlocoTecnico(raw, ecoDecision.intensity);
+    const q = computeQ({
+      estruturado_ok: estruturadoOk,
+      memoria_ok: memoriaOk,
+      bloco_ok: blocoOk,
+    });
+    const tokensTotal = typeof usageTokens === "number" ? usageTokens : undefined;
+
+    const knapsackInfo = ecoDecision.debug.knapsack ?? null;
+    let tokensAditivos: number | undefined;
+    if (knapsackInfo) {
+      const storedTokens = Number(knapsackInfo.tokensAditivos);
+      if (Number.isFinite(storedTokens) && storedTokens > 0) {
+        tokensAditivos = storedTokens;
+      } else if (Array.isArray(knapsackInfo.adotados)) {
+        try {
+          const sum = knapsackInfo.adotados.reduce((acc, id) => {
+            const tokens = ModuleStore.tokenCountOf(id);
+            return acc + (Number.isFinite(tokens) ? tokens : 0);
+          }, 0);
+          tokensAditivos = sum > 0 ? sum : undefined;
+        } catch {
+          tokensAditivos = undefined;
+        }
+      }
+
+      try {
+        this.deps.trackKnapsackDecision({
+          distinctId,
+          userId,
+          budget: knapsackInfo.budget,
+          adotados: Array.isArray(knapsackInfo.adotados)
+            ? knapsackInfo.adotados
+            : [],
+          marginal_gain: knapsackInfo.marginalGain,
+          tokens_aditivos: tokensAditivos,
+        });
+      } catch (error) {
+        if (process.env.ECO_DEBUG === "1") {
+          const message = error instanceof Error ? error.message : String(error);
+          log.debug("[Knapsack] track_failed", { message });
+        }
+      }
+    }
+
+    const banditSelections =
+      (ecoDecision.banditArms as BanditSelectionMap | undefined) ??
+      (ecoDecision.debug?.bandits as BanditSelectionMap | undefined);
+    if (banditSelections && Object.values(banditSelections).some(Boolean)) {
+      const safeTokens =
+        typeof tokensTotal === "number" && Number.isFinite(tokensTotal)
+          ? Math.max(tokensTotal, 0)
+          : 0;
+      const reward = q - BANDIT_TOKEN_PENALTY_LAMBDA * (safeTokens / 1000);
+      if (Number.isFinite(reward)) {
+        for (const selection of Object.values(banditSelections)) {
+          if (!selection) continue;
+          const moduleId = typeof selection.module === "string" ? selection.module : "";
+          if (!moduleId) continue;
+          if (!resolvedSelectedModules.includes(moduleId)) continue;
+
+          updateBanditArm(selection.pilar, selection.arm, reward);
+          try {
+            this.deps.trackBanditArmUpdate({
+              distinctId,
+              userId,
+              pilar: selection.pilar,
+              arm: selection.arm,
+              recompensa: reward,
+            });
+          } catch {
+            // telemetria é best-effort
+          }
+        }
+      }
+    }
+
+    if (resolvedSelectedModules.length) {
+      const uniqueModules = Array.from(new Set(resolvedSelectedModules));
+      for (const moduleId of uniqueModules) {
+        try {
+          const tokens = ModuleStore.tokenCountOf(moduleId);
+          if (!Number.isFinite(tokens) || tokens <= 0) continue;
+          qualityAnalyticsStore.recordModuleOutcome(moduleId, {
+            q,
+            tokens,
+          });
+        } catch {
+          // métricas são best-effort
+        }
+      }
+    }
+
+    try {
+      this.deps.trackRespostaQ({
+        distinctId,
+        userId,
+        Q: q,
+        estruturado_ok: estruturadoOk,
+        memoria_ok: memoriaOk,
+        bloco_ok: blocoOk,
+        tokens_total: tokensTotal,
+        tokens_aditivos: tokensAditivos,
+        mem_count: memCount,
+      });
+    } catch (error) {
+      if (process.env.ECO_DEBUG === "1") {
+        const message = error instanceof Error ? error.message : String(error);
+        log.debug("[Quality] track_failed", { message });
+      }
+    }
+
+    try {
+      qualityAnalyticsStore.recordQualitySample({
+        timestamp: now(),
+        q,
+        estruturado_ok: estruturadoOk,
+        memoria_ok: memoriaOk,
+        bloco_ok: blocoOk,
+      });
+    } catch {
+      // store failures não devem bloquear fluxo
+    }
 
     void this.persistirMemoriaEmBackground({
       userId,

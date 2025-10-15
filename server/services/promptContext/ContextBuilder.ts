@@ -11,6 +11,7 @@ import { formatMemRecall } from "./memoryRecall";
 import { buildInstructionBlocks, renderInstructionBlocks } from "./instructionPolicy";
 import { applyCurrentMessage, composePromptBase } from "./promptComposer";
 import { applyReductions, stitchModules } from "./stitcher";
+import type { BanditSelectionMap } from "../orchestrator/bandits/ts";
 
 // ✨ usa o módulo central
 import {
@@ -21,6 +22,8 @@ import {
 
 // ⬇️ prioridade absoluta (inclui DEVELOPER_PROMPT=0)
 import { ordemAbsoluta } from "./matrizPromptBaseV2";
+import { qualityAnalyticsStore } from "../analytics/analyticsStore";
+import { solveKnapsack } from "../orchestrator/knapsack";
 
 function collectTagsFromMemories(mems: SimilarMemory[] | undefined): string[] {
   if (!Array.isArray(mems)) return [];
@@ -170,6 +173,71 @@ const ensureDeveloperPromptFirst = (list: string[]) => {
   return list.filter((x) => (seen.has(x) ? false : (seen.add(x), true)));
 };
 
+const MINIMAL_VITAL_SET = [
+  "IDENTIDADE_MINI.txt",
+  "ECO_ESTRUTURA_DE_RESPOSTA.txt",
+  "USOMEMÓRIAS.txt",
+  "BLOCO_TECNICO_MEMORIA.txt",
+  "METODO_VIVA_ENXUTO.txt",
+];
+
+const KNAPSACK_BUDGET_DEFAULT = 1200;
+const KNAPSACK_BUDGET_ENV = "ECO_KNAPSACK_BUDGET_TOKENS";
+const VPT_FALLBACK = 0.0001;
+
+function buildBanditReplacementMap(
+  selections: BanditSelectionMap | undefined
+): Map<string, string> {
+  const mapping = new Map<string, string>();
+  if (!selections) return mapping;
+  const values = Object.values(selections) as Array<
+    | {
+        baseModule?: string;
+        module?: string;
+      }
+    | undefined
+  >;
+  for (const item of values) {
+    if (!item) continue;
+    const base = typeof item.baseModule === "string" ? item.baseModule.trim() : "";
+    const module = typeof item.module === "string" ? item.module.trim() : "";
+    if (!base || !module) continue;
+    mapping.set(base, module);
+  }
+  return mapping;
+}
+
+function applyBanditMapping(list: string[], mapping: Map<string, string>): string[] {
+  if (!Array.isArray(list) || list.length === 0 || mapping.size === 0) {
+    return Array.isArray(list) ? list.slice() : [];
+  }
+  return list.map((name) => mapping.get(name) ?? name);
+}
+
+function computeKnapsackBudget(): number {
+  const envValueRaw = process.env[KNAPSACK_BUDGET_ENV];
+  if (envValueRaw) {
+    const parsed = Number.parseInt(envValueRaw, 10);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      return parsed;
+    }
+  }
+  return KNAPSACK_BUDGET_DEFAULT;
+}
+
+function resolvePriorPeso(moduleName: string): number {
+  const weight = ordemAbsoluta[moduleName];
+  return Number.isFinite(weight as number) ? (weight as number) : 999;
+}
+
+function resolveVptMean(moduleName: string, tokens: number, priorPeso: number): number {
+  const stats = qualityAnalyticsStore.getModuleVPT(moduleName);
+  const mean = Number.isFinite(stats.vptMean) ? stats.vptMean : 0;
+  if (mean > 0) return mean;
+  const safeTokens = Math.max(1, tokens);
+  return VPT_FALLBACK / Math.max(1, priorPeso) / safeTokens;
+}
+
 export interface ContextBuildResult {
   base: string;
   montarMensagemAtual: (textoAtual: string) => string;
@@ -246,6 +314,19 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
   });
   ecoDecision.debug.modules = baseSelection.debug.modules;
 
+  const banditSelections =
+    (ecoDecision.banditArms as BanditSelectionMap | undefined) ??
+    (ecoDecision.debug?.bandits as BanditSelectionMap | undefined);
+  const banditReplacementMap = buildBanditReplacementMap(banditSelections);
+
+  if (banditReplacementMap.size > 0 && Array.isArray(ecoDecision.debug.modules)) {
+    ecoDecision.debug.modules = ecoDecision.debug.modules.map((entry) => {
+      const replacement = banditReplacementMap.get(entry.id);
+      if (!replacement) return entry;
+      return { ...entry, id: replacement };
+    });
+  }
+
   const toUnique = (list: string[] | undefined) =>
     Array.from(new Set(Array.isArray(list) ? list : []));
 
@@ -261,21 +342,35 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
   const intentAndFlagModules = toUnique([...intentModules, ...flagFooters]);
 
   // Ordem: seleção base -> +intents/footers -> força DEVELOPER_PROMPT primeiro
-  const modulesRaw = ensureDeveloperPromptFirst(
+  const modulesRawBase = ensureDeveloperPromptFirst(
     toUnique([...toUnique(baseSelection.raw), ...intentAndFlagModules])
   );
 
-  const modulesAfterGating = ensureDeveloperPromptFirst(
+  const modulesAfterGatingBase = ensureDeveloperPromptFirst(
     baseSelection.posGating
       ? toUnique([...toUnique(baseSelection.posGating), ...intentAndFlagModules])
-      : modulesRaw
+      : modulesRawBase
   );
 
-  const ordered = ensureDeveloperPromptFirst(
+  const orderedBase = ensureDeveloperPromptFirst(
     baseSelection.priorizado?.length
       ? toUnique([...toUnique(baseSelection.priorizado), ...intentAndFlagModules])
-      : modulesAfterGating
+      : modulesAfterGatingBase
   );
+
+  const modulesRaw = applyBanditMapping(modulesRawBase, banditReplacementMap);
+  const modulesAfterGating = applyBanditMapping(
+    modulesAfterGatingBase,
+    banditReplacementMap
+  );
+  let ordered = applyBanditMapping(orderedBase, banditReplacementMap);
+  ordered = ensureDeveloperPromptFirst(toUnique(ordered));
+
+  for (const coreName of MINIMAL_VITAL_SET) {
+    if (!ordered.includes(coreName)) {
+      ordered.push(coreName);
+    }
+  }
 
   // 🔢 carrega candidatos respeitando a ordem absoluta
   const candidates = await ModuleCatalog.load(ordered);
@@ -292,11 +387,72 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
     meta: module.meta,
   }));
 
-  // ⚖️ planeja com Budgeter suportando pinned + weights
+  const debugMap = selection.debug;
+
+  const tokenLookup = new Map<string, number>();
+  for (const module of modulesWithTokens) {
+    tokenLookup.set(module.name, module.tokens);
+  }
+
+  const pinnedSet = new Set<string>([ABS_FIRST, ...MINIMAL_VITAL_SET]);
+  for (const footer of selection.footers) {
+    pinnedSet.add(footer.name);
+  }
+
+  const knapsackBudget = computeKnapsackBudget();
+  const knapsackCandidates = selection.regular
+    .filter((module) => !pinnedSet.has(module.name))
+    .map((module) => {
+      const tokens = tokenLookup.get(module.name) ?? 0;
+      const priorPeso = resolvePriorPeso(module.name);
+      const vptMean = resolveVptMean(module.name, tokens, priorPeso);
+      return {
+        id: module.name,
+        tokens,
+        priorPeso,
+        vptMean,
+      };
+    })
+    .filter((candidate) => candidate.tokens > 0);
+
+  const knapsackResult = solveKnapsack(knapsackBudget, knapsackCandidates);
+  const adoptedSet = new Set(knapsackResult.adotados);
+  const allowedSet = new Set<string>([...pinnedSet, ...adoptedSet]);
+
+  for (const module of selection.regular) {
+    if (allowedSet.has(module.name)) continue;
+    const existing = debugMap.get(module.name);
+    if (existing) {
+      existing.activated = false;
+      existing.source = "knapsack";
+      existing.reason = existing.reason ? `${existing.reason}|knapsack` : "knapsack";
+      debugMap.set(module.name, existing);
+    } else {
+      debugMap.set(module.name, {
+        id: module.name,
+        source: "knapsack",
+        activated: false,
+        reason: "knapsack",
+        threshold: null,
+      });
+    }
+  }
+
+  const orderedAllowed = ensureDeveloperPromptFirst(
+    toUnique([
+      ...Array.from(pinnedSet),
+      ...selection.orderedNames.filter((name) => allowedSet.has(name)),
+    ]).sort(byAbsoluteOrder)
+  );
+
+  const filteredModulesWithTokens = modulesWithTokens.filter((module) =>
+    allowedSet.has(module.name)
+  );
+
   const budgetResult = planBudget({
-    ordered: selection.orderedNames.sort(byAbsoluteOrder),
-    candidates: modulesWithTokens,
-    pinned: [ABS_FIRST],
+    ordered: orderedAllowed,
+    candidates: filteredModulesWithTokens,
+    pinned: Array.from(pinnedSet),
     orderWeights: ordemAbsoluta,
   });
 
@@ -309,7 +465,18 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
     .filter((m) => usedSet.has(m.name))
     .sort((a, b) => byAbsoluteOrder(a.name, b.name));
 
-  const debugMap = selection.debug;
+  const tokensAditivos = Array.from(adoptedSet).reduce((acc, id) => {
+    const tokens = tokenLookup.get(id) ?? 0;
+    return acc + tokens;
+  }, 0);
+
+  ecoDecision.debug.knapsack = {
+    budget: knapsackBudget,
+    adotados: Array.from(adoptedSet),
+    marginalGain: knapsackResult.marginalGain,
+    tokensAditivos,
+  };
+
   for (const module of modulesWithTokens) {
     if (usedSet.has(module.name)) continue;
     const existing = debugMap.get(module.name);

@@ -1,4 +1,5 @@
 import { estimarIntensidade0a10, derivarFlags, type Flags, type ModuleDebugEntry } from "../promptContext/Selector";
+import type { BanditSelectionMap } from "../orchestrator/bandits/ts";
 import type { HeuristicaFlagRecord } from "../promptContext/heuristicaFlags";
 
 export type EcoVivaStep = "V" | "I" | "A" | "Pausa";
@@ -12,6 +13,13 @@ export interface EcoDecisionDebug {
   vulnerabilitySignals: string[];
   modules: ModuleDebugEntry[];
   selectedModules: string[];
+  knapsack?: {
+    budget: number;
+    adotados: string[];
+    marginalGain: number;
+    tokensAditivos: number;
+  } | null;
+  bandits?: BanditSelectionMap;
 }
 
 export interface EcoDecisionResult {
@@ -25,6 +33,7 @@ export interface EcoDecisionResult {
   domain: string | null;
   flags: Flags;
   debug: EcoDecisionDebug;
+  banditArms?: BanditSelectionMap;
 }
 
 export const MEMORY_THRESHOLD = 7;
@@ -116,6 +125,9 @@ export function computeEcoDecision(texto: string, options: EcoDecisionOptions = 
       vulnerabilitySignals,
       modules: [],
       selectedModules: [],
+      knapsack: null,
+      bandits: undefined,
     },
+    banditArms: undefined,
   };
 }

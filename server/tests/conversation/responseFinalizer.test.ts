@@ -72,6 +72,8 @@ test("finalize responde rápido mesmo com analisador lento", async (t) => {
     trackSessaoEntrouChat: ((payload: any) => {
       sessaoEntrouCalls.push(payload);
     }) as any,
+    trackRespostaQ: noop as any,
+    trackKnapsackDecision: noop as any,
   });
 
   const start = Date.now();
@@ -83,6 +85,7 @@ test("finalize responde rápido mesmo com analisador lento", async (t) => {
     mode: "fast",
     startedAt: Date.now(),
     userId: "user-123",
+    supabase: {},
     sessionMeta: {
       distinctId: "distinct-123",
       versaoApp: "1.0.0",
@@ -153,6 +156,8 @@ test("trackSessaoEntrouChat só dispara quando não houve assistente antes", asy
     trackSessaoEntrouChat: ((payload: any) => {
       sessaoEntrouCalls.push(payload);
     }) as any,
+    trackRespostaQ: noop as any,
+    trackKnapsackDecision: noop as any,
   });
 
   await finalizer.finalize({
@@ -162,6 +167,7 @@ test("trackSessaoEntrouChat só dispara quando não houve assistente antes", asy
     mode: "full",
     startedAt: Date.now(),
     sessionMeta: { distinctId: "d-1" },
+    supabase: {},
     ecoDecision: computeEcoDecision("Olá"),
   });
 
@@ -172,6 +178,7 @@ test("trackSessaoEntrouChat só dispara quando não houve assistente antes", asy
     mode: "fast",
     startedAt: Date.now(),
     sessionMeta: { distinctId: "d-1" },
+    supabase: {},
     ecoDecision: computeEcoDecision("Oi de novo"),
   });
 
@@ -192,6 +199,8 @@ test("identifyUsuario é chamado mesmo quando já houve assistente se houver ses
       identifyCalls.push(payload);
     }) as any,
     trackSessaoEntrouChat: noop as any,
+    trackRespostaQ: noop as any,
+    trackKnapsackDecision: noop as any,
   });
 
   await finalizer.finalize({
@@ -206,6 +215,7 @@ test("identifyUsuario é chamado mesmo quando já houve assistente se houver ses
       device: "android",
       ambiente: "staging",
     },
+    supabase: {},
     ecoDecision: computeEcoDecision("Olá novamente"),
   });
 
@@ -244,15 +254,20 @@ test("preenche intensidade e resumo quando bloco chega dentro do timeout", async
     trackBlocoTecnico: noop as any,
     identifyUsuario: noop as any,
     trackSessaoEntrouChat: noop as any,
+    trackRespostaQ: noop as any,
+    trackKnapsackDecision: noop as any,
   });
 
   const ecoDecisionPrompt = computeEcoDecision("Olá!");
+  ecoDecisionPrompt.hasTechBlock = true;
+  ecoDecisionPrompt.saveMemory = true;
   const result = await finalizer.finalize({
     raw: "Olá!",
     ultimaMsg: "Olá!",
     hasAssistantBefore: false,
     mode: "full",
     startedAt: Date.now(),
+    supabase: {},
     ecoDecision: ecoDecisionPrompt,
   });
 
@@ -296,6 +311,8 @@ test("finalize remove correção de identidade com nome que contém parênteses"
     trackBlocoTecnico: noop as any,
     identifyUsuario: noop as any,
     trackSessaoEntrouChat: noop as any,
+    trackRespostaQ: noop as any,
+    trackKnapsackDecision: noop as any,
   });
 
   const entrada = "Oi!\nEu sou a Eco, não a Ana(.";
@@ -306,6 +323,7 @@ test("finalize remove correção de identidade com nome que contém parênteses"
     hasAssistantBefore: false,
     mode: "fast",
     startedAt: Date.now(),
+    supabase: {},
     ecoDecision: computeEcoDecision(entrada),
   });
 
