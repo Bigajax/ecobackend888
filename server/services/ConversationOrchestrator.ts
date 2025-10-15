@@ -33,6 +33,7 @@ import type {
 } from "./conversation/types";
 import { randomUUID } from "node:crypto";
 import { createHttpError, extractErrorDetail, isHttpError, resolveErrorStatus } from "../utils/http";
+import type { RuntimeMetrics } from "../types/telemetry";
 
 // Reexport para compatibilidade
 export { getEcoResponse as getEcoResponseOtimizado };
@@ -57,6 +58,8 @@ type ResponseAnalyticsMeta = {
   } | null;
   latency?: { ttfb_ms: number | null; ttlc_ms: number | null; tokens_total: number | null };
 };
+
+type RetrieveDecision = ReturnType<typeof inferRetrieveMode>;
 
 function inferRetrieveMode({
   ultimaMsg,
@@ -159,46 +162,56 @@ async function persistAnalyticsRecords({
   const analyticsClient = supabaseAdmin.schema("analytics");
   const normalizedUserId = isValidUuid(userId) ? userId : null;
 
+  const runtime: RuntimeMetrics = { latency: { ttfb_ms: null, ttlc_ms: null } };
+
   const tracerSnapshot = activationTracer?.snapshot?.();
-  const tracerLatency = tracerSnapshot?.latency ?? {};
-  const ttfbFromTracer =
-    typeof tracerLatency.firstTokenMs === "number" && Number.isFinite(tracerLatency.firstTokenMs)
-      ? Math.max(0, Math.round(tracerLatency.firstTokenMs))
-      : null;
-  const ttlcFromTracer =
-    typeof tracerLatency.totalMs === "number" && Number.isFinite(tracerLatency.totalMs)
-      ? Math.max(0, Math.round(tracerLatency.totalMs))
-      : null;
+  const tracerLatency = tracerSnapshot?.latency;
+  if (
+    typeof tracerLatency?.firstTokenMs === "number" &&
+    Number.isFinite(tracerLatency.firstTokenMs)
+  ) {
+    runtime.latency.ttfb_ms = Math.max(0, Math.round(tracerLatency.firstTokenMs));
+  }
+  if (typeof tracerLatency?.totalMs === "number" && Number.isFinite(tracerLatency.totalMs)) {
+    runtime.latency.ttlc_ms = Math.max(0, Math.round(tracerLatency.totalMs));
+  }
 
-  const analyticsLatency = analyticsMeta.latency ?? {};
-  const ttfbMs =
-    ttfbFromTracer ??
-    (typeof analyticsLatency.ttfb_ms === "number" && Number.isFinite(analyticsLatency.ttfb_ms)
-      ? Math.max(0, Math.round(analyticsLatency.ttfb_ms))
-      : null);
+  const analyticsLatency = analyticsMeta.latency ?? null;
+  if (
+    runtime.latency.ttfb_ms == null &&
+    typeof analyticsLatency?.ttfb_ms === "number" &&
+    Number.isFinite(analyticsLatency.ttfb_ms)
+  ) {
+    runtime.latency.ttfb_ms = Math.max(0, Math.round(analyticsLatency.ttfb_ms));
+  }
 
-  let ttlcMs =
-    ttlcFromTracer ??
-    (typeof analyticsLatency.ttlc_ms === "number" && Number.isFinite(analyticsLatency.ttlc_ms)
-      ? Math.max(0, Math.round(analyticsLatency.ttlc_ms))
-      : null);
+  if (
+    runtime.latency.ttlc_ms == null &&
+    typeof analyticsLatency?.ttlc_ms === "number" &&
+    Number.isFinite(analyticsLatency.ttlc_ms)
+  ) {
+    runtime.latency.ttlc_ms = Math.max(0, Math.round(analyticsLatency.ttlc_ms));
+  }
 
-  if (ttlcMs == null) {
+  if (runtime.latency.ttlc_ms == null) {
     const timings = (meta.debug_trace as { timings?: EcoLatencyMarks; latencyMs?: number } | undefined)?.timings;
     if (timings?.llmStart != null && timings?.llmEnd != null) {
       const diff = Math.round(timings.llmEnd - timings.llmStart);
       if (Number.isFinite(diff)) {
-        ttlcMs = Math.max(0, diff);
+        runtime.latency.ttlc_ms = Math.max(0, diff);
       }
     }
   }
 
-  if (ttlcMs == null) {
+  if (runtime.latency.ttlc_ms == null) {
     const latencyMs = (meta.debug_trace as { latencyMs?: number } | undefined)?.latencyMs;
     if (typeof latencyMs === "number" && Number.isFinite(latencyMs)) {
-      ttlcMs = Math.max(0, Math.round(latencyMs));
+      runtime.latency.ttlc_ms = Math.max(0, Math.round(latencyMs));
     }
   }
+
+  const ttfbMs = runtime.latency.ttfb_ms;
+  const ttlcMs = runtime.latency.ttlc_ms;
 
   const tokensTotal = asInteger(analyticsMeta.tokens_total);
   const tokensAditivos = asInteger(analyticsMeta.tokens_aditivos);
@@ -229,7 +242,7 @@ async function persistAnalyticsRecords({
       }
       return normalized;
     });
-    const { error } = await analyticsClient.from(tabela).insert(payload, { returning: "minimal" });
+    const { error } = await analyticsClient.from(tabela).insert(payload);
     if (error) {
       log.warn("[analytics]", {
         tabela,
@@ -417,6 +430,8 @@ export async function getEcoResponse({
 
     const streamHandler = stream ?? null;
     const timings: EcoLatencyMarks = {};
+    let ecoDecision: EcoDecisionResult;
+    let retrieveDecision: RetrieveDecision;
 
     // Supabase somente quando NÃO for guest e houver token
     const supabase = !isGuest && accessToken ? supabaseWithBearer(accessToken) : null;
@@ -449,6 +464,7 @@ export async function getEcoResponse({
     );
 
     if (preLLM) {
+      ecoDecision = computeEcoDecision(ultimaMsg);
       const retrieveForAnalytics = inferRetrieveMode({
         ultimaMsg,
         hints: null,
@@ -487,7 +503,7 @@ export async function getEcoResponse({
     }
 
     // Decisão sobre memória e modo de conversa
-    const ecoDecision = computeEcoDecision(ultimaMsg);
+    ecoDecision = computeEcoDecision(ultimaMsg);
     const crossedThreshold = ecoDecision.intensity >= MEMORY_THRESHOLD;
     ecoDecision.saveMemory = ecoDecision.saveMemory && !isGuest;
     ecoDecision.hasTechBlock = ecoDecision.saveMemory;
@@ -519,6 +535,12 @@ export async function getEcoResponse({
     }
 
     // Fast lane (somente quando não for streaming)
+    retrieveDecision = inferRetrieveMode({
+      ultimaMsg,
+      hints: null,
+      ecoDecision,
+    });
+
     if (routeDecision.mode === "fast" && !streamHandler) {
       const inicioFast = now();
       const fast = await runFastLaneLLM({
@@ -587,7 +609,7 @@ export async function getEcoResponse({
       calHints = materializeHints(plannedHints, ultimaMsg);
     }
 
-    const retrieveDecision = inferRetrieveMode({
+    retrieveDecision = inferRetrieveMode({
       ultimaMsg,
       hints: calHints ?? undefined,
       ecoDecision,
