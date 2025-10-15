@@ -2,26 +2,27 @@ import type { NextFunction, Request, Response } from "express";
 import cors, { type CorsOptions, type CorsOptionsDelegate } from "cors";
 import { log } from "../services/promptContext/logger";
 
-/**
- * Whitelist estática + regra para previews do Vercel.
- * Ajuste/adicione domínios do front aqui.
- */
-const STATIC_ALLOWLIST = new Set<string>([
-  "http://localhost:5173",
-  "http://localhost:3000",
+const EXACT_ALLOWLIST = new Set<string>([
   "https://ecofrontend888.vercel.app",
-  "https://eco-frontend.vercel.app",
+  "https://ecofrontend888-git-main-rafaels-projects-f3ef53c3.vercel.app",
+  "https://ecofrontend888-owixryjyd-rafaels-projects-f3ef53c3.vercel.app",
+  "http://localhost:5173",
+  "http://localhost:4173",
 ]);
 
-function isAllowedOrigin(origin?: string | null) {
-  if (!origin) return true; // chamadas internas / curl sem Origin
-  if (STATIC_ALLOWLIST.has(origin)) return true;
-  try {
-    const url = new URL(origin);
-    return url.hostname.endsWith(".vercel.app");
-  } catch {
-    return false;
-  }
+const REGEX_ALLOWLIST = [
+  /^https:\/\/ecofrontend888-[a-z0-9-]+\.vercel\.app$/i,
+];
+
+export function originOk(origin?: string | null): boolean {
+  if (!origin) return true;
+
+  const normalized = origin.trim();
+  if (!normalized) return true;
+
+  if (EXACT_ALLOWLIST.has(normalized)) return true;
+
+  return REGEX_ALLOWLIST.some((pattern) => pattern.test(normalized));
 }
 
 /**
@@ -29,27 +30,25 @@ function isAllowedOrigin(origin?: string | null) {
  */
 const BASE_OPTIONS: Omit<CorsOptions, "origin"> = {
   credentials: true,
-  methods: ["GET", "POST", "OPTIONS", "PUT", "PATCH", "DELETE", "HEAD"],
-  allowedHeaders: [
-    "Content-Type",
-    "Authorization",
-    "X-Guest-Id",
-    "Accept",
-    "Cache-Control",
-    "X-Requested-With",
-  ],
+  methods: ["GET", "POST", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization", "X-Guest-Id", "X-Requested-With"],
   exposedHeaders: ["X-Guest-Id"],
   maxAge: 86_400, // 24h
 };
 
 const delegate: CorsOptionsDelegate<Request> = (req, callback) => {
   const origin = req.headers.origin ?? undefined;
-  const allowed = isAllowedOrigin(origin);
+  const allowed = originOk(origin);
 
   if (req.method === "OPTIONS") {
     log.info("[cors] preflight", { origin: origin ?? null, allowed, path: req.path });
   } else if (origin) {
     log.info("[cors] request", { origin, allowed, path: req.path });
+  }
+
+  if (origin && !allowed) {
+    console.warn("[cors] origin blocked", { origin, path: req.path });
+    log.warn("[cors] origin_blocked", { origin, path: req.path });
   }
 
   const options: CorsOptions = {
@@ -63,7 +62,7 @@ const delegate: CorsOptionsDelegate<Request> = (req, callback) => {
 const corsInstance = cors(delegate);
 
 export function getStaticCorsWhitelist(): string[] {
-  return Array.from(STATIC_ALLOWLIST);
+  return Array.from(EXACT_ALLOWLIST);
 }
 
 /** Garante cabeçalhos estáveis (útil em preflight manual). */
@@ -117,7 +116,7 @@ function applyStaticHeaders(res: Response) {
 export function ensureCorsHeaders(res: Response, origin?: string | null) {
   setVaryHeader(res, "Origin");
   applyStaticHeaders(res);
-  if (origin && isAllowedOrigin(origin)) {
+  if (origin && originOk(origin)) {
     res.setHeader("Access-Control-Allow-Origin", origin);
   }
 }
