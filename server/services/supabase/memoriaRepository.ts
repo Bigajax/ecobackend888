@@ -94,7 +94,9 @@ export async function buscarMemoriasComModo({
       /(function|procedure)\s+buscar_memorias_semanticas/i.test((error as any).message);
 
     const fallbackRows = async () => {
-      console.info("[memoriaRepository] rpc_fallback", { target: "semelhantes_v2" });
+      console.debug("[memoriaRepository] rpc_fallback", {
+        rpc_fallback: "semelhantes_v2",
+      });
       const args = {
         p_usuario_id: userId,
         p_query: queryEmbedding,
