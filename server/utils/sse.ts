@@ -33,8 +33,8 @@ export function createSSE(
   const { heartbeatMs = 15000, idleMs, onIdle } = opts;
 
   res.status(200);
-  res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
-  res.setHeader("Cache-Control", "no-cache, no-transform");
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
   res.setHeader("Connection", "keep-alive");
   res.setHeader("X-Accel-Buffering", "no");
   (res as any).flushHeaders?.();
@@ -120,7 +120,7 @@ export function createSSE(
 
   if (heartbeatMs > 0) {
     heartbeatRef = setInterval(() => {
-      write(`event: ping\ndata: "${Date.now()}"\n\n`);
+      write(`event: ping\ndata: ${Date.now()}\n\n`);
     }, heartbeatMs);
   }
 
