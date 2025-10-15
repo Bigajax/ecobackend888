@@ -21,6 +21,8 @@ import {
 
 // ⬇️ prioridade absoluta (inclui DEVELOPER_PROMPT=0)
 import { ordemAbsoluta } from "./matrizPromptBaseV2";
+import { qualityAnalyticsStore } from "../analytics/analyticsStore";
+import { solveKnapsack } from "../orchestrator/knapsack";
 
 function collectTagsFromMemories(mems: SimilarMemory[] | undefined): string[] {
   if (!Array.isArray(mems)) return [];
@@ -170,6 +172,42 @@ const ensureDeveloperPromptFirst = (list: string[]) => {
   return list.filter((x) => (seen.has(x) ? false : (seen.add(x), true)));
 };
 
+const MINIMAL_VITAL_SET = [
+  "IDENTIDADE_MINI.txt",
+  "ECO_ESTRUTURA_DE_RESPOSTA.txt",
+  "USOMEMÓRIAS.txt",
+  "BLOCO_TECNICO_MEMORIA.txt",
+  "METODO_VIVA_ENXUTO.txt",
+];
+
+const KNAPSACK_BUDGET_DEFAULT = 1200;
+const KNAPSACK_BUDGET_ENV = "ECO_KNAPSACK_BUDGET_TOKENS";
+const VPT_FALLBACK = 0.0001;
+
+function computeKnapsackBudget(): number {
+  const envValueRaw = process.env[KNAPSACK_BUDGET_ENV];
+  if (envValueRaw) {
+    const parsed = Number.parseInt(envValueRaw, 10);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      return parsed;
+    }
+  }
+  return KNAPSACK_BUDGET_DEFAULT;
+}
+
+function resolvePriorPeso(moduleName: string): number {
+  const weight = ordemAbsoluta[moduleName];
+  return Number.isFinite(weight as number) ? (weight as number) : 999;
+}
+
+function resolveVptMean(moduleName: string, tokens: number, priorPeso: number): number {
+  const stats = qualityAnalyticsStore.getModuleVPT(moduleName);
+  const mean = Number.isFinite(stats.vptMean) ? stats.vptMean : 0;
+  if (mean > 0) return mean;
+  const safeTokens = Math.max(1, tokens);
+  return VPT_FALLBACK / Math.max(1, priorPeso) / safeTokens;
+}
+
 export interface ContextBuildResult {
   base: string;
   montarMensagemAtual: (textoAtual: string) => string;
@@ -277,6 +315,12 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
       : modulesAfterGating
   );
 
+  for (const coreName of MINIMAL_VITAL_SET) {
+    if (!ordered.includes(coreName)) {
+      ordered.push(coreName);
+    }
+  }
+
   // 🔢 carrega candidatos respeitando a ordem absoluta
   const candidates = await ModuleCatalog.load(ordered);
   const selection = Selector.applyModuleMetadata({
@@ -292,11 +336,72 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
     meta: module.meta,
   }));
 
-  // ⚖️ planeja com Budgeter suportando pinned + weights
+  const debugMap = selection.debug;
+
+  const tokenLookup = new Map<string, number>();
+  for (const module of modulesWithTokens) {
+    tokenLookup.set(module.name, module.tokens);
+  }
+
+  const pinnedSet = new Set<string>([ABS_FIRST, ...MINIMAL_VITAL_SET]);
+  for (const footer of selection.footers) {
+    pinnedSet.add(footer.name);
+  }
+
+  const knapsackBudget = computeKnapsackBudget();
+  const knapsackCandidates = selection.regular
+    .filter((module) => !pinnedSet.has(module.name))
+    .map((module) => {
+      const tokens = tokenLookup.get(module.name) ?? 0;
+      const priorPeso = resolvePriorPeso(module.name);
+      const vptMean = resolveVptMean(module.name, tokens, priorPeso);
+      return {
+        id: module.name,
+        tokens,
+        priorPeso,
+        vptMean,
+      };
+    })
+    .filter((candidate) => candidate.tokens > 0);
+
+  const knapsackResult = solveKnapsack(knapsackBudget, knapsackCandidates);
+  const adoptedSet = new Set(knapsackResult.adotados);
+  const allowedSet = new Set<string>([...pinnedSet, ...adoptedSet]);
+
+  for (const module of selection.regular) {
+    if (allowedSet.has(module.name)) continue;
+    const existing = debugMap.get(module.name);
+    if (existing) {
+      existing.activated = false;
+      existing.source = "knapsack";
+      existing.reason = existing.reason ? `${existing.reason}|knapsack` : "knapsack";
+      debugMap.set(module.name, existing);
+    } else {
+      debugMap.set(module.name, {
+        id: module.name,
+        source: "knapsack",
+        activated: false,
+        reason: "knapsack",
+        threshold: null,
+      });
+    }
+  }
+
+  const orderedAllowed = ensureDeveloperPromptFirst(
+    toUnique([
+      ...Array.from(pinnedSet),
+      ...selection.orderedNames.filter((name) => allowedSet.has(name)),
+    ]).sort(byAbsoluteOrder)
+  );
+
+  const filteredModulesWithTokens = modulesWithTokens.filter((module) =>
+    allowedSet.has(module.name)
+  );
+
   const budgetResult = planBudget({
-    ordered: selection.orderedNames.sort(byAbsoluteOrder),
-    candidates: modulesWithTokens,
-    pinned: [ABS_FIRST],
+    ordered: orderedAllowed,
+    candidates: filteredModulesWithTokens,
+    pinned: Array.from(pinnedSet),
     orderWeights: ordemAbsoluta,
   });
 
@@ -309,7 +414,18 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
     .filter((m) => usedSet.has(m.name))
     .sort((a, b) => byAbsoluteOrder(a.name, b.name));
 
-  const debugMap = selection.debug;
+  const tokensAditivos = Array.from(adoptedSet).reduce((acc, id) => {
+    const tokens = tokenLookup.get(id) ?? 0;
+    return acc + tokens;
+  }, 0);
+
+  ecoDecision.debug.knapsack = {
+    budget: knapsackBudget,
+    adotados: Array.from(adoptedSet),
+    marginalGain: knapsackResult.marginalGain,
+    tokensAditivos,
+  };
+
   for (const module of modulesWithTokens) {
     if (usedSet.has(module.name)) continue;
     const existing = debugMap.get(module.name);

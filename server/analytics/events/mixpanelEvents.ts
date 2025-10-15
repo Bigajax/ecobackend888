@@ -1,5 +1,6 @@
 // server/events/mixpanelEvents.ts
 import mixpanel from '../../lib/mixpanel';
+import type { RetrieveMode } from '../../services/supabase/memoriaRepository';
 
 type BaseProps = { distinctId?: string; userId?: string };
 
@@ -383,4 +384,91 @@ export const trackSessaoEntrouChat = ({
   });
 
   mixpanel.track("Sessão entrou no chat", payload);
+};
+
+export const trackRetrieveMode = ({
+  distinctId,
+  userId,
+  mode,
+  reason,
+  word_count,
+  char_length,
+}: TrackParams<{
+  mode: RetrieveMode;
+  reason: string;
+  word_count?: number;
+  char_length?: number;
+}>) => {
+  mixpanel.track(
+    'Retrieve_Mode',
+    withDistinctId({
+      distinctId,
+      userId,
+      mode,
+      reason,
+      ...(typeof word_count === 'number' ? { word_count } : {}),
+      ...(typeof char_length === 'number' ? { char_length } : {}),
+    })
+  );
+};
+
+export const trackRespostaQ = ({
+  distinctId,
+  userId,
+  Q,
+  estruturado_ok,
+  memoria_ok,
+  bloco_ok,
+  tokens_total,
+  tokens_aditivos,
+  mem_count,
+}: TrackParams<{
+  Q: number;
+  estruturado_ok: boolean;
+  memoria_ok: boolean;
+  bloco_ok: boolean;
+  tokens_total?: number;
+  tokens_aditivos?: number | undefined;
+  mem_count?: number;
+}>) => {
+  mixpanel.track(
+    'Resposta_Q',
+    withDistinctId({
+      distinctId,
+      userId,
+      Q,
+      estruturado_ok,
+      memoria_ok,
+      bloco_ok,
+      ...(typeof tokens_total === 'number' ? { tokens_total } : {}),
+      ...(typeof tokens_aditivos === 'number' ? { tokens_aditivos } : {}),
+      ...(typeof mem_count === 'number' ? { mem_count } : {}),
+    })
+  );
+};
+
+export const trackKnapsackDecision = ({
+  distinctId,
+  userId,
+  budget,
+  adotados,
+  marginal_gain,
+  tokens_aditivos,
+}: TrackParams<{
+  budget: number;
+  adotados: string[];
+  marginal_gain: number;
+  tokens_aditivos?: number;
+}>) => {
+  mixpanel.track(
+    'Knapsack_Decision',
+    withDistinctId({
+      distinctId,
+      userId,
+      budget,
+      adotados,
+      marginal_gain,
+      ...(typeof tokens_aditivos === 'number' ? { tokens_aditivos } : {}),
+    })
+  );
 };
