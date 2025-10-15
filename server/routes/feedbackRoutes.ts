@@ -12,11 +12,17 @@ const TEN_MINUTES_MS = 10 * 60 * 1000;
 const FIVE_MINUTES_MS = 5 * 60 * 1000;
 
 const FeedbackSchema = z.object({
+  interactionId: z.string().uuid().optional(),
+  interaction_id: z.string().uuid().optional(),
   messageId: z.string().min(1).optional(),
+  message_id: z.string().min(1).optional(),
   userId: z.string().uuid().optional().nullable(),
+  user_id: z.string().uuid().optional().nullable(),
   sessionId: z.string().min(1).optional().nullable(),
+  session_id: z.string().min(1).optional().nullable(),
   vote: z.union([z.literal("up"), z.literal("down")]),
   reasons: z.array(z.string().min(1)).optional(),
+  reason: z.union([z.string().min(1), z.array(z.string().min(1))]).optional(),
   source: z.string().min(1).optional(),
   meta: z.record(z.unknown()).optional().nullable(),
 });
@@ -83,16 +89,44 @@ function safePayloadSize(body: unknown): number | null {
 
 async function resolveInteraction(
   supabase: ReturnType<typeof getSupabaseAdmin>,
-  payload: { messageId?: string | null; sessionId?: string | null; userId?: string | null }
+  payload: {
+    interactionId?: string | null;
+    messageId?: string | null;
+    sessionId?: string | null;
+    userId?: string | null;
+  }
 ): Promise<InteractionResolution> {
   if (!supabase) {
     return { kind: "error", message: "supabase_not_configured" };
   }
 
-  const { messageId, sessionId, userId } = payload;
+  const { interactionId, messageId, sessionId, userId } = payload;
   const analytics = supabase.schema("analytics");
 
   try {
+    if (interactionId) {
+      const { data, error } = await analytics
+        .from("eco_interactions")
+        .select("id, module_combo")
+        .eq("id", interactionId)
+        .maybeSingle();
+
+      if (error) {
+        return { kind: "error", message: error.message };
+      }
+
+      const resolvedId = (data as { id?: string } | null)?.id ?? null;
+      if (!resolvedId) {
+        return { kind: "not_found" };
+      }
+
+      return {
+        kind: "ok",
+        id: resolvedId,
+        moduleCombo: (data as { module_combo?: string[] | null } | null)?.module_combo ?? null,
+      };
+    }
+
     if (messageId) {
       const { data, error } = await analytics
         .from("eco_interactions")
@@ -103,13 +137,13 @@ async function resolveInteraction(
       if (error) {
         return { kind: "error", message: error.message };
       }
-      const interactionId = (data as { id?: string } | null)?.id ?? null;
-      if (!interactionId) {
+      const resolvedId = (data as { id?: string } | null)?.id ?? null;
+      if (!resolvedId) {
         return { kind: "not_found" };
       }
       return {
         kind: "ok",
-        id: interactionId,
+        id: resolvedId,
         moduleCombo: (data as { module_combo?: string[] | null } | null)?.module_combo ?? null,
       };
     }
@@ -139,14 +173,14 @@ async function resolveInteraction(
       return { kind: "error", message: error.message };
     }
 
-    const interactionId = (data as { id?: string } | null)?.id ?? null;
-    if (!interactionId) {
+    const resolvedId = (data as { id?: string } | null)?.id ?? null;
+    if (!resolvedId) {
       return { kind: "not_found" };
     }
 
     return {
       kind: "ok",
-      id: interactionId,
+      id: resolvedId,
       moduleCombo: (data as { module_combo?: string[] | null } | null)?.module_combo ?? null,
     };
   } catch (error) {
@@ -185,93 +219,102 @@ async function handleFeedback(req: Request, res: Response): Promise<void> {
     }
 
     const payload = parsed.data;
+    const interactionId = payload.interactionId ?? payload.interaction_id ?? null;
+    const userId = payload.userId ?? payload.user_id ?? null;
+    const sessionId = payload.sessionId ?? payload.session_id ?? null;
+    const messageId = payload.messageId ?? payload.message_id ?? null;
+    const rawReasons = Array.isArray(payload.reason)
+      ? payload.reason
+      : payload.reason
+        ? [payload.reason]
+        : payload.reasons ?? undefined;
+    const sanitizedReasons = sanitizeReasons(rawReasons ?? undefined);
+
     const supabase = getSupabaseAdmin();
     if (!supabase) {
-      status = 502;
+      status = 500;
       errorCode = "supabase_unconfigured";
-      res.status(status).json({ error: errorCode, details: "supabase_admin_not_configured" });
+      res.status(status).json({ error: errorCode, message: "supabase_admin_not_configured" });
       return;
     }
 
     const interactionResolution = await resolveInteraction(supabase, {
-      messageId: payload.messageId ?? null,
-      sessionId: payload.sessionId ?? null,
-      userId: payload.userId ?? null,
+      interactionId,
+      messageId,
+      sessionId,
+      userId,
     });
 
     if (interactionResolution.kind === "error") {
-      status = 502;
+      status = 500;
       errorCode = "supabase_error";
       supabaseError = interactionResolution.message;
-      res.status(status).json({ error: errorCode, details: interactionResolution.message });
+      res.status(status).json({ error: errorCode, message: interactionResolution.message });
       return;
     }
 
     if (interactionResolution.kind === "missing_identity") {
       status = 400;
       errorCode = "interaction_not_found";
-      res.status(status).json({ error: errorCode, details: "missing_session_or_user" });
+      res.status(status).json({ error: errorCode, message: "missing_session_or_user" });
       return;
     }
 
     if (interactionResolution.kind === "not_found") {
-      status = 400;
+      status = 404;
       errorCode = "interaction_not_found";
-      res.status(status).json({ error: errorCode });
+      res.status(status).json({ error: errorCode, message: "interaction not found" });
       return;
     }
 
-    const interactionId = interactionResolution.id;
+    const resolvedInteractionId = interactionResolution.id;
     const moduleCombo = interactionResolution.moduleCombo;
 
-    const sanitizedReasons = sanitizeReasons(payload.reasons);
-    const rating = payload.vote === "up" ? 1 : -1;
     const reward = computeReward({ vote: payload.vote, reasons: sanitizedReasons ?? undefined });
 
     const analytics = supabase.schema("analytics");
 
-    const { error: upsertError } = await analytics
-      .from("eco_feedback")
-      .upsert(
-        {
-          interaction_id: interactionId,
-          user_id: payload.userId ?? null,
-          session_id: payload.sessionId ?? null,
-          vote: payload.vote,
-          rating,
-          reason: sanitizedReasons,
-          source: payload.source ?? null,
-          meta: payload.meta ?? null,
-          created_at: new Date().toISOString(),
-        },
-        { onConflict: "interaction_id" }
-      );
+    const insertPayload = {
+      interaction_id: resolvedInteractionId,
+      user_id: userId ?? null,
+      session_id: sessionId ?? null,
+      vote: payload.vote,
+      reason: sanitizedReasons,
+      source: payload.source ?? null,
+      meta: payload.meta ?? null,
+      created_at: new Date().toISOString(),
+    };
 
-    if (upsertError) {
-      status = 502;
-      errorCode = "feedback_upsert_failed";
-      supabaseError = upsertError.message;
-      res.status(status).json({ error: errorCode, details: upsertError.message });
+    const { data: insertData, error: insertError } = await analytics
+      .from("eco_feedback")
+      .insert([insertPayload])
+      .select("id")
+      .maybeSingle();
+
+    if (insertError) {
+      status = 500;
+      errorCode = "feedback_insert_failed";
+      supabaseError = insertError.message;
+      res.status(status).json({ error: errorCode, message: insertError.message });
       return;
     }
 
-    let warn: string | undefined;
-    if (moduleCombo) {
-      const armKey = resolveArmKey(payload.meta, moduleCombo);
-      if (armKey) {
-        const updated = await updateBanditArm({ armKey, reward, supabase });
-        if (!updated) {
-          warn = "reward_update_failed";
-        }
+    const moduleComboFromMeta = extractModuleCombo(payload.meta);
+    const effectiveModuleCombo = moduleComboFromMeta ?? moduleCombo;
+    const armKey = resolveArmKey(payload.meta, effectiveModuleCombo);
+    let banditWarning: string | null = null;
+    if (armKey) {
+      const updated = await updateBanditArm({ armKey, reward, supabase });
+      if (!updated) {
+        banditWarning = "bandit_update_failed";
       }
     }
 
     try {
       mixpanel.track("BE:Feedback", {
         vote: payload.vote,
-        rating,
         reward,
-        interaction_id: interactionId,
+        interaction_id: resolvedInteractionId,
         origin,
       });
     } catch (error) {
@@ -280,16 +323,45 @@ async function handleFeedback(req: Request, res: Response): Promise<void> {
       });
     }
 
-    status = 200;
-    const responseBody: Record<string, unknown> = { ok: true, rating, reward };
-    if (warn) responseBody.warn = warn;
+    status = 201;
+    const moduleDescriptor = Array.isArray(effectiveModuleCombo)
+      ? effectiveModuleCombo.filter((entry) => typeof entry === "string" && entry.trim()).join(" + ")
+      : null;
+
+    const moduleInfo = moduleDescriptor ? ` (module ${moduleDescriptor})` : "";
+    const logMessage = `[feedback] Salvo voto=${payload.vote} para interaction ${resolvedInteractionId}${moduleInfo}`;
+    log.info(logMessage, {
+      vote: payload.vote,
+      interactionId: resolvedInteractionId,
+      armKey: armKey ?? null,
+      reward,
+      warning: banditWarning,
+      origin,
+      source: payload.source ?? null,
+    });
+
+    const responseBody: Record<string, unknown> = {
+      status: "success",
+      feedback_id: (insertData as { id?: string } | null)?.id ?? null,
+      interaction_id: resolvedInteractionId,
+      reward,
+      bandit: {
+        arm_key: armKey ?? null,
+        updated: !banditWarning && Boolean(armKey),
+      },
+    };
+
+    if (banditWarning) {
+      (responseBody.bandit as Record<string, unknown>).warning = banditWarning;
+    }
+
     res.status(status).json(responseBody);
   } catch (error) {
-    status = 502;
+    status = 500;
     errorCode = "unexpected_error";
     const message = error instanceof Error ? error.message : String(error);
     supabaseError = message;
-    res.status(status).json({ error: errorCode, details: message });
+    res.status(status).json({ error: errorCode, message });
   } finally {
     logRequest("feedback", {
       origin,
@@ -488,6 +560,23 @@ async function updateBanditArm(params: {
   }
 
   return true;
+}
+
+function extractModuleCombo(meta: FeedbackPayload["meta"]): string[] | null {
+  if (!meta || typeof meta !== "object") {
+    return null;
+  }
+
+  const raw = (meta as Record<string, unknown>).module_combo;
+  if (!Array.isArray(raw)) {
+    return null;
+  }
+
+  const cleaned = raw
+    .map((entry) => (typeof entry === "string" ? entry.trim() : ""))
+    .filter((entry) => entry.length > 0);
+
+  return cleaned.length ? cleaned : null;
 }
 
 function resolveArmKey(meta: FeedbackPayload["meta"], moduleCombo?: string[] | null): string | null {
