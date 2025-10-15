@@ -110,6 +110,27 @@ const matrizPromptBaseV2: MatrizPromptBaseV2 = {
       regra: "nivel>=1",
     },
 
+    /* ===== Emocionais ===== */
+    "eco_vulnerabilidade_mitos.txt": {
+      descricao: "Reenquadrar vulnerabilidade como coragem com discernimento.",
+      regra:
+        "nivel>=2 && intensidade>=3 && (vulnerabilidade || vergonha || autocritica) && !pedido_pratico",
+    },
+    "eco_vulnerabilidade_defesas.txt": {
+      descricao: "Nomear armaduras emocionais e abrir microespaço seguro.",
+      regra:
+        "nivel>=2 && intensidade>=4 && (defesas_ativas || evitamento || combate || vulnerabilidade) && !pedido_pratico",
+    },
+    "eco_emo_vergonha_combate.txt": {
+      descricao: "Separar identidade de comportamento quando vergonha domina.",
+      regra:
+        "nivel>=2 && intensidade>=4 && (vergonha || autocritica || culpa_marcada) && !pedido_pratico",
+    },
+    "eco_memoria_revisitar_passado.txt": {
+      descricao: "Costurar memórias emocionais registradas ao agora.",
+      regra: "nivel>=2 && useMemories==true && !pedido_pratico",
+    },
+
     /* ===== Heurísticas cognitivas ===== */
     "eco_heuristica_disponibilidade.txt": {
       descricao: "Disponibilidade",
@@ -151,28 +172,29 @@ const matrizPromptBaseV2: MatrizPromptBaseV2 = {
 
     /* ===== Filosóficos / somáticos ===== */
     "eco_observador_presente.txt": {
-      descricao: "Observador presente",
-      regra: "ruminacao && nivel>=2",
+      descricao: "Trazer presença estoica e atenção ao agora.",
+      regra: "ruminacao && nivel>=2 && intensidade>=3 && intensidade<=7",
     },
     "eco_presenca_racional.txt": {
-      descricao: "Razão serena",
+      descricao: "Discernimento estoico frente a inquietação.",
       regra: "confusao_emocional && intensidade>=3 && intensidade<=7 && nivel>=2",
     },
     "eco_corpo_emocao.txt": {
-      descricao: "Ponte corpo–emoção",
-      regra: "(mencao_corporal || excesso_racionalizacao) && intensidade>=5 && nivel>=2",
+      descricao: "Ponte corpo–emoção para sensação encarnada.",
+      regra: "(mencao_corporal || excesso_racionalizacao || confusao_emocional) && intensidade>=4 && nivel>=2",
     },
     "eco_fim_do_sofrimento.txt": {
-      descricao: "Reduzir sofrimento por aversão/avaliação",
-      regra: "sofrimento_avaliativo && intensidade>=6 && nivel>=2",
+      descricao: "Sofrimento avaliativo visto com presença compassiva.",
+      regra: "sofrimento_avaliativo && intensidade>=6 && nivel>=2 && !crise",
     },
     "eco_identificacao_mente.txt": {
-      descricao: "Desidentificação de pensamentos",
+      descricao: "Desidentificação gentil de pensamentos repetitivos.",
       regra: "identificacao_pensamentos && nivel>=2",
     },
     "eco_corpo_sensacao.txt": {
-      descricao: "Consciência corporal",
-      regra: "(mencao_corporal || confusao_emocional || excesso_racionalizacao) && nivel>=2 && intensidade>=5",
+      descricao: "Consciência corporal como âncora.",
+      regra:
+        "(mencao_corporal || confusao_emocional || excesso_racionalizacao) && nivel>=2 && intensidade>=5",
     },
 
     "LINGUAGEM_NATURAL.txt": {
@@ -204,6 +226,7 @@ const matrizPromptBaseV2: MatrizPromptBaseV2 = {
 
       // Memórias
       "USOMEMÓRIAS.txt",
+      "eco_memoria_revisitar_passado.txt",
 
       // Core
       "PRINCIPIOS_CHAVE.txt",
@@ -212,6 +235,11 @@ const matrizPromptBaseV2: MatrizPromptBaseV2 = {
       "MODULACAO_TOM_REGISTRO.txt",
       "LINGUAGEM_NATURAL.txt",
       "ENCERRAMENTO_SENSIVEL.txt",
+
+      // Emocionais
+      "eco_emo_vergonha_combate.txt",
+      "eco_vulnerabilidade_mitos.txt",
+      "eco_vulnerabilidade_defesas.txt",
 
       // Filosóficos / Somáticos
       "eco_observador_presente.txt",
