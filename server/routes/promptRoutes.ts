@@ -578,9 +578,8 @@ askEcoRouter.post("/", async (req: Request, res: Response) => {
       state.done = true;
 
       const firstTokenLatency = state.firstTokenAt ? state.firstTokenAt - state.t0 : null;
-      const totalLatency = state.lastChunkAt
-        ? state.lastChunkAt - state.t0
-        : Date.now() - state.t0;
+      const finishedAt = state.lastChunkAt || Date.now();
+      const totalLatency = finishedAt - state.t0;
 
       sendMeta({
         type: "llm_status",
@@ -606,8 +605,9 @@ askEcoRouter.post("/", async (req: Request, res: Response) => {
 
       sse.sendControl("done", {
         reason: finishReason,
-        chunks: state.chunksCount,
+        totalChunks: state.chunksCount,
         bytes: state.bytesCount,
+        durationMs: totalLatency,
       });
 
       const doneValue = finishReason === "error" || finishReason === "timeout" ? 0 : 1;
@@ -644,28 +644,28 @@ askEcoRouter.post("/", async (req: Request, res: Response) => {
       if (!finalText) return;
 
       state.sawChunk = true;
-      state.chunksCount += 1;
+      const chunkIndex = state.chunksCount;
       const chunkBytes = Buffer.byteLength(finalText, "utf8");
       state.bytesCount += chunkBytes;
-      state.lastChunkAt = Date.now();
+      const now = Date.now();
+      state.lastChunkAt = now;
 
       if (!state.firstSent) {
         state.firstSent = true;
-        state.firstTokenAt = Date.now();
+        state.firstTokenAt = now;
         sse.send("first_token", { delta: finalText });
         sendMeta({ type: "first_token_latency_ms", value: state.firstTokenAt - state.t0 });
         recordFirstTokenTelemetry(chunkBytes);
-      } else {
-        const chunkIndex = state.chunksCount - 1;
-        sse.send("chunk", { delta: finalText, index: chunkIndex });
       }
+
+      sse.send("chunk", { delta: finalText, index: chunkIndex });
+
+      state.chunksCount = chunkIndex + 1;
 
       sendToken(finalText);
     }
 
     sse.sendControl("prompt_ready", { stream: true });
-    sendMeta({ type: "prompt_ready" });
-    sendToken("__prompt_ready__");
     enqueuePassiveSignal("prompt_ready", 1, {
       stream: true,
       origin: origin ?? null,
@@ -785,7 +785,9 @@ askEcoRouter.post("/", async (req: Request, res: Response) => {
       }
       sendDone("error");
     } finally {
-      sse.end();
+      if (!state.done) {
+        sse.end();
+      }
     }
   } catch (error) {
     if (isHttpError(error)) {
