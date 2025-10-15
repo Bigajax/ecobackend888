@@ -50,8 +50,10 @@ export async function logInteraction({
       created_at: nowIso,
     };
 
-    const { data, error } = await supabase
-      .from("analytics.eco_interactions")
+    const analytics = supabase.schema("analytics");
+
+    const { data, error } = await analytics
+      .from("eco_interactions")
       .insert([payload])
       .select("id")
       .maybeSingle();
@@ -96,8 +98,8 @@ export async function logInteraction({
         } => row !== null);
 
       if (rows.length) {
-        const { error: moduleError } = await supabase
-          .from("analytics.eco_module_usages")
+        const { error: moduleError } = await analytics
+          .from("eco_module_usages")
           .insert(rows);
         if (moduleError) {
           log.warn("[interactionLogger] failed to insert eco_module_usages", {

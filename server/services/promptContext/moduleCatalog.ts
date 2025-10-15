@@ -127,6 +127,9 @@ function stripDiacritics(s: string): string {
 function normalizeKey(name: string): string {
   return stripDiacritics(name).toLowerCase();
 }
+function normalizeKeyWithoutExt(name: string): string {
+  return normalizeKey(name).replace(/\.(txt|md)$/i, "");
+}
 
 /* -------------------------- caches simples ----------------------------- */
 const parsedCache = new Map<string, ParsedModule>();   // chave: nome real do arquivo
@@ -156,7 +159,10 @@ export class ModuleCatalog {
     const names = await anyStore.listNames();
     const map = new Map<string, string>();
     for (const n of names) {
-      map.set(normalizeKey(n), n);
+      const keyWithExt = normalizeKey(n);
+      if (!map.has(keyWithExt)) map.set(keyWithExt, n);
+      const keyWithoutExt = normalizeKeyWithoutExt(n);
+      if (!map.has(keyWithoutExt)) map.set(keyWithoutExt, n);
     }
     this.relaxedIndex = map;
   }
@@ -167,11 +173,21 @@ export class ModuleCatalog {
     const direct = await ModuleStore.read(name);
     if (direct && direct.trim()) return name;
 
+    if (!name.toLowerCase().endsWith(".txt")) {
+      const withTxt = `${name}.txt`;
+      const asTxt = await ModuleStore.read(withTxt);
+      if (asTxt && asTxt.trim()) return withTxt;
+    }
+
     // tenta índice tolerante, se disponível
     if (this.relaxedIndex) {
       const key = normalizeKey(name);
       const resolved = this.relaxedIndex.get(key);
       if (resolved) return resolved;
+
+      const keyNoExt = normalizeKeyWithoutExt(name);
+      const resolvedNoExt = this.relaxedIndex.get(keyNoExt);
+      if (resolvedNoExt) return resolvedNoExt;
     }
 
     // fallback: mantém o nome original (vai cair nos logs/STRICT)
@@ -227,7 +243,10 @@ export class ModuleCatalog {
 
     const msg = `[ContextBuilder] módulo ausente: ${requestedName ?? realName} (resolved: ${realName})`;
     if (STRICT_MISSING) throw new Error(msg);
-    if (isDebug()) log.debug(msg + " — usando vazio (dev/relaxado)");
+    log.debug("module_missing", {
+      requested: requestedName ?? realName,
+      resolved: realName,
+    });
     return "";
   }
 

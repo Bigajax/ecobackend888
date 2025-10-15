@@ -158,7 +158,7 @@ test("SSE streaming emits tokens, done and disables compression", async () => {
   assert.equal(res.headers.get("x-no-compression"), "1");
   assert.equal(res.headers.get("cache-control"), "no-cache, no-transform");
   assert.equal(res.headers.get("connection"), "keep-alive");
-  assert.ok(res.ended, "response should end after done event");
+  assert.equal(res.ended, false, "stream should remain open for SSE");
   assert.ok(res.flushed, "safeWrite should flush chunks for SSE");
 
   const output = res.chunks.join("");
@@ -170,7 +170,11 @@ test("SSE streaming emits tokens, done and disables compression", async () => {
     output.includes('event: token\ndata: {"text":"__prompt_ready__"}'),
     "should emit synthetic token right after prompt_ready"
   );
-  assert.ok(/event: done/.test(output), "should emit done event");
+  assert.ok(/event: control/.test(output), "should emit control events");
+  assert.ok(
+    /event: control\ndata: {"name":"done"/.test(output),
+    "should emit control:done event"
+  );
 });
 
 test("SSE streaming triggers timeout fallback when orchestrator stalls", async () => {
@@ -223,7 +227,12 @@ test("SSE streaming triggers timeout fallback when orchestrator stalls", async (
       new RegExp(STREAM_TIMEOUT_MESSAGE.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")),
       "fallback chunk should contain timeout message"
     );
-    assert.match(output, /event: done/, "fallback should complete stream");
+    assert.match(output, /event: control/, "fallback should emit control events");
+    assert.match(
+      output,
+      /event: control\ndata: {"name":"done"/,
+      "fallback should complete stream with control:done"
+    );
   } finally {
     if (previousTimeout === undefined) {
       delete process.env.ECO_SSE_TIMEOUT_MS;

@@ -280,8 +280,10 @@ async function loadPolicyConfig(
   if (!supabase) return fallback;
 
   try {
-    const { data, error } = await supabase
-      .from("analytics.eco_policy_config")
+    const analytics = supabase.schema("analytics");
+
+    const { data, error } = await analytics
+      .from("eco_policy_config")
       .select("tokens_budget, config")
       .limit(1)
       .maybeSingle();
@@ -362,8 +364,10 @@ async function loadBanditStats(
   if (!supabase || !keys.length) return map;
 
   try {
-    const { data, error } = await supabase
-      .from("analytics.eco_bandit_arms")
+    const analytics = supabase.schema("analytics");
+
+    const { data, error } = await analytics
+      .from("eco_bandit_arms")
       .select("arm_key, alpha, beta, pulls, reward_sum, reward_sq_sum")
       .in("arm_key", keys);
 
