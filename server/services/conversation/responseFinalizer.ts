@@ -14,6 +14,7 @@ import {
   identifyUsuario,
   trackRespostaQ,
   trackKnapsackDecision,
+  trackBanditArmUpdate,
 } from "../../analytics/events/mixpanelEvents";
 import { log } from "../promptContext/logger";
 import {
@@ -33,6 +34,12 @@ import type { GetEcoResult } from "../../utils";
 import type { EcoHints } from "../../utils/types";
 import type { EcoLatencyMarks } from "./types";
 import type { EcoDecisionResult } from "./ecoDecisionHub";
+import {
+  updateArm as updateBanditArm,
+  type BanditSelectionMap,
+} from "../orchestrator/bandits/ts";
+
+const BANDIT_TOKEN_PENALTY_LAMBDA = 0.01;
 
 interface ResponseFinalizerDeps {
   gerarBlocoTecnicoComCache: typeof gerarBlocoTecnicoComCache;
@@ -44,6 +51,7 @@ interface ResponseFinalizerDeps {
   identifyUsuario: typeof identifyUsuario;
   trackRespostaQ: typeof trackRespostaQ;
   trackKnapsackDecision: typeof trackKnapsackDecision;
+  trackBanditArmUpdate: typeof trackBanditArmUpdate;
 }
 
 export interface FinalizeParams {
@@ -135,6 +143,7 @@ export class ResponseFinalizer {
       identifyUsuario,
       trackRespostaQ,
       trackKnapsackDecision,
+      trackBanditArmUpdate,
     }
   ) {}
 
@@ -601,6 +610,38 @@ export class ResponseFinalizer {
         if (process.env.ECO_DEBUG === "1") {
           const message = error instanceof Error ? error.message : String(error);
           log.debug("[Knapsack] track_failed", { message });
+        }
+      }
+    }
+
+    const banditSelections =
+      (ecoDecision.banditArms as BanditSelectionMap | undefined) ??
+      (ecoDecision.debug?.bandits as BanditSelectionMap | undefined);
+    if (banditSelections && Object.values(banditSelections).some(Boolean)) {
+      const safeTokens =
+        typeof tokensTotal === "number" && Number.isFinite(tokensTotal)
+          ? Math.max(tokensTotal, 0)
+          : 0;
+      const reward = q - BANDIT_TOKEN_PENALTY_LAMBDA * (safeTokens / 1000);
+      if (Number.isFinite(reward)) {
+        for (const selection of Object.values(banditSelections)) {
+          if (!selection) continue;
+          const moduleId = typeof selection.module === "string" ? selection.module : "";
+          if (!moduleId) continue;
+          if (!resolvedSelectedModules.includes(moduleId)) continue;
+
+          updateBanditArm(selection.pilar, selection.arm, reward);
+          try {
+            this.deps.trackBanditArmUpdate({
+              distinctId,
+              userId,
+              pilar: selection.pilar,
+              arm: selection.arm,
+              recompensa: reward,
+            });
+          } catch {
+            // telemetria é best-effort
+          }
         }
       }
     }

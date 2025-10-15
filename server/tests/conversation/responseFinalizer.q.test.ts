@@ -26,6 +26,7 @@ test("finalize calcula Q completo e registra evento", async () => {
       eventos.push(payload);
     },
     trackKnapsackDecision: () => undefined,
+    trackBanditArmUpdate: () => undefined,
   });
 
   const ecoDecision: EcoDecisionResult = {
@@ -88,4 +89,78 @@ test("finalize calcula Q completo e registra evento", async () => {
   const snapshot = qualityAnalyticsStore.getQualitySnapshot();
   assert.equal(snapshot.last24h.count, 1);
   assert.equal(snapshot.last7d.count, 1);
+});
+
+test("finalize atualiza bandit quando módulo é usado", async () => {
+  qualityAnalyticsStore.reset();
+  const banditEvents: any[] = [];
+
+  const finalizer = new ResponseFinalizer({
+    gerarBlocoTecnicoComCache: async () => null,
+    saveMemoryOrReference: async () => undefined,
+    trackMensagemEnviada: () => undefined,
+    trackEcoDemorou: () => undefined,
+    trackBlocoTecnico: () => undefined,
+    trackSessaoEntrouChat: () => undefined,
+    identifyUsuario: () => undefined,
+    trackRespostaQ: () => undefined,
+    trackKnapsackDecision: () => undefined,
+    trackBanditArmUpdate: (payload: any) => {
+      banditEvents.push(payload);
+    },
+  });
+
+  const ecoDecision: EcoDecisionResult = {
+    intensity: 6,
+    openness: 2,
+    isVulnerable: true,
+    vivaSteps: ["V", "I", "A"],
+    saveMemory: true,
+    hasTechBlock: false,
+    tags: [],
+    domain: null,
+    flags: {} as any,
+    debug: {
+      intensitySignals: [],
+      vulnerabilitySignals: [],
+      modules: [],
+      selectedModules: ["LINGUAGEM_NATURAL_rules.txt"],
+      knapsack: null,
+      bandits: {
+        Linguagem: {
+          pilar: "Linguagem",
+          arm: "_rules",
+          baseModule: "LINGUAGEM_NATURAL.txt",
+          module: "LINGUAGEM_NATURAL_rules.txt",
+        },
+      },
+    },
+    banditArms: {
+      Linguagem: {
+        pilar: "Linguagem",
+        arm: "_rules",
+        baseModule: "LINGUAGEM_NATURAL.txt",
+        module: "LINGUAGEM_NATURAL_rules.txt",
+      },
+    },
+  };
+
+  await finalizer.finalize({
+    raw: "## 1. Bloco\nCite memórias mem_id:xyz\n{}",
+    ultimaMsg: "Preciso de ajuda",
+    hasAssistantBefore: true,
+    mode: "full",
+    startedAt: Date.now() - 20,
+    usageTokens: 500,
+    ecoDecision,
+    moduleCandidates: [],
+    selectedModules: ["LINGUAGEM_NATURAL_rules.txt"],
+    memsSemelhantes: [{ id: "xyz" }],
+  });
+
+  const posterior = qualityAnalyticsStore.getBanditPosterior("Linguagem", "_rules");
+  assert.equal(posterior.count, 1);
+  assert.equal(banditEvents.length, 1);
+  assert.equal(banditEvents[0].arm, "_rules");
+  assert.equal(banditEvents[0].pilar, "Linguagem");
 });

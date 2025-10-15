@@ -472,3 +472,39 @@ export const trackKnapsackDecision = ({
     })
   );
 };
+
+export const trackBanditArmPick = ({
+  distinctId,
+  userId,
+  pilar,
+  arm,
+}: TrackParams<{ pilar: string; arm: string }>) => {
+  mixpanel.track(
+    'Bandit_Arm_Pick',
+    withDistinctId({
+      distinctId,
+      userId,
+      pilar,
+      arm,
+    })
+  );
+};
+
+export const trackBanditArmUpdate = ({
+  distinctId,
+  userId,
+  pilar,
+  arm,
+  recompensa,
+}: TrackParams<{ pilar: string; arm: string; recompensa: number }>) => {
+  mixpanel.track(
+    'Bandit_Arm_Update',
+    withDistinctId({
+      distinctId,
+      userId,
+      pilar,
+      arm,
+      recompensa,
+    })
+  );
+};

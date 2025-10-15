@@ -11,6 +11,7 @@ import { formatMemRecall } from "./memoryRecall";
 import { buildInstructionBlocks, renderInstructionBlocks } from "./instructionPolicy";
 import { applyCurrentMessage, composePromptBase } from "./promptComposer";
 import { applyReductions, stitchModules } from "./stitcher";
+import type { BanditSelectionMap } from "../orchestrator/bandits/ts";
 
 // ✨ usa o módulo central
 import {
@@ -184,6 +185,35 @@ const KNAPSACK_BUDGET_DEFAULT = 1200;
 const KNAPSACK_BUDGET_ENV = "ECO_KNAPSACK_BUDGET_TOKENS";
 const VPT_FALLBACK = 0.0001;
 
+function buildBanditReplacementMap(
+  selections: BanditSelectionMap | undefined
+): Map<string, string> {
+  const mapping = new Map<string, string>();
+  if (!selections) return mapping;
+  const values = Object.values(selections) as Array<
+    | {
+        baseModule?: string;
+        module?: string;
+      }
+    | undefined
+  >;
+  for (const item of values) {
+    if (!item) continue;
+    const base = typeof item.baseModule === "string" ? item.baseModule.trim() : "";
+    const module = typeof item.module === "string" ? item.module.trim() : "";
+    if (!base || !module) continue;
+    mapping.set(base, module);
+  }
+  return mapping;
+}
+
+function applyBanditMapping(list: string[], mapping: Map<string, string>): string[] {
+  if (!Array.isArray(list) || list.length === 0 || mapping.size === 0) {
+    return Array.isArray(list) ? list.slice() : [];
+  }
+  return list.map((name) => mapping.get(name) ?? name);
+}
+
 function computeKnapsackBudget(): number {
   const envValueRaw = process.env[KNAPSACK_BUDGET_ENV];
   if (envValueRaw) {
@@ -284,6 +314,19 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
   });
   ecoDecision.debug.modules = baseSelection.debug.modules;
 
+  const banditSelections =
+    (ecoDecision.banditArms as BanditSelectionMap | undefined) ??
+    (ecoDecision.debug?.bandits as BanditSelectionMap | undefined);
+  const banditReplacementMap = buildBanditReplacementMap(banditSelections);
+
+  if (banditReplacementMap.size > 0 && Array.isArray(ecoDecision.debug.modules)) {
+    ecoDecision.debug.modules = ecoDecision.debug.modules.map((entry) => {
+      const replacement = banditReplacementMap.get(entry.id);
+      if (!replacement) return entry;
+      return { ...entry, id: replacement };
+    });
+  }
+
   const toUnique = (list: string[] | undefined) =>
     Array.from(new Set(Array.isArray(list) ? list : []));
 
@@ -299,21 +342,35 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
   const intentAndFlagModules = toUnique([...intentModules, ...flagFooters]);
 
   // Ordem: seleção base -> +intents/footers -> força DEVELOPER_PROMPT primeiro
-  const modulesRaw = ensureDeveloperPromptFirst(
+  const modulesRawBase = ensureDeveloperPromptFirst(
     toUnique([...toUnique(baseSelection.raw), ...intentAndFlagModules])
   );
 
-  const modulesAfterGating = ensureDeveloperPromptFirst(
+  const modulesAfterGatingBase = ensureDeveloperPromptFirst(
     baseSelection.posGating
       ? toUnique([...toUnique(baseSelection.posGating), ...intentAndFlagModules])
-      : modulesRaw
+      : modulesRawBase
   );
 
-  const ordered = ensureDeveloperPromptFirst(
+  const orderedBase = ensureDeveloperPromptFirst(
     baseSelection.priorizado?.length
       ? toUnique([...toUnique(baseSelection.priorizado), ...intentAndFlagModules])
-      : modulesAfterGating
+      : modulesAfterGatingBase
   );
+
+  const modulesRaw = applyBanditMapping(modulesRawBase, banditReplacementMap);
+  const modulesAfterGating = applyBanditMapping(
+    modulesAfterGatingBase,
+    banditReplacementMap
+  );
+  let ordered = applyBanditMapping(orderedBase, banditReplacementMap);
+  ordered = ensureDeveloperPromptFirst(toUnique(ordered));
+
+  for (const coreName of MINIMAL_VITAL_SET) {
+    if (!ordered.includes(coreName)) {
+      ordered.push(coreName);
+    }
+  }
 
   for (const coreName of MINIMAL_VITAL_SET) {
     if (!ordered.includes(coreName)) {
