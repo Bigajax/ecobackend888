@@ -8,6 +8,7 @@ import { log } from "../services/promptContext/logger";
 import type { EcoStreamHandler, EcoStreamEvent } from "../services/conversation/types";
 import { createHttpError, isHttpError } from "../utils/http";
 import { getSupabaseAdmin } from "../lib/supabaseAdmin";
+import { createSSE } from "../utils/sse";
 
 /** Sanitiza a saída removendo blocos ```json``` e JSON final pendurado */
 function sanitizeOutput(input?: string): string {
@@ -451,14 +452,7 @@ askEcoRouter.post("/", async (req: Request, res: Response) => {
     }
 
     // SSE mode
-    res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
-    res.setHeader("Cache-Control", "no-cache, no-transform");
-    res.setHeader("Connection", "keep-alive");
     disableCompressionForSse(res);
-    res.setHeader("X-Accel-Buffering", "no");
-
-    res.status(200);
-    (res as any).flushHeaders?.();
 
     const telemetryClient = (() => {
       const client = getSupabaseAdmin();
@@ -514,15 +508,15 @@ askEcoRouter.post("/", async (req: Request, res: Response) => {
         meta: serializedMeta,
       };
 
-      void telemetryClient
-        .from("eco_passive_signals")
-        .insert([payload])
+      void Promise.resolve(
+        telemetryClient.from("eco_passive_signals").insert([payload])
+      )
         .then(({ error }) => {
           if (error) {
             log.debug("[ask-eco] telemetry_failed", { signal, message: error.message });
           }
         })
-        .catch((error) => {
+        .catch((error: unknown) => {
           log.debug("[ask-eco] telemetry_failed", {
             signal,
             message: error instanceof Error ? error.message : String(error),
@@ -545,48 +539,14 @@ askEcoRouter.post("/", async (req: Request, res: Response) => {
       firstTokenTelemetrySent: false,
     };
 
-    let heartbeat: NodeJS.Timeout | null = null;
-    let timeoutGuard: NodeJS.Timeout | null = null;
+    const idleTimeoutMs =
+      Number.isFinite(streamTimeoutMs) && streamTimeoutMs > 0 ? streamTimeoutMs : 120_000;
 
-    const isWritable = () => {
-      if (state.clientClosed) return false;
-      if ((res as any).writableEnded || (res as any).writableFinished) return false;
-      if ((res as any).destroyed) return false;
-      return true;
-    };
-
-    const clearTimeoutGuard = () => {
-      if (timeoutGuard) {
-        clearTimeout(timeoutGuard);
-        timeoutGuard = null;
-      }
-    };
-
-    const safeWrite = (payload: string) => {
-      if (!isWritable()) return;
-      try {
-        res.write(payload);
-        (res as any).flush?.();
-      } catch {
-        state.clientClosed = true;
-      }
-    };
-
-    const sendMeta = (obj: Record<string, unknown>) => {
-      safeWrite(`event: meta\ndata: ${JSON.stringify(obj)}\n\n`);
-    };
-
-    const sendControl = (name: string, meta?: Record<string, unknown>) => {
-      const payload: Record<string, unknown> = { name };
-      if (meta && Object.keys(meta).length) {
-        payload.meta = compactMeta(meta);
-      }
-      safeWrite(`event: control\ndata: ${JSON.stringify(payload)}\n\n`);
-    };
-
-    const sendToken = (text: string) => {
-      safeWrite(`event: token\ndata: ${JSON.stringify({ text })}\n\n`);
-    };
+    const sse = createSSE(res, req, {
+      heartbeatMs: 15_000,
+      idleMs: idleTimeoutMs,
+      onIdle: handleStreamTimeout,
+    });
 
     const recordFirstTokenTelemetry = (chunkBytes: number) => {
       if (state.firstTokenTelemetrySent) return;
@@ -599,15 +559,23 @@ askEcoRouter.post("/", async (req: Request, res: Response) => {
       );
     };
 
-    const sendDone = (reason?: string | null) => {
+    function sendMeta(obj: Record<string, unknown>) {
+      sse.send("meta", obj);
+    }
+
+    function sendToken(text: string) {
+      sse.send("token", { text });
+    }
+
+    function sendErrorEvent(payload: Record<string, unknown>) {
+      log.error("[ask-eco] sse_error", { ...payload });
+      sse.send("error", payload);
+    }
+
+    function sendDone(reason?: string | null) {
       if (state.done) return;
       state.finishReason = reason ?? state.finishReason ?? "unknown";
       state.done = true;
-      if (heartbeat) {
-        clearInterval(heartbeat);
-        heartbeat = null;
-      }
-      clearTimeoutGuard();
 
       const firstTokenLatency = state.firstTokenAt ? state.firstTokenAt - state.t0 : null;
       const totalLatency = state.lastChunkAt
@@ -622,14 +590,21 @@ askEcoRouter.post("/", async (req: Request, res: Response) => {
       });
 
       const finishReason = state.finishReason || "unknown";
-      log.info("[ask-eco] sse_done", {
-        finishReason,
-        sawChunk: state.sawChunk,
-        chunks: state.chunksCount,
-        bytes: state.bytesCount,
-      });
+      if (state.sawChunk) {
+        log.info("[ask-eco] sse_done", {
+          finishReason,
+          sawChunk: state.sawChunk,
+          chunks: state.chunksCount,
+          bytes: state.bytesCount,
+        });
+      } else {
+        log.debug("[ask-eco] sse_done_no_chunk", {
+          finishReason,
+          clientClosed: state.clientClosed,
+        });
+      }
 
-      sendControl("done", {
+      sse.sendControl("done", {
         reason: finishReason,
         chunks: state.chunksCount,
         bytes: state.bytesCount,
@@ -649,23 +624,25 @@ askEcoRouter.post("/", async (req: Request, res: Response) => {
           saw_chunk: state.sawChunk,
         })
       );
-    };
 
-    const sendErrorEvent = (payload: Record<string, unknown>) => {
-      log.error("[ask-eco] sse_error", { ...payload });
-      safeWrite(`event: error\ndata: ${JSON.stringify(payload)}\n\n`);
-      clearTimeoutGuard();
-    };
+      sse.end();
+    }
 
-    const sendChunk = (piece: string) => {
+    function handleStreamTimeout() {
+      if (state.done || state.clientClosed || state.sawChunk) {
+        return;
+      }
+      log.warn("[ask-eco] sse_timeout", { timeoutMs: idleTimeoutMs });
+      sendChunk(STREAM_TIMEOUT_MESSAGE);
+      sendDone("timeout");
+    }
+
+    function sendChunk(piece: string) {
       if (!piece || typeof piece !== "string") return;
       const cleaned = sanitizeOutput(piece);
       const finalText = cleaned || piece.trim();
       if (!finalText) return;
 
-      if (!state.sawChunk) {
-        clearTimeoutGuard();
-      }
       state.sawChunk = true;
       state.chunksCount += 1;
       const chunkBytes = Buffer.byteLength(finalText, "utf8");
@@ -675,54 +652,28 @@ askEcoRouter.post("/", async (req: Request, res: Response) => {
       if (!state.firstSent) {
         state.firstSent = true;
         state.firstTokenAt = Date.now();
-        safeWrite(`event: first_token\ndata: ${JSON.stringify(finalText)}\n\n`);
+        sse.send("first_token", { delta: finalText });
         sendMeta({ type: "first_token_latency_ms", value: state.firstTokenAt - state.t0 });
         recordFirstTokenTelemetry(chunkBytes);
       } else {
-        safeWrite(`event: chunk\ndata: ${JSON.stringify(finalText)}\n\n`);
+        const chunkIndex = state.chunksCount - 1;
+        sse.send("chunk", { delta: finalText, index: chunkIndex });
       }
 
       sendToken(finalText);
-    };
+    }
 
-    sendControl("prompt_ready", { stream: true });
+    sse.sendControl("prompt_ready", { stream: true });
     sendMeta({ type: "prompt_ready" });
     sendToken("__prompt_ready__");
     enqueuePassiveSignal("prompt_ready", 1, {
       stream: true,
       origin: origin ?? null,
     });
-    safeWrite(`event: ping\ndata: {}\n\n`);
-
-    const scheduleTimeoutFallback = () => {
-      clearTimeoutGuard();
-      if (!Number.isFinite(streamTimeoutMs) || streamTimeoutMs <= 0) {
-        return;
-      }
-      timeoutGuard = setTimeout(() => {
-        timeoutGuard = null;
-        if (state.done || state.clientClosed || state.sawChunk) {
-          return;
-        }
-        log.warn("[ask-eco] sse_timeout", { timeoutMs: streamTimeoutMs });
-        sendChunk(STREAM_TIMEOUT_MESSAGE);
-        sendDone("timeout");
-      }, streamTimeoutMs);
-    };
-    scheduleTimeoutFallback();
-
-    heartbeat = setInterval(() => {
-      safeWrite(`event: ping\ndata: "${Date.now()}"\n\n`);
-    }, 20_000);
 
     req.on("close", () => {
       if (state.clientClosed) return;
       state.clientClosed = true;
-      if (heartbeat) {
-        clearInterval(heartbeat);
-        heartbeat = null;
-      }
-      clearTimeoutGuard();
       if (!state.done) {
         log.warn("[ask-eco] sse_client_closed", {
           origin,
@@ -826,18 +777,15 @@ askEcoRouter.post("/", async (req: Request, res: Response) => {
         sendErrorEvent({ ...error.body, status: error.status });
       } else {
         const traceId = randomUUID();
-        log.error("[ask-eco] sse_unexpected", { trace_id: traceId, message: (error as Error)?.message });
+        log.error("[ask-eco] sse_unexpected", {
+          trace_id: traceId,
+          message: (error as Error)?.message,
+        });
         sendErrorEvent({ code: "INTERNAL_ERROR", trace_id: traceId });
       }
       sendDone("error");
-    }
-
     } finally {
-      if (heartbeat) {
-        clearInterval(heartbeat);
-        heartbeat = null;
-      }
-      clearTimeoutGuard();
+      sse.end();
     }
   } catch (error) {
     if (isHttpError(error)) {
