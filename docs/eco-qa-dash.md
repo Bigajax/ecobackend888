@@ -74,14 +74,14 @@ order by pilar, win_rate desc;
 ```sql
 with eventos as (
   select
-    date_trunc('day', created_at) as dia,
-    budget,
-    avg(q) as q_medio,
-    avg(tokens_aditivos) as tokens_aditivos
+    date_trunc('day', kd.created_at) as dia,
+    kd.budget,
+    avg(rq.q) as q_medio,
+    avg(rq.tokens_aditivos) as tokens_aditivos
   from analytics.knapsack_decision kd
-  join analytics.resposta_q rq on kd.response_id = rq.id
-  where created_at >= now() - interval '30 day'
-  group by dia, budget
+  join analytics.resposta_q rq on kd.response_id = rq.response_id
+  where kd.created_at >= now() - interval '30 day'
+  group by dia, kd.budget
 )
 select
   dia,
@@ -116,3 +116,25 @@ Implementar na ferramenta de monitoramento preferida (ex.: Metabase/Looker/Chron
 1. **Queda de Q:** acionar alerta quando `Q_24h < Q_7d - 0.03`.
 2. **TTLC p95 deteriorado:** acionar quando `TTLC_p95_24h > TTLC_p95_7d * 1.10`.
 3. **Memória não citada:** acionar quando `memoria_ok_24h < 0.85`.
+
+Consulta auxiliar para `memoria_ok`:
+
+```sql
+select
+  case when created_at >= now() - interval '24 hour' then '24h' else '7d' end as janela,
+  avg(case when memoria_ok then 1 else 0 end) as memoria_ok
+from analytics.resposta_q
+where created_at >= now() - interval '7 day'
+group by 1;
+```
+
+## Conexão no Metabase (Supabase Postgres)
+
+1. Em **Administração → Databases**, escolha **Add database**.
+2. Tipo: **Postgres**.
+3. Hostname: `db.<project>.supabase.co` (substitua pelo host do projeto).
+4. Porta: `6543` (pooler de leitura/escrita com SSL obrigatório).
+5. Database name: valor exibido no painel Supabase (normalmente `postgres`).
+6. Username/Password: usar credenciais de serviço (recomendado gerar usuário somente leitura).
+7. SSL: **Require SSL** (Metabase detecta automaticamente, mas valide em *Advanced → SSL Mode*).
+8. Teste a conexão; após salvar, sincronize e habilite a coleta de estatísticas para o schema `analytics`.
