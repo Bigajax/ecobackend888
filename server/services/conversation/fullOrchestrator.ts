@@ -27,6 +27,7 @@ interface FullExecutionParams {
   isGuest?: boolean;
   guestId?: string;
   calHints?: EcoHints | null;
+  memsSemelhantes?: any[];
 }
 
 export async function executeFullLLM({
@@ -46,6 +47,7 @@ export async function executeFullLLM({
   isGuest = false,
   guestId,
   calHints,
+  memsSemelhantes,
 }: FullExecutionParams): Promise<GetEcoResult> {
   const supabaseClient = supabase ?? null;
   let data: any;
@@ -91,6 +93,7 @@ export async function executeFullLLM({
       isGuest,
       guestId,
       calHints,
+      memsSemelhantes,
     });
   }
 
@@ -123,6 +126,7 @@ export async function executeFullLLM({
     isGuest,
     guestId,
     calHints,
+    memsSemelhantes,
   });
 
   if (!isGuest && supabaseClient) {

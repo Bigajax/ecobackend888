@@ -11,6 +11,7 @@ import {
   withTimeoutOrNull,
 } from "./parallelFetch";
 import { log as defaultLogger } from "../promptContext/logger";
+import type { RetrieveMode } from "../supabase/memoriaRepository";
 import type { ActivationTracer } from "../../core/activationTracer";
 
 export interface ConversationContextResult {
@@ -53,6 +54,7 @@ export interface LoadConversationContextOptions {
   paralelasTimeoutMs?: number;
   onDerivadosError?: (error: unknown) => void;
   activationTracer?: ActivationTracer;
+  retrieveMode?: RetrieveMode;
 }
 
 export const DEFAULT_DERIVADOS_TIMEOUT_MS = Number(
@@ -88,6 +90,7 @@ export async function loadConversationContext(
     paralelasTimeoutMs = DEFAULT_PARALELAS_TIMEOUT_MS,
     onDerivadosError,
     activationTracer,
+    retrieveMode = "FAST",
   } = options;
 
   const shouldSkipDerivados =
@@ -106,7 +109,12 @@ export async function loadConversationContext(
   const paralelasPromise = promptOverride
     ? Promise.resolve(EMPTY_PARALLEL_RESULT)
     : Promise.race([
-        parallelFetchService.run({ ultimaMsg, userId, supabase }),
+        parallelFetchService.run({
+          ultimaMsg,
+          userId,
+          supabase,
+          retrieveMode,
+        }),
         sleepFn(paralelasTimeoutMs).then(() => EMPTY_PARALLEL_RESULT),
       ]);
 

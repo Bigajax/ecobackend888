@@ -1,12 +1,16 @@
 import { isDebug, log } from "../promptContext/logger";
 import { getEmbeddingCached } from "../../adapters/EmbeddingAdapter";
 import { buscarHeuristicasSemelhantes } from "../../services/heuristicaService";
-import { buscarMemoriasSemelhantes } from "../../services/buscarMemorias";
+import {
+  buscarMemoriasComModo,
+  type RetrieveMode,
+} from "../supabase/memoriaRepository";
 
 export interface ParallelFetchParams {
   ultimaMsg: string;
   userId?: string;
   supabase?: any;
+  retrieveMode?: RetrieveMode;
 }
 
 export interface ParallelFetchResult {
@@ -18,7 +22,7 @@ export interface ParallelFetchResult {
 interface ParallelFetchDeps {
   getEmbedding: typeof getEmbeddingCached;
   getHeuristicas: typeof buscarHeuristicasSemelhantes;
-  getMemorias: typeof buscarMemoriasSemelhantes;
+  getMemorias: typeof buscarMemoriasComModo;
   logger: typeof log;
   debug: typeof isDebug;
 }
@@ -28,13 +32,18 @@ export class ParallelFetchService {
     private readonly deps: ParallelFetchDeps = {
       getEmbedding: getEmbeddingCached,
       getHeuristicas: buscarHeuristicasSemelhantes,
-      getMemorias: buscarMemoriasSemelhantes,
+      getMemorias: buscarMemoriasComModo,
       logger: log,
       debug: isDebug,
     }
   ) {}
 
-  async run({ ultimaMsg, userId, supabase }: ParallelFetchParams): Promise<ParallelFetchResult> {
+  async run({
+    ultimaMsg,
+    userId,
+    supabase,
+    retrieveMode = "FAST",
+  }: ParallelFetchParams): Promise<ParallelFetchResult> {
     let userEmbedding: number[] = [];
     const trimmed = (ultimaMsg || "").trim();
     if (trimmed.length > 0) {
@@ -62,12 +71,10 @@ export class ParallelFetchService {
 
       const memsPromise = userId
         ? this.deps
-            .getMemorias(userId, {
-              // Reuse the embedding computed above to avoid duplicate embedding API calls.
-              texto: trimmed,
-              userEmbedding,
-              k: 3,
-              threshold: 0.12,
+            .getMemorias({
+              userId,
+              embedding: userEmbedding,
+              mode: retrieveMode,
               supabaseClient: supabase,
             })
             .catch((e: any) => {
