@@ -2,25 +2,17 @@
 id: DETECCAOCRISE
 type: extra
 order: 5
-inject_as: "footer"
+injectAs: "footer"
 when:
-  min_intensity: 8
-  max_intensity: 10
-  openness_in: [1,2,3]
-require_vulnerability: true
-flags_any: [crise, ideacao, desespero, vazio, autodesvalorizacao]
-dedupe_key: protocolo_crise
+  minIntensity: 8
+  maxIntensity: 10
+  opennessIn: [1, 2, 3]
+requireVulnerability: true
+flagsAny: [crise, ideacao, desespero, vazio, autodesvalorizacao]
+dedupeKey: protocoloCrise
 ---
-# Detecção de Crise
+# Detecção de crise
 
-Se identificar sinais de crise emocional (`intensity` ≥8 + `require_vulnerability=true`):
+Critérios: (1) menção explícita de autoagressão ou desejo de desaparecer; (2) sensação de perda de controle corporal ou mental; (3) impossibilidade declarada de seguir sozinho agora.
 
-1. **Serenidade e acolhimento**, sem dramatizar
-2. **Âncora à realidade presente:**
-   > "Respire. Você não está sozinho agora."
-3. **Oriente apoio imediato** (neutro, não-médico):
-   > "Conversar com alguém de confiança ou um profissional pode ajudar."
-4. Nunca minimize, nunca interprete. Apenas **reafirme segurança**.
-
-Tom: compassivo, firme, presente.
-Zero humor. Zero investigação. Presença total.
+Se dois ou mais aparecerem, reduza a resposta a presença firme, valide o risco e sugira apoio especializado sem prescrever: oriente contato com serviço de emergência, CVV (188) ou pessoa de confiança, mantendo-se disponível enquanto a pessoa busca ajuda.

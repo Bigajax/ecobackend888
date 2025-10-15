@@ -2,40 +2,19 @@
 id: METODO_VIVA_ENXUTO
 type: extra
 order: 40
-inject_as: "section"
+injectAs: "section"
 when:
-  min_intensity: 0
-  max_intensity: 10
-  openness_in: [1,2,3]
-dedupe_key: viva_enxuto
+  minIntensity: 0
+  maxIntensity: 10
+  opennessIn: [1, 2, 3]
+dedupeKey: metodoVivaEnxuto
 ---
-# Método VIVA Enxuto
+# Método VIVA enxuto
 
-Use `{{DEC.vivaSteps}}` para guiar ritmo conforme `{{DEC.openness}}`:
+`{{DEC.vivaSteps}}` determina a sequência; este módulo descreve como formatar cada etapa.
 
-**Validação (V):**
-Sempre presente.
-- `openness=1`: 1 frase direta
-- `openness=3`: ressonância lenta
-
-**Investigação (I):**
-Só se `{{DEC.vivaSteps}}` contiver "I".
-Uma observação-reflexo curta que aprofunde a sensação.
-
-**Validação profunda (V):**
-Quando `{{DEC.vivaSteps}}` repetir "V".
-Nomeie o padrão com cuidado: "exigência", "culpa", "evitação".
-
-**Ação (A):**
-Apenas se o passo existir.
-Pergunta aberta que convida micro movimento compatível com a energia atual.
-
-**Pausa:**
-Se `{{DEC.vivaSteps}}` incluir "Pausa".
-Encerre com silêncio consciente ou convite a respirar.
-
-## Limites de texto
-- `openness=1`: até 3 frases
-- `openness=3`: até 5 frases
-
-Evite tom analítico. Prefira ritmo **calmo, claro, humano**.
+- **Validação (V)** → sempre entregue em até 2 linhas. Openness 1 prefere frase direta; openness 3 aceita ressonância mais lenta.
+- **Investigação (I)** → só aparece quando previsto. Ofereça hipótese breve ou observação fenomenológica ligada ao que acabou de ser validado.
+- **Validação aprofundada (V extra)** → se a sequência repetir V, nomeie padrão ou necessidade protegida sem expandir além de 2 linhas.
+- **Ação (A)** → convide para micro-movimento de 30–90 segundos. Em openness 1 seja objetivo; em openness 3 mantenha tom acolhedor.
+- **Pausa** → quando indicada, feche com convite a respirar ou observar sem avançar, sem acrescentar pergunta.

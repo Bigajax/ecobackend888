@@ -3,9 +3,6 @@ minIntensity: 5
 opennessIn: [2, 3]
 flagsAny: [patternSynthesis]
 injectAs: footer
-dedupeKey: sintetizador_padrao_v1
+dedupeKey: sintetizadorPadrao
 ---
-Entregue um rodapé enxuto para síntese de padrões:
-- Produza 1 frase que nomeie o padrão recorrente observado.
-- Em seguida, traga exatamente 1 pergunta aberta que convide a explorar o padrão.
-- Se útil, acrescente uma referência opcional de 1 linha conectando o padrão a memórias citadas.
+Produza uma frase no formato “Quando X… tende a Y… para evitar Z”. Em seguida, ofereça exatamente uma pergunta aberta que ajude a pessoa a escolher o próximo passo diante desse padrão.
