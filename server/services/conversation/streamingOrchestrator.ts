@@ -540,6 +540,9 @@ export async function executeStreamingLLM({
           guestId,
           calHints,
           memsSemelhantes,
+          promptMessages: prompt,
+          promptTokens: usageFromStream?.prompt_tokens,
+          completionTokens: usageFromStream?.completion_tokens,
         });
       })();
     }

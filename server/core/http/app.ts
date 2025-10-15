@@ -23,7 +23,7 @@ import voiceTTSRoutes from "../../routes/voiceTTSRoutes";
 import voiceFullRoutes from "../../routes/voiceFullRoutes";
 import openrouterRoutes from "../../routes/openrouterRoutes";
 import relatorioRoutes from "../../routes/relatorioEmocionalRoutes";
-import feedbackRoutes from "../../routes/feedback";
+import feedbackRoutes, { signalRouter as feedbackSignalRoutes } from "../../routes/feedbackRoutes";
 import memoryRoutes from "../../domains/memory/routes";
 import { log } from "../../services/promptContext/logger";
 import { isSupabaseConfigured } from "../../lib/supabaseAdmin";
@@ -148,6 +148,7 @@ export function createApp(): Express {
   app.use("/api/relatorio-emocional", relatorioRoutes);
   app.use("/api/v1/relatorio-emocional", relatorioRoutes);
   app.use("/api/feedback", feedbackRoutes);
+  app.use("/api/signal", feedbackSignalRoutes);
 
   // Aliases sem /api (clientes legados)
   app.use("/memorias", memoryRoutes);
