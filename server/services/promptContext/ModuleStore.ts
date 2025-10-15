@@ -88,7 +88,7 @@ export class ModuleStore {
 
   private roots: string[] = [];
   private fileIndexBuilt = false;
-  private fileIndex = new Map<string, string>(); // key(norm) -> fullPath
+  private fileIndex = new Map<string, { full: string; name: string }>(); // key(norm) -> file metadata
   private cacheModulos = new Map<string, string>(); // key(norm) -> content
   private tokenCountCache = new Map<string, number>(); // key -> tokens
   private buildLock: Promise<void> | null = null;
@@ -144,7 +144,14 @@ export class ModuleStore {
 
   /** Lista até N nomes indexados (sem caminhos), útil para debug. */
   listIndexed(limit = 50) {
-    return Array.from(this.fileIndex.keys()).slice(0, limit);
+    return Array.from(this.fileIndex.values())
+      .map((item) => item.name)
+      .slice(0, limit);
+  }
+
+  async listNames(): Promise<string[]> {
+    await this.buildFileIndexOnce();
+    return Array.from(this.fileIndex.values()).map((item) => item.name);
   }
 
   /** Invalida caches (tudo ou só um módulo). */
@@ -178,6 +185,7 @@ export class ModuleStore {
   static tokenCountOf(name: string, content?: string): number { return this.I.tokenCountOf(name, content); }
   static stats() { return this.I.stats(); }
   static listIndexed(limit?: number) { return this.I.listIndexed(limit); }
+  static async listNames(): Promise<string[]> { return this.I.listNames(); }
   static invalidate(name?: string) { return this.I.invalidate(name); }
   static registerInline(name: string, content: string) { return this.I.registerInline(name, content); }
   // -------------------------------------------
@@ -233,7 +241,7 @@ export class ModuleStore {
             const key = normKey(f.name);
             // primeiro root na lista vence em duplicado
             if (!this.fileIndex.has(key)) {
-              this.fileIndex.set(key, f.full);
+              this.fileIndex.set(key, { full: f.full, name: f.name });
               totalIndexed++;
             }
           }
@@ -271,18 +279,26 @@ export class ModuleStore {
     await this.buildFileIndexOnce();
 
     // 1) caminho pelo índice
-    const p = this.fileIndex.get(key);
-    if (p) {
+    const indexed = this.fileIndex.get(key);
+    if (indexed) {
       try {
-        const c = (await fs.readFile(p, "utf-8")).trim();
+        const c = (await fs.readFile(indexed.full, "utf-8")).trim();
         this.cacheModulos.set(key, c);
         this.tokenCountCache.set(key, enc.encode(c).length);
         if (isDebug())
-          log.debug("[ModuleStore.read] index path", { name, path: p, tokens: this.tokenCountCache.get(key) });
+          log.debug("[ModuleStore.read] index path", {
+            name,
+            path: indexed.full,
+            tokens: this.tokenCountCache.get(key),
+          });
         return c;
       } catch (err) {
         if (isDebug())
-          log.debug("[ModuleStore.read] read fail (indexed path)", { name, path: p, err: String(err) });
+          log.debug("[ModuleStore.read] read fail (indexed path)", {
+            name,
+            path: indexed.full,
+            err: String(err),
+          });
       }
     }
 
