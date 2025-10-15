@@ -227,7 +227,10 @@ export class ModuleCatalog {
 
     const msg = `[ContextBuilder] módulo ausente: ${requestedName ?? realName} (resolved: ${realName})`;
     if (STRICT_MISSING) throw new Error(msg);
-    if (isDebug()) log.debug(msg + " — usando vazio (dev/relaxado)");
+    log.debug("module_missing", {
+      requested: requestedName ?? realName,
+      resolved: realName,
+    });
     return "";
   }
 

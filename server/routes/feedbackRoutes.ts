@@ -23,12 +23,7 @@ const FeedbackSchema = z.object({
 
 const PassiveSignalSchema = z.object({
   messageId: z.string().min(1).optional(),
-  signal: z.union([
-    z.literal("copy"),
-    z.literal("share"),
-    z.literal("tts_60"),
-    z.literal("read_complete"),
-  ]),
+  signal: z.string().min(1),
   value: z.number().finite().optional(),
   sessionId: z.string().min(1).optional().nullable(),
   userId: z.string().uuid().optional().nullable(),
@@ -95,11 +90,12 @@ async function resolveInteraction(
   }
 
   const { messageId, sessionId, userId } = payload;
+  const analytics = supabase.schema("analytics");
 
   try {
     if (messageId) {
-      const { data, error } = await supabase
-        .from("analytics.eco_interactions")
+      const { data, error } = await analytics
+        .from("eco_interactions")
         .select("id, module_combo")
         .eq("message_id", messageId)
         .maybeSingle();
@@ -124,8 +120,8 @@ async function resolveInteraction(
 
     const cutoff = new Date(Date.now() - TEN_MINUTES_MS).toISOString();
 
-    let query = supabase
-      .from("analytics.eco_interactions")
+    let query = analytics
+      .from("eco_interactions")
       .select("id, module_combo, created_at")
       .gte("created_at", cutoff)
       .order("created_at", { ascending: false })
@@ -232,8 +228,10 @@ async function handleFeedback(req: Request, res: Response): Promise<void> {
     const rating = payload.vote === "up" ? 1 : -1;
     const reward = computeReward({ vote: payload.vote, reasons: sanitizedReasons ?? undefined });
 
-    const { error: upsertError } = await supabase
-      .from("analytics.eco_feedback")
+    const analytics = supabase.schema("analytics");
+
+    const { error: upsertError } = await analytics
+      .from("eco_feedback")
       .upsert(
         {
           interaction_id: interactionId,
@@ -329,6 +327,7 @@ async function handleSignal(req: Request, res: Response): Promise<void> {
       return;
     }
 
+    const analytics = supabase.schema("analytics");
     const interactionResolution = await resolveInteraction(supabase, {
       messageId: payload.messageId ?? null,
       sessionId: payload.sessionId ?? null,
@@ -343,37 +342,32 @@ async function handleSignal(req: Request, res: Response): Promise<void> {
       return;
     }
 
-    if (interactionResolution.kind === "missing_identity" || interactionResolution.kind === "not_found") {
-      status = 202;
-      errorCode = "no_interaction";
-      res.status(status).json({ ok: true, skipped: "no_interaction" });
-      return;
-    }
+    const interactionId = interactionResolution.kind === "ok" ? interactionResolution.id : null;
+    if (interactionId) {
+      const cutoff = new Date(Date.now() - FIVE_MINUTES_MS).toISOString();
 
-    const interactionId = interactionResolution.id;
-    const cutoff = new Date(Date.now() - FIVE_MINUTES_MS).toISOString();
+      const { data: existing, error: existingError } = await analytics
+        .from("eco_passive_signals")
+        .select("id, created_at, value")
+        .eq("interaction_id", interactionId)
+        .eq("signal", payload.signal)
+        .gte("created_at", cutoff)
+        .maybeSingle();
 
-    const { data: existing, error: existingError } = await supabase
-      .from("analytics.eco_passive_signals")
-      .select("id, created_at, value")
-      .eq("interaction_id", interactionId)
-      .eq("signal", payload.signal)
-      .gte("created_at", cutoff)
-      .maybeSingle();
+      if (existingError) {
+        status = 202;
+        errorCode = "signal_lookup_failed";
+        supabaseError = existingError.message;
+        res.status(status).json({ ok: true, skipped: "supabase_error" });
+        return;
+      }
 
-    if (existingError) {
-      status = 202;
-      errorCode = "signal_lookup_failed";
-      supabaseError = existingError.message;
-      res.status(status).json({ ok: true, skipped: "supabase_error" });
-      return;
-    }
-
-    if (existing) {
-      status = 202;
-      errorCode = "duplicate_signal";
-      res.status(status).json({ ok: true, skipped: "duplicate" });
-      return;
+      if (existing) {
+        status = 202;
+        errorCode = "duplicate_signal";
+        res.status(status).json({ ok: true, skipped: "duplicate" });
+        return;
+      }
     }
 
     const insertPayload = {
@@ -389,11 +383,11 @@ async function handleSignal(req: Request, res: Response): Promise<void> {
       created_at: new Date().toISOString(),
     };
 
-    console.log("[signal]", insertPayload);
+    log.debug("[signal] insert", insertPayload);
 
-    const { error: insertError } = await supabase
-      .from("analytics.eco_passive_signals")
-      .upsert(insertPayload, { onConflict: "interaction_id, signal" });
+    const { error: insertError } = await analytics
+      .from("eco_passive_signals")
+      .insert([insertPayload]);
 
     if (insertError) {
       status = 202;
@@ -444,8 +438,10 @@ async function updateBanditArm(params: {
   const { supabase, armKey, reward } = params;
   if (!supabase) return false;
 
-  const { data: existing, error: fetchError } = await supabase
-    .from("analytics.eco_bandit_arms")
+  const analytics = supabase.schema("analytics");
+
+  const { data: existing, error: fetchError } = await analytics
+    .from("eco_bandit_arms")
     .select("arm_key, pulls, alpha, beta, reward_sum, reward_sq_sum")
     .eq("arm_key", armKey)
     .maybeSingle();
@@ -471,8 +467,8 @@ async function updateBanditArm(params: {
     last_update: new Date().toISOString(),
   };
 
-  const { error: upsertError } = await supabase
-    .from("analytics.eco_bandit_arms")
+  const { error: upsertError } = await analytics
+    .from("eco_bandit_arms")
     .upsert(payload, { onConflict: "arm_key" });
 
   if (upsertError) {

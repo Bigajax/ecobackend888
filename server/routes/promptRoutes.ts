@@ -7,6 +7,7 @@ import { STREAM_TIMEOUT_MESSAGE } from "./askEco/streaming";
 import { log } from "../services/promptContext/logger";
 import type { EcoStreamHandler, EcoStreamEvent } from "../services/conversation/types";
 import { createHttpError, isHttpError } from "../utils/http";
+import { getSupabaseAdmin } from "../lib/supabaseAdmin";
 
 /** Sanitiza a saída removendo blocos ```json``` e JSON final pendurado */
 function sanitizeOutput(input?: string): string {
@@ -49,6 +50,27 @@ function disableCompressionForSse(response: Response) {
   response.setHeader("Content-Encoding", "identity");
   response.setHeader("X-No-Compression", "1");
   (response as any).removeHeader?.("Content-Length");
+}
+
+function extractSessionIdLoose(value: unknown): string | null {
+  if (!value || typeof value !== "object") return null;
+  const source = value as Record<string, unknown>;
+  const candidates = [
+    source.sessionId,
+    source.session_id,
+    source.sessionID,
+    source.sessaoId,
+    source.sessao_id,
+    source.sessaoID,
+    source.session,
+    source.sessao,
+  ];
+  for (const candidate of candidates) {
+    if (typeof candidate === "string" && candidate.trim()) {
+      return candidate.trim();
+    }
+  }
+  return null;
 }
 
 /** GET /api/prompt-preview */
@@ -317,6 +339,11 @@ askEcoRouter.post("/", async (req: Request, res: Response) => {
     sessionMeta,
   } = body;
 
+  const sessionMetaObject =
+    sessionMeta && typeof sessionMeta === "object" && !Array.isArray(sessionMeta)
+      ? (sessionMeta as Record<string, unknown>)
+      : undefined;
+
   const normalized = normalizeMessages(body);
   const payloadShape = normalized.shape;
 
@@ -380,8 +407,8 @@ askEcoRouter.post("/", async (req: Request, res: Response) => {
     if (typeof clientHour === "number" && Number.isFinite(clientHour)) {
       (params as any).clientHour = clientHour;
     }
-    if (sessionMeta && typeof sessionMeta === "object" && !Array.isArray(sessionMeta)) {
-      (params as any).sessionMeta = sessionMeta;
+    if (sessionMetaObject) {
+      (params as any).sessionMeta = sessionMetaObject;
     }
     if (typeof nome_usuario === "string" && nome_usuario.trim()) {
       (params as any).userName = nome_usuario.trim();
@@ -433,17 +460,89 @@ askEcoRouter.post("/", async (req: Request, res: Response) => {
     res.status(200);
     (res as any).flushHeaders?.();
 
+    const telemetryClient = (() => {
+      const client = getSupabaseAdmin();
+      if (!client) return null;
+      try {
+        return client.schema("analytics");
+      } catch {
+        return null;
+      }
+    })();
+
+    const sessionIdForTelemetry =
+      extractSessionIdLoose(sessionMetaObject) ?? extractSessionIdLoose(body);
+    const userIdForTelemetry =
+      typeof reqWithIdentity.user?.id === "string" && reqWithIdentity.user.id.trim()
+        ? reqWithIdentity.user.id.trim()
+        : null;
+
+    const compactMeta = (meta: Record<string, unknown>): Record<string, unknown> => {
+      return Object.entries(meta).reduce<Record<string, unknown>>((acc, [key, value]) => {
+        if (value !== undefined) acc[key] = value;
+        return acc;
+      }, {});
+    };
+
+    const enqueuePassiveSignal = (
+      signal: string,
+      value?: number | null,
+      meta?: Record<string, unknown>
+    ) => {
+      if (!telemetryClient) return;
+      let serializedMeta: Record<string, unknown> | null = null;
+      if (meta && typeof meta === "object") {
+        const cleaned = compactMeta(meta);
+        if (Object.keys(cleaned).length > 0) {
+          try {
+            serializedMeta = JSON.parse(JSON.stringify(cleaned));
+          } catch (error) {
+            log.debug("[ask-eco] telemetry_meta_failed", {
+              signal,
+              message: error instanceof Error ? error.message : String(error),
+            });
+          }
+        }
+      }
+
+      const payload = {
+        interaction_id: null,
+        user_id: userIdForTelemetry ?? null,
+        session_id: sessionIdForTelemetry ?? null,
+        signal,
+        value: typeof value === "number" && Number.isFinite(value) ? value : null,
+        meta: serializedMeta,
+      };
+
+      void telemetryClient
+        .from("eco_passive_signals")
+        .insert([payload])
+        .then(({ error }) => {
+          if (error) {
+            log.debug("[ask-eco] telemetry_failed", { signal, message: error.message });
+          }
+        })
+        .catch((error) => {
+          log.debug("[ask-eco] telemetry_failed", {
+            signal,
+            message: error instanceof Error ? error.message : String(error),
+          });
+        });
+    };
+
     const state = {
       done: false,
       sawChunk: false,
       finishReason: "" as string | undefined,
       clientClosed: false,
-      // novos campos para latência e contadores
       firstSent: false,
       t0: Date.now(),
       firstTokenAt: 0,
       chunksCount: 0,
       bytesCount: 0,
+      lastChunkAt: 0,
+      model: null as string | null,
+      firstTokenTelemetrySent: false,
     };
 
     let heartbeat: NodeJS.Timeout | null = null;
@@ -477,8 +576,27 @@ askEcoRouter.post("/", async (req: Request, res: Response) => {
       safeWrite(`event: meta\ndata: ${JSON.stringify(obj)}\n\n`);
     };
 
+    const sendControl = (name: string, meta?: Record<string, unknown>) => {
+      const payload: Record<string, unknown> = { name };
+      if (meta && Object.keys(meta).length) {
+        payload.meta = compactMeta(meta);
+      }
+      safeWrite(`event: control\ndata: ${JSON.stringify(payload)}\n\n`);
+    };
+
     const sendToken = (text: string) => {
       safeWrite(`event: token\ndata: ${JSON.stringify({ text })}\n\n`);
+    };
+
+    const recordFirstTokenTelemetry = (chunkBytes: number) => {
+      if (state.firstTokenTelemetrySent) return;
+      state.firstTokenTelemetrySent = true;
+      const latency = state.firstTokenAt ? state.firstTokenAt - state.t0 : null;
+      enqueuePassiveSignal(
+        "first_token",
+        1,
+        compactMeta({ latency_ms: latency ?? undefined, chunk_bytes: chunkBytes })
+      );
     };
 
     const sendDone = (reason?: string | null) => {
@@ -491,29 +609,46 @@ askEcoRouter.post("/", async (req: Request, res: Response) => {
       }
       clearTimeoutGuard();
 
-      // status final
+      const firstTokenLatency = state.firstTokenAt ? state.firstTokenAt - state.t0 : null;
+      const totalLatency = state.lastChunkAt
+        ? state.lastChunkAt - state.t0
+        : Date.now() - state.t0;
+
       sendMeta({
         type: "llm_status",
-        firstTokenLatencyMs: state.firstTokenAt ? state.firstTokenAt - state.t0 : null,
+        firstTokenLatencyMs: firstTokenLatency,
         chunks: state.chunksCount,
         bytes: state.bytesCount,
       });
 
+      const finishReason = state.finishReason || "unknown";
       log.info("[ask-eco] sse_done", {
-        finishReason: state.finishReason || "unknown",
+        finishReason,
         sawChunk: state.sawChunk,
         chunks: state.chunksCount,
         bytes: state.bytesCount,
       });
 
-      if (!state.clientClosed) {
-        safeWrite(`event: done\ndata: ${JSON.stringify({ reason: state.finishReason || "unknown" })}\n\n`);
-        try {
-          res.end();
-        } catch {
-          /* ignore */
-        }
-      }
+      sendControl("done", {
+        reason: finishReason,
+        chunks: state.chunksCount,
+        bytes: state.bytesCount,
+      });
+
+      const doneValue = finishReason === "error" || finishReason === "timeout" ? 0 : 1;
+      enqueuePassiveSignal(
+        "done",
+        doneValue,
+        compactMeta({
+          finish_reason: finishReason,
+          chunks: state.chunksCount,
+          bytes: state.bytesCount,
+          first_token_latency_ms: firstTokenLatency ?? undefined,
+          total_latency_ms: totalLatency,
+          model: state.model ?? undefined,
+          saw_chunk: state.sawChunk,
+        })
+      );
     };
 
     const sendErrorEvent = (payload: Record<string, unknown>) => {
@@ -522,7 +657,6 @@ askEcoRouter.post("/", async (req: Request, res: Response) => {
       clearTimeoutGuard();
     };
 
-    // Emite first_token no primeiro pedaço e chunk nos demais
     const sendChunk = (piece: string) => {
       if (!piece || typeof piece !== "string") return;
       const cleaned = sanitizeOutput(piece);
@@ -534,13 +668,16 @@ askEcoRouter.post("/", async (req: Request, res: Response) => {
       }
       state.sawChunk = true;
       state.chunksCount += 1;
-      state.bytesCount += Buffer.byteLength(finalText, "utf8");
+      const chunkBytes = Buffer.byteLength(finalText, "utf8");
+      state.bytesCount += chunkBytes;
+      state.lastChunkAt = Date.now();
 
       if (!state.firstSent) {
         state.firstSent = true;
         state.firstTokenAt = Date.now();
         safeWrite(`event: first_token\ndata: ${JSON.stringify(finalText)}\n\n`);
         sendMeta({ type: "first_token_latency_ms", value: state.firstTokenAt - state.t0 });
+        recordFirstTokenTelemetry(chunkBytes);
       } else {
         safeWrite(`event: chunk\ndata: ${JSON.stringify(finalText)}\n\n`);
       }
@@ -548,9 +685,14 @@ askEcoRouter.post("/", async (req: Request, res: Response) => {
       sendToken(finalText);
     };
 
-    // abertura do stream
-    safeWrite(`event: ping\ndata: {}\n\n`);
+    sendControl("prompt_ready", { stream: true });
     sendMeta({ type: "prompt_ready" });
+    sendToken("__prompt_ready__");
+    enqueuePassiveSignal("prompt_ready", 1, {
+      stream: true,
+      origin: origin ?? null,
+    });
+    safeWrite(`event: ping\ndata: {}\n\n`);
 
     const scheduleTimeoutFallback = () => {
       clearTimeoutGuard();
@@ -595,7 +737,18 @@ askEcoRouter.post("/", async (req: Request, res: Response) => {
 
       switch (type) {
         case "control": {
-          if (evt?.name === "done") {
+          const name = typeof evt?.name === "string" ? evt.name : "";
+          const meta = evt?.meta && typeof evt.meta === "object" ? (evt.meta as Record<string, unknown>) : null;
+          if (meta) {
+            const maybeModel =
+              typeof meta.model === "string"
+                ? meta.model
+                : typeof (meta as any).modelo === "string"
+                ? (meta as any).modelo
+                : undefined;
+            if (maybeModel) state.model = maybeModel;
+          }
+          if (name === "done") {
             sendDone(evt?.meta?.finishReason ?? evt?.finishReason ?? "done");
           }
           return;
@@ -611,6 +764,16 @@ askEcoRouter.post("/", async (req: Request, res: Response) => {
           return;
         }
         case "done": {
+          const meta = evt?.meta && typeof evt.meta === "object" ? (evt.meta as Record<string, unknown>) : null;
+          if (meta) {
+            const maybeModel =
+              typeof meta.model === "string"
+                ? meta.model
+                : typeof (meta as any).modelo === "string"
+                ? (meta as any).modelo
+                : undefined;
+            if (maybeModel) state.model = maybeModel;
+          }
           sendDone(evt?.meta?.finishReason ?? evt?.finishReason ?? "done");
           return;
         }
@@ -637,11 +800,21 @@ askEcoRouter.post("/", async (req: Request, res: Response) => {
       const stream: EcoStreamHandler = { onEvent: (event) => forwardEvent(event) };
       const result = await getEcoResponse({ ...params, stream } as any);
 
+      if (result && typeof result === "object") {
+        const maybeModel =
+          typeof (result as any).modelo === "string"
+            ? (result as any).modelo
+            : typeof (result as any).model === "string"
+            ? (result as any).model
+            : undefined;
+        if (maybeModel) state.model = maybeModel;
+      }
+
       if (!state.done) {
         if (!state.sawChunk) {
           const textOut = sanitizeOutput(extractTextLoose(result) ?? "");
           if (textOut) {
-            sendChunk(textOut); // emite first_token / chunk conforme necessário
+            sendChunk(textOut);
           }
           sendDone(textOut ? "fallback_no_stream" : "fallback_empty");
         } else {
@@ -657,6 +830,8 @@ askEcoRouter.post("/", async (req: Request, res: Response) => {
         sendErrorEvent({ code: "INTERNAL_ERROR", trace_id: traceId });
       }
       sendDone("error");
+    }
+
     } finally {
       if (heartbeat) {
         clearInterval(heartbeat);
