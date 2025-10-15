@@ -158,22 +158,35 @@ test("SSE streaming emits tokens, done and disables compression", async () => {
   assert.equal(res.headers.get("x-no-compression"), "1");
   assert.equal(res.headers.get("cache-control"), "no-cache, no-transform");
   assert.equal(res.headers.get("connection"), "keep-alive");
-  assert.equal(res.ended, false, "stream should remain open for SSE");
+  assert.equal(res.ended, true, "stream should close after done event");
   assert.ok(res.flushed, "safeWrite should flush chunks for SSE");
 
   const output = res.chunks.join("");
   const pingCount = (output.match(/event: ping/g) ?? []).length;
   assert.ok(pingCount >= 1, "should emit at least one ping event");
   const tokenCount = (output.match(/event: token/g) ?? []).length;
-  assert.ok(tokenCount >= 3, "should emit synthetic and streamed token events");
-  assert.ok(
-    output.includes('event: token\ndata: {"text":"__prompt_ready__"}'),
-    "should emit synthetic token right after prompt_ready"
-  );
+  assert.ok(tokenCount >= 2, "should emit streamed token events");
+  assert.ok(!output.includes("__prompt_ready__"), "should not emit synthetic prompt_ready token");
   assert.ok(/event: control/.test(output), "should emit control events");
+  assert.ok(
+    output.includes('event: first_token\ndata: {"delta":"primeiro"}'),
+    "should emit first_token event with first delta"
+  );
+  assert.ok(
+    output.includes('event: chunk\ndata: {"delta":"primeiro","index":0}'),
+    "should emit chunk event for first delta with index 0"
+  );
+  assert.ok(
+    output.includes('event: chunk\ndata: {"delta":"segundo","index":1}'),
+    "should emit chunk event for subsequent deltas with incrementing index"
+  );
   assert.ok(
     /event: control\ndata: {"name":"done"/.test(output),
     "should emit control:done event"
+  );
+  assert.ok(
+    /"totalChunks":2/.test(output),
+    "done payload should include totalChunks"
   );
 });
 

@@ -109,12 +109,9 @@ export function createSSE(
 
   const sendControl = (
     name: "prompt_ready" | "done" | string,
-    meta?: Record<string, unknown>
+    data?: Record<string, unknown>
   ) => {
-    const payload: Record<string, unknown> = { name };
-    if (meta && Object.keys(meta).length > 0) {
-      payload.meta = meta;
-    }
+    const payload = { name, ...(data ?? {}) };
     send("control", payload);
   };
 
