@@ -2,6 +2,7 @@ import { loadConversationContext } from "./derivadosLoader";
 import { defaultContextCache } from "./contextCache";
 import type { EcoDecisionResult } from "./ecoDecisionHub";
 import type { ActivationTracer } from "../../core/activationTracer";
+import type { RetrieveMode } from "../supabase/memoriaRepository";
 
 interface PrepareContextParams {
   userId?: string;
@@ -18,6 +19,7 @@ interface PrepareContextParams {
   cacheUserId?: string;
   isGuest?: boolean;
   activationTracer?: ActivationTracer;
+  retrieveMode?: RetrieveMode;
 }
 
 export interface PreparedContext {
@@ -40,6 +42,7 @@ export async function prepareConversationContext({
   cacheUserId,
   isGuest,
   activationTracer,
+  retrieveMode,
 }: PrepareContextParams): Promise<PreparedContext> {
   const effectiveUserId = supabase && !isGuest ? userId : undefined;
   const context = await loadConversationContext(effectiveUserId, ultimaMsg, supabase, {
@@ -47,6 +50,7 @@ export async function prepareConversationContext({
     metaFromBuilder,
     onDerivadosError,
     activationTracer,
+    retrieveMode,
   });
 
   const memsSemelhantesList = Array.isArray(context.memsSemelhantes)

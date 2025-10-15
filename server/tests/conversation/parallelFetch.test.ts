@@ -12,7 +12,7 @@ const fakeEmbedding = [0.1, 0.2, 0.3];
 type DepsOverrides = {
   getEmbedding?: (texto: string, tipo: string) => Promise<number[]>;
   getHeuristicas?: (params: any) => Promise<any[]>;
-  getMemorias?: (userId: string, params: any) => Promise<any[]>;
+  getMemorias?: (args: any) => Promise<any[]>;
   debug?: () => boolean;
   logger?: { warn: (msg: string) => void };
 };
@@ -41,10 +41,10 @@ function createDeps(overrides: DepsOverrides = {}) {
       }
       return ["heuristica"];
     },
-    getMemorias: async (userId: string, params: any) => {
-      calls.getMemorias.push([userId, params]);
+    getMemorias: async (args: any) => {
+      calls.getMemorias.push(args);
       if (overrides.getMemorias) {
-        return overrides.getMemorias(userId, params);
+        return overrides.getMemorias(args);
       }
       return ["mem" as any];
     },
@@ -94,13 +94,12 @@ test("encaminha embedding para heurísticas e memórias quando disponível", asy
     userEmbedding: fakeEmbedding,
     matchCount: 4,
   });
-  assert.deepStrictEqual(calls.getMemorias[0], ["user-123", {
-    texto: "quero entender meus padrões",
-    userEmbedding: fakeEmbedding,
-    k: 3,
-    threshold: 0.12,
+  assert.deepStrictEqual(calls.getMemorias[0], {
+    userId: "user-123",
+    embedding: fakeEmbedding,
+    mode: "FAST",
     supabaseClient: { tag: "db" },
-  }]);
+  });
 });
 
 test("ignora busca de memórias quando usuário indefinido", async () => {

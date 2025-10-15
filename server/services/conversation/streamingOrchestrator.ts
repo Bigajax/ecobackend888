@@ -64,6 +64,7 @@ interface StreamingExecutionParams {
   guestId?: string;
   thread: ChatMessage[];
   calHints?: EcoHints | null;
+  memsSemelhantes?: any[];
 }
 
 export async function executeStreamingLLM({
@@ -84,6 +85,7 @@ export async function executeStreamingLLM({
   guestId,
   thread,
   calHints,
+  memsSemelhantes,
 }: StreamingExecutionParams): Promise<EcoStreamingResult> {
   const supabaseClient = supabase ?? null;
   const summarizeDelta = (input: string) => {
@@ -306,6 +308,7 @@ export async function executeStreamingLLM({
       isGuest,
       guestId,
       calHints,
+      memsSemelhantes,
     });
 
     const text = buildFinalizedStreamText(fullResult);
@@ -536,6 +539,7 @@ export async function executeStreamingLLM({
           isGuest,
           guestId,
           calHints,
+          memsSemelhantes,
         });
       })();
     }
