@@ -20,6 +20,9 @@ function sanitizeOutput(input?: string): string {
 }
 
 const router = Router();
+const askEcoRouter = Router();
+
+export { askEcoRouter as askEcoRoutes };
 
 console.log("Backend: promptRoutes carregado.");
 
@@ -282,7 +285,7 @@ function resolveGuestId(
 }
 
 /** POST /api/ask-eco — stream SSE (ou JSON se cliente não pedir SSE) */
-router.post("/ask-eco", async (req: Request, res: Response) => {
+askEcoRouter.post("/", async (req: Request, res: Response) => {
   const reqWithIdentity = req as RequestWithIdentity;
   const accept = String(req.headers.accept || "").toLowerCase();
   const streamParam = (() => {
@@ -670,5 +673,7 @@ router.post("/ask-eco", async (req: Request, res: Response) => {
     return res.status(500).json({ code: "INTERNAL_ERROR", trace_id: traceId });
   }
 });
+
+router.use("/ask-eco", askEcoRouter);
 
 export default router;

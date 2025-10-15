@@ -11,19 +11,19 @@ import express, {
   type NextFunction,
 } from "express";
 
-import corsMiddleware from "../../middleware/cors";
+import corsMiddleware, { preflightHandler } from "../../middleware/cors";
 import { requestLogger } from "./middlewares/logger";
 import { normalizeQuery } from "./middlewares/queryNormalizer";
 import { ModuleCatalog } from "../../domains/prompts/ModuleCatalog";
 import { ensureGuestIdentity } from "./guestIdentity";
 
-import promptRoutes from "../../routes/promptRoutes";
+import promptRoutes, { askEcoRoutes } from "../../routes/promptRoutes";
 import profileRoutes from "../../routes/perfilEmocionalRoutes";
 import voiceTTSRoutes from "../../routes/voiceTTSRoutes";
 import voiceFullRoutes from "../../routes/voiceFullRoutes";
 import openrouterRoutes from "../../routes/openrouterRoutes";
 import relatorioRoutes from "../../routes/relatorioEmocionalRoutes";
-import feedbackRoutes, { signalRouter as feedbackSignalRoutes } from "../../routes/feedbackRoutes";
+import feedbackRoutes, { signalRouter as signalRoutes } from "../../routes/feedbackRoutes";
 import memoryRoutes from "../../domains/memory/routes";
 import { log } from "../../services/promptContext/logger";
 import { isSupabaseConfigured } from "../../lib/supabaseAdmin";
@@ -95,7 +95,8 @@ export function createApp(): Express {
   app.disable("x-powered-by");
   app.set("trust proxy", 1);
 
-  // 1) CORS SEMPRE primeiro (lida e finaliza OPTIONS rapidamente)
+  // 1) Preflight manual → cors → body parsers
+  app.use(preflightHandler);
   app.use(corsMiddleware);
 
   // 2) Parsers (não executam em OPTIONS)
@@ -118,6 +119,7 @@ export function createApp(): Express {
   app.get("/healthz", (_req, res) =>
     res.status(200).json({ status: "ok", timestamp: new Date().toISOString() })
   );
+  app.get("/api/health", (_req, res) => res.status(200).json({ ok: true }));
   app.get("/readyz", (_req, res) => {
     if (!isSupabaseConfigured()) {
       return res.status(503).json({ status: "degraded", reason: "no-admin-config" });
@@ -136,6 +138,7 @@ export function createApp(): Express {
   });
 
   // 7) Rotas (prefixo /api) — /api/ask-eco (SSE) vive em promptRoutes
+  app.use("/api/ask-eco", askEcoRoutes);
   app.use("/api", promptRoutes);
   app.use("/api/memorias", memoryRoutes);
   app.use("/api/memories", memoryRoutes);
@@ -148,7 +151,13 @@ export function createApp(): Express {
   app.use("/api/relatorio-emocional", relatorioRoutes);
   app.use("/api/v1/relatorio-emocional", relatorioRoutes);
   app.use("/api/feedback", feedbackRoutes);
-  app.use("/api/signal", feedbackSignalRoutes);
+  app.use("/api/signal", signalRoutes);
+
+  // Preflight dedicated handlers (garante 204 com CORS)
+  app.options("*", preflightHandler);
+  app.options("/api/ask-eco", preflightHandler);
+  app.options("/api/feedback", preflightHandler);
+  app.options("/api/signal", preflightHandler);
 
   // Aliases sem /api (clientes legados)
   app.use("/memorias", memoryRoutes);

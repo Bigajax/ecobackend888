@@ -56,13 +56,16 @@ test("OPTIONS /api/ask-eco responde 204 com allowlist padrão", async () => {
       "true",
       "preflight deve sinalizar credenciais",
     );
-    const allowHeaders = response.headers.get("access-control-allow-headers") ?? "";
-    assert.match(
-      allowHeaders,
-      /x-guest-id/i,
-      "deve expor X-Guest-Id no preflight do modo convidado",
+    assert.equal(
+      response.headers.get("access-control-allow-headers"),
+      "Content-Type, X-Guest-Id",
+      "deve ecoar os headers solicitados",
     );
-    assert.match(allowHeaders, /cache-control/i, "deve incluir Cache-Control conforme allow list");
+    assert.equal(
+      response.headers.get("access-control-allow-methods"),
+      "POST",
+      "deve ecoar o método solicitado",
+    );
   } finally {
     await closeServer(server);
   }
