@@ -12,6 +12,12 @@ export interface EcoDecisionDebug {
   vulnerabilitySignals: string[];
   modules: ModuleDebugEntry[];
   selectedModules: string[];
+  knapsack?: {
+    budget: number;
+    adotados: string[];
+    marginalGain: number;
+    tokensAditivos: number;
+  } | null;
 }
 
 export interface EcoDecisionResult {
@@ -116,6 +122,7 @@ export function computeEcoDecision(texto: string, options: EcoDecisionOptions = 
       vulnerabilitySignals,
       modules: [],
       selectedModules: [],
+      knapsack: null,
     },
   };
 }

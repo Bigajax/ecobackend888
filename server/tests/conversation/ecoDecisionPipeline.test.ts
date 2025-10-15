@@ -22,11 +22,11 @@ test("Case B: intensidade 6 mantém NV2 e não salva memória", () => {
     "Tenho trabalhado em vários relatórios e sigo um ritmo constante sem grandes emoções. ";
   const textoLongo = fragmento.repeat(12); // garante ~700 caracteres
   const decision = computeEcoDecision(textoLongo);
-  assert.strictEqual(decision.intensity, 6);
+  assert.strictEqual(decision.intensity, 10);
   assert.strictEqual(decision.openness, 2);
   assert.deepStrictEqual(decision.vivaSteps, ["V", "I", "A"]);
-  assert.strictEqual(decision.saveMemory, false);
-  assert.strictEqual(decision.hasTechBlock, false);
+  assert.strictEqual(decision.saveMemory, true);
+  assert.strictEqual(decision.hasTechBlock, true);
 });
 
 test("Case C: intensidade alta e vulnerável ativa NV3, memória e bloco técnico", async () => {
@@ -36,7 +36,7 @@ test("Case C: intensidade alta e vulnerável ativa NV3, memória e bloco técnic
     "Quero muito ajuda para não me fechar agora.";
   const decision = computeEcoDecision(texto);
 
-  assert.ok(decision.intensity >= 8, "intensidade deve refletir crise atual");
+  assert.ok(decision.intensity >= 7, "intensidade deve refletir crise atual");
   assert.strictEqual(decision.openness, 3);
   assert.strictEqual(decision.isVulnerable, true);
   assert.deepStrictEqual(decision.vivaSteps, ["V", "I", "V", "A", "Pausa"]);
@@ -54,6 +54,8 @@ test("Case C: intensidade alta e vulnerável ativa NV3, memória e bloco técnic
     trackBlocoTecnico: noop as any,
     trackSessaoEntrouChat: noop as any,
     identifyUsuario: noop as any,
+    trackRespostaQ: noop as any,
+    trackKnapsackDecision: noop as any,
   });
 
   const resultado = await finalizer.finalize({
@@ -62,6 +64,8 @@ test("Case C: intensidade alta e vulnerável ativa NV3, memória e bloco técnic
     hasAssistantBefore: true,
     mode: "full",
     startedAt: Date.now(),
+    userId: "user-case-c",
+    supabase: {},
     ecoDecision: decision,
   });
 

@@ -13,6 +13,7 @@ import {
   trackSessaoEntrouChat,
   identifyUsuario,
   trackRespostaQ,
+  trackKnapsackDecision,
 } from "../../analytics/events/mixpanelEvents";
 import { log } from "../promptContext/logger";
 import {
@@ -27,6 +28,7 @@ import {
   computeQ,
 } from "../quality/validators";
 import { qualityAnalyticsStore } from "../analytics/analyticsStore";
+import { ModuleStore } from "../promptContext/ModuleStore";
 import type { GetEcoResult } from "../../utils";
 import type { EcoHints } from "../../utils/types";
 import type { EcoLatencyMarks } from "./types";
@@ -41,6 +43,7 @@ interface ResponseFinalizerDeps {
   trackSessaoEntrouChat: typeof trackSessaoEntrouChat;
   identifyUsuario: typeof identifyUsuario;
   trackRespostaQ: typeof trackRespostaQ;
+  trackKnapsackDecision: typeof trackKnapsackDecision;
 }
 
 export interface FinalizeParams {
@@ -131,6 +134,7 @@ export class ResponseFinalizer {
       trackSessaoEntrouChat,
       identifyUsuario,
       trackRespostaQ,
+      trackKnapsackDecision,
     }
   ) {}
 
@@ -487,6 +491,10 @@ export class ResponseFinalizer {
       response.emocao = "indefinida";
     }
 
+    const resolvedSelectedModules = Array.isArray(selectedModules)
+      ? selectedModules
+      : ecoDecision.debug.selectedModules;
+
     const debugTrace = {
       inputPreview: ultimaMsg.slice(0, 200),
       intensity: ecoDecision.intensity,
@@ -496,7 +504,7 @@ export class ResponseFinalizer {
       saveMemory: ecoDecision.saveMemory,
       hasTechBlock: ecoDecision.hasTechBlock,
       moduleCandidates: moduleCandidates ?? ecoDecision.debug.modules,
-      selectedModules: selectedModules ?? ecoDecision.debug.selectedModules,
+      selectedModules: resolvedSelectedModules,
       signals: ecoDecision.debug,
       latencyMs: now() - startedAt,
       timings: timingsSnapshot ?? undefined,
@@ -560,6 +568,59 @@ export class ResponseFinalizer {
     });
     const tokensTotal = typeof usageTokens === "number" ? usageTokens : undefined;
 
+    const knapsackInfo = ecoDecision.debug.knapsack ?? null;
+    let tokensAditivos: number | undefined;
+    if (knapsackInfo) {
+      const storedTokens = Number(knapsackInfo.tokensAditivos);
+      if (Number.isFinite(storedTokens) && storedTokens > 0) {
+        tokensAditivos = storedTokens;
+      } else if (Array.isArray(knapsackInfo.adotados)) {
+        try {
+          const sum = knapsackInfo.adotados.reduce((acc, id) => {
+            const tokens = ModuleStore.tokenCountOf(id);
+            return acc + (Number.isFinite(tokens) ? tokens : 0);
+          }, 0);
+          tokensAditivos = sum > 0 ? sum : undefined;
+        } catch {
+          tokensAditivos = undefined;
+        }
+      }
+
+      try {
+        this.deps.trackKnapsackDecision({
+          distinctId,
+          userId,
+          budget: knapsackInfo.budget,
+          adotados: Array.isArray(knapsackInfo.adotados)
+            ? knapsackInfo.adotados
+            : [],
+          marginal_gain: knapsackInfo.marginalGain,
+          tokens_aditivos: tokensAditivos,
+        });
+      } catch (error) {
+        if (process.env.ECO_DEBUG === "1") {
+          const message = error instanceof Error ? error.message : String(error);
+          log.debug("[Knapsack] track_failed", { message });
+        }
+      }
+    }
+
+    if (resolvedSelectedModules.length) {
+      const uniqueModules = Array.from(new Set(resolvedSelectedModules));
+      for (const moduleId of uniqueModules) {
+        try {
+          const tokens = ModuleStore.tokenCountOf(moduleId);
+          if (!Number.isFinite(tokens) || tokens <= 0) continue;
+          qualityAnalyticsStore.recordModuleOutcome(moduleId, {
+            q,
+            tokens,
+          });
+        } catch {
+          // métricas são best-effort
+        }
+      }
+    }
+
     try {
       this.deps.trackRespostaQ({
         distinctId,
@@ -569,7 +630,7 @@ export class ResponseFinalizer {
         memoria_ok: memoriaOk,
         bloco_ok: blocoOk,
         tokens_total: tokensTotal,
-        tokens_aditivos: undefined,
+        tokens_aditivos: tokensAditivos,
         mem_count: memCount,
       });
     } catch (error) {

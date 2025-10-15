@@ -25,6 +25,7 @@ test("finalize calcula Q completo e registra evento", async () => {
     trackRespostaQ: (payload: any) => {
       eventos.push(payload);
     },
+    trackKnapsackDecision: () => undefined,
   });
 
   const ecoDecision: EcoDecisionResult = {
@@ -81,6 +82,7 @@ test("finalize calcula Q completo e registra evento", async () => {
   assert.equal(payload.memoria_ok, true);
   assert.equal(payload.bloco_ok, true);
   assert.equal(payload.tokens_total, 128);
+  assert.equal(payload.tokens_aditivos, undefined);
   assert.equal(payload.mem_count, 1);
 
   const snapshot = qualityAnalyticsStore.getQualitySnapshot();

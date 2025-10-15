@@ -5,7 +5,7 @@ import { collectActiveSignals, evaluateRule, type RuleContext } from "./ruleEngi
 
 export type ModuleDebugEntry = {
   id: string;
-  source: "base" | "intensity" | "rule" | "front_matter" | "dedupe" | "budget";
+  source: "base" | "intensity" | "rule" | "front_matter" | "dedupe" | "budget" | "knapsack";
   activated: boolean;
   threshold?: number | null;
   rule?: string | null;

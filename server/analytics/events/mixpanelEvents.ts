@@ -446,3 +446,29 @@ export const trackRespostaQ = ({
     })
   );
 };
+
+export const trackKnapsackDecision = ({
+  distinctId,
+  userId,
+  budget,
+  adotados,
+  marginal_gain,
+  tokens_aditivos,
+}: TrackParams<{
+  budget: number;
+  adotados: string[];
+  marginal_gain: number;
+  tokens_aditivos?: number;
+}>) => {
+  mixpanel.track(
+    'Knapsack_Decision',
+    withDistinctId({
+      distinctId,
+      userId,
+      budget,
+      adotados,
+      marginal_gain,
+      ...(typeof tokens_aditivos === 'number' ? { tokens_aditivos } : {}),
+    })
+  );
+};
