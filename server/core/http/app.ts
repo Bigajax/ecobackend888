@@ -11,7 +11,7 @@ import express, {
   type NextFunction,
 } from "express";
 
-import corsMiddleware from "../../middleware/cors";
+import corsMiddleware, { preflightHandler } from "../../middleware/cors";
 import { requestLogger } from "./middlewares/logger";
 import { normalizeQuery } from "./middlewares/queryNormalizer";
 import { ModuleCatalog } from "../../domains/prompts/ModuleCatalog";
@@ -95,7 +95,8 @@ export function createApp(): Express {
   app.disable("x-powered-by");
   app.set("trust proxy", 1);
 
-  // 1) CORS SEMPRE primeiro (lida e finaliza OPTIONS rapidamente)
+  // 1) Preflight manual → cors → body parsers
+  app.use(preflightHandler);
   app.use(corsMiddleware);
 
   // 2) Parsers (não executam em OPTIONS)
@@ -118,6 +119,7 @@ export function createApp(): Express {
   app.get("/healthz", (_req, res) =>
     res.status(200).json({ status: "ok", timestamp: new Date().toISOString() })
   );
+  app.get("/api/health", (_req, res) => res.status(200).json({ ok: true }));
   app.get("/readyz", (_req, res) => {
     if (!isSupabaseConfigured()) {
       return res.status(503).json({ status: "degraded", reason: "no-admin-config" });
@@ -150,6 +152,12 @@ export function createApp(): Express {
   app.use("/api/v1/relatorio-emocional", relatorioRoutes);
   app.use("/api/feedback", feedbackRoutes);
   app.use("/api/signal", signalRoutes);
+
+  // Preflight dedicated handlers (garante 204 com CORS)
+  app.options("*", preflightHandler);
+  app.options("/api/ask-eco", preflightHandler);
+  app.options("/api/feedback", preflightHandler);
+  app.options("/api/signal", preflightHandler);
 
   // Aliases sem /api (clientes legados)
   app.use("/memorias", memoryRoutes);
