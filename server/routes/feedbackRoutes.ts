@@ -1,609 +1,145 @@
 import { Router, type Request, type Response } from "express";
-import { z } from "zod";
 
-import mixpanel from "../lib/mixpanel";
-import { getSupabaseAdmin } from "../lib/supabaseAdmin";
+import {
+  FeedbackPayloadSchema,
+  InteractionPayloadSchema,
+  LatencyPayloadSchema,
+  type FeedbackPayload,
+  type InteractionPayload,
+  type LatencyPayload,
+} from "../schemas/feedback";
+import {
+  insertFeedback,
+  insertInteraction,
+  insertLatency,
+} from "../services/supabase/analyticsClient";
 import { log } from "../services/promptContext/logger";
 
 const router = Router();
-const signalRouter = Router();
+const logger = log.withContext("feedback-routes");
 
-const TEN_MINUTES_MS = 10 * 60 * 1000;
-const FIVE_MINUTES_MS = 5 * 60 * 1000;
+const INVALID_STATUS = 400;
+const UPSERT_ERROR_STATUS = 502;
 
-const FeedbackSchema = z.object({
-  interactionId: z.string().uuid().optional(),
-  interaction_id: z.string().uuid().optional(),
-  messageId: z.string().min(1).optional(),
-  message_id: z.string().min(1).optional(),
-  userId: z.string().uuid().optional().nullable(),
-  user_id: z.string().uuid().optional().nullable(),
-  sessionId: z.string().min(1).optional().nullable(),
-  session_id: z.string().min(1).optional().nullable(),
-  vote: z.union([z.literal("up"), z.literal("down")]),
-  reasons: z.array(z.string().min(1)).optional(),
-  reason: z.union([z.string().min(1), z.array(z.string().min(1))]).optional(),
-  source: z.string().min(1).optional(),
-  meta: z.record(z.unknown()).optional().nullable(),
-});
+type ErrorBody = {
+  code: "INVALID_PAYLOAD" | "SUPABASE_INSERT_FAILED";
+  issues?: unknown;
+};
 
-const PassiveSignalSchema = z.object({
-  messageId: z.string().min(1).optional(),
-  signal: z.string().min(1),
-  value: z.number().finite().optional(),
-  sessionId: z.string().min(1).optional().nullable(),
-  userId: z.string().uuid().optional().nullable(),
-  meta: z.record(z.unknown()).optional().nullable(),
-});
-
-type FeedbackPayload = z.infer<typeof FeedbackSchema>;
-type InteractionResolution =
-  | { kind: "ok"; id: string; moduleCombo: string[] | null }
-  | { kind: "not_found" }
-  | { kind: "missing_identity" }
-  | { kind: "error"; message: string };
-
-const REASON_DELTAS = new Map<string, number>([
-  ["too_long", -0.1],
-  ["off_topic", -0.2],
-  ["shallow", -0.1],
-]);
-
-function computeReward({ vote, reasons }: { vote: "up" | "down"; reasons?: string[] }): number {
-  let reward = vote === "up" ? 1 : 0;
-  if (Array.isArray(reasons)) {
-    for (const reason of reasons) {
-      const normalized = typeof reason === "string" ? reason.trim().toLowerCase() : "";
-      if (!normalized) continue;
-      const delta = REASON_DELTAS.get(normalized);
-      if (typeof delta === "number") {
-        reward += delta;
-      }
-    }
-  }
-  if (!Number.isFinite(reward)) return vote === "up" ? 1 : 0;
-  if (reward < 0) return 0;
-  if (reward > 1) return 1;
-  return reward;
+function getGuestId(req: Request): string | null {
+  const header = req.header("x-guest-id");
+  return typeof header === "string" && header.trim().length > 0 ? header.trim() : null;
 }
 
-function sanitizeReasons(reasons?: string[]): string[] | null {
-  if (!Array.isArray(reasons) || reasons.length === 0) return null;
-  const cleaned = reasons
-    .map((reason) => (typeof reason === "string" ? reason.trim() : ""))
-    .filter((reason) => reason.length > 0);
-  return cleaned.length ? cleaned : null;
-}
-
-function safePayloadSize(body: unknown): number | null {
-  try {
-    const serialized = JSON.stringify(body ?? null);
-    return typeof serialized === "string" ? Buffer.byteLength(serialized, "utf8") : null;
-  } catch (error) {
-    log.warn("[feedbackRoutes] payload_size_serialization_failed", {
-      message: error instanceof Error ? error.message : String(error),
-    });
-    return null;
-  }
-}
-
-async function resolveInteraction(
-  supabase: ReturnType<typeof getSupabaseAdmin>,
-  payload: {
-    interactionId?: string | null;
-    messageId?: string | null;
-    sessionId?: string | null;
-    userId?: string | null;
-  }
-): Promise<InteractionResolution> {
-  if (!supabase) {
-    return { kind: "error", message: "supabase_not_configured" };
-  }
-
-  const { interactionId, messageId, sessionId, userId } = payload;
-  const analytics = supabase.schema("analytics");
-
-  try {
-    if (interactionId) {
-      const { data, error } = await analytics
-        .from("eco_interactions")
-        .select("id, module_combo")
-        .eq("id", interactionId)
-        .maybeSingle();
-
-      if (error) {
-        return { kind: "error", message: error.message };
-      }
-
-      const resolvedId = (data as { id?: string } | null)?.id ?? null;
-      if (!resolvedId) {
-        return { kind: "not_found" };
-      }
-
-      return {
-        kind: "ok",
-        id: resolvedId,
-        moduleCombo: (data as { module_combo?: string[] | null } | null)?.module_combo ?? null,
-      };
-    }
-
-    if (messageId) {
-      const { data, error } = await analytics
-        .from("eco_interactions")
-        .select("id, module_combo")
-        .eq("message_id", messageId)
-        .maybeSingle();
-
-      if (error) {
-        return { kind: "error", message: error.message };
-      }
-      const resolvedId = (data as { id?: string } | null)?.id ?? null;
-      if (!resolvedId) {
-        return { kind: "not_found" };
-      }
-      return {
-        kind: "ok",
-        id: resolvedId,
-        moduleCombo: (data as { module_combo?: string[] | null } | null)?.module_combo ?? null,
-      };
-    }
-
-    if (!sessionId && !userId) {
-      return { kind: "missing_identity" };
-    }
-
-    const cutoff = new Date(Date.now() - TEN_MINUTES_MS).toISOString();
-
-    let query = analytics
-      .from("eco_interactions")
-      .select("id, module_combo, created_at")
-      .gte("created_at", cutoff)
-      .order("created_at", { ascending: false })
-      .limit(1);
-
-    if (sessionId) {
-      query = query.eq("session_id", sessionId);
-    }
-    if (userId) {
-      query = query.eq("user_id", userId);
-    }
-
-    const { data, error } = await query.maybeSingle();
-    if (error) {
-      return { kind: "error", message: error.message };
-    }
-
-    const resolvedId = (data as { id?: string } | null)?.id ?? null;
-    if (!resolvedId) {
-      return { kind: "not_found" };
-    }
-
-    return {
-      kind: "ok",
-      id: resolvedId,
-      moduleCombo: (data as { module_combo?: string[] | null } | null)?.module_combo ?? null,
-    };
-  } catch (error) {
-    return { kind: "error", message: error instanceof Error ? error.message : String(error) };
-  }
-}
-
-function logRequest(
-  route: "feedback" | "signal",
-  meta: {
-    origin: string | null;
-    path: string;
-    status: number;
-    errorCode: string | null;
-    supabaseError: string | null;
-    payloadSize: number | null;
-  }
-) {
-  log.info(`[${route}] handled`, meta);
-}
-
-async function handleFeedback(req: Request, res: Response): Promise<void> {
-  const origin = (req.headers.origin as string | undefined) ?? null;
-  const payloadSize = safePayloadSize(req.body);
-  let status = 500;
-  let errorCode: string | null = null;
-  let supabaseError: string | null = null;
-
-  try {
-    const parsed = FeedbackSchema.safeParse(req.body);
-    if (!parsed.success) {
-      status = 400;
-      errorCode = "invalid_payload";
-      res.status(status).json({ error: errorCode, details: parsed.error.flatten() });
-      return;
-    }
-
-    const payload = parsed.data;
-    const interactionId = payload.interactionId ?? payload.interaction_id ?? null;
-    const userId = payload.userId ?? payload.user_id ?? null;
-    const sessionId = payload.sessionId ?? payload.session_id ?? null;
-    const messageId = payload.messageId ?? payload.message_id ?? null;
-    const rawReasons = Array.isArray(payload.reason)
-      ? payload.reason
-      : payload.reason
-        ? [payload.reason]
-        : payload.reasons ?? undefined;
-    const sanitizedReasons = sanitizeReasons(rawReasons ?? undefined);
-
-    const supabase = getSupabaseAdmin();
-    if (!supabase) {
-      status = 500;
-      errorCode = "supabase_unconfigured";
-      res.status(status).json({ error: errorCode, message: "supabase_admin_not_configured" });
-      return;
-    }
-
-    const interactionResolution = await resolveInteraction(supabase, {
-      interactionId,
-      messageId,
-      sessionId,
-      userId,
-    });
-
-    if (interactionResolution.kind === "error") {
-      status = 500;
-      errorCode = "supabase_error";
-      supabaseError = interactionResolution.message;
-      res.status(status).json({ error: errorCode, message: interactionResolution.message });
-      return;
-    }
-
-    if (interactionResolution.kind === "missing_identity") {
-      status = 400;
-      errorCode = "interaction_not_found";
-      res.status(status).json({ error: errorCode, message: "missing_session_or_user" });
-      return;
-    }
-
-    if (interactionResolution.kind === "not_found") {
-      status = 404;
-      errorCode = "interaction_not_found";
-      res.status(status).json({ error: errorCode, message: "interaction not found" });
-      return;
-    }
-
-    const resolvedInteractionId = interactionResolution.id;
-    const moduleCombo = interactionResolution.moduleCombo;
-
-    const reward = computeReward({ vote: payload.vote, reasons: sanitizedReasons ?? undefined });
-
-    const analytics = supabase.schema("analytics");
-
-    const insertPayload = {
-      interaction_id: resolvedInteractionId,
-      user_id: userId ?? null,
-      session_id: sessionId ?? null,
-      vote: payload.vote,
-      reason: sanitizedReasons,
-      source: payload.source ?? null,
-      meta: payload.meta ?? null,
-      created_at: new Date().toISOString(),
-    };
-
-    const { data: insertData, error: insertError } = await analytics
-      .from("eco_feedback")
-      .insert([insertPayload])
-      .select("id")
-      .maybeSingle();
-
-    if (insertError) {
-      status = 500;
-      errorCode = "feedback_insert_failed";
-      supabaseError = insertError.message;
-      res.status(status).json({ error: errorCode, message: insertError.message });
-      return;
-    }
-
-    const moduleComboFromMeta = extractModuleCombo(payload.meta);
-    const effectiveModuleCombo = moduleComboFromMeta ?? moduleCombo;
-    const armKey = resolveArmKey(payload.meta, effectiveModuleCombo);
-    let banditWarning: string | null = null;
-    if (armKey) {
-      const updated = await updateBanditArm({ armKey, reward, supabase });
-      if (!updated) {
-        banditWarning = "bandit_update_failed";
-      }
-    }
-
-    try {
-      mixpanel.track("BE:Feedback", {
-        vote: payload.vote,
-        reward,
-        interaction_id: resolvedInteractionId,
-        origin,
-      });
-    } catch (error) {
-      log.warn("[feedbackRoutes] mixpanel feedback failed", {
-        message: error instanceof Error ? error.message : String(error),
-      });
-    }
-
-    status = 201;
-    const moduleDescriptor = Array.isArray(effectiveModuleCombo)
-      ? effectiveModuleCombo.filter((entry) => typeof entry === "string" && entry.trim()).join(" + ")
-      : null;
-
-    const moduleInfo = moduleDescriptor ? ` (module ${moduleDescriptor})` : "";
-    const logMessage = `[feedback] Salvo voto=${payload.vote} para interaction ${resolvedInteractionId}${moduleInfo}`;
-    log.info(logMessage, {
-      vote: payload.vote,
-      interactionId: resolvedInteractionId,
-      armKey: armKey ?? null,
-      reward,
-      warning: banditWarning,
-      origin,
-      source: payload.source ?? null,
-    });
-
-    const responseBody: Record<string, unknown> = {
-      status: "success",
-      feedback_id: (insertData as { id?: string } | null)?.id ?? null,
-      interaction_id: resolvedInteractionId,
-      reward,
-      bandit: {
-        arm_key: armKey ?? null,
-        updated: !banditWarning && Boolean(armKey),
-      },
-    };
-
-    if (banditWarning) {
-      (responseBody.bandit as Record<string, unknown>).warning = banditWarning;
-    }
-
-    res.status(status).json(responseBody);
-  } catch (error) {
-    status = 500;
-    errorCode = "unexpected_error";
-    const message = error instanceof Error ? error.message : String(error);
-    supabaseError = message;
-    res.status(status).json({ error: errorCode, message });
-  } finally {
-    logRequest("feedback", {
-      origin,
-      path: req.path,
-      status,
-      errorCode,
-      supabaseError,
-      payloadSize,
-    });
-  }
-}
-
-async function handleSignal(req: Request, res: Response): Promise<void> {
-  const origin = (req.headers.origin as string | undefined) ?? null;
-  const payloadSize = safePayloadSize(req.body);
-  let status = 500;
-  let errorCode: string | null = null;
-  let supabaseError: string | null = null;
-
-  try {
-    const parsed = PassiveSignalSchema.safeParse(req.body);
-    if (!parsed.success) {
-      status = 400;
-      errorCode = "invalid_payload";
-      res.status(status).json({ error: errorCode, details: parsed.error.flatten() });
-      return;
-    }
-
-    const payload = parsed.data;
-    const supabase = getSupabaseAdmin();
-    if (!supabase) {
-      status = 502;
-      errorCode = "supabase_unconfigured";
-      res.status(status).json({ error: errorCode, details: "supabase_admin_not_configured" });
-      return;
-    }
-
-    const analytics = supabase.schema("analytics");
-    const interactionResolution = await resolveInteraction(supabase, {
-      messageId: payload.messageId ?? null,
-      sessionId: payload.sessionId ?? null,
-      userId: payload.userId ?? null,
-    });
-
-    if (interactionResolution.kind === "error") {
-      status = 202;
-      errorCode = "supabase_error";
-      supabaseError = interactionResolution.message;
-      res.status(status).json({ ok: true, skipped: "supabase_error" });
-      return;
-    }
-
-    const interactionId = interactionResolution.kind === "ok" ? interactionResolution.id : null;
-    if (interactionId) {
-      const cutoff = new Date(Date.now() - FIVE_MINUTES_MS).toISOString();
-
-      const { data: existing, error: existingError } = await analytics
-        .from("eco_passive_signals")
-        .select("id, created_at, value")
-        .eq("interaction_id", interactionId)
-        .eq("signal", payload.signal)
-        .gte("created_at", cutoff)
-        .maybeSingle();
-
-      if (existingError) {
-        status = 202;
-        errorCode = "signal_lookup_failed";
-        supabaseError = existingError.message;
-        res.status(status).json({ ok: true, skipped: "supabase_error" });
-        return;
-      }
-
-      if (existing) {
-        status = 202;
-        errorCode = "duplicate_signal";
-        res.status(status).json({ ok: true, skipped: "duplicate" });
-        return;
-      }
-    }
-
-    const insertPayload = {
-      interaction_id: interactionId,
-      signal: payload.signal,
-      value:
-        typeof payload.value === "number" && Number.isFinite(payload.value)
-          ? payload.value
-          : null,
-      user_id: payload.userId ?? null,
-      session_id: payload.sessionId ?? null,
-      meta: payload.meta ?? null,
-      created_at: new Date().toISOString(),
-    };
-
-    log.debug("[signal] insert", insertPayload);
-
-    const { error: insertError } = await analytics
-      .from("eco_passive_signals")
-      .insert([insertPayload]);
-
-    if (insertError) {
-      status = 202;
-      errorCode = "signal_insert_failed";
-      supabaseError = insertError.message;
-      res.status(status).json({ ok: true, skipped: "supabase_error" });
-      return;
-    }
-
-    try {
-      mixpanel.track("BE:Signal", {
-        signal: payload.signal,
-        value: insertPayload.value,
-        interaction_id: interactionId,
-        origin,
-      });
-    } catch (error) {
-      log.warn("[feedbackRoutes] mixpanel signal failed", {
-        message: error instanceof Error ? error.message : String(error),
-      });
-    }
-
-    status = 200;
-    res.status(status).json({ ok: true });
-  } catch (error) {
-    status = 202;
-    errorCode = "unexpected_error";
-    const message = error instanceof Error ? error.message : String(error);
-    supabaseError = message;
-    res.status(status).json({ ok: true, skipped: "unexpected_error" });
-  } finally {
-    logRequest("signal", {
-      origin,
-      path: req.path,
-      status,
-      errorCode,
-      supabaseError,
-      payloadSize,
-    });
-  }
-}
-
-async function updateBanditArm(params: {
-  armKey: string;
-  reward: number;
-  supabase: ReturnType<typeof getSupabaseAdmin>;
-}): Promise<boolean> {
-  const { supabase, armKey, reward } = params;
-  if (!supabase) return false;
-
-  const analytics = supabase.schema("analytics");
-
-  const { data: existing, error: fetchError } = await analytics
-    .from("eco_bandit_arms")
-    .select("arm_key, pulls, alpha, beta, reward_sum, reward_sq_sum")
-    .eq("arm_key", armKey)
-    .maybeSingle();
-
-  if (fetchError) {
-    log.warn("[feedbackRoutes] failed to fetch bandit arm", { error: fetchError.message, armKey });
-    return false;
-  }
-
-  const pulls = Number(existing?.pulls ?? 0) + 1;
-  const alpha = Number(existing?.alpha ?? 1) + reward;
-  const beta = Number(existing?.beta ?? 1) + (1 - reward);
-  const rewardSum = Number(existing?.reward_sum ?? 0) + reward;
-  const rewardSqSum = Number(existing?.reward_sq_sum ?? 0) + reward * reward;
-
-  const payload = {
-    arm_key: armKey,
-    pulls,
-    alpha,
-    beta,
-    reward_sum: rewardSum,
-    reward_sq_sum: rewardSqSum,
-    last_update: new Date().toISOString(),
+function normalizeFeedback(payload: FeedbackPayload): FeedbackPayload {
+  return {
+    ...payload,
+    user_id: payload.user_id ?? null,
+    session_id: payload.session_id ?? null,
   };
+}
 
-  const { error: upsertError } = await analytics
-    .from("eco_bandit_arms")
-    .upsert(payload, { onConflict: "arm_key" });
+function normalizeInteraction(payload: InteractionPayload): InteractionPayload {
+  return {
+    ...payload,
+    user_id: payload.user_id ?? null,
+    session_id: payload.session_id ?? null,
+  };
+}
 
-  if (upsertError) {
-    log.warn("[feedbackRoutes] failed to upsert bandit arm", {
-      error: upsertError.message,
-      armKey,
-    });
-    return false;
+async function handleFeedback(req: Request, res: Response<ErrorBody | void>): Promise<void> {
+  const guestId = getGuestId(req);
+  const parsed = FeedbackPayloadSchema.safeParse(req.body);
+
+  if (!parsed.success) {
+    logger.warn("feedback.invalid_payload", { issues: parsed.error.flatten().fieldErrors });
+    res.status(INVALID_STATUS).json({ code: "INVALID_PAYLOAD", issues: parsed.error.flatten() });
+    return;
   }
+
+  const payload = normalizeFeedback(parsed.data);
 
   try {
-    mixpanel.track("BE:Bandit Update", { arm_key: armKey, r: reward, pulls });
+    await insertFeedback(payload);
+    logger.info("feedback.recorded", {
+      interaction_id: payload.interaction_id,
+      vote: payload.vote,
+      guest: Boolean(guestId),
+      source: payload.source ?? null,
+    });
+    res.status(204).end();
   } catch (error) {
-    log.warn("[feedbackRoutes] mixpanel bandit update failed", {
+    logger.warn("feedback.insert_failed", {
+      interaction_id: payload.interaction_id,
       message: error instanceof Error ? error.message : String(error),
     });
+    res.status(UPSERT_ERROR_STATUS).json({ code: "SUPABASE_INSERT_FAILED" });
   }
-
-  return true;
 }
 
-function extractModuleCombo(meta: FeedbackPayload["meta"]): string[] | null {
-  if (!meta || typeof meta !== "object") {
-    return null;
+async function handleInteraction(req: Request, res: Response<ErrorBody | { id: string }>): Promise<void> {
+  const guestId = getGuestId(req);
+  const parsed = InteractionPayloadSchema.safeParse(req.body);
+
+  if (!parsed.success) {
+    logger.warn("interaction.invalid_payload", { issues: parsed.error.flatten().fieldErrors });
+    res.status(INVALID_STATUS).json({ code: "INVALID_PAYLOAD", issues: parsed.error.flatten() });
+    return;
   }
 
-  const raw = (meta as Record<string, unknown>).module_combo;
-  if (!Array.isArray(raw)) {
-    return null;
+  const payload = normalizeInteraction(parsed.data);
+
+  try {
+    await insertInteraction(payload);
+    logger.info("interaction.recorded", {
+      interaction_id: payload.interaction_id,
+      module_combo: payload.module_combo?.length ?? 0,
+      guest: Boolean(guestId),
+    });
+    res.status(201).json({ id: payload.interaction_id });
+  } catch (error) {
+    logger.warn("interaction.insert_failed", {
+      interaction_id: payload.interaction_id,
+      message: error instanceof Error ? error.message : String(error),
+    });
+    res.status(UPSERT_ERROR_STATUS).json({ code: "SUPABASE_INSERT_FAILED" });
   }
-
-  const cleaned = raw
-    .map((entry) => (typeof entry === "string" ? entry.trim() : ""))
-    .filter((entry) => entry.length > 0);
-
-  return cleaned.length ? cleaned : null;
 }
 
-function resolveArmKey(meta: FeedbackPayload["meta"], moduleCombo?: string[] | null): string | null {
-  if (meta && typeof meta === "object") {
-    const direct = (meta as Record<string, unknown>).armKey;
-    if (typeof direct === "string" && direct.trim()) return direct.trim();
-    const snake = (meta as Record<string, unknown>).arm_key;
-    if (typeof snake === "string" && snake.trim()) return snake.trim();
-    const module = (meta as Record<string, unknown>).module;
-    if (typeof module === "string" && module.trim()) return module.trim();
+async function handleLatency(req: Request, res: Response<ErrorBody | void>): Promise<void> {
+  const parsed = LatencyPayloadSchema.safeParse(req.body);
+
+  if (!parsed.success) {
+    logger.warn("latency.invalid_payload", { issues: parsed.error.flatten().fieldErrors });
+    res.status(INVALID_STATUS).json({ code: "INVALID_PAYLOAD", issues: parsed.error.flatten() });
+    return;
   }
 
-  if (Array.isArray(moduleCombo) && moduleCombo.length === 1) {
-    const [only] = moduleCombo;
-    if (typeof only === "string" && only.trim()) return only.trim();
-  }
+  const payload: LatencyPayload = parsed.data;
 
-  return null;
+  try {
+    await insertLatency(payload);
+    logger.info("latency.recorded", { response_id: payload.response_id });
+    res.status(204).end();
+  } catch (error) {
+    logger.warn("latency.insert_failed", {
+      response_id: payload.response_id,
+      message: error instanceof Error ? error.message : String(error),
+    });
+    res.status(UPSERT_ERROR_STATUS).json({ code: "SUPABASE_INSERT_FAILED" });
+  }
 }
 
-router.post("/", (req, res) => {
+router.post("/feedback", (req, res) => {
   void handleFeedback(req, res);
 });
 
-signalRouter.post("/", (req, res) => {
-  void handleSignal(req, res);
+router.post("/interaction", (req, res) => {
+  void handleInteraction(req, res);
 });
 
-export { signalRouter };
+router.post("/latency", (req, res) => {
+  void handleLatency(req, res);
+});
+
 export default router;

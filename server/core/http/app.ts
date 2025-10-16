@@ -23,7 +23,7 @@ import voiceTTSRoutes from "../../routes/voiceTTSRoutes";
 import voiceFullRoutes from "../../routes/voiceFullRoutes";
 import openrouterRoutes from "../../routes/openrouterRoutes";
 import relatorioRoutes from "../../routes/relatorioEmocionalRoutes";
-import feedbackRoutes, { signalRouter as signalRoutes } from "../../routes/feedbackRoutes";
+import feedbackRoutes from "../../routes/feedbackRoutes";
 import memoryRoutes from "../../domains/memory/routes";
 import { log } from "../../services/promptContext/logger";
 import { isSupabaseConfigured } from "../../lib/supabaseAdmin";
@@ -150,14 +150,14 @@ export function createApp(): Express {
   app.use("/api/guest", guestRoutes);
   app.use("/api/relatorio-emocional", relatorioRoutes);
   app.use("/api/v1/relatorio-emocional", relatorioRoutes);
-  app.use("/api/feedback", feedbackRoutes);
-  app.use("/api/signal", signalRoutes);
+  app.use("/api", feedbackRoutes);
 
   // Preflight dedicated handlers (garante 204 com CORS)
   app.options("*", preflightHandler);
   app.options("/api/ask-eco", preflightHandler);
   app.options("/api/feedback", preflightHandler);
-  app.options("/api/signal", preflightHandler);
+  app.options("/api/interaction", preflightHandler);
+  app.options("/api/latency", preflightHandler);
 
   // Aliases sem /api (clientes legados)
   app.use("/memorias", memoryRoutes);
