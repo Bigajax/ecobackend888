@@ -27,11 +27,14 @@ import { configureModuleStore } from "./bootstrap/modules";
 import registrarTodasHeuristicas from "./services/registrarTodasHeuristicas";
 import registrarModulosFilosoficos from "./services/registrarModulosFilosoficos";
 import { log } from "./services/promptContext/logger";
+import { startBanditRewardSyncScheduler } from "./services/banditRewardsSync";
+import { analyticsClientMode } from "./services/supabaseClient";
 
 const app = createApp();
 
 async function start() {
   await configureModuleStore();
+  startBanditRewardSyncScheduler();
 
   const PORT = Number(process.env.PORT || 3001);
   app.listen(PORT, async () => {
@@ -42,6 +45,7 @@ async function start() {
       ECO_LOG_LEVEL: process.env.ECO_LOG_LEVEL ?? "(unset)",
       ECO_DEBUG: process.env.ECO_DEBUG ?? "(unset)",
       NODE_ENV: process.env.NODE_ENV ?? "(unset)",
+      analyticsClientMode,
     });
 
     try {

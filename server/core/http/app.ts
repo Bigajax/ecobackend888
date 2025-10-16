@@ -24,6 +24,10 @@ import voiceFullRoutes from "../../routes/voiceFullRoutes";
 import openrouterRoutes from "../../routes/openrouterRoutes";
 import relatorioRoutes from "../../routes/relatorioEmocionalRoutes";
 import feedbackRoutes from "../../routes/feedbackRoutes";
+import signalRoutes from "../../routes/signalRoutes";
+import moduleUsageRoutes from "../../routes/moduleUsageRoutes";
+import banditRoutes from "../../routes/banditRoutes";
+import policyRoutes from "../../routes/policyRoutes";
 import memoryRoutes from "../../domains/memory/routes";
 import { log } from "../../services/promptContext/logger";
 import { isSupabaseConfigured } from "../../lib/supabaseAdmin";
@@ -151,11 +155,19 @@ export function createApp(): Express {
   app.use("/api/relatorio-emocional", relatorioRoutes);
   app.use("/api/v1/relatorio-emocional", relatorioRoutes);
   app.use("/api/feedback", feedbackRoutes);
+  app.use("/api/signal", signalRoutes);
+  app.use("/api/module-usage", moduleUsageRoutes);
+  app.use("/api/bandit", banditRoutes);
+  app.use("/api/policy", policyRoutes);
 
   // Preflight dedicated handlers (garante 204 com CORS)
   app.options("*", preflightHandler);
   app.options("/api/ask-eco", preflightHandler);
   app.options("/api/feedback", preflightHandler);
+  app.options("/api/signal", preflightHandler);
+  app.options("/api/module-usage", preflightHandler);
+  app.options("/api/bandit/arms", preflightHandler);
+  app.options("/api/policy", preflightHandler);
 
   // Aliases sem /api (clientes legados)
   app.use("/memorias", memoryRoutes);
