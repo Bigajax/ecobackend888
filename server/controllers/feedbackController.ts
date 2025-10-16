@@ -1,5 +1,5 @@
 import type { Request, Response } from "express";
-import { supabase } from "../services/supabaseClient";
+import { sbAnalytics } from "../services/supabaseClient";
 
 export async function registrarFeedback(req: Request, res: Response) {
   const { interaction_id, vote, reason, source, user_id, session_id, meta } = req.body ?? {};
@@ -8,8 +8,8 @@ export async function registrarFeedback(req: Request, res: Response) {
     return res.status(400).json({ error: "Missing required fields" });
   }
 
-  const { data: exists, error: checkErr } = await supabase
-    .from("analytics.eco_interactions")
+  const { data: exists, error: checkErr } = await sbAnalytics
+    .from("eco_interactions")
     .select("id")
     .eq("id", interaction_id)
     .limit(1)
@@ -18,7 +18,7 @@ export async function registrarFeedback(req: Request, res: Response) {
   if (checkErr) return res.status(500).json({ error: checkErr.message });
   if (!exists) return res.status(404).json({ error: "interaction_not_found" });
 
-  const { error } = await supabase.from("analytics.eco_feedback").insert([
+  const { error } = await sbAnalytics.from("eco_feedback").insert([
     {
       interaction_id,
       vote,

@@ -1,13 +1,14 @@
 import { createClient } from "@supabase/supabase-js";
 
 const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
+const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-if (!supabaseUrl || !supabaseAnonKey) {
+if (!supabaseUrl || !supabaseServiceRoleKey) {
   console.error(
-    "❌ Erro: As variáveis SUPABASE_URL e SUPABASE_ANON_KEY não estão definidas no backend. Verifique seu arquivo .env."
+    "❌ Erro: As variáveis SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY não estão definidas no backend. Verifique seu arquivo .env."
   );
   process.exit(1);
 }
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+export const supabase = createClient(supabaseUrl, supabaseServiceRoleKey);
+export const sbAnalytics = supabase.schema("analytics");
