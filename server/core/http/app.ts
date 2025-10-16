@@ -150,14 +150,12 @@ export function createApp(): Express {
   app.use("/api/guest", guestRoutes);
   app.use("/api/relatorio-emocional", relatorioRoutes);
   app.use("/api/v1/relatorio-emocional", relatorioRoutes);
-  app.use("/api", feedbackRoutes);
+  app.use("/api/feedback", feedbackRoutes);
 
   // Preflight dedicated handlers (garante 204 com CORS)
   app.options("*", preflightHandler);
   app.options("/api/ask-eco", preflightHandler);
   app.options("/api/feedback", preflightHandler);
-  app.options("/api/interaction", preflightHandler);
-  app.options("/api/latency", preflightHandler);
 
   // Aliases sem /api (clientes legados)
   app.use("/memorias", memoryRoutes);
