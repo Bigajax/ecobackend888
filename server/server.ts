@@ -27,11 +27,13 @@ import { configureModuleStore } from "./bootstrap/modules";
 import registrarTodasHeuristicas from "./services/registrarTodasHeuristicas";
 import registrarModulosFilosoficos from "./services/registrarModulosFilosoficos";
 import { log } from "./services/promptContext/logger";
+import { startBanditRewardSyncScheduler } from "./services/banditRewardsSync";
 
 const app = createApp();
 
 async function start() {
   await configureModuleStore();
+  startBanditRewardSyncScheduler();
 
   const PORT = Number(process.env.PORT || 3001);
   app.listen(PORT, async () => {
