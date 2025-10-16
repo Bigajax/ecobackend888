@@ -1,6 +1,7 @@
 import type { Request, Response } from "express";
 import { getAnalyticsClient } from "../services/supabaseClient";
 import { log } from "../services/promptContext/logger";
+import { requestBanditRewardSync } from "../services/banditRewardsSync";
 
 const logger = log.withContext("feedback-controller");
 
@@ -111,6 +112,7 @@ export async function registrarFeedback(req: Request, res: Response) {
   if (error) {
     if (error.code === "23505") {
       logger.info("feedback.insert.result", { interaction_id, status: "idempotent" });
+      requestBanditRewardSync("feedback-idempotent");
       return res.status(204).end();
     }
 
@@ -130,5 +132,6 @@ export async function registrarFeedback(req: Request, res: Response) {
   }
 
   logger.info("feedback.insert.result", { interaction_id, status: "created" });
+  requestBanditRewardSync("feedback-created");
   return res.status(204).end();
 }
