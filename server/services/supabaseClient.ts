@@ -1,4 +1,4 @@
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -11,4 +11,13 @@ if (!supabaseUrl || !supabaseServiceRoleKey) {
 }
 
 export const supabase = createClient(supabaseUrl, supabaseServiceRoleKey);
-export const sbAnalytics = supabase.schema("analytics");
+
+let analyticsClient: SupabaseClient | null = null;
+
+export function getAnalyticsClient(): SupabaseClient {
+  if (!analyticsClient) {
+    analyticsClient = supabase.schema("analytics");
+  }
+
+  return analyticsClient;
+}
