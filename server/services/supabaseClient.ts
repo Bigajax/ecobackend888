@@ -12,11 +12,15 @@ if (!supabaseUrl || !supabaseServiceRoleKey) {
 
 export const supabase = createClient(supabaseUrl, supabaseServiceRoleKey);
 
-let analyticsClient: SupabaseClient | null = null;
+const createAnalyticsClient = () => supabase.schema("analytics");
 
-export function getAnalyticsClient(): SupabaseClient {
+type AnalyticsClient = ReturnType<typeof createAnalyticsClient>;
+
+let analyticsClient: AnalyticsClient | null = null;
+
+export function getAnalyticsClient(): AnalyticsClient {
   if (!analyticsClient) {
-    analyticsClient = supabase.schema("analytics");
+    analyticsClient = createAnalyticsClient();
   }
 
   return analyticsClient;

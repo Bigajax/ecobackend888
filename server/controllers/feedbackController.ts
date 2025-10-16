@@ -59,7 +59,7 @@ export async function registrarFeedback(req: Request, res: Response) {
 
       const { error: fallbackError } = await analytics
         .from("eco_interactions")
-        .insert([fallbackPayload], { returning: "minimal" });
+        .insert([fallbackPayload]);
 
       if (fallbackError) {
         if (fallbackError.code === "23505") {
