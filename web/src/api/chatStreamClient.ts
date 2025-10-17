@@ -6,6 +6,28 @@ import {
   type EcoLatencyTimings,
   type EcoLatencyStage,
 } from "./ecoStream";
+import { postSignal } from "./signals";
+
+const LAST_INTERACTION_STORAGE_KEY = "eco.last_interaction_id";
+
+function persistInteractionId(id: string | null) {
+  if (typeof window === "undefined") return;
+  try {
+    window.sessionStorage.setItem(LAST_INTERACTION_STORAGE_KEY, id ?? "");
+  } catch {
+    // ignore storage errors (private mode, etc.)
+  }
+}
+
+function extractInteractionId(meta: Record<string, unknown> | undefined): string | null {
+  if (!meta) return null;
+  const raw = (meta as Record<string, unknown>)["interaction_id"];
+  if (typeof raw === "string") {
+    const trimmed = raw.trim();
+    return trimmed ? trimmed : null;
+  }
+  return null;
+}
 
 export interface StreamAnalyticsDurations {
   promptReadyMs?: number;
@@ -55,6 +77,7 @@ export function streamConversation({
   const startedAt = Date.now();
   const latencies: Partial<Record<EcoLatencyStage, EcoLatencyEvent>> = {};
   let analyticsSent = false;
+  let lifecycleSignalsSent = false;
 
   const emitAnalytics = (
     reason: "completed" | "aborted" | "error",
@@ -117,6 +140,15 @@ export function streamConversation({
         registerLatency(event);
       }
       callbacks.onEvent?.(event);
+
+      if (event.type === "done" && !lifecycleSignalsSent) {
+        const interactionId = extractInteractionId(event.meta);
+        persistInteractionId(interactionId);
+        lifecycleSignalsSent = true;
+        void postSignal("first_token", { interaction_id: interactionId });
+        void postSignal("done", { interaction_id: interactionId });
+        void postSignal("view", { interaction_id: interactionId });
+      }
 
       if (event.type === "chunk") {
         aggregated += event.delta;
