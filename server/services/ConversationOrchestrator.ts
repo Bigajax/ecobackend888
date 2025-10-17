@@ -726,6 +726,9 @@ export async function getEcoResponse({
         thread,
         calHints: calHints ?? undefined,
         memsSemelhantes,
+        contextFlags: context.flags,
+        contextMeta: context.meta,
+        continuity: context.continuity,
       });
 
       const originalFinalize = streamingResult.finalize;
@@ -768,6 +771,9 @@ export async function getEcoResponse({
       guestId: guestId ?? undefined,
       calHints: calHints ?? undefined,
       memsSemelhantes,
+      contextFlags: context.flags,
+      contextMeta: context.meta,
+      continuity: context.continuity,
     });
 
     await persistAnalyticsSafe({

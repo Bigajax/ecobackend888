@@ -87,6 +87,79 @@ function deriveDominantDomain(mems: SimilarMemory[] | undefined): string | null 
   return sorted.length ? sorted[0].label : null;
 }
 
+function extractNumber(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === "string" && value.trim().length) {
+    const parsed = Number(value.trim());
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+  return null;
+}
+
+function continuitySimilarity(ref: any): number | null {
+  return extractNumber(ref?.similarity ?? ref?.similaridade ?? null);
+}
+
+function continuityDias(ref: any): number | null {
+  const dias = extractNumber(ref?.dias_desde ?? ref?.diasDesde ?? ref?.dias ?? null);
+  if (dias == null) return null;
+  return dias < 0 ? 0 : Math.floor(dias);
+}
+
+function continuityEmotion(ref: any): string {
+  const raw = typeof ref?.emocao_principal === "string" ? ref.emocao_principal.trim() : "";
+  return raw.length ? raw : "?";
+}
+
+function continuityTags(ref: any): string[] {
+  if (!Array.isArray(ref?.tags)) return [];
+  return (ref.tags as unknown[])
+    .map((tag) => (typeof tag === "string" ? tag.trim() : ""))
+    .filter((tag) => tag.length > 0)
+    .slice(0, 3);
+}
+
+function buildContinuityModuleText(ref: any): string {
+  if (!ref) return "";
+
+  const emotion = continuityEmotion(ref);
+  const diasValue = continuityDias(ref);
+  const diasLabel = diasValue != null ? `${diasValue} dia${diasValue === 1 ? "" : "s"}` : "? dias";
+  const similarity = continuitySimilarity(ref);
+  const similarityLabel = similarity != null ? similarity.toFixed(2) : "?";
+  const tags = continuityTags(ref);
+
+  const lines = [
+    `Referência-base: emoção ${emotion}, há ${diasLabel}, similaridade ${similarityLabel}.`,
+  ];
+
+  if (tags.length) {
+    lines.push(`Tags recentes: ${tags.join(", ")}.`);
+  }
+
+  return lines.join("\n");
+}
+
+const isUseMemoriasModule = (name: string) =>
+  name
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .toLowerCase()
+    .includes("usomemor");
+
+function buildContinuityPromptLine(ref: any): string {
+  const emotion = continuityEmotion(ref);
+  const diasValue = continuityDias(ref);
+  const diasLabel = diasValue != null ? String(diasValue) : "?";
+  const similarity = continuitySimilarity(ref);
+  const similarityLabel = similarity != null ? similarity.toFixed(2) : "?";
+  return `[CONTINUIDADE] emocao:${emotion || "?"} dias:${diasLabel} sim:${similarityLabel}`;
+}
+
 function renderDecBlock(dec: DecSnapshot): string {
   const viva = dec.vivaSteps.length ? dec.vivaSteps.join(" → ") : "none";
   const tags = dec.tags.length ? dec.tags.join(", ") : "none";
@@ -261,12 +334,26 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
     memoriasSemelhantes,
     decision,
     activationTracer,
+    contextFlags: contextFlagsParam = {},
+    contextMeta: contextMetaParam = {},
   } = params;
 
   const memsSemelhantesNorm =
     (memsSemelhantes && Array.isArray(memsSemelhantes) && memsSemelhantes.length
       ? memsSemelhantes
       : memoriasSemelhantes) || [];
+
+  const contextFlags =
+    contextFlagsParam && typeof contextFlagsParam === "object"
+      ? (contextFlagsParam as Record<string, unknown>)
+      : {};
+  const contextMeta =
+    contextMetaParam && typeof contextMetaParam === "object"
+      ? (contextMetaParam as Record<string, unknown>)
+      : {};
+  const continuityRef = contextMeta?.continuityRef;
+  const hasContinuity = Boolean((contextFlags as any)?.HAS_CONTINUITY && continuityRef);
+
 
   await ModuleCatalog.ensureReady();
 
@@ -386,7 +473,29 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
     candidates,
   });
 
-  const modulesWithTokens = [...selection.regular, ...selection.footers].map((module) => ({
+  const applyContinuityText = (module: (typeof selection.regular)[number]) => {
+    if (!isUseMemoriasModule(module.name)) {
+      return module;
+    }
+
+    if (!hasContinuity) {
+      return module;
+    }
+
+    const baseText = typeof module.text === "string" ? module.text.trim() : "";
+    const continuityText = buildContinuityModuleText(continuityRef).trim();
+    const combined = [baseText, continuityText].filter((part) => part.length > 0).join("\n\n");
+
+    return {
+      ...module,
+      text: combined,
+    };
+  };
+
+  const regularModules = selection.regular.map(applyContinuityText);
+  const footerModules = selection.footers.map(applyContinuityText);
+
+  const modulesWithTokens = [...regularModules, ...footerModules].map((module) => ({
     name: module.name,
     text: module.text,
     tokens: ModuleCatalog.tokenCountOf(module.name, module.text),
@@ -401,12 +510,12 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
   }
 
   const pinnedSet = new Set<string>([ABS_FIRST, ...MINIMAL_VITAL_SET]);
-  for (const footer of selection.footers) {
+  for (const footer of footerModules) {
     pinnedSet.add(footer.name);
   }
 
   const knapsackBudget = computeKnapsackBudget();
-  const knapsackCandidates = selection.regular
+  const knapsackCandidates = regularModules
     .filter((module) => !pinnedSet.has(module.name))
     .map((module) => {
       const tokens = tokenLookup.get(module.name) ?? 0;
@@ -425,7 +534,7 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
   const adoptedSet = new Set(knapsackResult.adotados);
   const allowedSet = new Set<string>([...pinnedSet, ...adoptedSet]);
 
-  for (const module of selection.regular) {
+  for (const module of regularModules) {
     if (allowedSet.has(module.name)) continue;
     const existing = debugMap.get(module.name);
     if (existing) {
@@ -464,10 +573,10 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
 
   const usedSet = new Set(budgetResult.used);
 
-  const finalRegular = selection.regular
+  const finalRegular = regularModules
     .filter((m) => usedSet.has(m.name))
     .sort((a, b) => byAbsoluteOrder(a.name, b.name));
-  const finalFooters = selection.footers
+  const finalFooters = footerModules
     .filter((m) => usedSet.has(m.name))
     .sort((a, b) => byAbsoluteOrder(a.name, b.name));
 
@@ -525,7 +634,14 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
     finalRegular.map((module) => ({ name: module.name, text: module.text })),
     nivel
   );
-  const stitched = stitchModules(reduced, nivel);
+  let stitched = stitchModules(reduced, nivel);
+  if (hasContinuity) {
+    log.info({ tag: "continuity_in_prompt", ref: continuityRef ?? null });
+  } else {
+    const flagRequested = Boolean((contextFlags as any)?.HAS_CONTINUITY);
+    const reason = flagRequested ? "ref null" : "flag false";
+    log.warn({ tag: "continuity_skipped", reason });
+  }
   const footerText = finalFooters
     .map((module) => module.text.trim())
     .filter((text) => text.length > 0)
@@ -541,6 +657,12 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
   if (nomeUsuario) {
     extras.push(
       `Usuário: ${nomeUsuario}. Use nome quando natural na conversa, nunca corrija ou diga frases como "sou ECO, não ${nomeUsuario}".`
+    );
+  }
+
+  if (hasContinuity) {
+    extras.unshift(
+      "CONTINUIDADE: Abra conectando a memória destacada (1–2 linhas), reformule com novas palavras e destaque a evolução." 
     );
   }
 
@@ -589,6 +711,15 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
     formatMemRecall(memsSemelhantesNorm) ||
     "MEMORIAS_RELEVANTES:\n(nenhuma encontrada desta vez)";
 
+  const continuityPrelude = hasContinuity
+    ? [
+        buildContinuityPromptLine(continuityRef),
+        buildContinuityModuleText(continuityRef).trim(),
+      ]
+        .filter((part) => part && part.length > 0)
+        .join("\n\n")
+    : "";
+
   const promptCoreBase = composePromptBase({
     nivel,
     memCount,
@@ -599,10 +730,17 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
     memRecallBlock,
     instructionText,
     decBlock,
+    prelude: continuityPrelude || undefined,
   });
 
   // Monta base completa: Identidade + Estilo + Política de Memória + Core
-  const base = `${ID_ECO_FULL}\n\n${STYLE_HINTS_FULL}\n\n${MEMORY_POLICY_EXPLICIT}\n\n${promptCoreBase}`;
+  const baseSections = [
+    promptCoreBase.trim(),
+    ID_ECO_FULL.trim(),
+    STYLE_HINTS_FULL.trim(),
+    MEMORY_POLICY_EXPLICIT.trim(),
+  ].filter((section) => section.length > 0);
+  const base = baseSections.join("\n\n");
   const montarMensagemAtual = (textoAtual: string) => applyCurrentMessage(base, textoAtual);
 
   const promptComTexto = montarMensagemAtual(texto);
