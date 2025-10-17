@@ -67,9 +67,16 @@ export async function createInteraction(seed: InteractionSeed): Promise<string |
       .maybeSingle();
 
     if (error) {
-      logger.warn("interaction.create_failed", {
+      logger.error("interaction.create_failed", {
         message: error.message,
         code: error.code ?? null,
+        table: "eco_interactions",
+        payload: {
+          user_id: seed.userId ?? null,
+          session_id: seed.sessionId ?? null,
+          message_id: seed.messageId ?? null,
+          prompt_hash: seed.promptHash ?? null,
+        },
       });
       return null;
     }
@@ -80,10 +87,16 @@ export async function createInteraction(seed: InteractionSeed): Promise<string |
       return null;
     }
 
+    logger.info("interaction.insert_success", {
+      table: "eco_interactions",
+      interaction_id: interactionId,
+    });
+
     return interactionId;
   } catch (error) {
-    logger.warn("interaction.create_unexpected", {
+    logger.error("interaction.create_unexpected", {
       message: error instanceof Error ? error.message : String(error),
+      table: "eco_interactions",
     });
     return null;
   }
@@ -172,16 +185,26 @@ export async function insertModuleUsages(
     const analytics = getAnalyticsClient();
     const { error } = await analytics.from("eco_module_usages").insert(rows);
     if (error) {
-      logger.warn("interaction.module_usage_failed", {
+      logger.error("interaction.module_usage_failed", {
         interaction_id: interactionId,
         message: error.message,
         code: error.code ?? null,
+        table: "eco_module_usages",
+        payload: rows,
+      });
+    }
+    if (!error) {
+      logger.info("interaction.module_usage_inserted", {
+        table: "eco_module_usages",
+        interaction_id: interactionId,
+        rows: rows.length,
       });
     }
   } catch (error) {
-    logger.warn("interaction.module_usage_unexpected", {
+    logger.error("interaction.module_usage_unexpected", {
       interaction_id: interactionId,
       message: error instanceof Error ? error.message : String(error),
+      table: "eco_module_usages",
     });
   }
 }

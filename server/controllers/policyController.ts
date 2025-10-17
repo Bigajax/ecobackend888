@@ -98,10 +98,17 @@ export async function upsertPolicyConfig(req: Request, res: Response) {
       message: error.message,
       code: error.code ?? null,
       details: error.details ?? null,
+      table: "eco_policy_config",
+      payload,
     });
     return res.status(500).json({ error: "internal_error" });
   }
 
-  logger.info("policy.upsert", { route: "/api/policy", status: "updated" });
+  logger.info("policy.upsert", {
+    route: "/api/policy",
+    status: "updated",
+    table: "eco_policy_config",
+    key,
+  });
   return res.status(204).end();
 }

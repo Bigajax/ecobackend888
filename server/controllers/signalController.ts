@@ -64,7 +64,13 @@ export async function registrarSignal(req: Request, res: Response) {
   const { error } = await analytics.from("eco_passive_signals").insert([payload]);
 
   if (!error) {
-    logger.info("signal.persisted", { signal: rawSignal, status: "created", degraded: false });
+    logger.info("signal.persisted", {
+      signal: rawSignal,
+      status: "created",
+      degraded: false,
+      table: "eco_passive_signals",
+      interaction_id: interactionId,
+    });
     return res.status(204).end();
   }
 
@@ -73,6 +79,8 @@ export async function registrarSignal(req: Request, res: Response) {
       signal: rawSignal,
       interaction_id: interactionId,
       message: error.message,
+      table: "eco_passive_signals",
+      payload,
     });
     return res.status(404).json({ error: "interaction_not_found" });
   }
@@ -82,6 +90,8 @@ export async function registrarSignal(req: Request, res: Response) {
     interaction_id: interactionId,
     message: error.message,
     code: error.code ?? null,
+    table: "eco_passive_signals",
+    payload,
   });
 
   return res.status(500).json({ error: "internal_error" });

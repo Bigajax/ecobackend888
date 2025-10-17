@@ -59,8 +59,10 @@ export async function logInteraction({
       .maybeSingle();
 
     if (error) {
-      log.warn("[interactionLogger] failed to insert eco_interactions", {
+      log.error("[interactionLogger] failed to insert eco_interactions", {
         message: error.message,
+        code: error.code ?? null,
+        payload,
       });
       return null;
     }
@@ -69,6 +71,11 @@ export async function logInteraction({
     if (!interactionId) {
       return null;
     }
+
+    log.info("[interactionLogger] insert_success", {
+      tabela: "eco_interactions",
+      interaction_id: interactionId,
+    });
 
     if (Array.isArray(moduleUsages) && moduleUsages.length) {
       const rows = moduleUsages
@@ -102,8 +109,16 @@ export async function logInteraction({
           .from("eco_module_usages")
           .insert(rows);
         if (moduleError) {
-          log.warn("[interactionLogger] failed to insert eco_module_usages", {
+          log.error("[interactionLogger] failed to insert eco_module_usages", {
             message: moduleError.message,
+            code: moduleError.code ?? null,
+            payload: rows,
+          });
+        } else {
+          log.info("[interactionLogger] insert_success", {
+            tabela: "eco_module_usages",
+            interaction_id: interactionId,
+            rows: rows.length,
           });
         }
       }
@@ -111,7 +126,7 @@ export async function logInteraction({
 
     return interactionId;
   } catch (error) {
-    log.warn("[interactionLogger] unexpected failure", {
+    log.error("[interactionLogger] unexpected failure", {
       message: error instanceof Error ? error.message : String(error),
     });
     return null;
