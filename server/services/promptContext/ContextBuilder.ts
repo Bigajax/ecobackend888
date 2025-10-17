@@ -354,6 +354,7 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
   const continuityRef = contextMeta?.continuityRef;
   const hasContinuity = Boolean((contextFlags as any)?.HAS_CONTINUITY && continuityRef);
 
+
   await ModuleCatalog.ensureReady();
 
   const heuristicaFlags = mapHeuristicasToFlags(_heuristicas);
@@ -635,10 +636,11 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
   );
   let stitched = stitchModules(reduced, nivel);
   if (hasContinuity) {
-    const continuityLine = buildContinuityPromptLine(continuityRef);
-    if (continuityLine) {
-      stitched = `${continuityLine}\n\n${stitched}`.trim();
-    }
+    log.info({ tag: "continuity_in_prompt", ref: continuityRef ?? null });
+  } else {
+    const flagRequested = Boolean((contextFlags as any)?.HAS_CONTINUITY);
+    const reason = flagRequested ? "ref null" : "flag false";
+    log.warn({ tag: "continuity_skipped", reason });
   }
   const footerText = finalFooters
     .map((module) => module.text.trim())
@@ -709,6 +711,15 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
     formatMemRecall(memsSemelhantesNorm) ||
     "MEMORIAS_RELEVANTES:\n(nenhuma encontrada desta vez)";
 
+  const continuityPrelude = hasContinuity
+    ? [
+        buildContinuityPromptLine(continuityRef),
+        buildContinuityModuleText(continuityRef).trim(),
+      ]
+        .filter((part) => part && part.length > 0)
+        .join("\n\n")
+    : "";
+
   const promptCoreBase = composePromptBase({
     nivel,
     memCount,
@@ -719,10 +730,17 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
     memRecallBlock,
     instructionText,
     decBlock,
+    prelude: continuityPrelude || undefined,
   });
 
   // Monta base completa: Identidade + Estilo + Política de Memória + Core
-  const base = `${ID_ECO_FULL}\n\n${STYLE_HINTS_FULL}\n\n${MEMORY_POLICY_EXPLICIT}\n\n${promptCoreBase}`;
+  const baseSections = [
+    promptCoreBase.trim(),
+    ID_ECO_FULL.trim(),
+    STYLE_HINTS_FULL.trim(),
+    MEMORY_POLICY_EXPLICIT.trim(),
+  ].filter((section) => section.length > 0);
+  const base = baseSections.join("\n\n");
   const montarMensagemAtual = (textoAtual: string) => applyCurrentMessage(base, textoAtual);
 
   const promptComTexto = montarMensagemAtual(texto);

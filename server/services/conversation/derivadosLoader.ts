@@ -12,6 +12,7 @@ import {
 } from "./parallelFetch";
 import { log as defaultLogger } from "../promptContext/logger";
 import type { RetrieveMode } from "../supabase/memoriaRepository";
+import { decideContinuity } from "./continuity";
 import type { ActivationTracer } from "../../core/activationTracer";
 
 export interface ConversationContextResult {
@@ -52,7 +53,7 @@ export interface LoadConversationContextOptions {
   promptOverride?: string;
   metaFromBuilder?: any;
   // Logger mínimo exigido: apenas warn; usamos optional chaining ao invocar
-  logger?: { warn?: (msg: string) => void } | undefined;
+  logger?: { warn?: (msg: string) => void; info?: (...args: any[]) => void } | undefined;
   parallelFetchService?: ParallelFetchLike;
   cache?: CacheLike<Derivados>;
   getDerivadosFn?: typeof getDerivados;
@@ -224,6 +225,15 @@ export async function loadConversationContext(
   const userEmbedding: number[] = paralelas?.userEmbedding ?? [];
   const memsSemelhantes: any[] = paralelas?.memsSemelhantes ?? [];
 
+  const continuityDecision = decideContinuity(memsSemelhantes);
+  const continuityRef = continuityDecision.memoryRef;
+
+  logger?.info?.({
+    tag: "continuity_decision",
+    hasContinuity: continuityDecision.hasContinuity,
+    ref: continuityRef ?? null,
+  });
+
   if (activationTracer) {
     const threshold = 0.8;
     heuristicas.forEach((item: any, index: number) => {
@@ -267,7 +277,13 @@ export async function loadConversationContext(
     memsSemelhantes,
     derivados: (derivados ?? null) as Derivados | null,
     aberturaHibrida,
-    flags: {},
-    meta: {},
+    flags: { HAS_CONTINUITY: continuityDecision.hasContinuity },
+    meta: { continuityRef },
+    continuity: {
+      hasContinuity: continuityDecision.hasContinuity,
+      similarity: continuityDecision.similarity,
+      diasDesde: continuityDecision.diasDesde,
+      memoryRef: continuityRef,
+    },
   };
 }
