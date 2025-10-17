@@ -158,6 +158,15 @@ export class MemoryController {
     try {
       const memories = await this.service.listMemories(userId, { tags, limit });
       console.log(`📥 ${memories.length} memórias retornadas para ${userId}`);
+      if (memories.length > 0) {
+        const { embedding, embedding_emocional, ...rest } = memories[0];
+        console.log("[MemoryController] Campos da primeira memória:", {
+          keys: Object.keys(memories[0]),
+          sample: rest,
+          embeddingPresent: Array.isArray(embedding),
+          embeddingEmocionalPresent: Array.isArray(embedding_emocional),
+        });
+      }
       return res.status(200).json({ success: true, memories });
     } catch (error) {
       console.error(
