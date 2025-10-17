@@ -70,21 +70,26 @@ export class ParallelFetchService {
         .catch(() => []);
 
       const memsPromise = userId
-        ? this.deps
-            .getMemorias({
-              userId,
-              embedding: userEmbedding,
-              mode: retrieveMode,
-              supabaseClient: supabase,
-            })
-            .catch((e: any) => {
-              if (this.deps.debug()) {
-                this.deps.logger.warn(
-                  `[ParallelFetch] buscarMemoriasSemelhantes falhou: ${e?.message}`
-                );
-              }
-              return [];
-            })
+        ? withTimeoutOrNull(
+            this.deps
+              .getMemorias({
+                userId,
+                embedding: userEmbedding,
+                mode: retrieveMode,
+                supabaseClient: supabase,
+              })
+              .catch((e: any) => {
+                if (this.deps.debug()) {
+                  this.deps.logger.warn(
+                    `[ParallelFetch] buscarMemoriasSemelhantes falhou: ${e?.message}`
+                  );
+                }
+                return [];
+              }),
+            800,
+            "mem_lookup",
+            { logger: this.deps.logger }
+          ).then((result) => result ?? [])
         : Promise.resolve([]);
 
       const [heuristicasResult, memsResult] = await Promise.all([
@@ -93,7 +98,18 @@ export class ParallelFetchService {
       ]);
 
       heuristicas = heuristicasResult ?? [];
-      memsSemelhantes = userId ? memsResult ?? [] : [];
+      memsSemelhantes = userId ? (memsResult ?? []) : [];
+
+      if (userId && typeof this.deps.logger?.info === "function") {
+        const top = Array.isArray(memsSemelhantes) && memsSemelhantes.length
+          ? memsSemelhantes[0]
+          : null;
+        this.deps.logger.info({
+          tag: "mem_probe",
+          count: Array.isArray(memsSemelhantes) ? memsSemelhantes.length : 0,
+          top: top ?? null,
+        });
+      }
     }
 
     return { heuristicas, userEmbedding, memsSemelhantes };

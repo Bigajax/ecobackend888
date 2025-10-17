@@ -20,6 +20,14 @@ export interface ConversationContextResult {
   memsSemelhantes: any[];
   derivados: Derivados | null;
   aberturaHibrida: any | null; // pode variar conforme implementação de insightAbertura
+  flags: Record<string, unknown>;
+  meta: Record<string, unknown>;
+  continuity?: {
+    hasContinuity: boolean;
+    similarity: number | null;
+    diasDesde: number | null;
+    memoryRef: Record<string, unknown> | null;
+  };
 }
 
 interface CacheLike<T> {
@@ -62,7 +70,7 @@ export const DEFAULT_DERIVADOS_TIMEOUT_MS = Number(
   process.env.ECO_DERIVADOS_TIMEOUT_MS ?? 600
 );
 export const DEFAULT_PARALELAS_TIMEOUT_MS = Number(
-  process.env.ECO_PARALELAS_TIMEOUT_MS ?? 180
+  process.env.ECO_PARALELAS_TIMEOUT_MS ?? 900
 );
 
 const EMPTY_PARALLEL_RESULT = {
@@ -259,5 +267,7 @@ export async function loadConversationContext(
     memsSemelhantes,
     derivados: (derivados ?? null) as Derivados | null,
     aberturaHibrida,
+    flags: {},
+    meta: {},
   };
 }
