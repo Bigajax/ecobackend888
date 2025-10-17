@@ -117,6 +117,14 @@ export interface FinalizeParams {
   promptMessages?: PromptMessage[];
   promptTokens?: number;
   completionTokens?: number;
+  contextFlags?: Record<string, unknown>;
+  contextMeta?: Record<string, unknown>;
+  continuity?: {
+    hasContinuity: boolean;
+    memoryRef: Record<string, unknown> | null;
+    similarity?: number | null;
+    diasDesde?: number | null;
+  };
 }
 
 export interface NormalizedEcoResponse {
@@ -460,6 +468,9 @@ export class ResponseFinalizer {
     promptMessages,
     promptTokens,
     completionTokens,
+    contextFlags,
+    contextMeta,
+    continuity,
   }: FinalizeParams): Promise<GetEcoResult> {
     const distinctId =
       providedDistinctId ?? sessionMeta?.distinctId ?? guestId ?? userId;
@@ -593,7 +604,23 @@ export class ResponseFinalizer {
       log.info("[ECO_LOGIC_DEBUG] decision", debugTrace);
     }
 
-    response.meta = { ...(response.meta ?? {}), debug_trace: debugTrace };
+    const contextFlagValue =
+      contextFlags && typeof (contextFlags as any)?.HAS_CONTINUITY === "boolean"
+        ? Boolean((contextFlags as any).HAS_CONTINUITY)
+        : false;
+    const continuityFlag = Boolean(
+      continuity?.hasContinuity ?? contextFlagValue
+    );
+    const continuityRef = continuity?.memoryRef ?? (contextMeta as any)?.continuityRef ?? null;
+
+    response.meta = {
+      ...(response.meta ?? {}),
+      continuity: {
+        hasContinuity: continuityFlag,
+        memoryRef: continuityFlag ? (continuityRef ?? null) : null,
+      },
+      debug_trace: debugTrace,
+    };
 
     const duracao = now() - startedAt;
     if (sessionMeta && !isGuest) {
