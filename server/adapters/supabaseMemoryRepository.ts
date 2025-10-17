@@ -82,11 +82,16 @@ export async function listMemories(
     error: error?.message ?? null,
     data,
   });
+
   if (error) {
-    throw new Error(error.message || "Erro ao buscar memórias no Supabase.");
+    throw new Error(`memories.select failed: ${error.message}`);
   }
 
-  return (data ?? []) as MemoryRow[];
+  if (!Array.isArray(data)) {
+    return [];
+  }
+
+  return data as unknown as MemoryRow[];
 }
 
 export class SupabaseMemoryRepository implements MemoryRepository {
