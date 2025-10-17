@@ -1,6 +1,7 @@
 import { streamClaudeChatCompletion, type Msg } from "../../core/ClaudeAdapter";
 import { log } from "../promptContext/logger";
 import { now } from "../../utils";
+import { createInteraction, sha1Hash } from "./interactionAnalytics";
 
 import {
   EcoStreamHandler,
@@ -53,6 +54,8 @@ interface StreamingExecutionParams {
   decision: { hasAssistantBefore: boolean };
   ecoDecision: EcoDecisionResult;
   ultimaMsg: string;
+  basePrompt: string;
+  basePromptHash?: string | null;
   userName?: string | null;
   userId: string;
   supabase: any | null;
@@ -63,6 +66,7 @@ interface StreamingExecutionParams {
   isGuest?: boolean;
   guestId?: string;
   thread: ChatMessage[];
+  interactionId?: string | null;
   calHints?: EcoHints | null;
   memsSemelhantes?: any[];
   contextFlags?: Record<string, unknown>;
@@ -82,6 +86,8 @@ export async function executeStreamingLLM({
   decision,
   ecoDecision,
   ultimaMsg,
+  basePrompt,
+  basePromptHash,
   userName,
   userId,
   supabase,
@@ -92,6 +98,7 @@ export async function executeStreamingLLM({
   isGuest = false,
   guestId,
   thread,
+  interactionId,
   calHints,
   memsSemelhantes,
   contextFlags,
@@ -99,6 +106,20 @@ export async function executeStreamingLLM({
   continuity,
 }: StreamingExecutionParams): Promise<EcoStreamingResult> {
   const supabaseClient = supabase ?? null;
+  const resolvedPromptHash =
+    typeof basePromptHash === "string" && basePromptHash
+      ? basePromptHash
+      : sha1Hash(basePrompt);
+  let analyticsInteractionId = interactionId ?? null;
+
+  if (!analyticsInteractionId) {
+    analyticsInteractionId = await createInteraction({
+      userId: !isGuest ? userId : null,
+      sessionId: typeof sessionMeta?.sessaoId === "string" ? sessionMeta.sessaoId : null,
+      messageId: lastMessageId ?? null,
+      promptHash: resolvedPromptHash,
+    });
+  }
   const summarizeDelta = (input: string) => {
     const safe = input ?? "";
     const normalized = safe.replace(/\s+/g, " ").trim();
@@ -307,6 +328,8 @@ export async function executeStreamingLLM({
       maxTokens,
       principalModel,
       ultimaMsg,
+      basePrompt,
+      basePromptHash: resolvedPromptHash,
       userName,
       decision,
       ecoDecision,
@@ -318,6 +341,7 @@ export async function executeStreamingLLM({
       thread,
       isGuest,
       guestId,
+      interactionId: analyticsInteractionId ?? undefined,
       calHints,
       memsSemelhantes,
       contextFlags,
@@ -560,6 +584,8 @@ export async function executeStreamingLLM({
           contextFlags,
           contextMeta,
           continuity,
+          interactionId: analyticsInteractionId ?? undefined,
+          promptHash: resolvedPromptHash,
         });
       })();
     }
@@ -568,7 +594,7 @@ export async function executeStreamingLLM({
 
   const finalize = () => computeFinalization();
 
-  let interactionIdForMeta: string | null = null;
+  let interactionIdForMeta: string | null = analyticsInteractionId ?? null;
   try {
     const finalized = await computeFinalization();
     const metaFromResult = finalized?.meta as Record<string, unknown> | null | undefined;

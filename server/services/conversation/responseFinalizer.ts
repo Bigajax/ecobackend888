@@ -39,9 +39,8 @@ import {
   updateArm as updateBanditArm,
   type BanditSelectionMap,
 } from "../orchestrator/bandits/ts";
-import { logInteraction } from "../telemetry/interactionLogger";
-import type { AnySupabase } from "../../adapters/SupabaseAdapter";
 import { createHash } from "node:crypto";
+import { insertModuleUsages, updateInteraction } from "./interactionAnalytics";
 
 const BANDIT_TOKEN_PENALTY_LAMBDA = 0.01;
 
@@ -68,10 +67,6 @@ function computePromptHash(messages?: PromptMessage[]): string | null {
     });
     return null;
   }
-}
-
-function isSupabaseClient(value: unknown): value is AnySupabase {
-  return !!value && typeof (value as AnySupabase).from === "function";
 }
 
 interface ResponseFinalizerDeps {
@@ -126,6 +121,8 @@ export interface FinalizeParams {
     similarity?: number | null;
     diasDesde?: number | null;
   };
+  interactionId?: string | null;
+  promptHash?: string | null;
 }
 
 export interface NormalizedEcoResponse {
@@ -523,12 +520,20 @@ export class ResponseFinalizer {
     contextFlags,
     contextMeta,
     continuity,
+    interactionId: providedInteractionId,
+    promptHash: providedPromptHash,
   }: FinalizeParams): Promise<GetEcoResult> {
     const distinctId =
       providedDistinctId ?? sessionMeta?.distinctId ?? guestId ?? userId;
     const resolvedSessaoId = providedSessaoId ?? sessionMeta?.sessaoId ?? null;
-    const supabaseClient = isSupabaseClient(supabase) ? (supabase as AnySupabase) : null;
-    const promptHash = computePromptHash(promptMessages);
+    const analyticsInteractionId =
+      typeof providedInteractionId === "string" && providedInteractionId.trim()
+        ? providedInteractionId.trim()
+        : null;
+    const resolvedPromptHash =
+      typeof providedPromptHash === "string" && providedPromptHash
+        ? providedPromptHash
+        : computePromptHash(promptMessages);
 
     if (!hasAssistantBefore) {
       const sessaoId = resolvedSessaoId ?? undefined;
@@ -967,29 +972,16 @@ export class ResponseFinalizer {
 
     const latencyMs = Number.isFinite(duracao) ? Math.max(0, Math.round(duracao)) : null;
 
-    let interactionId: string | null = null;
+    let interactionId: string | null = analyticsInteractionId;
 
-    if (supabaseClient) {
-      try {
-        interactionId = await logInteraction({
-          supabase: supabaseClient,
-          interaction: {
-            userId: userId ?? null,
-            sessionId: resolvedSessaoId,
-            messageId: lastMessageId ?? null,
-            promptHash,
-            moduleCombo: resolvedSelectedModules,
-            tokensIn: promptTokenCount,
-            tokensOut: completionTokenCount ?? tokensTotalValue,
-            latencyMs,
-          },
-          moduleUsages: moduleUsageLogs,
-        });
-      } catch (error) {
-        log.warn("[responseFinalizer] interaction_log_error", {
-          message: error instanceof Error ? error.message : String(error),
-        });
-      }
+    if (interactionId) {
+      await updateInteraction(interactionId, {
+        tokensIn: promptTokenCount ?? null,
+        tokensOut: completionTokenCount ?? tokensTotalValue,
+        latencyMs,
+        moduleCombo: resolvedSelectedModules,
+      });
+      await insertModuleUsages(interactionId, moduleUsageLogs);
     }
 
     try {
@@ -1012,8 +1004,8 @@ export class ResponseFinalizer {
       if (lastMessageId) {
         mixpanelProps.messageId = lastMessageId;
       }
-      if (promptHash) {
-        mixpanelProps.promptHash = promptHash;
+      if (resolvedPromptHash) {
+        mixpanelProps.promptHash = resolvedPromptHash;
       }
       if (promptTokenCount != null) {
         mixpanelProps.tokensIn = promptTokenCount;
@@ -1038,7 +1030,11 @@ export class ResponseFinalizer {
     response.meta = {
       ...(response.meta ?? {}),
       analytics: analyticsMeta,
+      timings: debugTrace.timings,
+      promptTokens: promptTokenCount ?? null,
+      completionTokens: completionTokenCount ?? tokensTotalValue,
       interaction_id: interactionId ?? null,
+      prompt_hash: resolvedPromptHash ?? null,
     };
 
     return response;

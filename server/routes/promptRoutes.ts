@@ -464,12 +464,9 @@ askEcoRouter.post("/", async (req: Request, res: Response) => {
       }
     })();
 
-    const sessionIdForTelemetry =
-      extractSessionIdLoose(sessionMetaObject) ?? extractSessionIdLoose(body);
-    const userIdForTelemetry =
-      typeof reqWithIdentity.user?.id === "string" && reqWithIdentity.user.id.trim()
-        ? reqWithIdentity.user.id.trim()
-        : null;
+    let resolvedInteractionId: string | null = null;
+    const pendingSignals: Array<{ signal: string; meta: Record<string, unknown> }> = [];
+
 
     const compactMeta = (meta: Record<string, unknown>): Record<string, unknown> => {
       return Object.entries(meta).reduce<Record<string, unknown>>((acc, [key, value]) => {
@@ -478,38 +475,12 @@ askEcoRouter.post("/", async (req: Request, res: Response) => {
       }, {});
     };
 
-    const enqueuePassiveSignal = (
-      signal: string,
-      value?: number | null,
-      meta?: Record<string, unknown>
-    ) => {
+    const sendSignalRow = (interactionId: string, signal: string, meta: Record<string, unknown>) => {
       if (!telemetryClient) return;
-      let serializedMeta: Record<string, unknown> | null = null;
-      if (meta && typeof meta === "object") {
-        const cleaned = compactMeta(meta);
-        if (Object.keys(cleaned).length > 0) {
-          try {
-            serializedMeta = JSON.parse(JSON.stringify(cleaned));
-          } catch (error) {
-            log.debug("[ask-eco] telemetry_meta_failed", {
-              signal,
-              message: error instanceof Error ? error.message : String(error),
-            });
-          }
-        }
-      }
-
-      const payload = {
-        interaction_id: null,
-        user_id: userIdForTelemetry ?? null,
-        session_id: sessionIdForTelemetry ?? null,
-        signal,
-        value: typeof value === "number" && Number.isFinite(value) ? value : null,
-        meta: serializedMeta,
-      };
-
       void Promise.resolve(
-        telemetryClient.from("eco_passive_signals").insert([payload])
+        telemetryClient
+          .from("eco_passive_signals")
+          .insert([{ interaction_id: interactionId, signal, meta }])
       )
         .then(({ error }) => {
           if (error) {
@@ -522,6 +493,55 @@ askEcoRouter.post("/", async (req: Request, res: Response) => {
             message: error instanceof Error ? error.message : String(error),
           });
         });
+    };
+
+    const flushPendingSignals = (interactionId: string) => {
+      if (!interactionId || !pendingSignals.length) return;
+      const queued = pendingSignals.splice(0, pendingSignals.length);
+      for (const item of queued) {
+        sendSignalRow(interactionId, item.signal, item.meta);
+      }
+    };
+
+    const captureInteractionId = (value: unknown) => {
+      if (resolvedInteractionId) return;
+      if (typeof value !== "string") return;
+      const trimmed = value.trim();
+      if (!trimmed) return;
+      resolvedInteractionId = trimmed;
+      flushPendingSignals(trimmed);
+    };
+
+    const enqueuePassiveSignal = (
+      signal: string,
+      value?: number | null,
+      meta?: Record<string, unknown>
+    ) => {
+      if (!telemetryClient) return;
+      let serializedMeta: Record<string, unknown> = {};
+      if (meta && typeof meta === "object") {
+        serializedMeta = compactMeta(meta);
+      }
+      if (typeof value === "number" && Number.isFinite(value)) {
+        serializedMeta = { ...serializedMeta, value };
+      }
+
+      try {
+        serializedMeta = JSON.parse(JSON.stringify(serializedMeta));
+      } catch (error) {
+        log.debug("[ask-eco] telemetry_meta_failed", {
+          signal,
+          message: error instanceof Error ? error.message : String(error),
+        });
+        serializedMeta = {};
+      }
+
+      if (resolvedInteractionId) {
+        sendSignalRow(resolvedInteractionId, signal, serializedMeta);
+        return;
+      }
+
+      pendingSignals.push({ signal, meta: serializedMeta });
     };
 
     const state = {
@@ -691,6 +711,7 @@ askEcoRouter.post("/", async (req: Request, res: Response) => {
           const name = typeof evt?.name === "string" ? evt.name : "";
           const meta = evt?.meta && typeof evt.meta === "object" ? (evt.meta as Record<string, unknown>) : null;
           if (meta) {
+            captureInteractionId((meta as { interaction_id?: unknown }).interaction_id);
             const maybeModel =
               typeof meta.model === "string"
                 ? meta.model
@@ -717,6 +738,7 @@ askEcoRouter.post("/", async (req: Request, res: Response) => {
         case "done": {
           const meta = evt?.meta && typeof evt.meta === "object" ? (evt.meta as Record<string, unknown>) : null;
           if (meta) {
+            captureInteractionId((meta as { interaction_id?: unknown }).interaction_id);
             const maybeModel =
               typeof meta.model === "string"
                 ? meta.model
@@ -759,6 +781,7 @@ askEcoRouter.post("/", async (req: Request, res: Response) => {
             ? (result as any).model
             : undefined;
         if (maybeModel) state.model = maybeModel;
+        captureInteractionId((result as any)?.meta?.interaction_id);
       }
 
       if (!state.done) {

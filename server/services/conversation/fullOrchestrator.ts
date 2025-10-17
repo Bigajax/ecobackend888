@@ -1,6 +1,7 @@
 import { claudeChatCompletion, type Msg } from "../../core/ClaudeAdapter";
 import { log } from "../promptContext/logger";
 import { now } from "../../utils";
+import { createInteraction, sha1Hash } from "./interactionAnalytics";
 
 import { buildStreamingMetaPayload } from "./responseMetadata";
 import { salvarMemoriaViaRPC } from "./memoryPersistence";
@@ -15,6 +16,8 @@ interface FullExecutionParams {
   maxTokens: number;
   principalModel: string;
   ultimaMsg: string;
+  basePrompt: string;
+  basePromptHash?: string | null;
   userName?: string | null;
   decision: { hasAssistantBefore: boolean };
   ecoDecision: EcoDecisionResult;
@@ -26,6 +29,7 @@ interface FullExecutionParams {
   thread: ChatMessage[];
   isGuest?: boolean;
   guestId?: string;
+  interactionId?: string | null;
   calHints?: EcoHints | null;
   memsSemelhantes?: any[];
   contextFlags?: Record<string, unknown>;
@@ -43,6 +47,8 @@ export async function executeFullLLM({
   maxTokens,
   principalModel,
   ultimaMsg,
+  basePrompt,
+  basePromptHash,
   userName,
   decision,
   ecoDecision,
@@ -54,6 +60,7 @@ export async function executeFullLLM({
   thread,
   isGuest = false,
   guestId,
+  interactionId,
   calHints,
   memsSemelhantes,
   contextFlags,
@@ -62,6 +69,21 @@ export async function executeFullLLM({
 }: FullExecutionParams): Promise<GetEcoResult> {
   const supabaseClient = supabase ?? null;
   let data: any;
+  const resolvedPromptHash =
+    typeof basePromptHash === "string" && basePromptHash
+      ? basePromptHash
+      : sha1Hash(basePrompt);
+  let analyticsInteractionId = interactionId ?? null;
+
+  if (!analyticsInteractionId) {
+    analyticsInteractionId = await createInteraction({
+      userId: !isGuest ? userId : null,
+      sessionId: typeof sessionMeta?.sessaoId === "string" ? sessionMeta.sessaoId : null,
+      messageId: lastMessageId ?? null,
+      promptHash: resolvedPromptHash,
+    });
+  }
+
   timings.llmStart = now();
   log.info("// LATENCY: llm_request_start", {
     at: timings.llmStart,
@@ -109,6 +131,8 @@ export async function executeFullLLM({
       contextFlags,
       contextMeta,
       continuity,
+      interactionId: analyticsInteractionId ?? undefined,
+      promptHash: resolvedPromptHash,
     });
   }
 
@@ -148,6 +172,8 @@ export async function executeFullLLM({
     contextFlags,
     contextMeta,
     continuity,
+    interactionId: analyticsInteractionId ?? undefined,
+    promptHash: resolvedPromptHash,
   });
 
   if (!isGuest && supabaseClient) {
