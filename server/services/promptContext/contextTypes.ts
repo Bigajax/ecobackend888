@@ -35,4 +35,6 @@ export type BuildParams = {
   memoriasSemelhantes?: SimilarMemory[];
   decision?: import("../conversation/ecoDecisionHub").EcoDecisionResult;
   activationTracer?: ActivationTracer;
+  contextFlags?: Record<string, unknown>;
+  contextMeta?: Record<string, unknown>;
 };

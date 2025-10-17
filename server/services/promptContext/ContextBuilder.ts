@@ -87,6 +87,74 @@ function deriveDominantDomain(mems: SimilarMemory[] | undefined): string | null 
   return sorted.length ? sorted[0].label : null;
 }
 
+function extractNumber(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === "string" && value.trim().length) {
+    const parsed = Number(value.trim());
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+  return null;
+}
+
+function continuitySimilarity(ref: any): number | null {
+  return extractNumber(ref?.similarity ?? ref?.similaridade ?? null);
+}
+
+function continuityDias(ref: any): number | null {
+  const dias = extractNumber(ref?.dias_desde ?? ref?.diasDesde ?? ref?.dias ?? null);
+  if (dias == null) return null;
+  return dias < 0 ? 0 : Math.floor(dias);
+}
+
+function continuityEmotion(ref: any): string {
+  const raw = typeof ref?.emocao_principal === "string" ? ref.emocao_principal.trim() : "";
+  return raw.length ? raw : "?";
+}
+
+function continuityTags(ref: any): string[] {
+  if (!Array.isArray(ref?.tags)) return [];
+  return (ref.tags as unknown[])
+    .map((tag) => (typeof tag === "string" ? tag.trim() : ""))
+    .filter((tag) => tag.length > 0)
+    .slice(0, 3);
+}
+
+function buildContinuityModuleText(ref: any): string {
+  const emotion = continuityEmotion(ref);
+  const diasValue = continuityDias(ref);
+  const diasLabel = diasValue != null ? `${diasValue} dia${diasValue === 1 ? "" : "s"}` : "? dias";
+  const similarity = continuitySimilarity(ref);
+  const similarityLabel = similarity != null ? similarity.toFixed(2) : "?";
+  const tags = continuityTags(ref);
+
+  const lines = [
+    "# CONTINUIDADE — memória recente",
+    `Referência base: emoção ${emotion}, há ${diasLabel}, similaridade ${similarityLabel}.`,
+    "• Abra reconhecendo essa memória em 1–2 linhas e conecte com o agora.",
+    "• Reformule com novas palavras e destaque evolução desde então.",
+    "• Use a memória como contexto vivo, não copie trechos literais.",
+  ];
+
+  if (tags.length) {
+    lines.push(`• Tags-chave: ${tags.join(", ")}.`);
+  }
+
+  return lines.join("\n");
+}
+
+function buildContinuityPromptLine(ref: any): string {
+  const emotion = continuityEmotion(ref);
+  const diasValue = continuityDias(ref);
+  const diasLabel = diasValue != null ? String(diasValue) : "?";
+  const similarity = continuitySimilarity(ref);
+  const similarityLabel = similarity != null ? similarity.toFixed(2) : "?";
+  return `[CONTINUIDADE] emocao:${emotion || "?"} dias:${diasLabel} sim:${similarityLabel}`;
+}
+
 function renderDecBlock(dec: DecSnapshot): string {
   const viva = dec.vivaSteps.length ? dec.vivaSteps.join(" → ") : "none";
   const tags = dec.tags.length ? dec.tags.join(", ") : "none";
@@ -261,12 +329,25 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
     memoriasSemelhantes,
     decision,
     activationTracer,
+    contextFlags: contextFlagsParam = {},
+    contextMeta: contextMetaParam = {},
   } = params;
 
   const memsSemelhantesNorm =
     (memsSemelhantes && Array.isArray(memsSemelhantes) && memsSemelhantes.length
       ? memsSemelhantes
       : memoriasSemelhantes) || [];
+
+  const contextFlags =
+    contextFlagsParam && typeof contextFlagsParam === "object"
+      ? (contextFlagsParam as Record<string, unknown>)
+      : {};
+  const contextMeta =
+    contextMetaParam && typeof contextMetaParam === "object"
+      ? (contextMetaParam as Record<string, unknown>)
+      : {};
+  const continuityRef = contextMeta?.continuityRef;
+  const hasContinuity = Boolean((contextFlags as any)?.HAS_CONTINUITY && continuityRef);
 
   await ModuleCatalog.ensureReady();
 
@@ -386,7 +467,18 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
     candidates,
   });
 
-  const modulesWithTokens = [...selection.regular, ...selection.footers].map((module) => ({
+  const applyContinuityText = (module: (typeof selection.regular)[number]) => {
+    if (module.name === "USOMEMÓRIAS.txt") {
+      const text = hasContinuity ? buildContinuityModuleText(continuityRef) : "";
+      return { ...module, text };
+    }
+    return module;
+  };
+
+  const regularModules = selection.regular.map(applyContinuityText);
+  const footerModules = selection.footers.map(applyContinuityText);
+
+  const modulesWithTokens = [...regularModules, ...footerModules].map((module) => ({
     name: module.name,
     text: module.text,
     tokens: ModuleCatalog.tokenCountOf(module.name, module.text),
@@ -401,12 +493,12 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
   }
 
   const pinnedSet = new Set<string>([ABS_FIRST, ...MINIMAL_VITAL_SET]);
-  for (const footer of selection.footers) {
+  for (const footer of footerModules) {
     pinnedSet.add(footer.name);
   }
 
   const knapsackBudget = computeKnapsackBudget();
-  const knapsackCandidates = selection.regular
+  const knapsackCandidates = regularModules
     .filter((module) => !pinnedSet.has(module.name))
     .map((module) => {
       const tokens = tokenLookup.get(module.name) ?? 0;
@@ -425,7 +517,7 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
   const adoptedSet = new Set(knapsackResult.adotados);
   const allowedSet = new Set<string>([...pinnedSet, ...adoptedSet]);
 
-  for (const module of selection.regular) {
+  for (const module of regularModules) {
     if (allowedSet.has(module.name)) continue;
     const existing = debugMap.get(module.name);
     if (existing) {
@@ -464,10 +556,10 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
 
   const usedSet = new Set(budgetResult.used);
 
-  const finalRegular = selection.regular
+  const finalRegular = regularModules
     .filter((m) => usedSet.has(m.name))
     .sort((a, b) => byAbsoluteOrder(a.name, b.name));
-  const finalFooters = selection.footers
+  const finalFooters = footerModules
     .filter((m) => usedSet.has(m.name))
     .sort((a, b) => byAbsoluteOrder(a.name, b.name));
 
@@ -525,7 +617,13 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
     finalRegular.map((module) => ({ name: module.name, text: module.text })),
     nivel
   );
-  const stitched = stitchModules(reduced, nivel);
+  let stitched = stitchModules(reduced, nivel);
+  if (hasContinuity) {
+    const continuityLine = buildContinuityPromptLine(continuityRef);
+    if (continuityLine) {
+      stitched = `${continuityLine}\n\n${stitched}`.trim();
+    }
+  }
   const footerText = finalFooters
     .map((module) => module.text.trim())
     .filter((text) => text.length > 0)
@@ -541,6 +639,12 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
   if (nomeUsuario) {
     extras.push(
       `Usuário: ${nomeUsuario}. Use nome quando natural na conversa, nunca corrija ou diga frases como "sou ECO, não ${nomeUsuario}".`
+    );
+  }
+
+  if (hasContinuity) {
+    extras.unshift(
+      "CONTINUIDADE: Abra conectando a memória destacada (1–2 linhas), reformule com novas palavras e destaque a evolução." 
     );
   }
 
