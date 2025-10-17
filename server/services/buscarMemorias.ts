@@ -152,3 +152,5 @@ export async function buscarMemoriasSemelhantes(
   }
 }
 
+export const buscarMemoriasSemelhantesV2 = buscarMemoriasSemelhantes;
+

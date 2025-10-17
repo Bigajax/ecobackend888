@@ -11,6 +11,8 @@ import { formatMemRecall } from "./memoryRecall";
 import { buildInstructionBlocks, renderInstructionBlocks } from "./instructionPolicy";
 import { applyCurrentMessage, composePromptBase } from "./promptComposer";
 import { applyReductions, stitchModules } from "./stitcher";
+import { detectarContinuidade } from "./continuityDetector";
+import { buscarMemoriasSemelhantesV2 } from "../buscarMemorias";
 import type { BanditSelectionMap } from "../orchestrator/bandits/ts";
 
 // ✨ usa o módulo central
@@ -154,10 +156,18 @@ const isUseMemoriasModule = (name: string) =>
 function buildContinuityPromptLine(ref: any): string {
   const emotion = continuityEmotion(ref);
   const diasValue = continuityDias(ref);
-  const diasLabel = diasValue != null ? String(diasValue) : "?";
   const similarity = continuitySimilarity(ref);
-  const similarityLabel = similarity != null ? similarity.toFixed(2) : "?";
-  return `[CONTINUIDADE] emocao:${emotion || "?"} dias:${diasLabel} sim:${similarityLabel}`;
+  const parts = ["[CONTINUIDADE DETECTADA]"];
+  if (emotion && emotion !== "?") {
+    parts.push(`emoção: ${emotion}`);
+  }
+  if (diasValue != null) {
+    parts.push(`dias_desde: ${diasValue}`);
+  }
+  if (similarity != null) {
+    parts.push(`similarity: ${similarity.toFixed(2)}`);
+  }
+  return parts.join(" | ");
 }
 
 function renderDecBlock(dec: DecSnapshot): string {
@@ -343,14 +353,72 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
       ? memsSemelhantes
       : memoriasSemelhantes) || [];
 
-  const contextFlags =
+  const contextFlagsBase =
     contextFlagsParam && typeof contextFlagsParam === "object"
-      ? (contextFlagsParam as Record<string, unknown>)
+      ? { ...(contextFlagsParam as Record<string, unknown>) }
       : {};
-  const contextMeta =
+  const contextMetaBase =
     contextMetaParam && typeof contextMetaParam === "object"
-      ? (contextMetaParam as Record<string, unknown>)
+      ? { ...(contextMetaParam as Record<string, unknown>) }
       : {};
+
+  const normalizedUserId =
+    typeof _userId === "string" && _userId.trim().length ? _userId.trim() : "";
+  const normalizedTexto = typeof texto === "string" ? texto : "";
+
+  let continuityRefCandidate = contextMetaBase?.continuityRef ?? null;
+  let hasContinuityCandidate = Boolean(
+    (contextFlagsBase as any)?.HAS_CONTINUITY && continuityRefCandidate
+  );
+
+  if (!hasContinuityCandidate && continuityRefCandidate) {
+    hasContinuityCandidate = true;
+  }
+
+  if (!hasContinuityCandidate && normalizedUserId && normalizedTexto.trim().length) {
+    try {
+      const detection = await detectarContinuidade(normalizedUserId, normalizedTexto, {
+        buscarMemoriasSemelhantesV2: async (userId: string, q: string) => {
+          if (
+            userId === normalizedUserId &&
+            Array.isArray(memsSemelhantesNorm) &&
+            memsSemelhantesNorm.length > 0
+          ) {
+            return memsSemelhantesNorm as any[];
+          }
+          try {
+            return await buscarMemoriasSemelhantesV2(userId, q);
+          } catch (error) {
+            log.warn("[ContextBuilder] buscar_memorias_v2_failed", {
+              message: error instanceof Error ? error.message : String(error),
+            });
+            return [];
+          }
+        },
+      });
+      if (detection.hasContinuity && detection.memoryRef) {
+        hasContinuityCandidate = true;
+        continuityRefCandidate = detection.memoryRef;
+      }
+    } catch (error) {
+      log.warn("[ContextBuilder] continuity_detector_failed", {
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  if (!hasContinuityCandidate) {
+    continuityRefCandidate = null;
+  }
+
+  const contextFlags: Record<string, unknown> = {
+    ...contextFlagsBase,
+    HAS_CONTINUITY: Boolean(hasContinuityCandidate),
+  };
+  const contextMeta: Record<string, unknown> = {
+    ...contextMetaBase,
+    continuityRef: hasContinuityCandidate ? continuityRefCandidate ?? null : null,
+  };
   const continuityRef = contextMeta?.continuityRef;
   const hasContinuity = Boolean((contextFlags as any)?.HAS_CONTINUITY && continuityRef);
 
@@ -662,7 +730,7 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
 
   if (hasContinuity) {
     extras.unshift(
-      "CONTINUIDADE: Abra conectando a memória destacada (1–2 linhas), reformule com novas palavras e destaque a evolução." 
+      "ABERTURA (máx. 1–2 linhas): reconheça brevemente a memória retomada, conecte com o agora e destaque a evolução com novas palavras."
     );
   }
 

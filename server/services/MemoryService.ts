@@ -13,6 +13,10 @@ import {
 } from "../analytics/events/mixpanelEvents"; // seu arquivo
 import type { EcoDecisionResult } from "./conversation/ecoDecisionHub";
 
+export interface SaveMemoryOutcome {
+  memoryId?: string | null;
+}
+
 export async function saveMemoryOrReference(opts: {
   supabase: AnySupabase;
   userId: string;
@@ -21,7 +25,7 @@ export async function saveMemoryOrReference(opts: {
   bloco: any | null;
   ultimaMsg: string;
   decision: EcoDecisionResult;
-}) {
+}): Promise<SaveMemoryOutcome | void> {
   const { supabase, userId, lastMessageId, cleaned, bloco, ultimaMsg, decision } = opts;
 
   const analiseResumoSafe =
@@ -66,10 +70,20 @@ export async function saveMemoryOrReference(opts: {
     referencia_anterior_id: referenciaAnteriorId,
   };
 
+  let savedMemoryId: string | null = null;
   if (Number.isFinite(intensidadeNum) && intensidadeNum > 0) {
     if (shouldSaveMemory) {
-      const { error } = await supabase.from("memories").insert([{ ...payloadBase, salvar_memoria: true, created_at: new Date().toISOString() }]);
+      const { data, error } = await supabase
+        .from("memories")
+        .insert([{ ...payloadBase, salvar_memoria: true, created_at: new Date().toISOString() }])
+        .select("id")
+        .maybeSingle();
       if (!error) {
+        const insertedId =
+          data && typeof (data as any)?.id === "string" && (data as any).id.trim().length
+            ? (data as any).id.trim()
+            : null;
+        savedMemoryId = insertedId;
         try { await updateEmotionalProfile(userId); } catch {}
         invalidateResponseCacheForUser(userId);
       }
@@ -99,5 +113,9 @@ export async function saveMemoryOrReference(opts: {
         dominioVida: payloadBase.dominio_vida,
       });
     }
+  }
+
+  if (savedMemoryId) {
+    return { memoryId: savedMemoryId };
   }
 }
