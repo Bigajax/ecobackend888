@@ -13,6 +13,8 @@ export interface ContextCacheParams {
   perfil?: any;
   mems?: any[];
   memoriasSemelhantes?: any[];
+  contextFlags?: Record<string, unknown>;
+  contextMeta?: Record<string, unknown>;
   forcarMetodoViva?: boolean;
   blocoTecnicoForcado?: any;
   texto: string;

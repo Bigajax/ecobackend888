@@ -28,6 +28,14 @@ interface FullExecutionParams {
   guestId?: string;
   calHints?: EcoHints | null;
   memsSemelhantes?: any[];
+  contextFlags?: Record<string, unknown>;
+  contextMeta?: Record<string, unknown>;
+  continuity?: {
+    hasContinuity: boolean;
+    memoryRef: Record<string, unknown> | null;
+    similarity?: number | null;
+    diasDesde?: number | null;
+  };
 }
 
 export async function executeFullLLM({
@@ -48,6 +56,9 @@ export async function executeFullLLM({
   guestId,
   calHints,
   memsSemelhantes,
+  contextFlags,
+  contextMeta,
+  continuity,
 }: FullExecutionParams): Promise<GetEcoResult> {
   const supabaseClient = supabase ?? null;
   let data: any;
@@ -95,6 +106,9 @@ export async function executeFullLLM({
       calHints,
       memsSemelhantes,
       promptMessages: prompt,
+      contextFlags,
+      contextMeta,
+      continuity,
     });
   }
 
@@ -131,6 +145,9 @@ export async function executeFullLLM({
     promptMessages: prompt,
     promptTokens: data?.usage?.prompt_tokens,
     completionTokens: data?.usage?.completion_tokens,
+    contextFlags,
+    contextMeta,
+    continuity,
   });
 
   if (!isGuest && supabaseClient) {

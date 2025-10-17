@@ -65,6 +65,14 @@ interface StreamingExecutionParams {
   thread: ChatMessage[];
   calHints?: EcoHints | null;
   memsSemelhantes?: any[];
+  contextFlags?: Record<string, unknown>;
+  contextMeta?: Record<string, unknown>;
+  continuity?: {
+    hasContinuity: boolean;
+    memoryRef: Record<string, unknown> | null;
+    similarity?: number | null;
+    diasDesde?: number | null;
+  };
 }
 
 export async function executeStreamingLLM({
@@ -86,6 +94,9 @@ export async function executeStreamingLLM({
   thread,
   calHints,
   memsSemelhantes,
+  contextFlags,
+  contextMeta,
+  continuity,
 }: StreamingExecutionParams): Promise<EcoStreamingResult> {
   const supabaseClient = supabase ?? null;
   const summarizeDelta = (input: string) => {
@@ -309,6 +320,9 @@ export async function executeStreamingLLM({
       guestId,
       calHints,
       memsSemelhantes,
+      contextFlags,
+      contextMeta,
+      continuity,
     });
 
     const text = buildFinalizedStreamText(fullResult);
@@ -543,6 +557,9 @@ export async function executeStreamingLLM({
           promptMessages: prompt,
           promptTokens: usageFromStream?.prompt_tokens,
           completionTokens: usageFromStream?.completion_tokens,
+          contextFlags,
+          contextMeta,
+          continuity,
         });
       })();
     }

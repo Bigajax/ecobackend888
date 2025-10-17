@@ -85,6 +85,7 @@ interface ResponseFinalizerDeps {
   trackRespostaQ: typeof trackRespostaQ;
   trackKnapsackDecision: typeof trackKnapsackDecision;
   trackBanditArmUpdate: typeof trackBanditArmUpdate;
+  telemetry?: { track?: (event: string, payload: Record<string, unknown>) => void };
 }
 
 export interface FinalizeParams {
@@ -117,6 +118,14 @@ export interface FinalizeParams {
   promptMessages?: PromptMessage[];
   promptTokens?: number;
   completionTokens?: number;
+  contextFlags?: Record<string, unknown>;
+  contextMeta?: Record<string, unknown>;
+  continuity?: {
+    hasContinuity: boolean;
+    memoryRef: Record<string, unknown> | null;
+    similarity?: number | null;
+    diasDesde?: number | null;
+  };
 }
 
 export interface NormalizedEcoResponse {
@@ -180,6 +189,7 @@ export class ResponseFinalizer {
       trackRespostaQ,
       trackKnapsackDecision,
       trackBanditArmUpdate,
+      telemetry: mixpanel,
     }
   ) {}
 
@@ -308,6 +318,14 @@ export class ResponseFinalizer {
     distinctId?: string;
     isGuest?: boolean;
     ecoDecision: EcoDecisionResult;
+    contextFlags?: Record<string, unknown>;
+    contextMeta?: Record<string, unknown>;
+    continuity?: {
+      hasContinuity: boolean;
+      memoryRef: Record<string, unknown> | null;
+      similarity?: number | null;
+      diasDesde?: number | null;
+    };
   }): Promise<void> {
     const {
       userId,
@@ -374,7 +392,7 @@ export class ResponseFinalizer {
     }
 
     try {
-      await this.deps.saveMemoryOrReference({
+      const saveOutcome = await this.deps.saveMemoryOrReference({
         supabase,
         userId,
         lastMessageId,
@@ -399,6 +417,48 @@ export class ResponseFinalizer {
         } catch (updateError) {
           const message = updateError instanceof Error ? updateError.message : String(updateError);
           log.warn("[mensagem] Falha ao atualizar mensagem:", message);
+        }
+      }
+
+      const savedMemoryId =
+        saveOutcome && typeof saveOutcome === "object" && saveOutcome !== null
+          ? (() => {
+              const rawId = (saveOutcome as any).memoryId;
+              return typeof rawId === "string" && rawId.trim().length ? rawId.trim() : null;
+            })()
+          : null;
+
+      const continuityContextFlags = params.contextFlags;
+      const continuityMeta = params.contextMeta;
+      const continuityFromPipeline = params.continuity;
+      const hasContinuityFlag = Boolean(
+        typeof (continuityContextFlags as any)?.HAS_CONTINUITY === "boolean"
+          ? (continuityContextFlags as any).HAS_CONTINUITY
+          : continuityFromPipeline?.hasContinuity
+      );
+      const continuityRef =
+        (continuityMeta as any)?.continuityRef ?? continuityFromPipeline?.memoryRef ?? null;
+      const continuityRefId =
+        continuityRef && typeof (continuityRef as any)?.id === "string"
+          ? String((continuityRef as any).id).trim()
+          : "";
+
+      if (hasContinuityFlag && continuityRefId && savedMemoryId) {
+        const rpc = supabase?.rpc;
+        if (typeof rpc === "function") {
+          try {
+            await rpc("vincular_memorias", {
+              origem_id: continuityRefId,
+              destino_id: savedMemoryId,
+            });
+          } catch (linkError) {
+            log.warn({
+              msg: "link_memorias_failed",
+              err: linkError instanceof Error ? linkError.message : String(linkError),
+            });
+          }
+        } else {
+          log.info({ msg: "link_memorias_skipped", reason: "rpc_unavailable" });
         }
       }
     } catch (e) {
@@ -460,6 +520,9 @@ export class ResponseFinalizer {
     promptMessages,
     promptTokens,
     completionTokens,
+    contextFlags,
+    contextMeta,
+    continuity,
   }: FinalizeParams): Promise<GetEcoResult> {
     const distinctId =
       providedDistinctId ?? sessionMeta?.distinctId ?? guestId ?? userId;
@@ -593,7 +656,47 @@ export class ResponseFinalizer {
       log.info("[ECO_LOGIC_DEBUG] decision", debugTrace);
     }
 
-    response.meta = { ...(response.meta ?? {}), debug_trace: debugTrace };
+    const contextFlagValue =
+      contextFlags && typeof (contextFlags as any)?.HAS_CONTINUITY === "boolean"
+        ? Boolean((contextFlags as any).HAS_CONTINUITY)
+        : false;
+    const continuityFlag = Boolean(
+      continuity?.hasContinuity ?? contextFlagValue
+    );
+    const continuityRef = continuity?.memoryRef ?? (contextMeta as any)?.continuityRef ?? null;
+
+    try {
+      const continuityRefId =
+        continuityFlag && continuityRef && typeof (continuityRef as any)?.id === "string"
+          ? String((continuityRef as any).id)
+          : null;
+      const continuitySimilarity =
+        continuityFlag && typeof (continuityRef as any)?.similarity === "number"
+          ? Number((continuityRef as any).similarity)
+          : null;
+      this.deps.telemetry?.track?.("eco_continuity_used", {
+        user_id: userId ?? null,
+        has_continuity: continuityFlag,
+        memory_ref_id: continuityRefId,
+        similarity: continuitySimilarity,
+      });
+    } catch (telemetryError) {
+      if (process.env.ECO_DEBUG === "1") {
+        log.debug("[telemetry] eco_continuity_used_failed", {
+          message:
+            telemetryError instanceof Error ? telemetryError.message : String(telemetryError),
+        });
+      }
+    }
+
+    response.meta = {
+      ...(response.meta ?? {}),
+      continuity: {
+        hasContinuity: continuityFlag,
+        memoryRef: continuityFlag ? (continuityRef ?? null) : null,
+      },
+      debug_trace: debugTrace,
+    };
 
     const duracao = now() - startedAt;
     if (sessionMeta && !isGuest) {
@@ -812,6 +915,9 @@ export class ResponseFinalizer {
       distinctId,
       isGuest,
       ecoDecision,
+      contextFlags,
+      contextMeta,
+      continuity,
     });
 
     if (calHints && typeof calHints.score === "number") {

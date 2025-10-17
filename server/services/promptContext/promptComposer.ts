@@ -9,6 +9,7 @@ export type PromptComposerInput = {
   instructionText: string;
   decBlock?: string;
   texto: string;
+  prelude?: string;
 };
 
 export type PromptComposerBaseInput = Omit<PromptComposerInput, "texto">;
@@ -25,6 +26,7 @@ export function composePromptBase({
   memRecallBlock = "",
   instructionText,
   decBlock,
+  prelude,
 }: PromptComposerBaseInput): string {
   const header = [
     `Nível de abertura: ${nivel}`,
@@ -42,27 +44,32 @@ export function composePromptBase({
   const cleanedDec = typeof decBlock === "string" ? decBlock.trim() : "";
   const cleanedStitched = stitched.trim();
 
-  const parts = [
-    `// CONTEXTO ECO — NV${nivel}`,
-    `// ${header}${extrasBlock}`,
+  const segments: string[] = [];
+
+  const cleanedPrelude = typeof prelude === "string" ? prelude.trim() : "";
+  if (cleanedPrelude.length > 0) {
+    segments.push(cleanedPrelude);
+  }
+
+  const headerBlock = [`// CONTEXTO ECO — NV${nivel}`, `// ${header}${extrasBlock}`]
+    .map((segment) => segment.trim())
+    .join("\n")
+    .trim();
+
+  segments.push(headerBlock);
+
+  const tailSegments = [
     cleanedDec,
     cleanedStitched,
     cleanedMemRecall,
     cleanedInstructions,
     cleanedFooter,
     `Mensagem atual: ${CURRENT_MESSAGE_PLACEHOLDER}`,
-  ];
+  ].filter((segment) => segment.length > 0);
 
-  const sanitized = parts
-    .map((segment) => (typeof segment === "string" ? segment.trim() : ""))
-    .filter((segment) => segment.length > 0);
+  segments.push(...tailSegments);
 
-  if (sanitized.length >= 2) {
-    const headerLines = `${sanitized[0]}\n${sanitized[1]}`;
-    sanitized.splice(0, 2, headerLines.trim());
-  }
-
-  return sanitized.join("\n\n").trim();
+  return segments.join("\n\n").trim();
 }
 
 export function applyCurrentMessage(base: string, texto: string): string {
