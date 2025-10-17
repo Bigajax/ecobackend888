@@ -25,6 +25,7 @@ function ensureClient(): SupabaseClient {
 
   cachedClient = createClient(url, key, {
     auth: { autoRefreshToken: false, persistSession: false },
+    global: { headers: { "X-Client": "eco-analytics" } },
   });
 
   return cachedClient;

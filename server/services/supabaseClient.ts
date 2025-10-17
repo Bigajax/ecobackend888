@@ -5,38 +5,26 @@ import { log } from "./promptContext/logger";
 const logger = log.withContext("analytics-client");
 
 const supabaseUrl = process.env.SUPABASE_URL ?? null;
-const analyticsServiceRoleKey = process.env.SUPABASE_ANALYTICS_SERVICE_ROLE_KEY ?? null;
-const serviceRoleFallbackKey = process.env.SUPABASE_SERVICE_ROLE_KEY ?? null;
-const isProduction = process.env.NODE_ENV === "production";
+const explicitAnalyticsKey = process.env.SUPABASE_ANALYTICS_SERVICE_ROLE_KEY ?? null;
+const serviceRoleKey = explicitAnalyticsKey ?? process.env.SUPABASE_SERVICE_ROLE_KEY ?? null;
 
-type AnalyticsClientMode = "service-role" | "fallback-service-role" | "disabled";
+type AnalyticsClientMode = "enabled" | "disabled";
 
 let resolvedMode: AnalyticsClientMode = "disabled";
-let resolvedKey: string | null = null;
+let supabaseInstance: SupabaseClient | null = null;
 
 if (!supabaseUrl) {
   logger.error("analytics.supabase.missing_url", { env: "SUPABASE_URL" });
-} else if (analyticsServiceRoleKey) {
-  resolvedKey = analyticsServiceRoleKey;
-  resolvedMode = "service-role";
-} else if (!isProduction && serviceRoleFallbackKey) {
-  resolvedKey = serviceRoleFallbackKey;
-  resolvedMode = "fallback-service-role";
-  logger.warn("analytics.supabase.fallback_service_role", { env: "SUPABASE_SERVICE_ROLE_KEY" });
-} else {
-  resolvedMode = "disabled";
-  const missingEnv = isProduction
-    ? "SUPABASE_ANALYTICS_SERVICE_ROLE_KEY"
-    : "SUPABASE_ANALYTICS_SERVICE_ROLE_KEY|SUPABASE_SERVICE_ROLE_KEY";
-  logger.error("analytics.supabase.missing_service_role", { env: missingEnv, isProduction });
-}
-
-let supabaseInstance: SupabaseClient | null = null;
-
-if (supabaseUrl && resolvedKey) {
-  supabaseInstance = createClient(supabaseUrl, resolvedKey, {
-    auth: { autoRefreshToken: false, persistSession: false },
+} else if (!serviceRoleKey) {
+  logger.error("analytics.supabase.missing_service_role", {
+    env: "SUPABASE_SERVICE_ROLE_KEY",
   });
+} else {
+  supabaseInstance = createClient(supabaseUrl, serviceRoleKey, {
+    auth: { autoRefreshToken: false, persistSession: false },
+    global: { headers: { "X-Client": "eco-analytics" } },
+  });
+  resolvedMode = "enabled";
 }
 
 const createAnalyticsClient = () => {

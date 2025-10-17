@@ -512,7 +512,7 @@ export async function executeStreamingLLM({
   resolveRawForBloco(raw);
 
   let finalizePromise: Promise<GetEcoResult> | null = null;
-  const finalize = () => {
+  const computeFinalization = () => {
     if (!finalizePromise) {
       finalizePromise = (async () => {
         let precomputed: PrecomputedFinalizeArtifacts | undefined;
@@ -566,6 +566,22 @@ export async function executeStreamingLLM({
     return finalizePromise;
   };
 
+  const finalize = () => computeFinalization();
+
+  let interactionIdForMeta: string | null = null;
+  try {
+    const finalized = await computeFinalization();
+    const metaFromResult = finalized?.meta as Record<string, unknown> | null | undefined;
+    const maybeInteraction =
+      typeof metaFromResult?.interaction_id === "string"
+        ? metaFromResult.interaction_id.trim()
+        : "";
+    interactionIdForMeta = maybeInteraction ? maybeInteraction : null;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    log.warn("[StreamingLLM] finalize_failed_before_done", { message });
+  }
+
   const doneSnapshot = { ...timings };
   const finalFinishReason = finishReason ?? "stream_done";
   log.info("[StreamingLLM] stream_done", {
@@ -573,15 +589,17 @@ export async function executeStreamingLLM({
     chunks: chunkIndex,
     finishReason: finalFinishReason,
   });
+  const doneMeta: Record<string, unknown> = {
+    finishReason: finalFinishReason,
+    usage: usageFromStream,
+    modelo: modelFromStream ?? principalModel,
+    length: raw.length,
+    interaction_id: interactionIdForMeta,
+  };
   await emitStream({
     type: "control",
     name: "done",
-    meta: {
-      finishReason: finalFinishReason,
-      usage: usageFromStream,
-      modelo: modelFromStream ?? principalModel,
-      length: raw.length,
-    },
+    meta: doneMeta,
     timings: doneSnapshot,
   });
 

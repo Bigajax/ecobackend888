@@ -703,6 +703,11 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
     nivel
   );
   let stitched = stitchModules(reduced, nivel);
+  if (!((contextFlags as any)?.HAS_CONTINUITY)) {
+    stitched = stitched.replace(/pe[cç]o desculpas[^.]*mem[oó]ria[^.]*anteriores[^.]*\./gi, "");
+    stitched = `[#] Sem continuidade detectada: responda a partir do presente, sem alegar falta de memória.\n\n${stitched}`;
+  }
+  log.info({ tag: "final_prompt_probe", head: stitched.slice(0, 200) });
   if (hasContinuity) {
     log.info({ tag: "continuity_in_prompt", ref: continuityRef ?? null });
   } else {

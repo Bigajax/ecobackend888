@@ -1,4 +1,5 @@
 import { decodeSseChunk } from "../utils/decodeSse";
+import { getOrCreateGuestId } from "../utils/guest";
 
 export type EcoLatencyStage = "prompt_ready" | "ttfb" | "ttlc" | "abort";
 
@@ -234,6 +235,7 @@ export function startEcoStream({
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
+          "X-Guest-Id": getOrCreateGuestId(),
         },
         body: JSON.stringify(body),
         signal: controller.signal,

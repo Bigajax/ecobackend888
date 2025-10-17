@@ -967,25 +967,29 @@ export class ResponseFinalizer {
 
     const latencyMs = Number.isFinite(duracao) ? Math.max(0, Math.round(duracao)) : null;
 
+    let interactionId: string | null = null;
+
     if (supabaseClient) {
-      void logInteraction({
-        supabase: supabaseClient,
-        interaction: {
-          userId: userId ?? null,
-          sessionId: resolvedSessaoId,
-          messageId: lastMessageId ?? null,
-          promptHash,
-          moduleCombo: resolvedSelectedModules,
-          tokensIn: promptTokenCount,
-          tokensOut: completionTokenCount ?? tokensTotalValue,
-          latencyMs,
-        },
-        moduleUsages: moduleUsageLogs,
-      }).catch((error) => {
+      try {
+        interactionId = await logInteraction({
+          supabase: supabaseClient,
+          interaction: {
+            userId: userId ?? null,
+            sessionId: resolvedSessaoId,
+            messageId: lastMessageId ?? null,
+            promptHash,
+            moduleCombo: resolvedSelectedModules,
+            tokensIn: promptTokenCount,
+            tokensOut: completionTokenCount ?? tokensTotalValue,
+            latencyMs,
+          },
+          moduleUsages: moduleUsageLogs,
+        });
+      } catch (error) {
         log.warn("[responseFinalizer] interaction_log_error", {
           message: error instanceof Error ? error.message : String(error),
         });
-      });
+      }
     }
 
     try {
@@ -1029,9 +1033,12 @@ export class ResponseFinalizer {
       });
     }
 
+    analyticsMeta.response_id = interactionId ?? null;
+
     response.meta = {
       ...(response.meta ?? {}),
       analytics: analyticsMeta,
+      interaction_id: interactionId ?? null,
     };
 
     return response;

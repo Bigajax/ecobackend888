@@ -18,6 +18,7 @@ function getClient(): SupabaseClient | null {
   client = createClient<any, "analytics">(url, key, {
     auth: { autoRefreshToken: false, persistSession: false },
     db: { schema: "analytics" },
+    global: { headers: { "X-Client": "eco-analytics" } },
   }) as unknown as SupabaseClient;
 
   return client;
