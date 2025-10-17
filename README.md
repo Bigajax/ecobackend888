@@ -27,25 +27,23 @@ Todas as rotas residem no mesmo domínio do backend com prefixo `/api`.
 * **Payload:**
   ```json
   {
-    "interaction_id": "uuid",
-    "session_id": "optional",
-    "user_id": "optional uuid or null",
+    "interaction_id": "uuid opcional",
+    "response_id": "uuid opcional",
     "vote": "up" | "down",
-    "reason": "optional",
-    "source": "chat_ui" | "voice_ui" | "autoprompt",
-    "meta": { "qualquer": "json" }
+    "reason": "texto opcional",
+    "pillar": "geral | empatia | ...",
+    "arm": "identificador do braço"
   }
   ```
+  > Obs.: pelo menos um entre `interaction_id` e `response_id` deve ser informado. Quando o braço não é enviado pelo front, o backend infere a partir do primeiro módulo utilizado e recorre ao valor `baseline` como _fallback_.
 * **Exemplo (smoke test):**
   ```bash
   curl -i -X POST "$API_URL/api/feedback" \
     -H "Content-Type: application/json" \
-    -H "X-Guest-Id: TEST-GUEST" \
     -d '{
       "interaction_id": "00000000-0000-0000-0000-000000000001",
       "vote": "up",
-      "reason": "ajudou",
-      "source": "chat_ui"
+      "pillar": "geral"
     }'
   ```
 

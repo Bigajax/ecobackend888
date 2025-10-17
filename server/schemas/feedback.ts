@@ -7,12 +7,15 @@ const optionalUuid = () => z.string().uuid();
 const optionalText = () => z.string().min(1);
 
 export const FeedbackPayloadSchema = z.object({
-  interaction_id: z.string().uuid(),
+  interaction_id: optionalUuid().nullable().optional(),
+  response_id: optionalUuid().nullable().optional(),
+  vote: FeedbackVoteSchema,
+  reason: z.string().min(1).max(280).nullable().optional(),
+  pillar: z.string().min(1).max(64).nullable().optional(),
+  arm: z.string().min(1).max(128).nullable().optional(),
   session_id: optionalText().nullable().optional(),
   user_id: optionalUuid().nullable().optional(),
-  vote: FeedbackVoteSchema,
-  reason: optionalText().max(160).optional(),
-  source: z.enum(["chat_ui", "voice_ui", "autoprompt"]).optional(),
+  source: optionalText().optional(),
   meta: z.record(z.unknown()).optional(),
 });
 

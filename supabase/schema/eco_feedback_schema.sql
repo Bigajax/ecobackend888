@@ -45,6 +45,31 @@ create table if not exists analytics.eco_bandit_arms (
     last_update timestamptz not null default now()
 );
 
+create or replace function analytics.update_bandit_arm(p_arm_key text, p_reward numeric)
+returns void
+language plpgsql
+as $$
+declare
+  v_exists boolean;
+begin
+  select exists(select 1 from analytics.eco_bandit_arms where arm_key = p_arm_key) into v_exists;
+
+  if not v_exists then
+    insert into analytics.eco_bandit_arms (arm_key, pulls, alpha, beta, reward_sum, reward_sq_sum, last_update)
+    values (p_arm_key, 0, 1, 1, 0, 0, now());
+  end if;
+
+  update analytics.eco_bandit_arms
+  set pulls        = pulls + 1,
+      alpha        = alpha + case when p_reward >= 0.5 then 1 else 0 end,
+      beta         = beta  + case when p_reward <  0.5 then 1 else 0 end,
+      reward_sum   = reward_sum   + p_reward,
+      reward_sq_sum= reward_sq_sum+ p_reward * p_reward,
+      last_update  = now()
+  where arm_key = p_arm_key;
+end
+$$;
+
 create table if not exists analytics.eco_module_usages (
     id uuid primary key default gen_random_uuid(),
     created_at timestamptz not null default now(),
