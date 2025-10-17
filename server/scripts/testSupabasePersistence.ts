@@ -163,11 +163,8 @@ async function seedPublicTables(
   const passiveRows = await insertRows(client, "analytics.eco_passive_signals", [
     {
       interaction_id: interactionId,
-      user_id: interactionMeta.userId,
-      session_id: sessionId,
       signal: "read_complete",
-      value: 1,
-      meta: { script: "persistence" },
+      meta: { script: "persistence", value: 1 },
       created_at: nowIso,
     },
   ]);

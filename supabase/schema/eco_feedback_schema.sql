@@ -6,7 +6,7 @@ create table if not exists analytics.eco_interactions (
     id uuid primary key default gen_random_uuid(),
     user_id uuid,
     session_id text,
-    message_id text unique,
+    message_id text,
     prompt_hash text,
     module_combo text[],
     tokens_in int,
@@ -29,13 +29,10 @@ create table if not exists analytics.eco_feedback (
 
 create table if not exists analytics.eco_passive_signals (
     id uuid primary key default gen_random_uuid(),
-    interaction_id uuid references analytics.eco_interactions (id) on delete cascade,
-    user_id uuid,
-    session_id text,
-    signal text,
-    value float8,
-    meta jsonb,
-    created_at timestamptz not null default now()
+    created_at timestamptz not null default now(),
+    interaction_id uuid not null references analytics.eco_interactions (id) on delete cascade,
+    signal text not null,
+    meta jsonb not null default '{}'::jsonb
 );
 
 create table if not exists analytics.eco_bandit_arms (
@@ -50,16 +47,12 @@ create table if not exists analytics.eco_bandit_arms (
 
 create table if not exists analytics.eco_module_usages (
     id uuid primary key default gen_random_uuid(),
-    interaction_id uuid references analytics.eco_interactions (id) on delete cascade,
-    module_key text,
-    session_id text,
+    created_at timestamptz not null default now(),
+    interaction_id uuid not null references analytics.eco_interactions (id) on delete cascade,
+    module_key text not null,
     tokens int,
-    position int,
-    created_at timestamptz not null default now()
+    position int
 );
-
-alter table if exists analytics.eco_module_usages
-  add column if not exists session_id text;
 
 create table if not exists analytics.eco_policy_config (
     key text primary key,
@@ -69,18 +62,40 @@ create table if not exists analytics.eco_policy_config (
 );
 
 create index if not exists eco_feedback_interaction_idx on analytics.eco_feedback (interaction_id);
+create index if not exists eco_interactions_created_idx on analytics.eco_interactions (created_at desc);
 create index if not exists eco_passive_signals_interaction_idx on analytics.eco_passive_signals (interaction_id);
 create index if not exists eco_module_usages_interaction_idx on analytics.eco_module_usages (interaction_id);
 
-create or replace view analytics.eco_bandit_feedback_rewards as
+create or replace view analytics.vw_interactions as
 select
-    coalesce(nullif(array_to_string(i.module_combo, '||'), ''), '__empty__') as arm_key,
-    i.module_combo,
-    array_to_string(i.module_combo, '||') as module_combo_key,
-    count(*)::bigint as feedback_count,
-    sum(case when f.vote = 'up' then 1 else 0 end)::bigint as reward_sum,
-    sum(case when f.vote = 'up' then 1 else 0 end)::bigint as reward_sq_sum
-from analytics.eco_feedback f
-join analytics.eco_interactions i on i.id = f.interaction_id
-where i.module_combo is not null
-group by i.module_combo;
+  id,
+  created_at,
+  user_id,
+  session_id,
+  message_id,
+  tokens_in,
+  tokens_out,
+  latency_ms,
+  coalesce(array_length(module_combo, 1), 0) as modules_count
+from analytics.eco_interactions;
+
+create or replace view analytics.vw_module_usages as
+select
+  u.created_at,
+  u.interaction_id,
+  u.module_key,
+  u.tokens,
+  u.position
+from analytics.eco_module_usages u;
+
+create or replace view analytics.vw_bandit_rewards as
+select
+  created_at,
+  response_id,
+  pilar,
+  arm,
+  recompensa
+from analytics.bandit_rewards;
+
+grant usage on schema analytics to service_role;
+grant select, insert, update, delete on all tables in schema analytics to service_role;

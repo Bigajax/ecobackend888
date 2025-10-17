@@ -24,6 +24,7 @@ import type { EcoHints } from "../utils/types";
 import type { RetrieveMode } from "./supabase/memoriaRepository";
 import supabaseAdmin, { ensureSupabaseConfigured } from "../lib/supabaseAdmin";
 import type { ActivationTracer } from "../core/activationTracer";
+import { sha1Hash } from "./conversation/interactionAnalytics";
 
 import type {
   EcoStreamHandler,
@@ -679,6 +680,8 @@ export async function getEcoResponse({
       messages: thread,
     });
 
+    const basePromptHash = sha1Hash(systemPrompt);
+
     if (calHints && calHints.score >= 0.6) {
       const hintPayload = `ECO_HINTS(JSON): ${JSON.stringify(calHints)} | Use como orientação. Não repita literalmente. Preserve continuidade.`;
       prompt.unshift({
@@ -729,6 +732,8 @@ export async function getEcoResponse({
         contextFlags: context.flags,
         contextMeta: context.meta,
         continuity: context.continuity,
+        basePrompt: systemPrompt,
+        basePromptHash,
       });
 
       const originalFinalize = streamingResult.finalize;
@@ -758,6 +763,8 @@ export async function getEcoResponse({
       maxTokens,
       principalModel,
       ultimaMsg,
+      basePrompt: systemPrompt,
+      basePromptHash,
       userName,
       decision: routeDecision,
       ecoDecision,

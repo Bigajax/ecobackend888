@@ -17,25 +17,6 @@ function normalizeSignal(value: unknown): string | null {
   return trimmed ? trimmed : null;
 }
 
-function normalizeNumeric(value: unknown): number | null {
-  if (typeof value === "number") {
-    return Number.isFinite(value) ? value : null;
-  }
-  if (typeof value === "string") {
-    const trimmed = value.trim();
-    if (!trimmed) return null;
-    const parsed = Number(trimmed);
-    return Number.isFinite(parsed) ? parsed : null;
-  }
-  return null;
-}
-
-function normalizeSessionId(value: unknown): string | null {
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  return trimmed ? trimmed : null;
-}
-
 function sanitizeMeta(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== "object") {
     return {};
@@ -52,8 +33,6 @@ export async function registrarSignal(req: Request, res: Response) {
 
   const rawSignal = normalizeSignal(body.signal ?? null);
   const rawInteractionId = body.interaction_id;
-  const rawSessionId = body.session_id;
-  const numericValue = normalizeNumeric(body.value ?? null);
 
   logger.info({ tag: "signal_request", signal: rawSignal ?? null, has_interaction_id: Boolean(rawInteractionId) });
 
@@ -72,7 +51,6 @@ export async function registrarSignal(req: Request, res: Response) {
   }
 
   const interactionId = (rawInteractionId as string).trim();
-  const sessionId = normalizeSessionId(rawSessionId);
   const meta = sanitizeMeta(body.meta);
 
   const analytics = getAnalyticsClient();
@@ -80,8 +58,6 @@ export async function registrarSignal(req: Request, res: Response) {
   const payload = {
     interaction_id: interactionId,
     signal: rawSignal,
-    value: numericValue,
-    session_id: sessionId,
     meta,
   };
 
