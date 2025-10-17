@@ -124,6 +124,8 @@ function continuityTags(ref: any): string[] {
 }
 
 function buildContinuityModuleText(ref: any): string {
+  if (!ref) return "";
+
   const emotion = continuityEmotion(ref);
   const diasValue = continuityDias(ref);
   const diasLabel = diasValue != null ? `${diasValue} dia${diasValue === 1 ? "" : "s"}` : "? dias";
@@ -132,19 +134,22 @@ function buildContinuityModuleText(ref: any): string {
   const tags = continuityTags(ref);
 
   const lines = [
-    "# CONTINUIDADE — memória recente",
-    `Referência base: emoção ${emotion}, há ${diasLabel}, similaridade ${similarityLabel}.`,
-    "• Abra reconhecendo essa memória em 1–2 linhas e conecte com o agora.",
-    "• Reformule com novas palavras e destaque evolução desde então.",
-    "• Use a memória como contexto vivo, não copie trechos literais.",
+    `Referência-base: emoção ${emotion}, há ${diasLabel}, similaridade ${similarityLabel}.`,
   ];
 
   if (tags.length) {
-    lines.push(`• Tags-chave: ${tags.join(", ")}.`);
+    lines.push(`Tags recentes: ${tags.join(", ")}.`);
   }
 
   return lines.join("\n");
 }
+
+const isUseMemoriasModule = (name: string) =>
+  name
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .toLowerCase()
+    .includes("usomemor");
 
 function buildContinuityPromptLine(ref: any): string {
   const emotion = continuityEmotion(ref);
@@ -468,11 +473,22 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
   });
 
   const applyContinuityText = (module: (typeof selection.regular)[number]) => {
-    if (module.name === "USOMEMÓRIAS.txt") {
-      const text = hasContinuity ? buildContinuityModuleText(continuityRef) : "";
-      return { ...module, text };
+    if (!isUseMemoriasModule(module.name)) {
+      return module;
     }
-    return module;
+
+    if (!hasContinuity) {
+      return module;
+    }
+
+    const baseText = typeof module.text === "string" ? module.text.trim() : "";
+    const continuityText = buildContinuityModuleText(continuityRef).trim();
+    const combined = [baseText, continuityText].filter((part) => part.length > 0).join("\n\n");
+
+    return {
+      ...module,
+      text: combined,
+    };
   };
 
   const regularModules = selection.regular.map(applyContinuityText);
