@@ -118,10 +118,17 @@ export async function registrarModuleUsage(req: Request, res: Response) {
       message: error.message,
       code: error.code ?? null,
       details: error.details ?? null,
+      table: "eco_module_usages",
+      payload,
     });
     return res.status(500).json({ error: "internal_error" });
   }
 
-  logger.info("module-usage.insert", { route: "/api/module-usage", status: "created" });
+  logger.info("module-usage.insert", {
+    route: "/api/module-usage",
+    status: "created",
+    table: "eco_module_usages",
+    interaction_id: payload.interaction_id,
+  });
   return res.status(204).end();
 }

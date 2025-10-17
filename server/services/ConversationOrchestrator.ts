@@ -129,7 +129,7 @@ function asInteger(value: unknown): number | null {
   return Math.round(numeric);
 }
 
-async function persistAnalyticsRecords({
+export async function persistAnalyticsRecords({
   result,
   retrieveMode,
   activationTracer,
@@ -243,16 +243,28 @@ async function persistAnalyticsRecords({
       }
       return normalized;
     });
-    const { error } = await analyticsClient.from(tabela).insert(payload);
-    if (error) {
-      log.warn("[analytics]", {
+    try {
+      const { error } = await analyticsClient.from(tabela).insert(payload);
+      if (error) {
+        log.error("[analytics] insert_failed", {
+          tabela,
+          response_id: responseId,
+          payload,
+          code: error.code ?? null,
+          message: error.message,
+        });
+        return;
+      }
+      log.info("[analytics] insert_success", { tabela, response_id: responseId });
+    } catch (error) {
+      log.error("[analytics] insert_failed", {
         tabela,
         response_id: responseId,
-        erro: error.message,
+        payload,
+        code: error instanceof Error && (error as any).code ? (error as any).code : null,
+        message: error instanceof Error ? error.message : String(error),
       });
-      return;
     }
-    log.debug("[analytics]", { tabela, response_id: responseId });
   };
 
   tasks.push(insertRows("resposta_q", [respostaRow]));

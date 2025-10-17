@@ -477,20 +477,35 @@ askEcoRouter.post("/", async (req: Request, res: Response) => {
 
     const sendSignalRow = (interactionId: string, signal: string, meta: Record<string, unknown>) => {
       if (!telemetryClient) return;
+      const payload = { interaction_id: interactionId, signal, meta };
       void Promise.resolve(
         telemetryClient
           .from("eco_passive_signals")
-          .insert([{ interaction_id: interactionId, signal, meta }])
+          .insert([payload])
       )
         .then(({ error }) => {
           if (error) {
-            log.debug("[ask-eco] telemetry_failed", { signal, message: error.message });
+            log.error("[ask-eco] telemetry_failed", {
+              signal,
+              message: error.message,
+              code: error.code ?? null,
+              table: "eco_passive_signals",
+              payload,
+            });
+            return;
           }
+          log.info("[ask-eco] telemetry_inserted", {
+            signal,
+            table: "eco_passive_signals",
+            interaction_id: interactionId,
+          });
         })
         .catch((error: unknown) => {
-          log.debug("[ask-eco] telemetry_failed", {
+          log.error("[ask-eco] telemetry_failed", {
             signal,
             message: error instanceof Error ? error.message : String(error),
+            table: "eco_passive_signals",
+            payload,
           });
         });
     };

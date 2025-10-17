@@ -75,31 +75,35 @@ export async function registrarFeedback(req: Request, res: Response) {
     const feedbackMeta: Record<string, unknown> = { pillar, arm: armKey };
     const reason = normalizeText(body.reason);
 
-    const { error: feedbackError } = await analytics.from("eco_feedback").insert([
-      {
-        interaction_id: interactionId,
-        vote,
-        reason: reason ? [reason] : null,
-        source: "api", // mantém origem previsível para analytics
-        user_id: null,
-        session_id: null,
-        meta: feedbackMeta,
-      },
-    ]);
+    const feedbackPayload = {
+      interaction_id: interactionId,
+      vote,
+      reason: reason ? [reason] : null,
+      source: "api", // mantém origem previsível para analytics
+      user_id: null,
+      session_id: null,
+      meta: feedbackMeta,
+    };
+
+    const { error: feedbackError } = await analytics.from("eco_feedback").insert([feedbackPayload]);
 
     if (feedbackError) {
       const code = feedbackError.code ?? null;
-
-      if (code === "42P01") {
-        logger.warn("feedback.table_missing", { table: "eco_feedback" });
-      } else if (code !== "23505") {
-        logger.warn("feedback.persist_failed", {
-          interaction_id: interactionId,
-          message: feedbackError.message,
-          code,
-          details: feedbackError.details ?? null,
-        });
-      }
+      logger.error("feedback.persist_failed", {
+        interaction_id: interactionId,
+        message: feedbackError.message,
+        code,
+        details: feedbackError.details ?? null,
+        table: "eco_feedback",
+        payload: feedbackPayload,
+      });
+    } else {
+      logger.info("feedback.persist_success", {
+        table: "eco_feedback",
+        interaction_id: interactionId,
+        response_id: responseId,
+        vote,
+      });
     }
   }
 
@@ -110,36 +114,65 @@ export async function registrarFeedback(req: Request, res: Response) {
     recompensa: reward,
   };
 
-  const { error: rewardError } = await analytics
+  const { data: rewardRows, error: rewardError } = await analytics
     .from("bandit_rewards")
-    .upsert([rewardPayload], { onConflict: "response_id,arm" });
+    .upsert([rewardPayload], {
+      onConflict: "response_id,arm",
+      ignoreDuplicates: true,
+    })
+    .select("response_id,arm");
+
+  const rewardInserted = Array.isArray(rewardRows) && rewardRows.length > 0;
 
   if (rewardError) {
-    if (rewardError.code === "42P01") {
-      logger.warn("feedback.bandit_table_missing", {});
-    } else {
-      logger.warn("feedback.bandit_reward_failed", {
-        response_id: responseId,
-        arm: armKey,
-        message: rewardError.message,
-        code: rewardError.code ?? null,
-        details: rewardError.details ?? null,
-      });
-    }
+    logger.error("feedback.bandit_reward_failed", {
+      response_id: responseId,
+      arm: armKey,
+      message: rewardError.message,
+      code: rewardError.code ?? null,
+      details: rewardError.details ?? null,
+      table: "bandit_rewards",
+      payload: rewardPayload,
+    });
+  } else if (rewardInserted) {
+    logger.info("feedback.bandit_reward_recorded", {
+      table: "bandit_rewards",
+      response_id: responseId,
+      arm: armKey,
+      reward,
+    });
+  } else {
+    logger.info("feedback.bandit_reward_skipped", {
+      table: "bandit_rewards",
+      response_id: responseId,
+      arm: armKey,
+      reason: "duplicate",
+    });
   }
 
-  const { error: rpcError } = await analytics.rpc("update_bandit_arm", {
-    p_arm_key: armKey,
-    p_reward: reward,
-  });
-
-  if (rpcError) {
-    logger.warn("feedback.bandit_arm_update_failed", {
-      arm: armKey,
-      message: rpcError.message,
-      code: rpcError.code ?? null,
-      details: rpcError.details ?? null,
+  if (rewardInserted) {
+    const { error: rpcError } = await analytics.rpc("update_bandit_arm", {
+      p_arm_key: armKey,
+      p_reward: reward,
     });
+
+    if (rpcError) {
+      logger.error("feedback.bandit_arm_update_failed", {
+        arm: armKey,
+        message: rpcError.message,
+        code: rpcError.code ?? null,
+        details: rpcError.details ?? null,
+        table: "eco_bandit_arms",
+        payload: { arm: armKey, reward },
+      });
+    } else {
+      logger.info("feedback.bandit_arm_updated", {
+        table: "eco_bandit_arms",
+        arm: armKey,
+        response_id: responseId,
+        reward,
+      });
+    }
   }
 
   logger.info("feedback_reward_applied", {
