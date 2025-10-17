@@ -41,7 +41,28 @@ export async function listMemories(
 
   let query = admin
     .from("memories")
-    .select("*")
+    .select(
+      [
+        "id",
+        "usuario_id",
+        "mensagem_id",
+        "resumo_eco",
+        "tags",
+        "intensidade",
+        "emocao_principal",
+        "contexto",
+        "dominio_vida",
+        "padrao_comportamental",
+        "salvar_memoria",
+        "nivel_abertura",
+        "analise_resumo",
+        "categoria",
+        "embedding",
+        "embedding_emocional",
+        "created_at",
+        "updated_at",
+      ].join(",")
+    )
     .eq("usuario_id", usuarioId)
     .eq("salvar_memoria", true)
     .order("created_at", { ascending: false });
@@ -55,6 +76,12 @@ export async function listMemories(
   }
 
   const { data, error } = await query;
+
+  console.log("[SupabaseMemoryRepository] listMemories raw response", {
+    usuarioId,
+    error: error?.message ?? null,
+    data,
+  });
   if (error) {
     throw new Error(error.message || "Erro ao buscar memórias no Supabase.");
   }
