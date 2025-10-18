@@ -324,6 +324,8 @@ askEcoRouter.post("/", async (req: Request, res: Response) => {
   const wantsStream = wantsStreamByFlag || accept.includes("text/event-stream");
   const origin = (req.headers.origin as string) || undefined;
 
+  (res.locals as Record<string, unknown>).isSse = wantsStream;
+
   const guestIdFromSession: string | undefined = (req as any)?.guest?.id || undefined;
   const guestIdFromRequest =
     typeof reqWithIdentity.guestId === "string" ? reqWithIdentity.guestId : undefined;
@@ -838,5 +840,6 @@ askEcoRouter.post("/", async (req: Request, res: Response) => {
 });
 
 router.use("/ask-eco", askEcoRouter);
+router.use("/ask_eco", askEcoRouter);
 
 export default router;
