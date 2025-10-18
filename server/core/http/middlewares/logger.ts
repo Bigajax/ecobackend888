@@ -2,18 +2,29 @@ import type { Request, Response, NextFunction } from "express";
 import { log } from "../../../services/promptContext/logger";
 
 export function requestLogger(req: Request, res: Response, next: NextFunction) {
-  const startedAt = Date.now();
-
   res.on("finish", () => {
-    log.info("http.request", {
-      method: req.method,
+    const locals = res.locals as Record<string, unknown>;
+    const origin = req.headers.origin ?? null;
+    const allowed =
+      typeof locals.corsAllowed === "boolean"
+        ? (locals.corsAllowed as boolean)
+        : origin
+        ? false
+        : true;
+
+    const payload: Record<string, unknown> = {
       path: req.originalUrl,
-      origin: req.headers.origin ?? null,
+      method: req.method,
+      origin,
+      allowed,
       status: res.statusCode,
-      durationMs: Date.now() - startedAt,
-      userId: (req as any).user?.id ?? null,
-      guestId: req.guest?.id ?? req.guestId ?? null,
-    });
+    };
+
+    if (req.method === "OPTIONS") {
+      payload.preflight = true;
+    }
+
+    log.info("http.request", payload);
   });
 
   next();

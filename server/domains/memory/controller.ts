@@ -161,19 +161,44 @@ export class MemoryController {
     try {
       const memories = await this.service.listMemories(userId, { tags, limit });
       console.log(`📥 ${memories.length} memórias retornadas para ${userId}`);
-      if (memories.length === 0) {
-        return res.status(204).send();
-      }
 
-      const { embedding, embedding_emocional, ...rest } = memories[0];
-      console.log("[MemoryController] Campos da primeira memória:", {
-        keys: Object.keys(memories[0]),
-        sample: rest,
-        embeddingPresent: Array.isArray(embedding),
-        embeddingEmocionalPresent: Array.isArray(embedding_emocional),
-      });
+      const toNullableString = (value: unknown): string | null => {
+        if (typeof value !== "string") return null;
+        const trimmed = value.trim();
+        return trimmed.length ? trimmed : null;
+      };
 
-      return res.status(200).json({ success: true, memories });
+      const sanitized = memories.map((memory) => ({
+        id: memory.id,
+        usuario_id: memory.usuario_id,
+        mensagem_id:
+          typeof memory.mensagem_id === "string"
+            ? memory.mensagem_id.trim() || null
+            : memory.mensagem_id ?? null,
+        created_at: memory.created_at ?? null,
+        emocao_principal: toNullableString(memory.emocao_principal),
+        intensidade:
+          typeof memory.intensidade === "number"
+            ? memory.intensidade
+            : null,
+        analise_resumo: toNullableString(memory.analise_resumo),
+        resumo_eco: toNullableString(memory.resumo_eco),
+        tags: Array.isArray(memory.tags)
+          ? memory.tags
+              .map((tag) => (typeof tag === "string" ? tag.trim() : tag))
+              .filter((tag): tag is string => typeof tag === "string" && tag.length > 0)
+          : [],
+        dominio_vida: toNullableString(memory.dominio_vida),
+        padrao_comportamental: toNullableString(memory.padrao_comportamental),
+        nivel_abertura:
+          typeof memory.nivel_abertura === "number"
+            ? memory.nivel_abertura
+            : null,
+        categoria: toNullableString(memory.categoria),
+        contexto: toNullableString(memory.contexto),
+      }));
+
+      return res.status(200).json(sanitized);
     } catch (error) {
       if (error instanceof SupabaseMemoryRepositoryError) {
         console.error("❌ Erro Supabase ao buscar memórias:", error.supabase);
