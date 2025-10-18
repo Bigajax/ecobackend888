@@ -37,6 +37,32 @@ const safeLog = (s?: string | null) =>
     ? `${(s ?? "").slice(0, 80)}…`
     : s ?? "";
 
+function getUsuarioIdFromQuery(req: Request): string | null {
+  const raw =
+    (req.query?.usuario_id as string | string[] | undefined) ??
+    (req.query?.userId as string | string[] | undefined);
+
+  if (Array.isArray(raw)) {
+    const last = raw[raw.length - 1];
+    return typeof last === "string" && last.trim() ? last.trim() : null;
+  }
+
+  if (typeof raw === "string" && raw.trim()) {
+    return raw.trim();
+  }
+
+  return null;
+}
+
+function respondMissingUserId(res: Response) {
+  return res.status(400).json({
+    error: {
+      code: "MISSING_USER_ID",
+      message: "usuario_id é obrigatório",
+    },
+  });
+}
+
 export class MemoryController {
   private readonly service: MemoryService;
   private readonly supabaseClient: SupabaseClient;
@@ -139,8 +165,10 @@ export class MemoryController {
   };
 
   listMemories = async (req: Request, res: Response) => {
-    const userId = await this.requireAuthenticatedUser(req, res);
-    if (!userId) return;
+    const userId = getUsuarioIdFromQuery(req);
+    if (!userId) {
+      return respondMissingUserId(res);
+    }
 
     const limiteParam = (req.query.limite ?? req.query.limit) as
       | string

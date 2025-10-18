@@ -11,33 +11,29 @@ router.use(requireAdmin);
 
 /* --------------------------------- utils --------------------------------- */
 function getUserIdFromReq(req: Request): string | null {
-  // 1) query string (?usuario_id=... | ?userId=...)
-  const qs =
-    (req.query?.usuario_id as string) ||
-    (req.query?.userId as string) ||
-    null;
-  if (qs && typeof qs === "string" && qs.trim()) return qs.trim();
+  const raw =
+    (req.query?.usuario_id as string | string[] | undefined) ??
+    (req.query?.userId as string | string[] | undefined);
 
-  // 2) Authorization: Bearer <jwt> → decodifica payload e pega sub/user_id
-  const auth = req.headers.authorization;
-  if (auth?.startsWith("Bearer ")) {
-    try {
-      const token = auth.slice(7);
-      const parts = token.split(".");
-      if (parts.length === 3) {
-        const payload = JSON.parse(
-          Buffer.from(parts[1].replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8")
-        );
-        return payload?.sub || payload?.user_id || payload?.uid || null;
-      }
-    } catch {
-      // silencioso
-    }
+  if (Array.isArray(raw)) {
+    const last = raw[raw.length - 1];
+    return typeof last === "string" && last.trim() ? last.trim() : null;
   }
 
-  // 3) se tiver sido injetado por algum middleware
-  const injected = (req as any).user?.id || null;
-  return injected || null;
+  if (typeof raw === "string" && raw.trim()) {
+    return raw.trim();
+  }
+
+  return null;
+}
+
+function respondMissingUserId(res: Response) {
+  return res.status(400).json({
+    error: {
+      code: "MISSING_USER_ID",
+      message: "usuario_id é obrigatório",
+    },
+  });
 }
 
 async function carregarPerfil(client: SupabaseClient, userId: string) {
@@ -67,9 +63,7 @@ router.get("/", async (req: Request, res: Response) => {
     const userId = getUserIdFromReq(req);
 
     if (!userId) {
-      return res
-        .status(400)
-        .json({ success: false, error: "userId ausente. Envie ?usuario_id= ou Bearer JWT." });
+      return respondMissingUserId(res);
     }
 
     const supabase = req.admin ?? ensureSupabaseConfigured();

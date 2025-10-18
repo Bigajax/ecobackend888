@@ -21,9 +21,8 @@ export function requestLogger(req: Request, res: Response, next: NextFunction) {
       redirected: res.statusCode >= 300 && res.statusCode < 400,
     };
 
-    if (req.method === "OPTIONS") {
-      payload.preflight = true;
-    }
+    payload.preflight = req.method === "OPTIONS";
+    payload.sse = Boolean(locals.isSse);
 
     log.info("http.request", payload);
   });
