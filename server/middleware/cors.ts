@@ -8,7 +8,10 @@ const EXACT_ALLOWLIST = new Set<string>([
   "http://localhost:3000",
 ]);
 
-const REGEX_ALLOWLIST = [/^https:\/\/ecofrontend888[-a-z0-9]*\.vercel\.app$/i];
+const REGEX_ALLOWLIST = [
+  /^https:\/\/ecofrontend888[-a-z0-9]*\.vercel\.app$/i,
+  /^https:\/\/[a-z0-9-]+\.vercel\.app$/i,
+];
 
 export function originOk(origin?: string | null): boolean {
   if (!origin) return true;
@@ -22,8 +25,8 @@ export function originOk(origin?: string | null): boolean {
 }
 
 const DEFAULT_ALLOW_HEADERS = [
-  "Content-Type",
   "Accept",
+  "Content-Type",
   "Origin",
   "Referer",
   "X-Requested-With",
@@ -81,11 +84,50 @@ function applyPreflightHeaders(req: Request, res: Response, allowed: boolean) {
   );
   res.setHeader("Access-Control-Max-Age", String(MAX_AGE_SECONDS));
   res.setHeader("Access-Control-Expose-Headers", EXPOSE_HEADERS.join(","));
+  res.setHeader("Access-Control-Allow-Credentials", "false");
   setVaryHeader(res, "Origin");
 
   if (allowed && origin) {
     res.setHeader("Access-Control-Allow-Origin", origin);
   }
+}
+
+export function applyCorsResponseHeaders(req: Request, res: Response) {
+  const locals = (res.locals ?? {}) as Record<string, unknown>;
+  const explicitOrigin =
+    typeof locals.corsOrigin === "string"
+      ? (locals.corsOrigin as string)
+      : undefined;
+  const headerOrigin =
+    typeof req.headers.origin === "string" ? req.headers.origin : undefined;
+  const origin = explicitOrigin ?? headerOrigin ?? null;
+  const allowed =
+    typeof locals.corsAllowed === "boolean"
+      ? Boolean(locals.corsAllowed)
+      : originOk(origin);
+
+  setVaryHeader(res, "Origin");
+
+  if (allowed && origin) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+  } else {
+    res.removeHeader("Access-Control-Allow-Origin");
+  }
+
+  res.setHeader("Access-Control-Allow-Credentials", "false");
+  res.setHeader("Access-Control-Allow-Headers", DEFAULT_ALLOW_HEADERS.join(", "));
+  res.setHeader("Access-Control-Allow-Methods", DEFAULT_ALLOW_METHODS.join(","));
+  res.setHeader("Access-Control-Max-Age", String(MAX_AGE_SECONDS));
+  res.setHeader("Access-Control-Expose-Headers", EXPOSE_HEADERS.join(","));
+}
+
+export function corsResponseInjector(
+  req: Request,
+  res: Response,
+  next: NextFunction
+) {
+  applyCorsResponseHeaders(req, res);
+  next();
 }
 
 export function preflightHandler(req: Request, res: Response, next: NextFunction) {
@@ -115,6 +157,7 @@ export function preflightHandler(req: Request, res: Response, next: NextFunction
     allowed,
     status: 204,
     preflight: true,
+    redirected: false,
   });
 
   return res.status(204).end();
@@ -124,9 +167,11 @@ const delegate: CorsOptionsDelegate<Request> = (req, callback) => {
   const origin = req.headers.origin ?? undefined;
   const allowed = originOk(origin);
 
+  const effectiveOrigin = allowed && origin ? origin : false;
+
   const options: CorsOptions = {
     ...BASE_OPTIONS,
-    origin: allowed ? origin : false,
+    origin: effectiveOrigin,
   };
 
   callback(null, options);
@@ -160,9 +205,7 @@ export function corsMiddleware(req: Request, res: Response, next: NextFunction) 
     (res.locals as Record<string, unknown>).corsAllowed = allowed;
     (res.locals as Record<string, unknown>).corsOrigin = origin;
 
-    if (EXPOSE_HEADERS.length) {
-      res.setHeader("Access-Control-Expose-Headers", EXPOSE_HEADERS.join(","));
-    }
+    applyCorsResponseHeaders(req, res);
 
     return next();
   });

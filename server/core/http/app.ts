@@ -11,7 +11,11 @@ import express, {
   type NextFunction,
 } from "express";
 
-import corsMiddleware, { preflightHandler } from "../../middleware/cors";
+import corsMiddleware, {
+  applyCorsResponseHeaders,
+  corsResponseInjector,
+  preflightHandler,
+} from "../../middleware/cors";
 import { requestLogger } from "./middlewares/logger";
 import { normalizeQuery } from "./middlewares/queryNormalizer";
 import { ModuleCatalog } from "../../domains/prompts/ModuleCatalog";
@@ -102,6 +106,7 @@ export function createApp(): Express {
   // 1) Preflight manual → cors → body parsers
   app.use(preflightHandler);
   app.use(corsMiddleware);
+  app.use(corsResponseInjector);
 
   // 2) Parsers (não executam em OPTIONS)
   app.use(express.json({ limit: "1mb" }));
@@ -168,13 +173,21 @@ export function createApp(): Express {
 
   // 8) 404
   app.use((req, res) => {
-    res.status(404).json({ error: "Rota não encontrada", path: req.originalUrl });
+    applyCorsResponseHeaders(req, res);
+    res
+      .status(404)
+      .json({ error: "Rota não encontrada", path: req.originalUrl });
   });
 
   // 9) 500
   app.use((err: any, req: Request, res: Response, _next: NextFunction) => {
     // Garantia: não deixe OPTIONS cair aqui
-    if (req.method === "OPTIONS") return res.status(204).end();
+    if (req.method === "OPTIONS") {
+      applyCorsResponseHeaders(req, res);
+      return res.status(204).end();
+    }
+
+    applyCorsResponseHeaders(req, res);
 
     log.error("Erro não tratado:", {
       message: err?.message,
