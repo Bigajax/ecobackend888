@@ -5,6 +5,41 @@ import type {
   MemoryRow,
 } from "../domains/memory/repository";
 
+type MemoriesTableRow = {
+  id: string;
+  usuario_id: string;
+  mensagem_id: string | null;
+  resumo_eco: string | null;
+  tags: string[] | string | null;
+  intensidade: number | null;
+  emocao_principal: string | null;
+  contexto: string | null;
+  dominio_vida: string | null;
+  padrao_comportamental: string | null;
+  salvar_memoria: boolean | null;
+  nivel_abertura: number | null;
+  analise_resumo: string | null;
+  categoria: string | null;
+  created_at: string;
+};
+
+export interface SupabaseMemoryRepositoryErrorDetails {
+  code?: string;
+  hint?: string;
+  details?: string;
+  status?: string | number;
+}
+
+export class SupabaseMemoryRepositoryError extends Error {
+  constructor(
+    message: string,
+    readonly supabase: SupabaseMemoryRepositoryErrorDetails = {}
+  ) {
+    super(message);
+    this.name = "SupabaseMemoryRepositoryError";
+  }
+}
+
 export interface ListMemoriesOptions {
   tags?: string[];
   limit?: number;
@@ -39,29 +74,27 @@ export async function listMemories(
   const admin = ensureSupabaseConfigured();
   const { tags = [], limit } = options;
 
+  const columns: (keyof MemoriesTableRow)[] = [
+    "id",
+    "usuario_id",
+    "mensagem_id",
+    "resumo_eco",
+    "tags",
+    "intensidade",
+    "emocao_principal",
+    "contexto",
+    "dominio_vida",
+    "padrao_comportamental",
+    "salvar_memoria",
+    "nivel_abertura",
+    "analise_resumo",
+    "categoria",
+    "created_at",
+  ];
+
   let query = admin
     .from("memories")
-    .select(
-      [
-        "id",
-        "usuario_id",
-        "mensagem_id",
-        "resumo_eco",
-        "tags",
-        "intensidade",
-        "emocao_principal",
-        "contexto",
-        "dominio_vida",
-        "padrao_comportamental",
-        "salvar_memoria",
-        "nivel_abertura",
-        "analise_resumo",
-        "categoria",
-        "embedding",
-        "embedding_emocional",
-        "created_at",
-      ].join(",")
-    )
+    .select(columns.join(","))
     .eq("usuario_id", usuarioId)
     .eq("salvar_memoria", true)
     .order("created_at", { ascending: false });
@@ -74,7 +107,7 @@ export async function listMemories(
     query = query.range(0, limit - 1);
   }
 
-  const { data, error } = await query;
+  const { data, error, status } = await query.returns<MemoriesTableRow[]>();
 
   console.log("[SupabaseMemoryRepository] listMemories raw response", {
     usuarioId,
@@ -83,20 +116,88 @@ export async function listMemories(
   });
 
   if (error) {
-    throw new Error(`memories.select failed: ${error.message}`);
+    console.error("[SupabaseMemoryRepository] Supabase error", {
+      code: error.code,
+      message: error.message,
+      details: error.details,
+      hint: error.hint,
+      status,
+    });
+
+    throw new SupabaseMemoryRepositoryError(
+      "Falha ao consultar memórias no Supabase.",
+      {
+        code: error.code,
+        details: error.details,
+        hint: error.hint,
+        status,
+      }
+    );
   }
 
-  if (!Array.isArray(data)) {
+  if (!Array.isArray(data) || data.length === 0) {
     return [];
   }
 
-  return (data as Record<string, unknown>[]).map((row) => ({
-    ...row,
-    updated_at:
-      typeof row.updated_at === "string"
-        ? (row.updated_at as string)
-        : (row.created_at as string | undefined) ?? null,
-  })) as MemoryRow[];
+  const normalizeTags = (rawTags: MemoriesTableRow["tags"]): string[] => {
+    if (Array.isArray(rawTags)) {
+      return rawTags.filter((tag): tag is string => typeof tag === "string");
+    }
+
+    if (typeof rawTags === "string") {
+      return rawTags
+        .split(",")
+        .map((tag) => tag.trim())
+        .filter(Boolean);
+    }
+
+    return [];
+  };
+
+  const normalizeIntensity = (
+    value: MemoriesTableRow["intensidade"]
+  ): number => {
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return value;
+    }
+
+    const parsed = Number(value ?? 0);
+    return Number.isFinite(parsed) ? parsed : 0;
+  };
+
+  const normalizeSalvarMemoria = (
+    value: MemoriesTableRow["salvar_memoria"]
+  ): boolean => {
+    if (typeof value === "boolean") {
+      return value;
+    }
+
+    if (value === null || typeof value === "undefined") {
+      return false;
+    }
+
+    return Boolean(value);
+  };
+
+  return data.map<MemoryRow>((row) => ({
+    id: row.id,
+    usuario_id: row.usuario_id,
+    mensagem_id: row.mensagem_id,
+    resumo_eco: row.resumo_eco,
+    tags: normalizeTags(row.tags),
+    intensidade: normalizeIntensity(row.intensidade),
+    emocao_principal: row.emocao_principal,
+    contexto: row.contexto,
+    dominio_vida: row.dominio_vida,
+    padrao_comportamental: row.padrao_comportamental,
+    salvar_memoria: normalizeSalvarMemoria(row.salvar_memoria),
+    nivel_abertura: row.nivel_abertura,
+    analise_resumo: row.analise_resumo,
+    categoria: row.categoria,
+    embedding: null,
+    embedding_emocional: null,
+    created_at: row.created_at,
+  }));
 }
 
 export class SupabaseMemoryRepository implements MemoryRepository {
