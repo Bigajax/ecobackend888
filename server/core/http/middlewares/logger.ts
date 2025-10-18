@@ -18,6 +18,7 @@ export function requestLogger(req: Request, res: Response, next: NextFunction) {
       origin,
       allowed,
       status: res.statusCode,
+      redirected: res.statusCode >= 300 && res.statusCode < 400,
     };
 
     if (req.method === "OPTIONS") {
