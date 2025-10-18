@@ -4,17 +4,14 @@ export interface MemoryRow {
   mensagem_id: string | null;
   resumo_eco: string | null;
   tags: string[];
-  intensidade: number;
+  intensidade: number | null;
   emocao_principal: string | null;
   contexto: string | null;
   dominio_vida: string | null;
   padrao_comportamental: string | null;
-  salvar_memoria: boolean;
   nivel_abertura: number | null;
   analise_resumo: string | null;
   categoria: string | null;
-  embedding: number[] | null;
-  embedding_emocional: number[] | null;
   created_at?: string;
   updated_at?: string;
   [key: string]: unknown;

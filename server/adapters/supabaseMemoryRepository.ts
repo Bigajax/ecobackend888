@@ -11,12 +11,11 @@ type MemoriesTableRow = {
   mensagem_id: string | null;
   resumo_eco: string | null;
   tags: string[] | string | null;
-  intensidade: number | null;
+  intensidade: number | string | null;
   emocao_principal: string | null;
   contexto: string | null;
   dominio_vida: string | null;
   padrao_comportamental: string | null;
-  salvar_memoria: boolean | null;
   nivel_abertura: number | null;
   analise_resumo: string | null;
   categoria: string | null;
@@ -85,7 +84,6 @@ export async function listMemories(
     "contexto",
     "dominio_vida",
     "padrao_comportamental",
-    "salvar_memoria",
     "nivel_abertura",
     "analise_resumo",
     "categoria",
@@ -156,27 +154,19 @@ export async function listMemories(
 
   const normalizeIntensity = (
     value: MemoriesTableRow["intensidade"]
-  ): number => {
+  ): number | null => {
     if (typeof value === "number" && Number.isFinite(value)) {
-      return value;
+      return Math.max(0, Math.min(10, value));
     }
 
-    const parsed = Number(value ?? 0);
-    return Number.isFinite(parsed) ? parsed : 0;
-  };
-
-  const normalizeSalvarMemoria = (
-    value: MemoriesTableRow["salvar_memoria"]
-  ): boolean => {
-    if (typeof value === "boolean") {
-      return value;
+    if (typeof value === "string" && value.trim()) {
+      const parsed = Number(value);
+      if (Number.isFinite(parsed)) {
+        return Math.max(0, Math.min(10, parsed));
+      }
     }
 
-    if (value === null || typeof value === "undefined") {
-      return false;
-    }
-
-    return Boolean(value);
+    return null;
   };
 
   return data.map<MemoryRow>((row) => ({
@@ -190,12 +180,9 @@ export async function listMemories(
     contexto: row.contexto,
     dominio_vida: row.dominio_vida,
     padrao_comportamental: row.padrao_comportamental,
-    salvar_memoria: normalizeSalvarMemoria(row.salvar_memoria),
     nivel_abertura: row.nivel_abertura,
     analise_resumo: row.analise_resumo,
     categoria: row.categoria,
-    embedding: null,
-    embedding_emocional: null,
     created_at: row.created_at,
   }));
 }

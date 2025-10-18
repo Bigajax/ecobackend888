@@ -160,15 +160,6 @@ export function createApp(): Express {
   app.use("/api/bandit", banditRoutes);
   app.use("/api/policy", policyRoutes);
 
-  // Preflight dedicated handlers (garante 204 com CORS)
-  app.options("*", preflightHandler);
-  app.options("/api/ask-eco", preflightHandler);
-  app.options("/api/feedback", preflightHandler);
-  app.options("/api/signal", preflightHandler);
-  app.options("/api/module-usage", preflightHandler);
-  app.options("/api/bandit/arms", preflightHandler);
-  app.options("/api/policy", preflightHandler);
-
   // Aliases sem /api (clientes legados)
   app.use("/memorias", memoryRoutes);
   app.use("/memories", memoryRoutes);

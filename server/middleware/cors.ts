@@ -4,13 +4,11 @@ import { log } from "../services/promptContext/logger";
 
 const EXACT_ALLOWLIST = new Set<string>([
   "https://ecofrontend888.vercel.app",
-  "https://ecofrontend888-git-main-rafaels-projects-f3ef53c3.vercel.app",
-  "https://ecofrontend888-owixryjyd-rafaels-projects-f3ef53c3.vercel.app",
   "http://localhost:5173",
-  "http://localhost:4173",
+  "http://localhost:3000",
 ]);
 
-const REGEX_ALLOWLIST = [/^https:\/\/.+\.vercel\.app$/i];
+const REGEX_ALLOWLIST = [/^https:\/\/ecofrontend888[-a-z0-9]*\.vercel\.app$/i];
 
 export function originOk(origin?: string | null): boolean {
   if (!origin) return true;
@@ -23,20 +21,27 @@ export function originOk(origin?: string | null): boolean {
   return REGEX_ALLOWLIST.some((pattern) => pattern.test(normalized));
 }
 
-const DEFAULT_ALLOW_HEADERS =
-  "Accept, Authorization, Cache-Control, Content-Type, Pragma, X-Guest-Id, X-Requested-With";
-const DEFAULT_ALLOW_METHODS = "GET,POST,OPTIONS,HEAD";
-const EXPOSE_HEADERS = "X-Guest-Id";
-const MAX_AGE_SECONDS = 86_400; // 24h
+const DEFAULT_ALLOW_HEADERS = [
+  "Content-Type",
+  "Accept",
+  "Origin",
+  "Referer",
+  "X-Requested-With",
+  "X-Guest-Id",
+  "Authorization",
+];
+const DEFAULT_ALLOW_METHODS = ["GET", "POST", "OPTIONS"];
+const EXPOSE_HEADERS = ["X-Request-Id", "Cache-Control"];
+const MAX_AGE_SECONDS = 600; // 10 min
 
 /**
  * Opções base que espelhamos manualmente no preflight para evitar 503.
  */
 const BASE_OPTIONS: Omit<CorsOptions, "origin"> = {
-  credentials: true,
-  methods: DEFAULT_ALLOW_METHODS.split(","),
-  allowedHeaders: DEFAULT_ALLOW_HEADERS.split(/,\s*/),
-  exposedHeaders: EXPOSE_HEADERS.split(","),
+  credentials: false,
+  methods: DEFAULT_ALLOW_METHODS,
+  allowedHeaders: DEFAULT_ALLOW_HEADERS,
+  exposedHeaders: EXPOSE_HEADERS,
   maxAge: MAX_AGE_SECONDS,
 };
 
@@ -66,11 +71,16 @@ function applyPreflightHeaders(req: Request, res: Response, allowed: boolean) {
   const requestedHeaders = req.get("Access-Control-Request-Headers");
   const requestedMethod = req.get("Access-Control-Request-Method");
 
-  res.setHeader("Access-Control-Allow-Headers", requestedHeaders || DEFAULT_ALLOW_HEADERS);
-  res.setHeader("Access-Control-Allow-Methods", requestedMethod || DEFAULT_ALLOW_METHODS);
-  res.setHeader("Access-Control-Allow-Credentials", "true");
+  res.setHeader(
+    "Access-Control-Allow-Headers",
+    requestedHeaders || DEFAULT_ALLOW_HEADERS.join(", ")
+  );
+  res.setHeader(
+    "Access-Control-Allow-Methods",
+    requestedMethod || DEFAULT_ALLOW_METHODS.join(",")
+  );
   res.setHeader("Access-Control-Max-Age", String(MAX_AGE_SECONDS));
-  res.setHeader("Access-Control-Expose-Headers", EXPOSE_HEADERS);
+  res.setHeader("Access-Control-Expose-Headers", EXPOSE_HEADERS.join(","));
   setVaryHeader(res, "Origin");
 
   if (allowed && origin) {
@@ -78,54 +88,41 @@ function applyPreflightHeaders(req: Request, res: Response, allowed: boolean) {
   }
 }
 
-export function ensureCorsHeaders(res: Response, origin?: string | null) {
-  res.setHeader("Access-Control-Allow-Headers", DEFAULT_ALLOW_HEADERS);
-  res.setHeader("Access-Control-Allow-Methods", DEFAULT_ALLOW_METHODS);
-  res.setHeader("Access-Control-Allow-Credentials", "true");
-  res.setHeader("Access-Control-Max-Age", String(MAX_AGE_SECONDS));
-  res.setHeader("Access-Control-Expose-Headers", EXPOSE_HEADERS);
-  setVaryHeader(res, "Origin");
-
-  if (origin && originOk(origin)) {
-    res.setHeader("Access-Control-Allow-Origin", origin);
-  }
-}
-
 export function preflightHandler(req: Request, res: Response, next: NextFunction) {
   if (req.method !== "OPTIONS") return next();
 
+  const path = req.originalUrl || req.path;
+  if (!(path.startsWith("/api/") || path === "/api")) {
+    return next();
+  }
+
   const origin = req.headers.origin ?? null;
   const allowed = originOk(origin);
-  const requestHeaders = req.get("Access-Control-Request-Headers") ?? null;
-  const requestMethod = req.get("Access-Control-Request-Method") ?? null;
-
-  log.info("[cors] preflight", {
-    origin,
-    allowed,
-    path: req.path,
-    requestHeaders,
-    requestMethod,
-  });
 
   if (origin && !allowed) {
-    console.warn("[cors] origin blocked", { origin, path: req.path });
-    log.warn("[cors] origin_blocked", { origin, path: req.path });
+    log.warn("[cors] origin_blocked", { origin, path });
   }
 
   applyPreflightHeaders(req, res, allowed);
+
+  (res.locals as Record<string, unknown>).corsAllowed = allowed;
+  (res.locals as Record<string, unknown>).corsOrigin = origin;
+
+  log.info("http.request", {
+    path,
+    method: "OPTIONS",
+    origin,
+    allowed,
+    status: 204,
+    preflight: true,
+  });
+
   return res.status(204).end();
 }
 
 const delegate: CorsOptionsDelegate<Request> = (req, callback) => {
   const origin = req.headers.origin ?? undefined;
   const allowed = originOk(origin);
-
-  if (origin && !allowed) {
-    console.warn("[cors] origin blocked", { origin, path: req.path });
-    log.warn("[cors] origin_blocked", { origin, path: req.path });
-  } else if (origin) {
-    log.info("[cors] request", { origin, allowed, path: req.path });
-  }
 
   const options: CorsOptions = {
     ...BASE_OPTIONS,
@@ -153,10 +150,18 @@ export function corsMiddleware(req: Request, res: Response, next: NextFunction) 
       return next(err);
     }
 
-    if (req.method === "OPTIONS") {
-      const allowed = originOk(req.headers.origin);
-      applyPreflightHeaders(req, res, allowed);
-      return res.status(204).end();
+    const origin = req.headers.origin ?? null;
+    const allowed = originOk(origin);
+
+    if (origin && !allowed) {
+      log.warn("[cors] origin_blocked", { origin, path: req.path });
+    }
+
+    (res.locals as Record<string, unknown>).corsAllowed = allowed;
+    (res.locals as Record<string, unknown>).corsOrigin = origin;
+
+    if (EXPOSE_HEADERS.length) {
+      res.setHeader("Access-Control-Expose-Headers", EXPOSE_HEADERS.join(","));
     }
 
     return next();
