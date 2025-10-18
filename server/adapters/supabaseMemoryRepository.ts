@@ -60,7 +60,6 @@ export async function listMemories(
         "embedding",
         "embedding_emocional",
         "created_at",
-        "updated_at",
       ].join(",")
     )
     .eq("usuario_id", usuarioId)
@@ -91,7 +90,13 @@ export async function listMemories(
     return [];
   }
 
-  return data as unknown as MemoryRow[];
+  return (data as Record<string, unknown>[]).map((row) => ({
+    ...row,
+    updated_at:
+      typeof row.updated_at === "string"
+        ? (row.updated_at as string)
+        : (row.created_at as string | undefined) ?? null,
+  })) as MemoryRow[];
 }
 
 export class SupabaseMemoryRepository implements MemoryRepository {
