@@ -2,7 +2,10 @@ import type { Request, Response } from "express";
 import type { SupabaseClient, User } from "@supabase/supabase-js";
 
 import { ensureSupabaseConfigured } from "../../lib/supabaseAdmin";
-import { SupabaseMemoryRepository } from "../../adapters/supabaseMemoryRepository";
+import {
+  SupabaseMemoryRepository,
+  SupabaseMemoryRepositoryError,
+} from "../../adapters/supabaseMemoryRepository";
 import { MemoryService, type RegisterMemoryInput } from "./service";
 import type { MemoryRepository } from "./repository";
 
@@ -158,22 +161,40 @@ export class MemoryController {
     try {
       const memories = await this.service.listMemories(userId, { tags, limit });
       console.log(`📥 ${memories.length} memórias retornadas para ${userId}`);
-      if (memories.length > 0) {
-        const { embedding, embedding_emocional, ...rest } = memories[0];
-        console.log("[MemoryController] Campos da primeira memória:", {
-          keys: Object.keys(memories[0]),
-          sample: rest,
-          embeddingPresent: Array.isArray(embedding),
-          embeddingEmocionalPresent: Array.isArray(embedding_emocional),
-        });
+      if (memories.length === 0) {
+        return res.status(204).send();
       }
+
+      const { embedding, embedding_emocional, ...rest } = memories[0];
+      console.log("[MemoryController] Campos da primeira memória:", {
+        keys: Object.keys(memories[0]),
+        sample: rest,
+        embeddingPresent: Array.isArray(embedding),
+        embeddingEmocionalPresent: Array.isArray(embedding_emocional),
+      });
+
       return res.status(200).json({ success: true, memories });
     } catch (error) {
+      if (error instanceof SupabaseMemoryRepositoryError) {
+        console.error("❌ Erro Supabase ao buscar memórias:", error.supabase);
+        return res.status(502).json({
+          error: {
+            message: "Não foi possível carregar memórias.",
+            code: error.supabase.code ?? "SUPABASE_QUERY_FAILED",
+          },
+        });
+      }
+
       console.error(
         "❌ Erro inesperado ao buscar memórias:",
         (error as Error)?.message || error
       );
-      return res.status(500).json({ error: "Erro inesperado no servidor." });
+      return res.status(500).json({
+        error: {
+          message: "Erro inesperado no servidor.",
+          code: "UNEXPECTED_ERROR",
+        },
+      });
     }
   };
 
