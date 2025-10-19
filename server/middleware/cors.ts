@@ -28,7 +28,6 @@ const DEFAULT_ALLOW_HEADERS = [
   "Accept",
   "Content-Type",
   "Origin",
-  "Referer",
   "X-Requested-With",
   "X-Guest-Id",
   "Authorization",
@@ -71,16 +70,14 @@ function setVaryHeader(res: Response, value: string) {
 
 function applyPreflightHeaders(req: Request, res: Response, allowed: boolean) {
   const origin = req.headers.origin ?? undefined;
-  const requestedHeaders = req.get("Access-Control-Request-Headers");
-  const requestedMethod = req.get("Access-Control-Request-Method");
 
   res.setHeader(
     "Access-Control-Allow-Headers",
-    requestedHeaders || DEFAULT_ALLOW_HEADERS.join(", ")
+    DEFAULT_ALLOW_HEADERS.join(", ")
   );
   res.setHeader(
     "Access-Control-Allow-Methods",
-    requestedMethod || DEFAULT_ALLOW_METHODS.join(",")
+    DEFAULT_ALLOW_METHODS.join(",")
   );
   res.setHeader("Access-Control-Max-Age", String(MAX_AGE_SECONDS));
   res.setHeader("Access-Control-Expose-Headers", EXPOSE_HEADERS.join(","));

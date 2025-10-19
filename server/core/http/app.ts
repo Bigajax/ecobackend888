@@ -174,6 +174,9 @@ export function createApp(): Express {
   app.use("/perfil-emocional", profileRoutes);
   app.use("/relatorio-emocional", relatorioRoutes);
 
+  // Reforça CORS após as rotas, inclusive para middlewares que lançam 4xx/5xx
+  app.use(corsResponseInjector);
+
   // 8) 404
   app.use((req, res) => {
     applyCorsResponseHeaders(req, res);
