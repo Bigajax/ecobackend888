@@ -1,6 +1,58 @@
 import type { Request, Response } from "express";
 
-import { applyCorsResponseHeaders } from "../middleware/cors";
+export interface PrepareSseHeadersOptions {
+  origin?: string | null;
+  allowCredentials?: boolean;
+  flush?: boolean;
+}
+
+function ensureVaryIncludes(response: Response, value: string) {
+  const existing = response.getHeader("Vary");
+  if (!existing) {
+    response.setHeader("Vary", value);
+    return;
+  }
+
+  const normalized = (Array.isArray(existing) ? existing : [existing])
+    .flatMap((entry) =>
+      String(entry)
+        .split(",")
+        .map((piece) => piece.trim())
+        .filter(Boolean)
+    )
+    .filter(Boolean);
+
+  if (!normalized.includes(value)) {
+    normalized.push(value);
+    response.setHeader("Vary", normalized.join(", "));
+  }
+}
+
+export function prepareSseHeaders(
+  res: Response,
+  options: PrepareSseHeadersOptions = {}
+) {
+  const { origin, allowCredentials = false, flush = true } = options;
+
+  if (origin) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+  }
+
+  ensureVaryIncludes(res, "Origin");
+
+  res.setHeader(
+    "Access-Control-Allow-Credentials",
+    allowCredentials ? "true" : "false"
+  );
+  res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
+  res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no");
+
+  if (flush) {
+    (res as any).flushHeaders?.();
+  }
+}
 
 export type IntervalRef = ReturnType<typeof setInterval>;
 export type TimeoutRef = ReturnType<typeof setTimeout>;
@@ -34,12 +86,21 @@ export function createSSE(
 ): SSEConnection {
   const { heartbeatMs = 15000, idleMs, onIdle } = opts;
 
-  applyCorsResponseHeaders(req, res);
   res.status(200);
-  res.setHeader("Content-Type", "text/event-stream");
-  res.setHeader("Cache-Control", "no-cache");
-  res.setHeader("Connection", "keep-alive");
-  res.setHeader("X-Accel-Buffering", "no");
+
+  if (!res.hasHeader("Content-Type")) {
+    res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+  }
+  if (!res.hasHeader("Cache-Control")) {
+    res.setHeader("Cache-Control", "no-cache, no-transform");
+  }
+  if (!res.hasHeader("Connection")) {
+    res.setHeader("Connection", "keep-alive");
+  }
+  if (!res.hasHeader("X-Accel-Buffering")) {
+    res.setHeader("X-Accel-Buffering", "no");
+  }
+
   (res as any).flushHeaders?.();
 
   let ended = false;

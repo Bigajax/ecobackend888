@@ -8,7 +8,8 @@ import { log } from "../services/promptContext/logger";
 import type { EcoStreamHandler, EcoStreamEvent } from "../services/conversation/types";
 import { createHttpError, isHttpError } from "../utils/http";
 import { getSupabaseAdmin } from "../lib/supabaseAdmin";
-import { createSSE } from "../utils/sse";
+import { createSSE, prepareSseHeaders } from "../utils/sse";
+import { applyCorsResponseHeaders, isAllowedOrigin } from "../middleware/cors";
 
 /** Sanitiza a saída removendo blocos ```json``` e JSON final pendurado */
 function sanitizeOutput(input?: string): string {
@@ -322,7 +323,22 @@ askEcoRouter.post("/", async (req: Request, res: Response) => {
   })();
   const wantsStreamByFlag = typeof streamParam === "string" && /^(1|true|yes)$/i.test(streamParam.trim());
   const wantsStream = wantsStreamByFlag || accept.includes("text/event-stream");
-  const origin = (req.headers.origin as string) || undefined;
+  const originHeader = typeof req.headers.origin === "string" ? req.headers.origin : undefined;
+  const allowedOrigin = isAllowedOrigin(originHeader);
+  const origin = originHeader || undefined;
+  const streamIdHeader = req.headers["x-stream-id"];
+  const streamId = typeof streamIdHeader === "string" ? streamIdHeader : undefined;
+
+  if (wantsStream && !allowedOrigin) {
+    log.warn("[ask-eco] origin_blocked", { origin: origin ?? null });
+    return res.status(403).end();
+  }
+
+  const locals = (res.locals ?? {}) as Record<string, unknown>;
+  locals.corsAllowed = allowedOrigin;
+  locals.corsOrigin = origin ?? null;
+
+  applyCorsResponseHeaders(req, res);
 
   (res.locals as Record<string, unknown>).isSse = wantsStream;
 
@@ -454,7 +470,18 @@ askEcoRouter.post("/", async (req: Request, res: Response) => {
     }
 
     // SSE mode
+    res.status(200);
     disableCompressionForSse(res);
+
+    prepareSseHeaders(res, {
+      origin: allowedOrigin && origin ? origin : undefined,
+      allowCredentials: false,
+    });
+
+    console.info("[ask-eco] start", {
+      origin: origin ?? null,
+      streamId: streamId ?? null,
+    });
 
     const telemetryClient = (() => {
       const client = getSupabaseAdmin();
@@ -574,6 +601,17 @@ askEcoRouter.post("/", async (req: Request, res: Response) => {
       lastChunkAt: 0,
       model: null as string | null,
       firstTokenTelemetrySent: false,
+      endLogged: false,
+    };
+
+    const consoleStreamEnd = (payload?: Record<string, unknown>) => {
+      if (state.endLogged) return;
+      state.endLogged = true;
+      console.info("[ask-eco] end", {
+        origin: origin ?? null,
+        streamId: streamId ?? null,
+        ...(payload ?? {}),
+      });
     };
 
     const idleTimeoutMs =
@@ -583,6 +621,11 @@ askEcoRouter.post("/", async (req: Request, res: Response) => {
       heartbeatMs: 15_000,
       idleMs: idleTimeoutMs,
       onIdle: handleStreamTimeout,
+    });
+
+    log.info("[ask-eco] stream_start", {
+      origin: origin ?? null,
+      idleTimeoutMs,
     });
 
     const recordFirstTokenTelemetry = (chunkBytes: number) => {
@@ -646,6 +689,20 @@ askEcoRouter.post("/", async (req: Request, res: Response) => {
         bytes: state.bytesCount,
         durationMs: totalLatency,
       });
+
+      log.info("[ask-eco] stream_end", {
+        finishReason,
+        chunks: state.chunksCount,
+        bytes: state.bytesCount,
+        clientClosed: state.clientClosed,
+        origin: origin ?? null,
+      });
+
+      const endPayload: Record<string, unknown> = {};
+      if (finishReason) {
+        endPayload.finishReason = finishReason;
+      }
+      consoleStreamEnd(Object.keys(endPayload).length ? endPayload : undefined);
 
       const doneValue = finishReason === "error" || finishReason === "timeout" ? 0 : 1;
       enqueuePassiveSignal(
@@ -715,6 +772,17 @@ askEcoRouter.post("/", async (req: Request, res: Response) => {
         log.warn("[ask-eco] sse_client_closed", {
           origin,
         });
+        state.finishReason = state.finishReason || "client_closed";
+        state.done = true;
+        log.info("[ask-eco] stream_end", {
+          finishReason: state.finishReason,
+          chunks: state.chunksCount,
+          bytes: state.bytesCount,
+          clientClosed: state.clientClosed,
+          origin: origin ?? null,
+        });
+        consoleStreamEnd({ clientClosed: true });
+        sse.end();
       }
     });
 
