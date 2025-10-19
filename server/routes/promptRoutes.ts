@@ -54,6 +54,28 @@ function disableCompressionForSse(response: Response) {
   (response as any).removeHeader?.("Content-Length");
 }
 
+function ensureVaryIncludes(response: Response, value: string) {
+  const existing = response.getHeader("Vary");
+  if (!existing) {
+    response.setHeader("Vary", value);
+    return;
+  }
+
+  const normalized = (Array.isArray(existing) ? existing : [existing])
+    .flatMap((entry) =>
+      String(entry)
+        .split(",")
+        .map((piece) => piece.trim())
+        .filter(Boolean)
+    )
+    .filter(Boolean);
+
+  if (!normalized.includes(value)) {
+    normalized.push(value);
+    response.setHeader("Vary", normalized.join(", "));
+  }
+}
+
 function extractSessionIdLoose(value: unknown): string | null {
   if (!value || typeof value !== "object") return null;
   const source = value as Record<string, unknown>;
@@ -310,6 +332,7 @@ function resolveGuestId(
 
 /** POST /api/ask-eco — stream SSE (ou JSON se cliente não pedir SSE) */
 askEcoRouter.post("/", async (req: Request, res: Response) => {
+  applyCorsResponseHeaders(req, res);
   const reqWithIdentity = req as RequestWithIdentity;
   const accept = String(req.headers.accept || "").toLowerCase();
   const streamParam = (() => {
@@ -472,6 +495,39 @@ askEcoRouter.post("/", async (req: Request, res: Response) => {
     // SSE mode
     res.status(200);
     disableCompressionForSse(res);
+    prepareSseHeaders(req, res);
+
+    if (origin) {
+      res.setHeader("Access-Control-Allow-Origin", origin);
+    }
+    res.append("Vary", "Origin");
+    res.setHeader("Access-Control-Allow-Credentials", "false");
+    res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+    res.setHeader("Cache-Control", "no-cache, no-transform");
+    res.setHeader("Connection", "keep-alive");
+    res.setHeader("X-Accel-Buffering", "no");
+    (res as any).flushHeaders?.();
+
+    console.info("[ask-eco] start", {
+      origin: origin ?? null,
+      streamId: streamId ?? null,
+    });
+
+    if (origin) {
+      res.setHeader("Access-Control-Allow-Origin", origin);
+    }
+    ensureVaryIncludes(res, "Origin");
+    res.setHeader("Access-Control-Allow-Credentials", "false");
+    res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+    res.setHeader("Cache-Control", "no-cache, no-transform");
+    res.setHeader("Connection", "keep-alive");
+    res.setHeader("X-Accel-Buffering", "no");
+    (res as any).flushHeaders?.();
+
+    console.info("[ask-eco] start", {
+      origin: origin ?? null,
+      streamId: streamId ?? null,
+    });
 
     prepareSseHeaders(res, {
       origin: allowedOrigin && origin ? origin : undefined,
