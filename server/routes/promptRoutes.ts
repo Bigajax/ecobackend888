@@ -9,6 +9,7 @@ import type { EcoStreamHandler, EcoStreamEvent } from "../services/conversation/
 import { createHttpError, isHttpError } from "../utils/http";
 import { getSupabaseAdmin } from "../lib/supabaseAdmin";
 import { createSSE } from "../utils/sse";
+import { applyCorsResponseHeaders } from "../middleware/cors";
 
 /** Sanitiza a saída removendo blocos ```json``` e JSON final pendurado */
 function sanitizeOutput(input?: string): string {
@@ -51,6 +52,14 @@ function disableCompressionForSse(response: Response) {
   response.setHeader("Content-Encoding", "identity");
   response.setHeader("X-No-Compression", "1");
   (response as any).removeHeader?.("Content-Length");
+}
+
+function prepareSseHeaders(_req: Request, res: Response) {
+  res.setHeader("Access-Control-Allow-Credentials", "false");
+  res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
+  res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no");
 }
 
 function extractSessionIdLoose(value: unknown): string | null {
@@ -309,6 +318,7 @@ function resolveGuestId(
 
 /** POST /api/ask-eco — stream SSE (ou JSON se cliente não pedir SSE) */
 askEcoRouter.post("/", async (req: Request, res: Response) => {
+  applyCorsResponseHeaders(req, res);
   const reqWithIdentity = req as RequestWithIdentity;
   const accept = String(req.headers.accept || "").toLowerCase();
   const streamParam = (() => {
@@ -455,6 +465,7 @@ askEcoRouter.post("/", async (req: Request, res: Response) => {
 
     // SSE mode
     disableCompressionForSse(res);
+    prepareSseHeaders(req, res);
 
     const telemetryClient = (() => {
       const client = getSupabaseAdmin();
@@ -585,6 +596,11 @@ askEcoRouter.post("/", async (req: Request, res: Response) => {
       onIdle: handleStreamTimeout,
     });
 
+    log.info("[ask-eco] stream_start", {
+      origin: origin ?? null,
+      idleTimeoutMs,
+    });
+
     const recordFirstTokenTelemetry = (chunkBytes: number) => {
       if (state.firstTokenTelemetrySent) return;
       state.firstTokenTelemetrySent = true;
@@ -645,6 +661,14 @@ askEcoRouter.post("/", async (req: Request, res: Response) => {
         totalChunks: state.chunksCount,
         bytes: state.bytesCount,
         durationMs: totalLatency,
+      });
+
+      log.info("[ask-eco] stream_end", {
+        finishReason,
+        chunks: state.chunksCount,
+        bytes: state.bytesCount,
+        clientClosed: state.clientClosed,
+        origin: origin ?? null,
       });
 
       const doneValue = finishReason === "error" || finishReason === "timeout" ? 0 : 1;
@@ -715,6 +739,16 @@ askEcoRouter.post("/", async (req: Request, res: Response) => {
         log.warn("[ask-eco] sse_client_closed", {
           origin,
         });
+        state.finishReason = state.finishReason || "client_closed";
+        state.done = true;
+        log.info("[ask-eco] stream_end", {
+          finishReason: state.finishReason,
+          chunks: state.chunksCount,
+          bytes: state.bytesCount,
+          clientClosed: state.clientClosed,
+          origin: origin ?? null,
+        });
+        sse.end();
       }
     });
 
