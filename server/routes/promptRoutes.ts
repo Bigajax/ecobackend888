@@ -9,7 +9,7 @@ import type { EcoStreamHandler, EcoStreamEvent } from "../services/conversation/
 import { createHttpError, isHttpError } from "../utils/http";
 import { getSupabaseAdmin } from "../lib/supabaseAdmin";
 import { createSSE } from "../utils/sse";
-import { applyCorsResponseHeaders } from "../middleware/cors";
+import { applyCorsResponseHeaders, isAllowedOrigin } from "../middleware/cors";
 
 /** Sanitiza a saída removendo blocos ```json``` e JSON final pendurado */
 function sanitizeOutput(input?: string): string {
@@ -332,7 +332,22 @@ askEcoRouter.post("/", async (req: Request, res: Response) => {
   })();
   const wantsStreamByFlag = typeof streamParam === "string" && /^(1|true|yes)$/i.test(streamParam.trim());
   const wantsStream = wantsStreamByFlag || accept.includes("text/event-stream");
-  const origin = (req.headers.origin as string) || undefined;
+  const originHeader = typeof req.headers.origin === "string" ? req.headers.origin : undefined;
+  const allowedOrigin = isAllowedOrigin(originHeader);
+  const origin = originHeader || undefined;
+  const streamIdHeader = req.headers["x-stream-id"];
+  const streamId = typeof streamIdHeader === "string" ? streamIdHeader : undefined;
+
+  if (wantsStream && !allowedOrigin) {
+    log.warn("[ask-eco] origin_blocked", { origin: origin ?? null });
+    return res.status(403).end();
+  }
+
+  const locals = (res.locals ?? {}) as Record<string, unknown>;
+  locals.corsAllowed = allowedOrigin;
+  locals.corsOrigin = origin ?? null;
+
+  applyCorsResponseHeaders(req, res);
 
   (res.locals as Record<string, unknown>).isSse = wantsStream;
 
@@ -467,6 +482,22 @@ askEcoRouter.post("/", async (req: Request, res: Response) => {
     disableCompressionForSse(res);
     prepareSseHeaders(req, res);
 
+    if (origin) {
+      res.setHeader("Access-Control-Allow-Origin", origin);
+    }
+    res.append("Vary", "Origin");
+    res.setHeader("Access-Control-Allow-Credentials", "false");
+    res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+    res.setHeader("Cache-Control", "no-cache, no-transform");
+    res.setHeader("Connection", "keep-alive");
+    res.setHeader("X-Accel-Buffering", "no");
+    (res as any).flushHeaders?.();
+
+    console.info("[ask-eco] start", {
+      origin: origin ?? null,
+      streamId: streamId ?? null,
+    });
+
     const telemetryClient = (() => {
       const client = getSupabaseAdmin();
       if (!client) return null;
@@ -585,6 +616,17 @@ askEcoRouter.post("/", async (req: Request, res: Response) => {
       lastChunkAt: 0,
       model: null as string | null,
       firstTokenTelemetrySent: false,
+      endLogged: false,
+    };
+
+    const consoleStreamEnd = (payload?: Record<string, unknown>) => {
+      if (state.endLogged) return;
+      state.endLogged = true;
+      console.info("[ask-eco] end", {
+        origin: origin ?? null,
+        streamId: streamId ?? null,
+        ...(payload ?? {}),
+      });
     };
 
     const idleTimeoutMs =
@@ -671,6 +713,12 @@ askEcoRouter.post("/", async (req: Request, res: Response) => {
         origin: origin ?? null,
       });
 
+      const endPayload: Record<string, unknown> = {};
+      if (finishReason) {
+        endPayload.finishReason = finishReason;
+      }
+      consoleStreamEnd(Object.keys(endPayload).length ? endPayload : undefined);
+
       const doneValue = finishReason === "error" || finishReason === "timeout" ? 0 : 1;
       enqueuePassiveSignal(
         "done",
@@ -748,6 +796,7 @@ askEcoRouter.post("/", async (req: Request, res: Response) => {
           clientClosed: state.clientClosed,
           origin: origin ?? null,
         });
+        consoleStreamEnd({ clientClosed: true });
         sse.end();
       }
     });
