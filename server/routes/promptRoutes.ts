@@ -8,7 +8,7 @@ import { log } from "../services/promptContext/logger";
 import type { EcoStreamHandler, EcoStreamEvent } from "../services/conversation/types";
 import { createHttpError, isHttpError } from "../utils/http";
 import { getSupabaseAdmin } from "../lib/supabaseAdmin";
-import { createSSE } from "../utils/sse";
+import { createSSE, prepareSseHeaders } from "../utils/sse";
 import { applyCorsResponseHeaders, isAllowedOrigin } from "../middleware/cors";
 
 /** Sanitiza a saída removendo blocos ```json``` e JSON final pendurado */
@@ -523,6 +523,16 @@ askEcoRouter.post("/", async (req: Request, res: Response) => {
     res.setHeader("Connection", "keep-alive");
     res.setHeader("X-Accel-Buffering", "no");
     (res as any).flushHeaders?.();
+
+    console.info("[ask-eco] start", {
+      origin: origin ?? null,
+      streamId: streamId ?? null,
+    });
+
+    prepareSseHeaders(res, {
+      origin: allowedOrigin && origin ? origin : undefined,
+      allowCredentials: false,
+    });
 
     console.info("[ask-eco] start", {
       origin: origin ?? null,
