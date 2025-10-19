@@ -332,6 +332,7 @@ function resolveGuestId(
 
 /** POST /api/ask-eco — stream SSE (ou JSON se cliente não pedir SSE) */
 askEcoRouter.post("/", async (req: Request, res: Response) => {
+  applyCorsResponseHeaders(req, res);
   const reqWithIdentity = req as RequestWithIdentity;
   const accept = String(req.headers.accept || "").toLowerCase();
   const streamParam = (() => {
@@ -494,6 +495,23 @@ askEcoRouter.post("/", async (req: Request, res: Response) => {
     // SSE mode
     res.status(200);
     disableCompressionForSse(res);
+    prepareSseHeaders(req, res);
+
+    if (origin) {
+      res.setHeader("Access-Control-Allow-Origin", origin);
+    }
+    res.append("Vary", "Origin");
+    res.setHeader("Access-Control-Allow-Credentials", "false");
+    res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+    res.setHeader("Cache-Control", "no-cache, no-transform");
+    res.setHeader("Connection", "keep-alive");
+    res.setHeader("X-Accel-Buffering", "no");
+    (res as any).flushHeaders?.();
+
+    console.info("[ask-eco] start", {
+      origin: origin ?? null,
+      streamId: streamId ?? null,
+    });
 
     if (origin) {
       res.setHeader("Access-Control-Allow-Origin", origin);
