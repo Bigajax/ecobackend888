@@ -33,10 +33,20 @@ export function createSSE(
   const { heartbeatMs = 15000, idleMs, onIdle } = opts;
 
   res.status(200);
-  res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
-  res.setHeader("Cache-Control", "no-cache, no-transform");
-  res.setHeader("Connection", "keep-alive");
-  res.setHeader("X-Accel-Buffering", "no");
+
+  if (!res.hasHeader("Content-Type")) {
+    res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+  }
+  if (!res.hasHeader("Cache-Control")) {
+    res.setHeader("Cache-Control", "no-cache, no-transform");
+  }
+  if (!res.hasHeader("Connection")) {
+    res.setHeader("Connection", "keep-alive");
+  }
+  if (!res.hasHeader("X-Accel-Buffering")) {
+    res.setHeader("X-Accel-Buffering", "no");
+  }
+
   (res as any).flushHeaders?.();
 
   let ended = false;
