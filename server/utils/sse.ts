@@ -1,7 +1,5 @@
 import type { Request, Response } from "express";
 
-import { applyCorsResponseHeaders } from "../middleware/cors";
-
 export type IntervalRef = ReturnType<typeof setInterval>;
 export type TimeoutRef = ReturnType<typeof setTimeout>;
 
@@ -34,10 +32,9 @@ export function createSSE(
 ): SSEConnection {
   const { heartbeatMs = 15000, idleMs, onIdle } = opts;
 
-  applyCorsResponseHeaders(req, res);
   res.status(200);
-  res.setHeader("Content-Type", "text/event-stream");
-  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
   res.setHeader("Connection", "keep-alive");
   res.setHeader("X-Accel-Buffering", "no");
   (res as any).flushHeaders?.();
