@@ -11,6 +11,7 @@ router.post("/registrar", controller.registerMemory);
 router.get("/", controller.listMemories);
 router.post("/similares", controller.findSimilar);
 
+router.get("/similares_v2", controller.findSimilarV2);
 router.post("/similares_v2", controller.findSimilar);
 router.post("/similar_v2", controller.findSimilar);
 

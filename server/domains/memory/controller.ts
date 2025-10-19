@@ -54,6 +54,17 @@ function getUsuarioIdFromQuery(req: Request): string | null {
   return null;
 }
 
+function getQueryString(value: unknown): string | null {
+  if (Array.isArray(value)) {
+    const last = value[value.length - 1];
+    return typeof last === "string" && last.trim() ? last.trim() : null;
+  }
+  if (typeof value === "string" && value.trim()) {
+    return value.trim();
+  }
+  return null;
+}
+
 function respondMissingUserId(res: Response) {
   return res.status(400).json({
     error: {
@@ -299,6 +310,79 @@ export class MemoryController {
         (error as Error)?.message || error
       );
       return res.status(500).json({ error: "Erro inesperado no servidor." });
+    }
+  };
+
+  findSimilarV2 = async (req: Request, res: Response) => {
+    const usuarioId = getUsuarioIdFromQuery(req);
+    const queryText =
+      getQueryString(req.query?.q) ||
+      getQueryString((req.query as Record<string, unknown>)?.texto) ||
+      getQueryString((req.query as Record<string, unknown>)?.query);
+    const mensagemId =
+      getQueryString(req.query?.mensagem_id) ||
+      getQueryString((req.query as Record<string, unknown>)?.mensagemId);
+
+    if (!usuarioId || (!queryText && !mensagemId)) {
+      return res.status(400).json({ error: { code: "MISSING_PARAMS" } });
+    }
+
+    let textoBase = queryText ?? "";
+
+    if (!textoBase && mensagemId) {
+      try {
+        const { data, error } = await this.supabaseClient
+          .from("mensagem")
+          .select("texto")
+          .eq("id", mensagemId)
+          .maybeSingle();
+        if (error) {
+          console.error("❌ Erro ao buscar mensagem para similares_v2:", error.message);
+          return res.status(500).json({ error: { code: "UNEXPECTED_ERROR" } });
+        }
+        const texto = typeof data?.texto === "string" ? data.texto.trim() : "";
+        if (!texto) {
+          return res.status(200).json({ success: true, similares: [] });
+        }
+        textoBase = texto;
+      } catch (fetchError) {
+        console.error(
+          "❌ Falha inesperada ao buscar mensagem:",
+          (fetchError as Error).message
+        );
+        return res.status(500).json({ error: { code: "UNEXPECTED_ERROR" } });
+      }
+    }
+
+    if (!textoBase) {
+      return res.status(200).json({ success: true, similares: [] });
+    }
+
+    const limiteRaw = getQueryString(req.query?.limite ?? req.query?.limit) ?? "3";
+    const limiteParsed = Number(limiteRaw);
+    const limite = Math.max(1, Math.min(5, Number.isNaN(limiteParsed) ? 3 : limiteParsed));
+
+    const thresholdRaw = getQueryString(req.query?.threshold) ?? "0.15";
+    let threshold = Number(thresholdRaw);
+    if (!Number.isFinite(threshold)) threshold = 0.15;
+    threshold = Math.max(0, Math.min(1, threshold));
+
+    if (/lembr|record|memó/i.test(textoBase)) threshold = Math.min(threshold, 0.12);
+    if (textoBase.length < 20) threshold = Math.min(threshold, 0.1);
+
+    try {
+      const similares = await this.service.findSimilarMemories(usuarioId, {
+        texto: textoBase,
+        limite,
+        threshold,
+      });
+      return res.status(200).json({ success: true, similares });
+    } catch (error) {
+      console.error(
+        "❌ Erro inesperado ao buscar memórias (similares_v2):",
+        (error as Error)?.message || error
+      );
+      return res.status(500).json({ error: { code: "UNEXPECTED_ERROR" } });
     }
   };
 }

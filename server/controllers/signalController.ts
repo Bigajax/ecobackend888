@@ -28,32 +28,55 @@ function sanitizeMeta(value: unknown): Record<string, unknown> {
   }
 }
 
+function respondMissingParams(res: Response) {
+  return res.status(400).json({ error: { code: "MISSING_PARAMS" } });
+}
+
+function respondSignalStoreDisabled(res: Response) {
+  return res.status(501).json({ error: { code: "SIGNAL_STORE_DISABLED" } });
+}
+
+function isStorageDisabled(error: { code?: string | null; message: string }) {
+  const code = error.code ?? "";
+  if (code === "42P01" || code === "42703") return true;
+  const message = error.message?.toLowerCase?.() ?? "";
+  return message.includes("does not exist") || message.includes("missing column");
+}
+
 export async function registrarSignal(req: Request, res: Response) {
   const body = (req.body && typeof req.body === "object" ? req.body : {}) as Record<string, unknown>;
 
   const rawSignal = normalizeSignal(body.signal ?? null);
   const rawInteractionId = body.interaction_id;
+  const userOrGuest = normalizeSignal(body.user_or_guest ?? null);
 
-  logger.info({ tag: "signal_request", signal: rawSignal ?? null, has_interaction_id: Boolean(rawInteractionId) });
+  logger.info({
+    tag: "signal_request",
+    signal: rawSignal ?? null,
+    has_interaction_id: Boolean(rawInteractionId),
+    user_or_guest: userOrGuest ?? null,
+  });
 
-  if (!rawSignal) {
-    return res.status(400).json({ error: "missing_signal" });
-  }
-
-  if (!rawInteractionId) {
-    logger.warn("signal.missing_interaction_id", { signal: rawSignal });
-    return res.status(400).json({ error: "missing_interaction_id" });
+  if (!rawSignal || !rawInteractionId || !userOrGuest) {
+    return respondMissingParams(res);
   }
 
   if (!isValidUuid(rawInteractionId)) {
-    logger.warn("signal.invalid_interaction_id", { signal: rawSignal, interaction_id: rawInteractionId });
-    return res.status(400).json({ error: "invalid_interaction_id" });
+    logger.warn("signal.invalid_interaction_id", {
+      signal: rawSignal,
+      interaction_id: rawInteractionId,
+    });
+    return res.status(400).json({ error: { code: "INVALID_INTERACTION_ID" } });
   }
 
   const interactionId = (rawInteractionId as string).trim();
-  const meta = sanitizeMeta(body.meta);
+  const meta = { ...sanitizeMeta(body.meta), user_or_guest: userOrGuest };
 
   const analytics = getAnalyticsClient();
+  if (!analytics) {
+    logger.warn("signal.store_unavailable", { reason: "analytics_client_missing" });
+    return respondSignalStoreDisabled(res);
+  }
 
   const payload = {
     interaction_id: interactionId,
@@ -74,6 +97,16 @@ export async function registrarSignal(req: Request, res: Response) {
     return res.status(204).end();
   }
 
+  if (isStorageDisabled(error)) {
+    logger.warn("signal.store_disabled", {
+      signal: rawSignal,
+      interaction_id: interactionId,
+      message: error.message,
+      code: error.code ?? null,
+    });
+    return respondSignalStoreDisabled(res);
+  }
+
   if (error.code === "23503") {
     logger.error("signal.persist.fk_violation", {
       signal: rawSignal,
@@ -82,7 +115,7 @@ export async function registrarSignal(req: Request, res: Response) {
       table: "eco_passive_signals",
       payload,
     });
-    return res.status(404).json({ error: "interaction_not_found" });
+    return res.status(404).json({ error: { code: "INTERACTION_NOT_FOUND" } });
   }
 
   logger.error("signal.persist.error", {
@@ -94,5 +127,5 @@ export async function registrarSignal(req: Request, res: Response) {
     payload,
   });
 
-  return res.status(500).json({ error: "internal_error" });
+  return res.status(500).json({ error: { code: "INTERNAL_ERROR" } });
 }

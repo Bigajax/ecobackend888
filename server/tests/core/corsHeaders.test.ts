@@ -53,18 +53,18 @@ test("OPTIONS /api/ask-eco responde 204 com allowlist padrão", async () => {
     );
     assert.equal(
       response.headers.get("access-control-allow-credentials"),
-      "true",
-      "preflight deve sinalizar credenciais",
+      "false",
+      "preflight deve sinalizar ausência de credenciais",
     );
     assert.equal(
       response.headers.get("access-control-allow-headers"),
-      "Content-Type, X-Guest-Id",
-      "deve ecoar os headers solicitados",
+      "Accept, Content-Type, Origin, X-Requested-With, X-Guest-Id, Authorization",
+      "deve aplicar a lista padrão de headers",
     );
     assert.equal(
       response.headers.get("access-control-allow-methods"),
-      "POST",
-      "deve ecoar o método solicitado",
+      "GET,POST,OPTIONS",
+      "deve aplicar a lista padrão de métodos",
     );
   } finally {
     await closeServer(server);
