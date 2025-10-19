@@ -108,6 +108,15 @@ export function createApp(): Express {
   app.use(corsMiddleware);
   app.use(corsResponseInjector);
 
+  // Fallback to guarantee CORS on API prefixes even if upstream middlewares skip it
+  app.use("/api/*", (req, res, next) => {
+    const locals = (res.locals ?? {}) as Record<string, unknown>;
+    if (typeof locals.__corsHandled === "boolean" && locals.__corsHandled) {
+      return next();
+    }
+    return corsMiddleware(req, res, next);
+  });
+
   // 2) Parsers (não executam em OPTIONS)
   app.use(express.json({ limit: "1mb" }));
   app.use(express.urlencoded({ extended: true }));
@@ -148,7 +157,6 @@ export function createApp(): Express {
 
   // 7) Rotas (prefixo /api) — /api/ask-eco (SSE) vive em promptRoutes
   app.use("/api/ask-eco", askEcoRoutes);
-  app.use("/api/ask_eco", askEcoRoutes);
   app.use("/api", promptRoutes);
   app.use("/api/memorias", memoryRoutes);
   app.use("/api/memories", memoryRoutes);

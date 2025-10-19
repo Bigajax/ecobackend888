@@ -30,6 +30,7 @@ const DEFAULT_ALLOW_HEADERS = [
   "Origin",
   "X-Requested-With",
   "X-Guest-Id",
+  "X-Session-Id",
   "Authorization",
 ];
 const DEFAULT_ALLOW_METHODS = ["GET", "POST", "OPTIONS"];
@@ -199,10 +200,15 @@ export function corsMiddleware(req: Request, res: Response, next: NextFunction) 
       log.warn("[cors] origin_blocked", { origin, path: req.path });
     }
 
-    (res.locals as Record<string, unknown>).corsAllowed = allowed;
-    (res.locals as Record<string, unknown>).corsOrigin = origin;
+    const locals = res.locals as Record<string, unknown>;
+    locals.corsAllowed = allowed;
+    locals.corsOrigin = origin;
+    locals.__corsHandled = true;
 
     applyCorsResponseHeaders(req, res);
+
+    const requestPath = req.originalUrl || req.path;
+    console.log("[cors] request", origin ?? null, requestPath, allowed);
 
     return next();
   });

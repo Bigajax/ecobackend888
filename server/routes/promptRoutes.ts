@@ -840,6 +840,5 @@ askEcoRouter.post("/", async (req: Request, res: Response) => {
 });
 
 router.use("/ask-eco", askEcoRouter);
-router.use("/ask_eco", askEcoRouter);
 
 export default router;
