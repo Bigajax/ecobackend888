@@ -323,8 +323,12 @@ export class MemoryController {
       getQueryString(req.query?.mensagem_id) ||
       getQueryString((req.query as Record<string, unknown>)?.mensagemId);
 
-    if (!usuarioId || (!queryText && !mensagemId)) {
-      return res.status(400).json({ error: { code: "MISSING_PARAMS" } });
+    if (!usuarioId) {
+      return res.status(200).json({ success: true, similares: [] });
+    }
+
+    if (!queryText && !mensagemId) {
+      return res.status(200).json({ success: true, similares: [] });
     }
 
     let textoBase = queryText ?? "";
@@ -358,7 +362,10 @@ export class MemoryController {
       return res.status(200).json({ success: true, similares: [] });
     }
 
-    const limiteRaw = getQueryString(req.query?.limite ?? req.query?.limit) ?? "3";
+    const limiteRaw =
+      getQueryString(req.query?.k) ||
+      getQueryString(req.query?.limite ?? req.query?.limit) ||
+      "3";
     const limiteParsed = Number(limiteRaw);
     const limite = Math.max(1, Math.min(5, Number.isNaN(limiteParsed) ? 3 : limiteParsed));
 
