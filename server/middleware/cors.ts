@@ -27,8 +27,6 @@ const DEFAULT_ALLOW_HEADERS = [
   "X-Session-Id",
   "X-Requested-With",
   "Cache-Control",
-  "Accept",
-  "Origin",
 ];
 const DEFAULT_ALLOW_METHODS = ["GET", "POST", "OPTIONS"];
 const EXPOSE_HEADERS = ["X-Request-Id", "Cache-Control"];
@@ -75,7 +73,7 @@ function applyPreflightHeaders(req: Request, res: Response, allowed: boolean) {
   );
   res.setHeader(
     "Access-Control-Allow-Methods",
-    DEFAULT_ALLOW_METHODS.join(",")
+    DEFAULT_ALLOW_METHODS.join(", ")
   );
   res.setHeader("Access-Control-Max-Age", String(MAX_AGE_SECONDS));
   res.setHeader("Access-Control-Expose-Headers", EXPOSE_HEADERS.join(","));
@@ -111,7 +109,7 @@ export function applyCorsResponseHeaders(req: Request, res: Response) {
 
   res.setHeader("Access-Control-Allow-Credentials", "false");
   res.setHeader("Access-Control-Allow-Headers", DEFAULT_ALLOW_HEADERS.join(", "));
-  res.setHeader("Access-Control-Allow-Methods", DEFAULT_ALLOW_METHODS.join(","));
+  res.setHeader("Access-Control-Allow-Methods", DEFAULT_ALLOW_METHODS.join(", "));
   res.setHeader("Access-Control-Max-Age", String(MAX_AGE_SECONDS));
   res.setHeader("Access-Control-Expose-Headers", EXPOSE_HEADERS.join(","));
 }

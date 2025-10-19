@@ -232,6 +232,8 @@ export function startEcoStream({
     try {
       const response = await fetch(endpoint, {
         method: "POST",
+        mode: "cors",
+        credentials: "omit",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,

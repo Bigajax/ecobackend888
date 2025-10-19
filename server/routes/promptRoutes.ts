@@ -54,6 +54,14 @@ function disableCompressionForSse(response: Response) {
   (response as any).removeHeader?.("Content-Length");
 }
 
+function prepareSseHeaders(_req: Request, res: Response) {
+  res.setHeader("Access-Control-Allow-Credentials", "false");
+  res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
+  res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no");
+}
+
 function extractSessionIdLoose(value: unknown): string | null {
   if (!value || typeof value !== "object") return null;
   const source = value as Record<string, unknown>;
@@ -457,6 +465,7 @@ askEcoRouter.post("/", async (req: Request, res: Response) => {
 
     // SSE mode
     disableCompressionForSse(res);
+    prepareSseHeaders(req, res);
 
     const telemetryClient = (() => {
       const client = getSupabaseAdmin();
@@ -659,6 +668,7 @@ askEcoRouter.post("/", async (req: Request, res: Response) => {
         chunks: state.chunksCount,
         bytes: state.bytesCount,
         clientClosed: state.clientClosed,
+        origin: origin ?? null,
       });
 
       const doneValue = finishReason === "error" || finishReason === "timeout" ? 0 : 1;
@@ -728,6 +738,15 @@ askEcoRouter.post("/", async (req: Request, res: Response) => {
       if (!state.done) {
         log.warn("[ask-eco] sse_client_closed", {
           origin,
+        });
+        state.finishReason = state.finishReason || "client_closed";
+        state.done = true;
+        log.info("[ask-eco] stream_end", {
+          finishReason: state.finishReason,
+          chunks: state.chunksCount,
+          bytes: state.bytesCount,
+          clientClosed: state.clientClosed,
+          origin: origin ?? null,
         });
         sse.end();
       }
