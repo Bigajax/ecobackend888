@@ -1,6 +1,7 @@
 import type { Request, Response } from "express";
 import { getAnalyticsClient } from "../services/supabaseClient";
 import { log } from "../services/promptContext/logger";
+import { applyCorsResponseHeaders } from "../middleware/cors";
 
 const logger = log.withContext("signal-controller");
 
@@ -28,12 +29,12 @@ function sanitizeMeta(value: unknown): Record<string, unknown> {
   }
 }
 
-function respondMissingParams(res: Response) {
-  return res.status(400).json({ error: { code: "MISSING_PARAMS" } });
-}
-
 function respondSignalStoreDisabled(res: Response) {
   return res.status(501).json({ error: { code: "SIGNAL_STORE_DISABLED" } });
+}
+
+function respondNoContent(res: Response) {
+  return res.status(204).end();
 }
 
 function isStorageDisabled(error: { code?: string | null; message: string }) {
@@ -44,11 +45,27 @@ function isStorageDisabled(error: { code?: string | null; message: string }) {
 }
 
 export async function registrarSignal(req: Request, res: Response) {
+  applyCorsResponseHeaders(req, res);
   const body = (req.body && typeof req.body === "object" ? req.body : {}) as Record<string, unknown>;
 
   const rawSignal = normalizeSignal(body.signal ?? null);
-  const rawInteractionId = body.interaction_id;
+  const rawInteractionId = typeof body.interaction_id === "string" ? body.interaction_id : null;
   const userOrGuest = normalizeSignal(body.user_or_guest ?? null);
+
+  const guestIdHeader = normalizeSignal(req.get("X-Guest-Id"));
+  const sessionIdHeader = normalizeSignal(req.get("X-Session-Id"));
+
+  const noop = (reason: string) => {
+    logger.warn("signal.ignored", {
+      reason,
+      signal: rawSignal ?? null,
+      has_interaction_id: Boolean(rawInteractionId),
+      user_or_guest: userOrGuest ?? null,
+      guest_id_header: guestIdHeader ?? null,
+      session_id_header: sessionIdHeader ?? null,
+    });
+    return respondNoContent(res);
+  };
 
   logger.info({
     tag: "signal_request",
@@ -57,8 +74,12 @@ export async function registrarSignal(req: Request, res: Response) {
     user_or_guest: userOrGuest ?? null,
   });
 
-  if (!rawSignal || !rawInteractionId || !userOrGuest) {
-    return respondMissingParams(res);
+  if (!rawSignal) {
+    return noop("missing_signal");
+  }
+
+  if (!rawInteractionId) {
+    return noop("missing_interaction_id");
   }
 
   if (!isValidUuid(rawInteractionId)) {
@@ -66,11 +87,16 @@ export async function registrarSignal(req: Request, res: Response) {
       signal: rawSignal,
       interaction_id: rawInteractionId,
     });
-    return res.status(400).json({ error: { code: "INVALID_INTERACTION_ID" } });
+    return noop("invalid_interaction_id");
   }
 
   const interactionId = (rawInteractionId as string).trim();
-  const meta = { ...sanitizeMeta(body.meta), user_or_guest: userOrGuest };
+  const meta = {
+    ...sanitizeMeta(body.meta),
+    ...(userOrGuest ? { user_or_guest: userOrGuest } : {}),
+    ...(guestIdHeader ? { guest_id_header: guestIdHeader } : {}),
+    ...(sessionIdHeader ? { session_id_header: sessionIdHeader } : {}),
+  };
 
   const analytics = getAnalyticsClient();
   if (!analytics) {
@@ -94,7 +120,7 @@ export async function registrarSignal(req: Request, res: Response) {
       table: "eco_passive_signals",
       interaction_id: interactionId,
     });
-    return res.status(204).end();
+    return respondNoContent(res);
   }
 
   if (isStorageDisabled(error)) {

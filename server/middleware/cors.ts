@@ -5,13 +5,9 @@ import { log } from "../services/promptContext/logger";
 const EXACT_ALLOWLIST = new Set<string>([
   "https://ecofrontend888.vercel.app",
   "http://localhost:5173",
-  "http://localhost:3000",
 ]);
 
-const REGEX_ALLOWLIST = [
-  /^https:\/\/ecofrontend888[-a-z0-9]*\.vercel\.app$/i,
-  /^https:\/\/[a-z0-9-]+\.vercel\.app$/i,
-];
+const REGEX_ALLOWLIST = [/^https:\/\/ecofrontend888-[a-z0-9-]+\.vercel\.app$/i];
 
 export function originOk(origin?: string | null): boolean {
   if (!origin) return true;
@@ -25,13 +21,14 @@ export function originOk(origin?: string | null): boolean {
 }
 
 const DEFAULT_ALLOW_HEADERS = [
-  "Accept",
   "Content-Type",
-  "Origin",
-  "X-Requested-With",
+  "Authorization",
   "X-Guest-Id",
   "X-Session-Id",
-  "Authorization",
+  "X-Requested-With",
+  "Cache-Control",
+  "Accept",
+  "Origin",
 ];
 const DEFAULT_ALLOW_METHODS = ["GET", "POST", "OPTIONS"];
 const EXPOSE_HEADERS = ["X-Request-Id", "Cache-Control"];
@@ -148,14 +145,11 @@ export function preflightHandler(req: Request, res: Response, next: NextFunction
   (res.locals as Record<string, unknown>).corsAllowed = allowed;
   (res.locals as Record<string, unknown>).corsOrigin = origin;
 
-  log.info("http.request", {
+  log.info("[cors] preflight", {
+    origin: origin ?? null,
     path,
-    method: "OPTIONS",
-    origin,
     allowed,
     status: 204,
-    preflight: true,
-    redirected: false,
   });
 
   return res.status(204).end();
@@ -208,7 +202,11 @@ export function corsMiddleware(req: Request, res: Response, next: NextFunction) 
     applyCorsResponseHeaders(req, res);
 
     const requestPath = req.originalUrl || req.path;
-    console.log("[cors] request", origin ?? null, requestPath, allowed);
+    log.info("[cors] request", {
+      origin: origin ?? null,
+      path: requestPath,
+      allowed,
+    });
 
     return next();
   });
