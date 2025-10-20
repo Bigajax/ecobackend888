@@ -126,3 +126,21 @@ psql ... -c "select * from analytics.v_split_48h;"
 # Inspect posterior cache from a REPL
 node -e "require('./server/services/analytics/analyticsStore').qualityAnalyticsStore.dumpBanditPosteriors().forEach(console.log)"
 ```
+
+## Posterior cache
+
+Run the cache snapshotter whenever you need a historical record of the Thompson parameters exposed to Metabase:
+
+```bash
+npm run bandit:cache
+```
+
+The script loads the manifest, hydrates 14-day posteriors, and inserts a fresh batch into `analytics.bandit_posteriors_cache`.
+Schedule it hourly (Render Cron example: `npm run bandit:cache`). Metabase’s “Posterior Drift” card should use:
+
+```sql
+select snapshot_at, family, arm_id, mean_reward, samples
+from analytics.bandit_posteriors_cache
+where snapshot_at > now() - interval '7 days'
+order by snapshot_at asc;
+```
