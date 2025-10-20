@@ -44,6 +44,10 @@ type PersistenceHandler = (snapshot: QualitySnapshot) => Promise<void> | void;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const CONFIDENCE_MIN_SAMPLES = 300;
+const DEFAULT_BANDIT_WINDOW_DAYS = 14;
+const DEFAULT_BANDIT_ALPHA = 1.5;
+const DEFAULT_BANDIT_BETA = 1.5;
+const DEFAULT_BANDIT_COLD_START = 0.35;
 
 class AnalyticsStore {
   private quality: QualitySample[] = [];
@@ -54,8 +58,40 @@ class AnalyticsStore {
 
   private persistenceHandler: PersistenceHandler | null = null;
 
+  private banditWindowMs = DEFAULT_BANDIT_WINDOW_DAYS * DAY_MS;
+
+  private banditAlphaPrior = DEFAULT_BANDIT_ALPHA;
+
+  private banditBetaPrior = DEFAULT_BANDIT_BETA;
+
+  private banditColdStartBoost = DEFAULT_BANDIT_COLD_START;
+
   setPersistence(handler: PersistenceHandler | null): void {
     this.persistenceHandler = handler;
+  }
+
+  configureBandit(options: {
+    windowDays?: number;
+    alphaPrior?: number;
+    betaPrior?: number;
+    coldStartBoost?: number;
+  }): void {
+    if (options.windowDays && options.windowDays > 0) {
+      this.banditWindowMs = options.windowDays * DAY_MS;
+    }
+    if (options.alphaPrior && options.alphaPrior > 0) {
+      this.banditAlphaPrior = options.alphaPrior;
+    }
+    if (options.betaPrior && options.betaPrior > 0) {
+      this.banditBetaPrior = options.betaPrior;
+    }
+    if (
+      options.coldStartBoost != null &&
+      options.coldStartBoost >= 0 &&
+      options.coldStartBoost <= 1
+    ) {
+      this.banditColdStartBoost = options.coldStartBoost;
+    }
   }
 
   recordQualitySample(sample: QualitySample): QualitySnapshot {
@@ -162,8 +198,8 @@ class AnalyticsStore {
 
     const count = samples.length;
     const sumNormalized = samples.reduce((acc, item) => acc + item.normalized, 0);
-    const alpha = 1 + sumNormalized;
-    const beta = 1 + count - sumNormalized;
+    const alpha = this.banditAlphaPrior + sumNormalized;
+    const beta = this.banditBetaPrior + count - sumNormalized;
     const rewardMean =
       samples.reduce((acc, item) => acc + item.reward, 0) / Math.max(1, count);
     const winRate =
@@ -188,8 +224,40 @@ class AnalyticsStore {
     this.banditOutcomes.clear();
   }
 
+  getBanditColdStartBoost(): number {
+    return this.banditColdStartBoost;
+  }
+
+  dumpBanditPosteriors(): Array<{
+    key: string;
+    alpha: number;
+    beta: number;
+    count: number;
+    normalizedMean: number;
+    rewardMean: number;
+    winRate: number;
+    lastUpdated: number | null;
+  }> {
+    const out: Array<{
+      key: string;
+      alpha: number;
+      beta: number;
+      count: number;
+      normalizedMean: number;
+      rewardMean: number;
+      winRate: number;
+      lastUpdated: number | null;
+    }> = [];
+    for (const key of this.banditOutcomes.keys()) {
+      const [pilar, arm] = key.split("::");
+      const posterior = this.getBanditPosterior(pilar, arm);
+      out.push({ key, ...posterior });
+    }
+    return out;
+  }
+
   private pruneQuality(): void {
-    const cutoff = Date.now() - 7 * DAY_MS;
+    const cutoff = Date.now() - this.banditWindowMs;
     if (this.quality.length === 0) return;
     let firstValidIndex = -1;
     for (let i = 0; i < this.quality.length; i += 1) {
