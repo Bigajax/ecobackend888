@@ -22,6 +22,7 @@ export interface FamilyContextSnapshot {
   intensity: number;
   isVulnerable: boolean;
   flags: Flags;
+  signals?: Record<string, boolean>;
 }
 
 export interface FamilyDecisionLog {
@@ -59,6 +60,9 @@ function gatePasses(
     return false;
   }
   if (!signal) return true;
+  if (signal.startsWith("bias:")) {
+    return Boolean(context.signals?.[signal]);
+  }
   switch (signal) {
     case "open":
       return context.openness >= (minOpen ?? 1);
@@ -72,6 +76,12 @@ function gatePasses(
       return Boolean(context.flags?.useMemories);
     case "pattern":
       return Boolean(context.flags?.patternSynthesis);
+    case "intensity:alta":
+      return Boolean(context.signals?.["intensity:alta"]);
+    case "memoria:alta":
+      return Boolean(context.signals?.["memoria:alta"]);
+    case "presenca_racional":
+      return Boolean(context.signals?.presenca_racional);
     default:
       log.warn("[FamilyBandit] unknown_gate_signal", { signal });
       return true;

@@ -3,6 +3,7 @@ import { computeEcoDecision } from "../conversation/ecoDecisionHub";
 import { isDebug, log } from "./logger";
 import { Selector } from "./Selector";
 import { mapHeuristicasToFlags } from "./heuristicaFlags";
+import type { HeuristicaFlagRecord } from "./heuristicaFlags";
 import type { BuildParams, SimilarMemory } from "./contextTypes";
 import type { DecSnapshot, ModuleDebugEntry } from "./Selector";
 import { ModuleCatalog } from "./moduleCatalog";
@@ -241,6 +242,164 @@ function inferIntentModules(texto: string): string[] {
   return [];
 }
 
+type DecisionSignalMap = Record<string, boolean>;
+
+const heuristicaSignalPatterns: Record<string, Array<string | RegExp>> = {
+  "bias:ancoragem": [
+    "antes era melhor",
+    "voltar como antes",
+    "no passado",
+    "naquela epoca",
+    /quando eu era/i,
+    /desde que (?:tudo|isso) aconteceu/i,
+  ],
+  "bias:causas_superam_estatisticas": [
+    "conheco um caso",
+    "aconteceu com meu",
+    "um amigo passou",
+    "caso real prova",
+    /mesmo que as? estatistic[ao]s?/i,
+  ],
+  "bias:certeza_emocional": [
+    "sinto que e verdade",
+    "no fundo eu sei",
+    "meu coracao diz",
+    "sensacao de certeza",
+  ],
+  "bias:disponibilidade": [
+    "nao paro de ver",
+    "toda hora vejo",
+    "ultimamente so vejo",
+    "vi nas noticias",
+    "aconteceu ontem de novo",
+  ],
+  "bias:excesso_confianca": [
+    "tenho certeza absoluta",
+    "impossivel dar errado",
+    "nunca falho",
+    "vai dar certo sim",
+    "sou muito bom nisso",
+  ],
+  "bias:ilusao_compreensao": [
+    "eu sabia que",
+    "sempre soube",
+    "ficou obvio depois",
+    "era claro desde o inicio",
+  ],
+  "bias:ilusao_validade": [
+    "parece certo",
+    "parece verdade",
+    "minha intuicao diz",
+    "sigo meu feeling",
+  ],
+  "bias:intuicao_especialista": [
+    "anos na area",
+    "minha experiencia mostra",
+    "ja vi isso mil vezes",
+    "confie em mim eu sei",
+  ],
+  "bias:regressao_media": [
+    "foi muita sorte",
+    "foi puro azar",
+    "sempre acontece assim",
+    "bate recorde toda vez",
+    "logo volta ao normal",
+  ],
+};
+
+const heuristicaFlagToSignal: Record<string, string> = {
+  ancoragem: "bias:ancoragem",
+  causas_superam_estatisticas: "bias:causas_superam_estatisticas",
+  certeza_emocional: "bias:certeza_emocional",
+  excesso_intuicao_especialista: "bias:intuicao_especialista",
+  ignora_regressao_media: "bias:regressao_media",
+};
+
+const racionalKeywords = [
+  "analise racional",
+  "pensar com calma",
+  "olhar racional",
+  "quero algo objetivo",
+  "presenca racional",
+  "perspectiva logica",
+  "menos emocional",
+];
+
+function normalizeForSignals(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .toLowerCase();
+}
+
+function matchesPattern(pattern: string | RegExp, normalized: string, raw: string): boolean {
+  if (typeof pattern === "string") {
+    return normalized.includes(pattern);
+  }
+  pattern.lastIndex = 0;
+  return pattern.test(raw);
+}
+
+function estimateMemoryTokens(mems: SimilarMemory[] | undefined): number {
+  if (!Array.isArray(mems) || mems.length === 0) return 0;
+  let chars = 0;
+  for (const mem of mems) {
+    const candidates = [mem?.resumo_eco, mem?.analise_resumo, mem?.texto, mem?.conteudo];
+    for (const candidate of candidates) {
+      if (typeof candidate === "string" && candidate.trim()) {
+        chars += candidate.length;
+        break;
+      }
+    }
+  }
+  return Math.round(chars / 4);
+}
+
+function hasRationalCue(normalized: string, raw: string): boolean {
+  if (racionalKeywords.some((keyword) => normalized.includes(keyword))) {
+    return true;
+  }
+  return /\bracional\b/i.test(raw) || /\blogic[ao]\b/i.test(raw);
+}
+
+function buildDecisionSignals(params: {
+  texto: string;
+  heuristicaFlags: HeuristicaFlagRecord;
+  intensity: number;
+  memsSemelhantes: SimilarMemory[] | undefined;
+}): DecisionSignalMap {
+  const raw = typeof params.texto === "string" ? params.texto : "";
+  const normalized = normalizeForSignals(raw);
+  const signals: DecisionSignalMap = {};
+
+  for (const [signal, patterns] of Object.entries(heuristicaSignalPatterns)) {
+    if (patterns.some((pattern) => matchesPattern(pattern, normalized, raw))) {
+      signals[signal] = true;
+    }
+  }
+
+  for (const [flag, signal] of Object.entries(heuristicaFlagToSignal)) {
+    if ((params.heuristicaFlags as Record<string, boolean | undefined>)[flag]) {
+      signals[signal] = true;
+    }
+  }
+
+  if (params.intensity >= 7) {
+    signals["intensity:alta"] = true;
+  }
+
+  const memoriaTokens = estimateMemoryTokens(params.memsSemelhantes);
+  if (memoriaTokens >= 220) {
+    signals["memoria:alta"] = true;
+  }
+
+  if (hasRationalCue(normalized, raw)) {
+    signals.presenca_racional = true;
+  }
+
+  return signals;
+}
+
 /* ---------- helpers de ordenação absoluta ---------- */
 const ABS_FIRST = "DEVELOPER_PROMPT.txt";
 const byAbsoluteOrder = (a: string, b: string) =>
@@ -400,6 +559,18 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
   const heuristicaFlags = mapHeuristicasToFlags(_heuristicas);
   const ecoDecision = decision ?? computeEcoDecision(texto, { heuristicaFlags });
 
+  const decisionSignals = buildDecisionSignals({
+    texto: normalizedTexto,
+    heuristicaFlags,
+    intensity: ecoDecision.intensity,
+    memsSemelhantes: memsSemelhantesNorm,
+  });
+  ecoDecision.signals = decisionSignals;
+  const activeSignals = Object.keys(decisionSignals).sort();
+  if (ecoDecision.debug) {
+    (ecoDecision.debug as any).signals = activeSignals;
+  }
+
   // Robustez: garante estrutura de debug
   (ecoDecision as any).debug = (ecoDecision as any).debug ?? { modules: [], selectedModules: [] };
 
@@ -445,6 +616,7 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
       raw: baseSelection.raw,
       allowed: baseSelection.posGating,
       priorizado: baseSelection.priorizado,
+      signals: activeSignals,
     },
   };
 
@@ -489,12 +661,14 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
     intensity: ecoDecision.intensity,
     isVulnerable: ecoDecision.isVulnerable,
     flags: ecoDecision.flags,
+    signals: decisionSignals,
   });
 
   ecoDecision.debug.banditFamilies = familyPlan.decisions;
   const selectorStages = (ecoDecision.debug as any).selectorStages ?? {};
   selectorStages.family = {
     decisions: familyPlan.decisions,
+    signals: activeSignals,
   };
   if (Array.isArray(ecoDecision.debug.modules)) {
     for (const decision of familyPlan.decisions) {
@@ -522,6 +696,7 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
     ...selectorStages,
     family: {
       decisions: familyPlan.decisions,
+      signals: activeSignals,
     },
   };
 

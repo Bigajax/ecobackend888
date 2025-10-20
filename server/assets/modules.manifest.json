@@ -32,6 +32,10 @@
       "reward_key": "emotional_engagement",
       "baseline": "eco_vulnerabilidade_defesas.txt",
       "enabled": true
+    },
+    "heuristica": {
+      "reward_key": "clarity_engagement",
+      "enabled": true
     }
   },
   "modules": [
@@ -41,7 +45,10 @@
       "role": "instruction",
       "size": "M",
       "tokens_avg": 420,
-      "gate": { "signal": "open", "min_open": 1 },
+      "gate": {
+        "signal": "open",
+        "min_open": 1
+      },
       "excludes": [],
       "depends_on": [],
       "reward_key": "clarity_engagement",
@@ -54,7 +61,10 @@
       "role": "instruction",
       "size": "L",
       "tokens_avg": 560,
-      "gate": { "signal": "open", "min_open": 2 },
+      "gate": {
+        "signal": "open",
+        "min_open": 2
+      },
       "excludes": [],
       "depends_on": [],
       "reward_key": "clarity_engagement",
@@ -67,7 +77,10 @@
       "role": "instruction",
       "size": "S",
       "tokens_avg": 260,
-      "gate": { "signal": "open", "min_open": 1 },
+      "gate": {
+        "signal": "open",
+        "min_open": 1
+      },
       "excludes": [],
       "depends_on": [],
       "reward_key": "clarity_engagement",
@@ -80,7 +93,10 @@
       "role": "instruction",
       "size": "M",
       "tokens_avg": 410,
-      "gate": { "signal": "open", "min_open": 2 },
+      "gate": {
+        "signal": "open",
+        "min_open": 2
+      },
       "excludes": [],
       "depends_on": [],
       "reward_key": "clarity_engagement",
@@ -93,9 +109,14 @@
       "role": "instruction",
       "size": "M",
       "tokens_avg": 320,
-      "gate": { "signal": "open", "min_open": 1 },
+      "gate": {
+        "signal": "open",
+        "min_open": 1
+      },
       "excludes": [],
-      "depends_on": ["IDENTIDADE"],
+      "depends_on": [
+        "IDENTIDADE"
+      ],
       "reward_key": "clarity_engagement",
       "path_hint": "modulos_core/LINGUAGEM_NATURAL_guided.txt",
       "enabled": true
@@ -106,9 +127,14 @@
       "role": "instruction",
       "size": "S",
       "tokens_avg": 190,
-      "gate": { "signal": "open", "min_open": 1 },
+      "gate": {
+        "signal": "open",
+        "min_open": 1
+      },
       "excludes": [],
-      "depends_on": ["IDENTIDADE"],
+      "depends_on": [
+        "IDENTIDADE"
+      ],
       "reward_key": "clarity_engagement",
       "path_hint": "modulos_core/LINGUAGEM_NATURAL_micro.txt",
       "enabled": true
@@ -119,9 +145,14 @@
       "role": "instruction",
       "size": "M",
       "tokens_avg": 300,
-      "gate": { "signal": "open", "min_open": 1 },
+      "gate": {
+        "signal": "open",
+        "min_open": 1
+      },
       "excludes": [],
-      "depends_on": ["IDENTIDADE"],
+      "depends_on": [
+        "IDENTIDADE"
+      ],
       "reward_key": "clarity_engagement",
       "path_hint": "modulos_core/LINGUAGEM_NATURAL_rules_v2.txt",
       "enabled": true
@@ -132,7 +163,10 @@
       "role": "instruction",
       "size": "M",
       "tokens_avg": 280,
-      "gate": { "signal": "open", "min_open": 1 },
+      "gate": {
+        "signal": "open",
+        "min_open": 1
+      },
       "excludes": [],
       "depends_on": [],
       "reward_key": "dialogue_continuation",
@@ -145,7 +179,10 @@
       "role": "instruction",
       "size": "L",
       "tokens_avg": 360,
-      "gate": { "signal": "open", "min_open": 2 },
+      "gate": {
+        "signal": "open",
+        "min_open": 2
+      },
       "excludes": [],
       "depends_on": [],
       "reward_key": "dialogue_continuation",
@@ -158,7 +195,10 @@
       "role": "instruction",
       "size": "S",
       "tokens_avg": 160,
-      "gate": { "signal": "open", "min_open": 1 },
+      "gate": {
+        "signal": "open",
+        "min_open": 1
+      },
       "excludes": [],
       "depends_on": [],
       "reward_key": "dialogue_continuation",
@@ -171,7 +211,10 @@
       "role": "instruction",
       "size": "M",
       "tokens_avg": 300,
-      "gate": { "signal": "open", "min_open": 2 },
+      "gate": {
+        "signal": "open",
+        "min_open": 2
+      },
       "excludes": [],
       "depends_on": [],
       "reward_key": "dialogue_continuation",
@@ -184,9 +227,14 @@
       "role": "instruction",
       "size": "S",
       "tokens_avg": 170,
-      "gate": { "signal": "open", "min_open": 1 },
+      "gate": {
+        "signal": "open",
+        "min_open": 1
+      },
       "excludes": [],
-      "depends_on": ["IDENTIDADE"],
+      "depends_on": [
+        "IDENTIDADE"
+      ],
       "reward_key": "dialogue_continuation",
       "path_hint": "modulos_core/ENCERRAMENTO_mini_acao.txt",
       "enabled": true
@@ -197,9 +245,14 @@
       "role": "instruction",
       "size": "S",
       "tokens_avg": 180,
-      "gate": { "signal": "open", "min_open": 1 },
+      "gate": {
+        "signal": "open",
+        "min_open": 1
+      },
       "excludes": [],
-      "depends_on": ["IDENTIDADE"],
+      "depends_on": [
+        "IDENTIDADE"
+      ],
       "reward_key": "dialogue_continuation",
       "path_hint": "modulos_core/ENCERRAMENTO_soft_prompt.txt",
       "enabled": true
@@ -210,7 +263,10 @@
       "role": "instruction",
       "size": "M",
       "tokens_avg": 260,
-      "gate": { "signal": "open", "min_open": 1 },
+      "gate": {
+        "signal": "open",
+        "min_open": 1
+      },
       "excludes": [],
       "depends_on": [],
       "reward_key": "like_bias",
@@ -223,7 +279,10 @@
       "role": "instruction",
       "size": "L",
       "tokens_avg": 330,
-      "gate": { "signal": "open", "min_open": 2 },
+      "gate": {
+        "signal": "open",
+        "min_open": 2
+      },
       "excludes": [],
       "depends_on": [],
       "reward_key": "like_bias",
@@ -236,7 +295,10 @@
       "role": "instruction",
       "size": "S",
       "tokens_avg": 190,
-      "gate": { "signal": "open", "min_open": 1 },
+      "gate": {
+        "signal": "open",
+        "min_open": 1
+      },
       "excludes": [],
       "depends_on": [],
       "reward_key": "like_bias",
@@ -249,7 +311,10 @@
       "role": "instruction",
       "size": "M",
       "tokens_avg": 270,
-      "gate": { "signal": "open", "min_open": 2 },
+      "gate": {
+        "signal": "open",
+        "min_open": 2
+      },
       "excludes": [],
       "depends_on": [],
       "reward_key": "like_bias",
@@ -262,9 +327,14 @@
       "role": "instruction",
       "size": "M",
       "tokens_avg": 250,
-      "gate": { "signal": "open", "min_open": 1 },
+      "gate": {
+        "signal": "open",
+        "min_open": 1
+      },
       "excludes": [],
-      "depends_on": ["IDENTIDADE"],
+      "depends_on": [
+        "IDENTIDADE"
+      ],
       "reward_key": "like_bias",
       "path_hint": "modulos_core/MODULACAO_calma_objetiva.txt",
       "enabled": true
@@ -275,9 +345,14 @@
       "role": "instruction",
       "size": "S",
       "tokens_avg": 190,
-      "gate": { "signal": "open", "min_open": 1 },
+      "gate": {
+        "signal": "open",
+        "min_open": 1
+      },
       "excludes": [],
-      "depends_on": ["IDENTIDADE"],
+      "depends_on": [
+        "IDENTIDADE"
+      ],
       "reward_key": "like_bias",
       "path_hint": "modulos_core/MODULACAO_direta_brief.txt",
       "enabled": true
@@ -288,7 +363,10 @@
       "role": "instruction",
       "size": "M",
       "tokens_avg": 340,
-      "gate": { "signal": "open", "min_open": 1 },
+      "gate": {
+        "signal": "open",
+        "min_open": 1
+      },
       "excludes": [],
       "depends_on": [],
       "reward_key": "clarity_engagement",
@@ -301,7 +379,10 @@
       "role": "instruction",
       "size": "S",
       "tokens_avg": 200,
-      "gate": { "signal": "open", "min_open": 1 },
+      "gate": {
+        "signal": "open",
+        "min_open": 1
+      },
       "excludes": [],
       "depends_on": [],
       "reward_key": "clarity_engagement",
@@ -314,9 +395,14 @@
       "role": "instruction",
       "size": "M",
       "tokens_avg": 310,
-      "gate": { "signal": "open", "min_open": 1 },
+      "gate": {
+        "signal": "open",
+        "min_open": 1
+      },
       "excludes": [],
-      "depends_on": ["IDENTIDADE"],
+      "depends_on": [
+        "IDENTIDADE"
+      ],
       "reward_key": "clarity_engagement",
       "path_hint": "modulos_core/ECO_ESTRUTURA_com_exemplos.txt",
       "enabled": true
@@ -327,9 +413,14 @@
       "role": "instruction",
       "size": "S",
       "tokens_avg": 180,
-      "gate": { "signal": "open", "min_open": 1 },
+      "gate": {
+        "signal": "open",
+        "min_open": 1
+      },
       "excludes": [],
-      "depends_on": ["IDENTIDADE"],
+      "depends_on": [
+        "IDENTIDADE"
+      ],
       "reward_key": "clarity_engagement",
       "path_hint": "modulos_core/ECO_ESTRUTURA_ultra_min.txt",
       "enabled": true
@@ -340,7 +431,10 @@
       "role": "context",
       "size": "M",
       "tokens_avg": 220,
-      "gate": { "signal": "vulnerability", "min_open": 2 },
+      "gate": {
+        "signal": "vulnerability",
+        "min_open": 2
+      },
       "excludes": [],
       "depends_on": [],
       "reward_key": "emotional_engagement",
@@ -353,7 +447,10 @@
       "role": "context",
       "size": "M",
       "tokens_avg": 210,
-      "gate": { "signal": "vulnerability", "min_open": 2 },
+      "gate": {
+        "signal": "vulnerability",
+        "min_open": 2
+      },
       "excludes": [],
       "depends_on": [],
       "reward_key": "emotional_engagement",
@@ -366,7 +463,10 @@
       "role": "context",
       "size": "S",
       "tokens_avg": 180,
-      "gate": { "signal": "vulnerability", "min_open": 2 },
+      "gate": {
+        "signal": "vulnerability",
+        "min_open": 2
+      },
       "excludes": [],
       "depends_on": [],
       "reward_key": "emotional_engagement",
@@ -379,9 +479,14 @@
       "role": "context",
       "size": "S",
       "tokens_avg": 180,
-      "gate": { "signal": "vulnerability", "min_open": 2 },
+      "gate": {
+        "signal": "vulnerability",
+        "min_open": 2
+      },
       "excludes": [],
-      "depends_on": ["IDENTIDADE"],
+      "depends_on": [
+        "IDENTIDADE"
+      ],
       "reward_key": "emotional_engagement",
       "path_hint": "modulos_emocionais/eco_vulnerabilidade_micro_presenca.txt",
       "enabled": true
@@ -392,11 +497,160 @@
       "role": "context",
       "size": "S",
       "tokens_avg": 180,
-      "gate": { "signal": "vulnerability", "min_open": 2 },
+      "gate": {
+        "signal": "vulnerability",
+        "min_open": 2
+      },
       "excludes": [],
-      "depends_on": ["IDENTIDADE"],
+      "depends_on": [
+        "IDENTIDADE"
+      ],
       "reward_key": "emotional_engagement",
       "path_hint": "modulos_emocionais/eco_vulnerabilidade_micro_reframe.txt",
+      "enabled": true
+    },
+    {
+      "id": "eco_heuristica_ancoragem.txt",
+      "family": "heuristica",
+      "role": "context",
+      "size": "S",
+      "tokens_avg": 180,
+      "gate": {
+        "signal": "bias:ancoragem",
+        "min_open": 1
+      },
+      "excludes": [],
+      "depends_on": [],
+      "reward_key": "clarity_engagement",
+      "path_hint": "modulos_cognitivos/eco_heuristica_ancoragem.txt",
+      "enabled": true
+    },
+    {
+      "id": "eco_heuristica_causas_superam_estatisticas.txt",
+      "family": "heuristica",
+      "role": "context",
+      "size": "S",
+      "tokens_avg": 180,
+      "gate": {
+        "signal": "bias:causas_superam_estatisticas",
+        "min_open": 1
+      },
+      "excludes": [],
+      "depends_on": [],
+      "reward_key": "clarity_engagement",
+      "path_hint": "modulos_cognitivos/eco_heuristica_causas_superam_estatisticas.txt",
+      "enabled": true
+    },
+    {
+      "id": "eco_heuristica_certeza_emocional.txt",
+      "family": "heuristica",
+      "role": "context",
+      "size": "S",
+      "tokens_avg": 180,
+      "gate": {
+        "signal": "bias:certeza_emocional",
+        "min_open": 1
+      },
+      "excludes": [],
+      "depends_on": [],
+      "reward_key": "clarity_engagement",
+      "path_hint": "modulos_cognitivos/eco_heuristica_certeza_emocional.txt",
+      "enabled": true
+    },
+    {
+      "id": "eco_heuristica_disponibilidade.txt",
+      "family": "heuristica",
+      "role": "context",
+      "size": "S",
+      "tokens_avg": 180,
+      "gate": {
+        "signal": "bias:disponibilidade",
+        "min_open": 1
+      },
+      "excludes": [],
+      "depends_on": [],
+      "reward_key": "clarity_engagement",
+      "path_hint": "modulos_cognitivos/eco_heuristica_disponibilidade.txt",
+      "enabled": true
+    },
+    {
+      "id": "eco_heuristica_excesso_confianca.txt",
+      "family": "heuristica",
+      "role": "context",
+      "size": "S",
+      "tokens_avg": 180,
+      "gate": {
+        "signal": "bias:excesso_confianca",
+        "min_open": 1
+      },
+      "excludes": [],
+      "depends_on": [],
+      "reward_key": "clarity_engagement",
+      "path_hint": "modulos_cognitivos/eco_heuristica_excesso_confianca.txt",
+      "enabled": true
+    },
+    {
+      "id": "eco_heuristica_ilusao_compreensao_passado.txt",
+      "family": "heuristica",
+      "role": "context",
+      "size": "S",
+      "tokens_avg": 180,
+      "gate": {
+        "signal": "bias:ilusao_compreensao",
+        "min_open": 1
+      },
+      "excludes": [],
+      "depends_on": [],
+      "reward_key": "clarity_engagement",
+      "path_hint": "modulos_cognitivos/eco_heuristica_ilusao_compreensao_passado.txt",
+      "enabled": true
+    },
+    {
+      "id": "eco_heuristica_ilusao_validade.txt",
+      "family": "heuristica",
+      "role": "context",
+      "size": "S",
+      "tokens_avg": 180,
+      "gate": {
+        "signal": "bias:ilusao_validade",
+        "min_open": 1
+      },
+      "excludes": [],
+      "depends_on": [],
+      "reward_key": "clarity_engagement",
+      "path_hint": "modulos_cognitivos/eco_heuristica_ilusao_validade.txt",
+      "enabled": true
+    },
+    {
+      "id": "eco_heuristica_intuicao_especialista.txt",
+      "family": "heuristica",
+      "role": "context",
+      "size": "S",
+      "tokens_avg": 180,
+      "gate": {
+        "signal": "bias:intuicao_especialista",
+        "min_open": 1
+      },
+      "excludes": [],
+      "depends_on": [],
+      "reward_key": "clarity_engagement",
+      "path_hint": "modulos_cognitivos/eco_heuristica_intuicao_especialista.txt",
+      "enabled": true
+    },
+    {
+      "id": "eco_heuristica_regressao_media.txt",
+      "family": "heuristica",
+      "role": "context",
+      "size": "S",
+      "tokens_avg": 180,
+      "gate": {
+        "signal": "bias:regressao_media",
+        "min_open": 1
+      },
+      "excludes": [],
+      "depends_on": [],
+      "reward_key": "clarity_engagement",
+      "path_hint": "modulos_cognitivos/eco_heuristica_regressao_media.txt",
       "enabled": true
     }
   ]

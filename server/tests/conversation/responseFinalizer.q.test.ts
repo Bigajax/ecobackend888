@@ -42,6 +42,7 @@ test("finalize calcula Q completo e registra evento", async () => {
     tags: [],
     domain: null,
     flags: {} as any,
+    signals: {},
     debug: {
       intensitySignals: [],
       vulnerabilitySignals: [],
@@ -125,6 +126,7 @@ test("finalize atualiza bandit quando módulo é usado", async () => {
     tags: [],
     domain: null,
     flags: {} as any,
+    signals: {},
     debug: {
       intensitySignals: [],
       vulnerabilitySignals: [],

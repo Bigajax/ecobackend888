@@ -436,7 +436,13 @@ function logSelectorPipeline(decision: EcoDecisionResult, contextSource?: string
   const stages = debug.selectorStages ?? {};
 
   const gates = stages.gates ?? null;
+  let gateSignals: string[] = [];
   if (gates) {
+    gateSignals = Array.isArray((gates as any).signals)
+      ? ((gates as any).signals as string[])
+      : Object.entries(decision.signals ?? {})
+          .filter(([, value]) => Boolean(value))
+          .map(([key]) => key);
     log.info({
       selector_stage: "gates",
       raw_count: Array.isArray(gates.raw) ? gates.raw.length : null,
@@ -444,12 +450,16 @@ function logSelectorPipeline(decision: EcoDecisionResult, contextSource?: string
       priorizado_count: Array.isArray(gates.priorizado) ? gates.priorizado.length : null,
       nivel: decision.openness,
       intensidade: decision.intensity,
+      signals: gateSignals,
     });
   }
 
   const familyDecisions: any[] = Array.isArray(stages.family?.decisions)
     ? stages.family.decisions
     : [];
+  const familySignals = Array.isArray((stages.family as any)?.signals)
+    ? ((stages.family as any).signals as string[])
+    : gateSignals;
   for (const entry of familyDecisions) {
     const eligibleArms = Array.isArray(entry.eligibleArms)
       ? entry.eligibleArms.map((arm: any) => ({
@@ -462,6 +472,7 @@ function logSelectorPipeline(decision: EcoDecisionResult, contextSource?: string
       selector_stage: "family_group",
       family: entry.familyId ?? null,
       eligible_arms: eligibleArms,
+      signals: familySignals,
     });
 
     const statsSource = Array.isArray(entry.eligibleArms)

@@ -22,6 +22,8 @@ export interface EcoDecisionDebug {
   } | null;
   bandits?: BanditSelectionMap;
   banditFamilies?: FamilyDecisionLog[];
+  signals?: string[];
+  selectorStages?: Record<string, unknown>;
 }
 
 export interface EcoDecisionResult {
@@ -34,6 +36,7 @@ export interface EcoDecisionResult {
   tags: string[];
   domain: string | null;
   flags: Flags;
+  signals: Record<string, boolean>;
   debug: EcoDecisionDebug;
   banditArms?: BanditSelectionMap;
 }
@@ -122,6 +125,7 @@ export function computeEcoDecision(texto: string, options: EcoDecisionOptions = 
     tags: [],
     domain: null,
     flags,
+    signals: {},
     debug: {
       intensitySignals: [`heuristic:${intensityRaw}`],
       vulnerabilitySignals,
