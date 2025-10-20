@@ -4,7 +4,13 @@
     "test": "jest",
     "test:supabase": "ts-node server/scripts/testSupabasePersistence.ts",
     "modules:inventory": "ts-node server/scripts/modulesInventory.ts",
-    "smoke:feedback": "bash server/scripts/smokeFeedback.sh"
+    "smoke:feedback": "bash server/scripts/smokeFeedback.sh",
+    "modules:dump": "ts-node --transpile-only server/scripts/modulesInventory.ts --dump-modules",
+    "shadow:smoke": "ts-node --transpile-only server/scripts/shadowSmoke.ts",
+    "pilot:smoke": "ts-node server/scripts/pilotSmoke.ts",
+    "pilot:health": "ts-node --transpile-only server/scripts/pilotHealth.ts",
+    "bandit:cache": "ts-node --transpile-only server/scripts/banditPosteriorCache.ts",
+    "cron:self-test": "ts-node --transpile-only server/scripts/cronSelfTest.ts"
   },
   "devDependencies": {
     "@types/express": "^5.0.3",

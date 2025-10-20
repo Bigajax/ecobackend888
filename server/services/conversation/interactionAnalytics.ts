@@ -5,6 +5,8 @@ import { log } from "../promptContext/logger";
 
 const logger = log.withContext("interaction-analytics");
 
+let moduleUsageSupportsExtended: boolean | null = null;
+
 export function sha1Hash(input: string | null | undefined): string {
   return createHash("sha1").update(String(input ?? "")).digest("hex");
 }
@@ -27,6 +29,12 @@ export interface ModuleUsageRow {
   moduleKey: string;
   tokens?: number | null;
   position?: number | null;
+  armId?: string | null;
+  family?: string | null;
+  chosenBy?: "ts" | "baseline" | "shadow" | null;
+  rewardKey?: string | null;
+  stage?: string | null;
+  userOrGuestId?: string | null;
 }
 
 function toNullableInteger(value: number | null | undefined): number | null {
@@ -157,49 +165,130 @@ export async function insertModuleUsages(
     return;
   }
 
-  const rows = usages
+  const extendedRows = usages
     .map((usage) => {
       const moduleKey = typeof usage.moduleKey === "string" ? usage.moduleKey.trim() : "";
       if (!moduleKey) return null;
       const tokens = toNullableInteger(usage.tokens ?? null);
       const position = toNullableInteger(usage.position ?? null);
+      const armIdRaw = typeof usage.armId === "string" ? usage.armId.trim() : "";
+      const familyRaw = typeof usage.family === "string" ? usage.family.trim() : "";
+      const rewardKeyRaw = typeof usage.rewardKey === "string" ? usage.rewardKey.trim() : "";
+      const stageRaw = typeof usage.stage === "string" ? usage.stage.trim() : "";
+      const userOrGuestRaw =
+        typeof usage.userOrGuestId === "string" ? usage.userOrGuestId.trim() : "";
+      const chosenBy =
+        usage.chosenBy === "ts" || usage.chosenBy === "baseline" || usage.chosenBy === "shadow"
+          ? usage.chosenBy
+          : null;
       return {
         interaction_id: interactionId,
         module_key: moduleKey,
+        arm_id: armIdRaw || moduleKey,
+        family: familyRaw || null,
         tokens: tokens ?? 0,
         position: position ?? null,
+        chosen_by: chosenBy,
+        reward_key: rewardKeyRaw || null,
+        stage: stageRaw || "stitch",
+        user_or_guest_id: userOrGuestRaw || null,
       };
     })
     .filter(
       (row): row is {
         interaction_id: string;
         module_key: string;
+        arm_id: string;
+        family: string | null;
         tokens: number;
         position: number | null;
+        chosen_by: "ts" | "baseline" | "shadow" | null;
+        reward_key: string | null;
+        stage: string;
+        user_or_guest_id: string | null;
       } => row !== null
     );
 
-  if (!rows.length) return;
+  if (!extendedRows.length) return;
+
+  const legacyRows = extendedRows.map((row) => ({
+    interaction_id: row.interaction_id,
+    module_key: row.module_key,
+    tokens: row.tokens,
+    position: row.position,
+  }));
 
   try {
     const analytics = getAnalyticsClient();
-    const { error } = await analytics.from("eco_module_usages").insert(rows);
+    if (moduleUsageSupportsExtended === false) {
+      const { error: legacyError } = await analytics
+        .from("eco_module_usages")
+        .insert(legacyRows);
+      if (legacyError) {
+        logger.error("interaction.module_usage_failed", {
+          interaction_id: interactionId,
+          message: legacyError.message,
+          code: legacyError.code ?? null,
+          table: "eco_module_usages",
+          payload: legacyRows,
+        });
+      } else {
+        logger.info("interaction.module_usage_inserted", {
+          table: "eco_module_usages",
+          interaction_id: interactionId,
+          rows: legacyRows.length,
+          mode: "legacy",
+        });
+      }
+      return;
+    }
+
+    const { error } = await analytics.from("eco_module_usages").insert(extendedRows);
     if (error) {
+      if (error.code === "42703") {
+        moduleUsageSupportsExtended = false;
+        logger.warn("interaction.module_usage_extended_unsupported", {
+          interaction_id: interactionId,
+          message: error.message,
+        });
+        const { error: legacyError } = await analytics
+          .from("eco_module_usages")
+          .insert(legacyRows);
+        if (legacyError) {
+          logger.error("interaction.module_usage_failed", {
+            interaction_id: interactionId,
+            message: legacyError.message,
+            code: legacyError.code ?? null,
+            table: "eco_module_usages",
+            payload: legacyRows,
+          });
+        } else {
+          logger.info("interaction.module_usage_inserted", {
+            table: "eco_module_usages",
+            interaction_id: interactionId,
+            rows: legacyRows.length,
+            mode: "legacy",
+          });
+        }
+        return;
+      }
       logger.error("interaction.module_usage_failed", {
         interaction_id: interactionId,
         message: error.message,
         code: error.code ?? null,
         table: "eco_module_usages",
-        payload: rows,
+        payload: extendedRows,
       });
+      return;
     }
-    if (!error) {
-      logger.info("interaction.module_usage_inserted", {
-        table: "eco_module_usages",
-        interaction_id: interactionId,
-        rows: rows.length,
-      });
-    }
+
+    moduleUsageSupportsExtended = true;
+    logger.info("interaction.module_usage_inserted", {
+      table: "eco_module_usages",
+      interaction_id: interactionId,
+      rows: extendedRows.length,
+      mode: "extended",
+    });
   } catch (error) {
     logger.error("interaction.module_usage_unexpected", {
       interaction_id: interactionId,

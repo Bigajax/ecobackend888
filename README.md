@@ -116,6 +116,23 @@ Todas as rotas residem no mesmo domínio do backend com prefixo `/api`.
 * Utilize `interaction_id` e `response_id` como IDs de correlação ao investigar fluxos no Metabase e nos logs do backend.
 * Em caso de `404`, verifique se o módulo HTTP importou corretamente `feedbackRoutes` e se os testes `server/tests/feedbackRoutes.test.ts` foram executados (`npm test -- feedbackRoutes`).
 
+## Operações (Render Cron – Posterior Cache)
+
+Configure um cron no Render para inserir instantâneos horários da tabela `analytics.bandit_posteriors_cache`:
+
+1. Acesse o dashboard do Render → **Jobs** → **New Cron Job**.
+2. Defina o comando como `npm run bandit:cache` (o job já usa as variáveis de ambiente do serviço).
+3. Agende com frequência **Every hour** (ou mais frequente, se necessário para dashboards em tempo real).
+4. Salve o job e acompanhe os logs: a cada execução bem-sucedida, o processo imprime uma linha JSON `{"posterior_cache":{...}}`; erros surgem como `posterior_cache_error`.
+
+Para monitorar a saúde do cron sem abrir o Metabase, execute localmente ou em outro job auxiliar:
+
+```bash
+npm run cron:self-test
+```
+
+O script valida se existe um snapshot mais recente que 2 horas e emite um alerta JSON quando a rotina está atrasada.
+
 ## Metabase
 Sugestões de cartões para o dashboard operacional:
 1. **TTFB x Tokens (últimos 7d)** – gráfico de dispersão usando `analytics.latency_samples` ou `analytics.v_latency_recent` filtrado por data.

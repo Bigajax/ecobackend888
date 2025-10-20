@@ -88,5 +88,5 @@ export function pickArm(pilar: Pilar): Braco {
 
 export function updateArm(pilar: Pilar, arm: Braco, recompensa: number): void {
   if (!Number.isFinite(recompensa)) return;
-  qualityAnalyticsStore.recordBanditOutcome(pilar, arm, { reward: recompensa });
+  qualityAnalyticsStore.updatePosterior({ family: pilar, armId: arm, reward: recompensa });
 }

@@ -31,20 +31,126 @@ import {
 } from "../quality/validators";
 import { qualityAnalyticsStore } from "../analytics/analyticsStore";
 import { ModuleStore } from "../promptContext/ModuleStore";
+import { getManifestDefaults } from "../promptContext/moduleManifest";
 import type { GetEcoResult } from "../../utils";
 import type { EcoHints } from "../../utils/types";
 import type { EcoLatencyMarks } from "./types";
 import type { EcoDecisionResult } from "./ecoDecisionHub";
-import {
-  updateArm as updateBanditArm,
-  type BanditSelectionMap,
-} from "../orchestrator/bandits/ts";
 import { createHash } from "node:crypto";
 import { insertModuleUsages, updateInteraction } from "./interactionAnalytics";
-
-const BANDIT_TOKEN_PENALTY_LAMBDA = 0.01;
+import type { ModuleUsageRow } from "./interactionAnalytics";
 
 type PromptMessage = { role: string; content: string; name?: string };
+
+type BanditRewardMetrics = {
+  like: number | null;
+  hasLike: boolean;
+  replyWithin10m: boolean | null;
+  intensityFlag: boolean | null;
+  memorySaved: boolean | null;
+  tokens?: number | null;
+  cap: number;
+};
+
+type BanditRewardComputation = {
+  reward: number;
+  reason: string | null;
+};
+
+function computeBanditRewardScore(
+  rewardKey: string | null | undefined,
+  metrics: BanditRewardMetrics
+): BanditRewardComputation {
+  if (!rewardKey) {
+    return { reward: 0, reason: "missing_reward_key" };
+  }
+
+  const like = metrics.hasLike && metrics.like != null
+    ? Math.max(0, Math.min(1, Number(metrics.like)))
+    : null;
+  const reply =
+    metrics.replyWithin10m == null ? null : metrics.replyWithin10m ? 1 : 0;
+  const intensity =
+    metrics.intensityFlag == null ? null : metrics.intensityFlag ? 1 : 0;
+  const memory =
+    metrics.memorySaved == null ? null : metrics.memorySaved ? 1 : 0;
+  const tokens =
+    metrics.tokens != null && Number.isFinite(metrics.tokens)
+      ? Number(metrics.tokens)
+      : null;
+  const cap = Number.isFinite(metrics.cap) && metrics.cap > 0 ? Number(metrics.cap) : 0;
+
+  const clamp = (value: number) => Number(Math.max(0, Math.min(1, value)).toFixed(6));
+  const missingSignals = (...values: Array<number | null>): boolean =>
+    values.some((value) => value == null);
+
+  switch (rewardKey) {
+    case "emotional_engagement":
+      if (missingSignals(like, reply, intensity)) {
+        return { reward: 0, reason: "missing_signals" };
+      }
+      return {
+        reward: clamp(0.5 * like! + 0.4 * intensity! + 0.1 * reply!),
+        reason: null,
+      };
+    case "clarity_engagement":
+      if (missingSignals(like, reply)) {
+        return { reward: 0, reason: "missing_signals" };
+      }
+      return { reward: clamp(0.7 * like! + 0.3 * reply!), reason: null };
+    case "memory_efficiency": {
+      if (missingSignals(like, memory) || tokens == null) {
+        return { reward: 0, reason: "missing_signals" };
+      }
+      const penalty = cap > 0 && tokens > cap ? 0.15 : 0;
+      const base = Math.max(0, 0.5 * like! + 0.5 * memory! - penalty);
+      return {
+        reward: clamp(base),
+        reason: penalty > 0 ? "token_penalty" : null,
+      };
+    }
+    case "dialogue_continuation":
+      if (missingSignals(reply)) {
+        return { reward: 0, reason: "missing_signals" };
+      }
+      return { reward: clamp(reply!), reason: null };
+    case "like_bias":
+      if (missingSignals(like)) {
+        return { reward: 0, reason: "missing_signals" };
+      }
+      return { reward: clamp(like!), reason: null };
+    default: {
+      if (missingSignals(like)) {
+        return { reward: 0, reason: "missing_signals" };
+      }
+      return { reward: clamp(like!), reason: "unknown_reward_key" };
+    }
+  }
+}
+
+type BanditRewardRecord = {
+  interaction_id: string | null;
+  family: string;
+  arm_id: string | null;
+  chosen_by: "ts" | "baseline" | "shadow";
+  reward_key: string | null;
+  reward: number | null;
+  reward_reason: string | null;
+  tokens: number | null;
+  tokens_cap: number | null;
+  tokens_planned: number | null;
+  ttfb_ms: number | null;
+  ttlc_ms: number | null;
+  like: number | null;
+  like_source: string | null;
+  dislike_reason: string | null;
+  emotional_intensity: number | null;
+  memory_saved: boolean | null;
+  reply_within_10m: boolean | null;
+  user_id: string | null;
+  guest_id: string | null;
+  meta: Record<string, unknown> | null;
+};
 
 function computePromptHash(messages?: PromptMessage[]): string | null {
   if (!Array.isArray(messages) || messages.length === 0) {
@@ -615,26 +721,40 @@ export class ResponseFinalizer {
       : ecoDecision.debug.selectedModules;
 
     const moduleTokenCache = new Map<string, number | null>();
-    const moduleUsageLogs = resolvedSelectedModules.map((moduleId, index) => {
-      let cached = moduleTokenCache.get(moduleId);
-      if (cached === undefined) {
-        try {
-          const count = ModuleStore.tokenCountOf(moduleId);
-          cached = Number.isFinite(count) ? Number(count) : null;
+    const userOrGuestId =
+      typeof userId === "string" && userId.trim().length > 0
+        ? userId
+        : isGuest && typeof guestId === "string" && guestId.trim().length > 0
+        ? guestId
+        : null;
+    const moduleUsageLogs: ModuleUsageRow[] = resolvedSelectedModules.map(
+      (moduleId, index) => {
+        let cached = moduleTokenCache.get(moduleId);
+        if (cached === undefined) {
+          try {
+            const count = ModuleStore.tokenCountOf(moduleId);
+            cached = Number.isFinite(count) ? Number(count) : null;
         } catch {
           cached = null;
         }
         moduleTokenCache.set(moduleId, cached);
       }
 
-      return {
-        moduleKey: moduleId,
-        tokens: cached,
-        position: index,
-      };
-    });
+        return {
+          moduleKey: moduleId,
+          armId: moduleId,
+          tokens: cached,
+          position: index,
+          stage: "stitch",
+          family: null,
+          chosenBy: null,
+          rewardKey: null,
+          userOrGuestId,
+        };
+      }
+    );
 
-    const banditRewardRecords: Array<{ pilar: string; arm: string; recompensa: number }> = [];
+    const banditRewardRecords: BanditRewardRecord[] = [];
     const moduleOutcomeRecords: Array<{
       module_id: string;
       tokens: number;
@@ -804,41 +924,172 @@ export class ResponseFinalizer {
       }
     }
 
-    const banditSelections =
-      (ecoDecision.banditArms as BanditSelectionMap | undefined) ??
-      (ecoDecision.debug?.bandits as BanditSelectionMap | undefined);
-    if (banditSelections && Object.values(banditSelections).some(Boolean)) {
+    const computedTtfbMs =
+      timingsSnapshot?.llmStart != null && timingsSnapshot?.contextBuildEnd != null
+        ? Math.max(0, Math.round(timingsSnapshot.llmStart - timingsSnapshot.contextBuildEnd))
+        : null;
+    const computedTtlcMs =
+      typeof debugTrace.latencyMs === "number" && Number.isFinite(debugTrace.latencyMs)
+        ? Math.max(0, Math.round(debugTrace.latencyMs))
+        : null;
+    const normalizedQ = Number.isFinite(q) ? Math.max(0, Math.min(1, q)) : null;
+
+    const banditModuleMeta = new Map<
+      string,
+      { familyId: string; chosenBy: "ts" | "baseline" | "shadow"; rewardKey: string | null }
+    >();
+    const banditPlan = (ecoDecision.debug as any)?.banditPlan;
+    const banditDecisions: any[] = Array.isArray(banditPlan?.decisions)
+      ? banditPlan.decisions
+      : [];
+    if (banditDecisions.length > 0) {
+      const defaults = getManifestDefaults();
       const safeTokens =
         typeof tokensTotal === "number" && Number.isFinite(tokensTotal)
           ? Math.max(tokensTotal, 0)
           : 0;
-      const reward = q - BANDIT_TOKEN_PENALTY_LAMBDA * (safeTokens / 1000);
-      if (Number.isFinite(reward)) {
-        for (const selection of Object.values(banditSelections)) {
-          if (!selection) continue;
-          const moduleId = typeof selection.module === "string" ? selection.module : "";
-          if (!moduleId) continue;
-          if (!resolvedSelectedModules.includes(moduleId)) continue;
+      const ttfbMs = computedTtfbMs;
+      const ttlcMs = computedTtlcMs;
+      const memorySaved = ecoDecision.saveMemory ? true : false;
+      const emotionalIntensity =
+        typeof (normalizedBloco as any)?.intensidade === "number"
+          ? Number((normalizedBloco as any).intensidade)
+          : null;
+      const intensityFlag = emotionalIntensity != null && emotionalIntensity >= 7;
+      const envCapRaw = Number.parseInt(
+        process.env.ECO_KNAPSACK_BUDGET_TOKENS ?? "",
+        10
+      );
+      const resolvedCap =
+        Number.isFinite(envCapRaw) && envCapRaw > 0 ? envCapRaw : defaults.maxAuxTokens;
+      const likeSignal =
+        normalizedQ != null && Number.isFinite(normalizedQ)
+          ? Number(Math.max(0, Math.min(1, normalizedQ)).toFixed(6))
+          : null;
+      const hasLikeSignal = likeSignal != null;
+      const likeSource = hasLikeSignal ? "q_score" : null;
+      const replySignalAvailable = ttlcMs != null;
+      const replyWithin10mFlag = replySignalAvailable && ttlcMs != null ? ttlcMs <= 600_000 : false;
 
-          updateBanditArm(selection.pilar, selection.arm, reward);
-          banditRewardRecords.push({
-            pilar: selection.pilar,
-            arm: selection.arm,
-            recompensa: Number(reward),
-          });
+      for (const decision of banditDecisions) {
+        const familyId = typeof decision.familyId === "string" ? decision.familyId : null;
+        const chosen = typeof decision.chosen === "string" ? decision.chosen : null;
+        if (!familyId || !chosen) continue;
+        if (!resolvedSelectedModules.includes(chosen)) continue;
+
+        const chosenByRaw = typeof decision.chosenBy === "string" ? decision.chosenBy : "baseline";
+        const chosenBy: "ts" | "baseline" | "shadow" =
+          chosenByRaw === "ts" || chosenByRaw === "shadow" ? chosenByRaw : "baseline";
+        const tokensPlanned =
+          decision.tokensPlanned != null && Number.isFinite(decision.tokensPlanned)
+            ? Number(decision.tokensPlanned)
+            : null;
+        const tokensForReward = tokensPlanned ?? safeTokens;
+        const rewardComputation = computeBanditRewardScore(decision.rewardKey ?? null, {
+          like: likeSignal,
+          hasLike: hasLikeSignal,
+          replyWithin10m: replySignalAvailable ? replyWithin10mFlag : null,
+          intensityFlag,
+          memorySaved,
+          tokens: tokensForReward,
+          cap: resolvedCap,
+        });
+
+        qualityAnalyticsStore.updatePosterior({
+          family: familyId,
+          armId: chosen,
+          reward: rewardComputation.reward,
+        });
+
+        const tokensUsed =
+          tokensPlanned != null && Number.isFinite(tokensPlanned)
+            ? Number(tokensPlanned)
+            : safeTokens > 0
+            ? safeTokens
+            : null;
+        const rewardMeta: Record<string, unknown> = {
+          tokens_actual: safeTokens,
+          tokens_planned: tokensPlanned,
+          tokens_cap: resolvedCap,
+          cold_start: Boolean(decision.coldStartApplied),
+          ts_pick: decision.tsPick ?? null,
+          baseline: decision.baseline ?? null,
+          like_source: likeSource,
+          reply_signal_available: replySignalAvailable,
+          missing_signals: rewardComputation.reason === "missing_signals",
+        };
+        if (rewardComputation.reason === "token_penalty") {
+          rewardMeta.token_penalty = true;
+        }
+
+        const record: BanditRewardRecord = {
+          interaction_id: analyticsInteractionId ?? null,
+          family: familyId,
+          arm_id: chosen,
+          chosen_by: chosenBy,
+          reward_key: decision.rewardKey ?? null,
+          reward: rewardComputation.reward,
+          reward_reason: rewardComputation.reason,
+          tokens: tokensUsed,
+          tokens_cap: Number.isFinite(resolvedCap) ? resolvedCap : null,
+          tokens_planned: tokensPlanned,
+          ttfb_ms: ttfbMs,
+          ttlc_ms: ttlcMs,
+          like: likeSignal,
+          like_source: likeSource,
+          dislike_reason: null,
+          emotional_intensity: emotionalIntensity,
+          memory_saved: memorySaved,
+          reply_within_10m: replySignalAvailable ? replyWithin10mFlag : null,
+          user_id: userId ?? null,
+          guest_id: isGuest ? guestId ?? null : null,
+          meta: rewardMeta,
+        };
+
+        banditRewardRecords.push(record);
+
+        log.info({
+          bandit_reward: {
+            family: familyId,
+            arm: chosen,
+            reward_key: decision.rewardKey ?? null,
+            reward: record.reward,
+            tokens: record.tokens,
+            tokens_cap: record.tokens_cap,
+            chosen_by: chosenBy,
+            reason: record.reward_reason,
+          },
+        });
+
+        banditModuleMeta.set(chosen, {
+          familyId,
+          chosenBy,
+          rewardKey: decision.rewardKey ?? null,
+        });
+
+        const mixpanelReward = record.reward ?? 0;
+        if (mixpanelReward > 0) {
           try {
             this.deps.trackBanditArmUpdate({
               distinctId,
               userId,
-              pilar: selection.pilar,
-              arm: selection.arm,
-              recompensa: reward,
+              pilar: familyId,
+              arm: chosen,
+              recompensa: mixpanelReward,
             });
           } catch {
             // telemetria é best-effort
           }
         }
       }
+    }
+
+    for (const usage of moduleUsageLogs) {
+      const meta = banditModuleMeta.get(usage.moduleKey);
+      if (!meta) continue;
+      usage.family = meta.familyId;
+      usage.chosenBy = meta.chosenBy;
+      usage.rewardKey = meta.rewardKey;
     }
 
     if (resolvedSelectedModules.length) {
@@ -961,11 +1212,8 @@ export class ResponseFinalizer {
           }
         : null,
       latency: {
-        ttfb_ms: null as number | null,
-        ttlc_ms:
-          typeof debugTrace.latencyMs === "number" && Number.isFinite(debugTrace.latencyMs)
-            ? Number(debugTrace.latencyMs)
-            : null,
+        ttfb_ms: computedTtfbMs,
+        ttlc_ms: computedTtlcMs,
         tokens_total: tokensTotalValue,
       },
     };
