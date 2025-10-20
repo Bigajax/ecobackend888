@@ -116,6 +116,51 @@ npm run pilot:smoke
 
 The pilot script disables shadow mode, flips `ECO_BANDIT_EARLY=1`, and forces one of five guest interactions through Thompson sampling. For each family it logs the chosen arm, reward key, composite reward, and Beta parameters, then summarizes per-family averages. The command fails if fewer than 10% of interactions route through `ts`, if rewards stay below 0.4 on average, or if the knapsack exceeds the configured token cap.
 
+## Pilot health check
+
+Run the 24-hour health audit before increasing rollout beyond the pilot split:
+
+```bash
+npm run pilot:health -- --window=24h
+```
+
+PASS requires, per family (and globally), within the provided window:
+
+1. **Volume** – at least 50 `bandit_rewards` events.
+2. **Reward lift** – Thompson-sampled reward-per-100-tokens ≥ baseline × 1.05 (skip the comparison when the baseline metric is 0, unless ≥100 events with TS reward < 0.5).
+3. **Latency guard** – Thompson p95 TTLC ≤ baseline p95 × 1.10.
+4. **Budget discipline** – cap violation rate ≤ `--tolerate-cap` (defaults to 0%, pass `--tolerate-cap=2` to allow up to 2%).
+
+Sample output:
+
+```json
+{
+  "window": "24h",
+  "families": [
+    {
+      "family": "estrutura_resposta",
+      "events": 132,
+      "reward_100t_ts": 1.94,
+      "reward_100t_baseline": 1.78,
+      "lift_pct": 8.99,
+      "p95_ttlc_ts": 2150.32,
+      "p95_ttlc_baseline": 2210.87,
+      "cap_violation_rate": 0,
+      "pass": true,
+      "reasons": []
+    }
+  ],
+  "global": {
+    "exploration_rate": 0.12,
+    "pass": true,
+    "reasons": []
+  },
+  "duration_ms": 318
+}
+```
+
+Use the results to guide rollouts: `PASS → 30% → 50% → 100%`, rerunning the health check after each 24-hour observation window. A failure prints the same JSON to stderr, sets exit code `1`, and lists the blocking reasons (e.g., `few_events`, `low_lift`, `latency_regression`, `cap_violations`).
+
 ## Operator snippet
 
 ```bash
@@ -144,3 +189,11 @@ from analytics.bandit_posteriors_cache
 where snapshot_at > now() - interval '7 days'
 order by snapshot_at asc;
 ```
+
+To double-check the cron freshness without opening Metabase, run:
+
+```bash
+npm run cron:self-test
+```
+
+The helper exits with status `1` (and prints `posterior_cache_self_test` with `status:"stale"`) when the most recent snapshot is older than two hours.
