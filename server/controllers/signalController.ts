@@ -5,6 +5,9 @@ import { applyCorsResponseHeaders } from "../middleware/cors";
 
 const logger = log.withContext("signal-controller");
 
+const LIFECYCLE_SIGNALS = new Set(["first_token", "prompt_ready", "done"]);
+const STRICT_INTERACTION_SIGNALS = new Set(["view", "time_on_message", "tts_play"]);
+
 function isValidUuid(value: unknown): value is string {
   if (typeof value !== "string") return false;
   const trimmed = value.trim();
@@ -52,8 +55,8 @@ export async function registrarSignal(req: Request, res: Response) {
   const rawInteractionId = typeof body.interaction_id === "string" ? body.interaction_id : null;
   const userOrGuest = normalizeSignal(body.user_or_guest ?? null);
 
-  const guestIdHeader = normalizeSignal(req.get("X-Guest-Id"));
-  const sessionIdHeader = normalizeSignal(req.get("X-Session-Id"));
+  const guestIdHeader = normalizeSignal(req.get("X-Eco-Guest-Id") ?? req.get("X-Guest-Id"));
+  const sessionIdHeader = normalizeSignal(req.get("X-Eco-Session-Id") ?? req.get("X-Session-Id"));
 
   const noop = (reason: string) => {
     logger.warn("signal.ignored", {
@@ -72,13 +75,31 @@ export async function registrarSignal(req: Request, res: Response) {
     signal: rawSignal ?? null,
     has_interaction_id: Boolean(rawInteractionId),
     user_or_guest: userOrGuest ?? null,
+    guest_id: guestIdHeader ?? null,
+    session_id: sessionIdHeader ?? null,
   });
 
   if (!rawSignal) {
     return noop("missing_signal");
   }
 
+  const signalKey = rawSignal.toLowerCase();
+
   if (!rawInteractionId) {
+    if (LIFECYCLE_SIGNALS.has(signalKey)) {
+      logger.debug("signal.lifecycle_missing_interaction", {
+        signal: rawSignal,
+        guest_id: guestIdHeader ?? null,
+      });
+      return respondNoContent(res);
+    }
+    if (STRICT_INTERACTION_SIGNALS.has(signalKey)) {
+      logger.warn("signal.missing_interaction_id", {
+        signal: rawSignal,
+        guest_id: guestIdHeader ?? null,
+      });
+      return res.status(400).json({ error: "missing_interaction_id" });
+    }
     return noop("missing_interaction_id");
   }
 

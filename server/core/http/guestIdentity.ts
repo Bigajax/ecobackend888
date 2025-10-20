@@ -47,6 +47,7 @@ function readGuestIdFromCookies(req: Request): string | undefined {
 }
 
 function mirrorGuestId(res: Response, id: string) {
+  res.setHeader("X-Eco-Guest-Id", id);
   res.setHeader("X-Guest-Id", id);
   if (typeof res.cookie === "function") {
     res.cookie(COOKIE_NAME, id, {
@@ -81,7 +82,8 @@ export function ensureGuestIdentity(req: Request, res: Response, next: NextFunct
     return next();
   }
 
-  const headerCandidate = getHeaderValue(req.headers["x-guest-id"]);
+  const headerCandidate =
+    getHeaderValue(req.headers["x-eco-guest-id"]) ?? getHeaderValue(req.headers["x-guest-id"]);
   const cookieCandidate = readGuestIdFromCookies(req);
 
   let guestId = normalizeGuestId(headerCandidate) ?? normalizeGuestId(cookieCandidate);
@@ -103,6 +105,7 @@ export function ensureGuestIdentity(req: Request, res: Response, next: NextFunct
 
   req.guestId = guestId;
   (req.headers as Record<string, string>)["x-guest-id"] = guestId;
+  (req.headers as Record<string, string>)["x-eco-guest-id"] = guestId;
 
   mirrorGuestId(res, guestId);
 

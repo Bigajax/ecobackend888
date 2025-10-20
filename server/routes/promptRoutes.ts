@@ -368,7 +368,8 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
   const guestIdFromSession: string | undefined = (req as any)?.guest?.id || undefined;
   const guestIdFromRequest =
     typeof reqWithIdentity.guestId === "string" ? reqWithIdentity.guestId : undefined;
-  const guestIdFromHeader = req.get("X-Guest-Id")?.trim();
+  const guestIdFromHeader =
+    req.get("X-Eco-Guest-Id")?.trim() ?? req.get("X-Guest-Id")?.trim();
   const guestIdFromCookie = getGuestIdFromCookies(req);
 
   const body = req.body && typeof req.body === "object" ? (req.body as Record<string, any>) : {};
@@ -430,7 +431,7 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
     }
 
     if (REQUIRE_GUEST_ID && !hasGuestId) {
-      throw createHttpError(400, "MISSING_GUEST_ID", "Informe X-Guest-Id");
+      throw createHttpError(400, "MISSING_GUEST_ID", "Informe X-Eco-Guest-Id");
     }
 
     const bearer =

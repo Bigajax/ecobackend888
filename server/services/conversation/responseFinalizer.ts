@@ -37,7 +37,7 @@ import type { EcoHints } from "../../utils/types";
 import type { EcoLatencyMarks } from "./types";
 import type { EcoDecisionResult } from "./ecoDecisionHub";
 import { createHash } from "node:crypto";
-import { insertModuleUsages, updateInteraction } from "./interactionAnalytics";
+import { insertModuleUsages, updateInteraction, upsertInteractionSnapshot } from "./interactionAnalytics";
 import type { ModuleUsageRow } from "./interactionAnalytics";
 
 type PromptMessage = { role: string; content: string; name?: string };
@@ -1228,6 +1228,53 @@ export class ResponseFinalizer {
         tokensOut: completionTokenCount ?? tokensTotalValue,
         latencyMs,
         moduleCombo: resolvedSelectedModules,
+      });
+      const sanitizedTimings = (() => {
+        if (!timingsSnapshot || typeof timingsSnapshot !== "object") return null;
+        try {
+          return JSON.parse(JSON.stringify(timingsSnapshot));
+        } catch {
+          return null;
+        }
+      })();
+      const metaForInteraction: Record<string, unknown> = {
+        route: "ask-eco",
+        mode,
+        model: modelo ?? null,
+        guest_id: guestId ?? null,
+        is_guest: isGuest,
+      };
+      if (sanitizedTimings) {
+        metaForInteraction.timings = sanitizedTimings;
+      }
+      if (sessionMeta && typeof sessionMeta === "object") {
+        const { sessaoId, origem, versaoApp, device, ambiente } = sessionMeta as Record<string, unknown>;
+        metaForInteraction.session = {
+          sessaoId: typeof sessaoId === "string" ? sessaoId : null,
+          origem: typeof origem === "string" ? origem : null,
+          versaoApp: typeof versaoApp === "string" ? versaoApp : null,
+          device: typeof device === "string" ? device : null,
+          ambiente: typeof ambiente === "string" ? ambiente : null,
+        };
+      }
+      if (contextFlags && typeof contextFlags === "object") {
+        try {
+          metaForInteraction.context_flags = JSON.parse(JSON.stringify(contextFlags));
+        } catch {
+          metaForInteraction.context_flags = null;
+        }
+      }
+      await upsertInteractionSnapshot({
+        id: interactionId,
+        userId: !isGuest ? userId ?? null : null,
+        sessionId: resolvedSessaoId ?? null,
+        messageId: lastMessageId ?? null,
+        promptHash: resolvedPromptHash ?? null,
+        moduleCombo: resolvedSelectedModules,
+        tokensIn: promptTokenCount ?? null,
+        tokensOut: completionTokenCount ?? tokensTotalValue,
+        latencyMs,
+        meta: metaForInteraction,
       });
       await insertModuleUsages(interactionId, moduleUsageLogs);
     }

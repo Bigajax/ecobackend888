@@ -1,4 +1,4 @@
-import { getOrCreateGuestId } from "../utils/guest";
+import { getGuestIdHeader, rememberGuestIdFromResponse } from "../utils/guest";
 
 export interface SignalPayload {
   interaction_id: string | null;
@@ -18,16 +18,12 @@ async function safeFetch(input: RequestInfo, init: RequestInit): Promise<Respons
 
 export async function postSignal(signal: string, payload: SignalPayload): Promise<void> {
   if (!signal) return;
-  const interactionId = payload.interaction_id;
-  if (!interactionId) {
-    console.warn(`[postSignal] missing interaction_id for signal ${signal}`);
-    return;
-  }
-
   const body: Record<string, unknown> = {
     signal,
-    interaction_id: interactionId,
   };
+  if (payload.interaction_id) {
+    body.interaction_id = payload.interaction_id;
+  }
   if (typeof payload.value === "number") {
     body.value = payload.value;
   }
@@ -38,13 +34,18 @@ export async function postSignal(signal: string, payload: SignalPayload): Promis
     body.meta = payload.meta;
   }
 
-  await safeFetch("/api/signal", {
+  const guestId = getGuestIdHeader();
+  const response = await safeFetch("/api/signal", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "X-Guest-Id": getOrCreateGuestId(),
+      ...(guestId ? { "X-Eco-Guest-Id": guestId } : {}),
     },
     body: JSON.stringify(body),
     credentials: "include",
   });
+
+  if (response) {
+    rememberGuestIdFromResponse(response);
+  }
 }
