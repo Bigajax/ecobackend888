@@ -312,6 +312,38 @@ class AnalyticsStore {
     return out;
   }
 
+  getBanditColdStartBoost(): number {
+    return this.banditColdStartBoost;
+  }
+
+  dumpBanditPosteriors(): Array<{
+    key: string;
+    alpha: number;
+    beta: number;
+    count: number;
+    normalizedMean: number;
+    rewardMean: number;
+    winRate: number;
+    lastUpdated: number | null;
+  }> {
+    const out: Array<{
+      key: string;
+      alpha: number;
+      beta: number;
+      count: number;
+      normalizedMean: number;
+      rewardMean: number;
+      winRate: number;
+      lastUpdated: number | null;
+    }> = [];
+    for (const key of this.banditOutcomes.keys()) {
+      const [pilar, arm] = key.split("::");
+      const posterior = this.getBanditPosterior(pilar, arm);
+      out.push({ key, ...posterior });
+    }
+    return out;
+  }
+
   private pruneQuality(): void {
     const cutoff = Date.now() - this.banditWindowMs;
     if (this.quality.length === 0) return;
