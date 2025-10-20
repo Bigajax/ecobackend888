@@ -7,6 +7,7 @@ echo "==> POST /api/feedback"
 curl -i -X POST "$API_URL/api/feedback" \
   -H "Content-Type: application/json" \
   -H "X-Eco-Guest-Id: TEST-GUEST" \
+  -H "X-Eco-Session-Id: TEST-SESSION" \
   -d '{"interaction_id":"00000000-0000-0000-0000-000000000001","vote":"up","reason":"ajudou","source":"chat_ui"}'
 
 echo

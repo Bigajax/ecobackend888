@@ -66,7 +66,7 @@ export async function buscarMemoriasSemanticas(
   }
 
   try {
-    const { data, error } = await client.rpc("buscar_memorias_semanticas", {
+    const { data, error } = await client.rpc("buscar_memorias_semanticas_v2", {
       p_usuario_id: params.userId,
       p_query: params.queryEmbedding,
       p_limit: config.k,

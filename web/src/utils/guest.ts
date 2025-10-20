@@ -48,8 +48,7 @@ export function rememberGuestIdFromResponse(response: Response | null | undefine
   if (!response || typeof response.headers?.get !== "function") {
     return null;
   }
-  const headerValue =
-    response.headers.get("x-eco-guest-id") ?? response.headers.get("x-guest-id");
+  const headerValue = response.headers.get("x-eco-guest-id");
   return rememberGuestId(headerValue ?? undefined);
 }
 

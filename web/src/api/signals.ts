@@ -1,4 +1,5 @@
 import { getGuestIdHeader, rememberGuestIdFromResponse } from "../utils/guest";
+import { getSessionIdHeader, rememberSessionIdFromResponse } from "../utils/session";
 
 export interface SignalPayload {
   interaction_id: string | null;
@@ -35,11 +36,13 @@ export async function postSignal(signal: string, payload: SignalPayload): Promis
   }
 
   const guestId = getGuestIdHeader();
+  const sessionId = getSessionIdHeader();
   const response = await safeFetch("/api/signal", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       ...(guestId ? { "X-Eco-Guest-Id": guestId } : {}),
+      ...(sessionId ? { "X-Eco-Session-Id": sessionId } : {}),
     },
     body: JSON.stringify(body),
     credentials: "include",
@@ -47,5 +50,6 @@ export async function postSignal(signal: string, payload: SignalPayload): Promis
 
   if (response) {
     rememberGuestIdFromResponse(response);
+    rememberSessionIdFromResponse(response);
   }
 }

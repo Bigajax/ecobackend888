@@ -41,7 +41,7 @@ test("OPTIONS /api/ask-eco responde 204 com allowlist padrão", async () => {
       headers: {
         Origin: "https://ecofrontend888.vercel.app",
         "Access-Control-Request-Method": "POST",
-        "Access-Control-Request-Headers": "Content-Type, X-Eco-Guest-Id",
+        "Access-Control-Request-Headers": "Content-Type, X-Eco-Guest-Id, X-Eco-Session-Id",
       },
     });
 
@@ -58,7 +58,7 @@ test("OPTIONS /api/ask-eco responde 204 com allowlist padrão", async () => {
     );
     assert.equal(
       response.headers.get("access-control-allow-headers"),
-      "Accept, Content-Type, Origin, X-Eco-Guest-Id, X-Eco-Session-Id, X-Guest-Id, X-Session-Id, X-Requested-With, Cache-Control, Authorization",
+      "Accept, Content-Type, Origin, X-Eco-Guest-Id, X-Eco-Session-Id, X-Requested-With, Cache-Control, Authorization",
       "deve aplicar a lista padrão de headers",
     );
     assert.equal(

@@ -415,6 +415,16 @@ router.post("/ask-eco", async (req: GuestAwareRequest, res: Response) => {
     }
 
     if (!streamSession.respondAsStream) {
+      const events = Array.isArray(streamSession.offlineEvents)
+        ? (streamSession.offlineEvents as Array<Record<string, unknown>>)
+        : [];
+      const doneEvent = [...events].reverse().find((entry) => entry?.type === "done");
+
+      if (doneEvent && typeof doneEvent === "object") {
+        res.status(200).json(doneEvent);
+        return;
+      }
+
       const finalRaw =
         typeof resposta?.raw === "string" && resposta.raw.length > 0
           ? resposta.raw
@@ -429,22 +439,25 @@ router.post("/ask-eco", async (req: GuestAwareRequest, res: Response) => {
           }
         : null;
 
-      if (baseMeta && typeof baseMeta === "object" && !("length" in baseMeta)) {
-        (baseMeta as Record<string, unknown>).length = finalRaw.length;
+      const doneAt = now();
+      const fallbackDone: Record<string, unknown> = {
+        type: "done",
+        meta: baseMeta ?? {},
+        content: finalRaw,
+        at: doneAt,
+        sinceStartMs: doneAt - t0,
+        timings:
+          streamSession.cacheCandidateTimings ??
+          (resposta as any)?.timings ??
+          streamSession.latestTimings ??
+          null,
+      };
+
+      if (debugRequested) {
+        fallbackDone.trace = activationTracer.snapshot();
       }
 
-      const timingsPayload =
-        streamSession.cacheCandidateTimings ?? (resposta as any)?.timings ?? streamSession.latestTimings ?? null;
-
-      res.status(200).json({
-        ok: true,
-        stream: false,
-        message: finalRaw,
-        meta: baseMeta,
-        timings: timingsPayload,
-        events: streamSession.offlineEvents,
-        ...(debugRequested ? { trace: activationTracer.snapshot() } : {}),
-      });
+      res.status(200).json(fallbackDone);
       return;
     }
 

@@ -75,7 +75,7 @@ export async function buscarMemoriasComModo({
   }
 
   try {
-    const { data, error } = await client.rpc("buscar_memorias_semanticas", {
+    const { data, error } = await client.rpc("buscar_memorias_semanticas_v2", {
       p_usuario_id: userId,
       p_query: queryEmbedding,
       p_limit: config.k,
@@ -88,56 +88,15 @@ export async function buscarMemoriasComModo({
       p_query_emocional: filtros?.queryEmocional ?? null,
     } as Record<string, unknown>);
 
-    const isMissingFn =
-      error &&
-      typeof (error as any)?.message === "string" &&
-      /(function|procedure)\s+buscar_memorias_semanticas/i.test((error as any).message);
-
-    const fallbackRows = async () => {
-      console.debug("[memoriaRepository] rpc_fallback", {
-        rpc_fallback: "semelhantes_v2",
-      });
-      const args = {
-        p_usuario_id: userId,
-        p_query: queryEmbedding,
-        p_limit: config.k,
-        p_lambda_mmr: config.mmr_lambda,
-        p_recency_halflife_hours: config.half_life,
-        p_tags: filtros?.tags ?? [],
-        p_emocao: filtros?.emocao ?? null,
-        p_include_referencias: filtros?.includeReferencias ?? true,
-        p_token_budget: filtros?.tokenBudget ?? DEFAULT_TOKEN_BUDGET,
-        p_query_emocional: filtros?.queryEmocional ?? null,
-      } as Record<string, unknown>;
-
-      const { data: fallbackData, error: fallbackError } = await client.rpc(
-        "buscar_memorias_semelhantes_v2",
-        args
-      );
-
-      if (fallbackError) {
-        console.warn("⚠️ RPC buscar_memorias_semelhantes_v2 falhou", {
-          message: (fallbackError as any)?.message,
-          details: (fallbackError as any)?.details,
-          hint: (fallbackError as any)?.hint,
-        });
-        return [] as MemoriaSemantica[];
-      }
-
-      return Array.isArray(fallbackData) ? (fallbackData as MemoriaSemantica[]) : [];
-    };
-
     const rowsSource = error
-      ? isMissingFn
-        ? await fallbackRows()
-        : (() => {
-            console.warn("⚠️ RPC buscar_memorias_semanticas falhou", {
-              message: (error as any)?.message,
-              details: (error as any)?.details,
-              hint: (error as any)?.hint,
-            });
-            return [] as MemoriaSemantica[];
-          })()
+      ? (() => {
+          console.warn("⚠️ RPC buscar_memorias_semanticas_v2 falhou", {
+            message: (error as any)?.message,
+            details: (error as any)?.details,
+            hint: (error as any)?.hint,
+          });
+          return [] as MemoriaSemantica[];
+        })()
       : Array.isArray(data)
       ? (data as MemoriaSemantica[])
       : [];

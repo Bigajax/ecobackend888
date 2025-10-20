@@ -145,7 +145,7 @@ export function guestSessionMiddleware(req: Request, res: Response, next: NextFu
   const candidate =
     typeof req.guestId === "string"
       ? req.guestId
-      : getHeaderString(req.headers["x-eco-guest-id"]) ?? getHeaderString(req.headers["x-guest-id"]);
+      : getHeaderString(req.headers["x-eco-guest-id"]);
   const guestId = typeof candidate === "string" && UUID_V4.test(candidate.trim()) ? candidate.trim() : undefined;
 
   if (!guestId) {
@@ -178,7 +178,6 @@ export function guestSessionMiddleware(req: Request, res: Response, next: NextFu
   };
 
   res.setHeader("X-Eco-Guest-Id", guestId);
-  res.setHeader("X-Guest-Id", guestId);
 
   return next();
 }

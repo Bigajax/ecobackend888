@@ -27,7 +27,7 @@ export async function registrarFeedback(req: Request, res: Response) {
 
   if (!vote) {
     logger.warn("feedback.invalid_payload", { reason: "missing_vote" });
-    return res.status(400).json({ error: "missing vote" });
+    return res.status(400).json({ message: "missing vote", status: 400 });
   }
 
   const interactionId = normalizeText(body.interaction_id);
@@ -35,11 +35,13 @@ export async function registrarFeedback(req: Request, res: Response) {
 
   if (!responseId) {
     logger.warn("feedback.invalid_payload", { reason: "missing_response_id" });
-    return res.status(400).json({ error: "missing response_id/interaction_id" });
+    return res
+      .status(400)
+      .json({ message: "missing response_id/interaction_id", status: 400 });
   }
 
   const analytics = getAnalyticsClient();
-  const guestIdHeader = normalizeText(req.get("X-Eco-Guest-Id") ?? req.get("X-Guest-Id") ?? null);
+  const guestIdHeader = normalizeText(req.get("X-Eco-Guest-Id") ?? null);
   const reward = vote === "up" ? 1 : 0;
 
   let armKey = normalizeText(body.arm);
@@ -97,7 +99,7 @@ export async function registrarFeedback(req: Request, res: Response) {
           guest_id: guestIdHeader ?? null,
           message: feedbackError.message,
         });
-        return res.status(400).json({ error: "unknown_interaction" });
+        return res.status(400).json({ message: "unknown_interaction", status: 400 });
       }
       logger.error("feedback.persist_failed", {
         interaction_id: interactionId,
@@ -108,6 +110,7 @@ export async function registrarFeedback(req: Request, res: Response) {
         payload: feedbackPayload,
         guest_id: guestIdHeader ?? null,
       });
+      return res.status(500).json({ message: "feedback_store_failed", status: 500 });
     } else {
       logger.info("feedback.persist_success", {
         table: "eco_feedback",
@@ -146,6 +149,7 @@ export async function registrarFeedback(req: Request, res: Response) {
       table: "bandit_rewards",
       payload: rewardPayload,
     });
+    return res.status(500).json({ message: "bandit_reward_failed", status: 500 });
   } else if (rewardInserted) {
     logger.info("feedback.bandit_reward_recorded", {
       table: "bandit_rewards",
@@ -177,6 +181,7 @@ export async function registrarFeedback(req: Request, res: Response) {
         table: "eco_bandit_arms",
         payload: { arm: armKey, reward },
       });
+      return res.status(500).json({ message: "bandit_arm_update_failed", status: 500 });
     } else {
       logger.info("feedback.bandit_arm_updated", {
         table: "eco_bandit_arms",
