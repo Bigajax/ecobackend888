@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import process from "node:process";
 
 import { ensureModuleManifest } from "../services/promptContext/moduleManifest";
+import type { GetEcoParams } from "../utils";
 
 const INTERACTIONS = 3;
 const SAMPLE_MESSAGES = [
@@ -9,6 +10,30 @@ const SAMPLE_MESSAGES = [
   "Tenho dúvidas sobre como manter minha rotina saudável quando falho nos planos; começo a me culpar, pulo refeições, deixo de treinar e termino o dia exausto, então queria entender como quebrar esse ciclo e pedir ajuda sem parecer fraco.",
   "Quero entender porque fico tão na defensiva em conversas com amigos próximos, principalmente quando tocam em temas familiares; sinto um aperto no peito, falo mais alto que o normal e depois me arrependo do tom duro, então busco estratégias para responder com mais presença.",
 ];
+
+type LLMUsage = {
+  total_tokens: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+};
+
+type LLMResult = {
+  content: string;
+  model: string;
+  usage: LLMUsage;
+  raw?: unknown;
+};
+
+type EligibleArm = {
+  id: string;
+  size?: string;
+  tokens_avg?: number;
+  tokensAvg?: number;
+  gatePassed?: boolean;
+  alpha?: number;
+  beta?: number;
+  count?: number;
+};
 
 type SelectorStages = {
   family?: { decisions?: any[] };
@@ -24,6 +49,9 @@ type DebugTrace = {
   };
 };
 
+type ShadowOrchestrator = typeof import("../services/ConversationOrchestrator")["getEcoResponse"];
+type ShadowRunResult = Awaited<ReturnType<ShadowOrchestrator>>;
+
 function ensureEnvDefaults(): void {
   if (!process.env.OPENROUTER_API_KEY) {
     process.env.OPENROUTER_API_KEY = "shadow-smoke-stub";
@@ -36,11 +64,14 @@ function ensureEnvDefaults(): void {
 function installClaudeStub(): void {
   // eslint-disable-next-line @typescript-eslint/no-var-requires
   const claudeAdapter = require("../core/ClaudeAdapter") as typeof import("../core/ClaudeAdapter");
-  claudeAdapter.claudeChatCompletion = async () => ({
-    content: "[shadow-smoke] resposta simulada",
-    model: "shadow-smoke",
-    usage: { total_tokens: 0, prompt_tokens: 0, completion_tokens: 0 },
-  });
+  claudeAdapter.claudeChatCompletion = (async () => {
+    const stub: LLMResult = {
+      content: "[shadow-smoke] resposta simulada",
+      model: "shadow-smoke",
+      usage: { total_tokens: 0, prompt_tokens: 0, completion_tokens: 0 },
+    };
+    return stub;
+  }) as unknown as typeof claudeAdapter.claudeChatCompletion;
   claudeAdapter.streamClaudeChatCompletion = async (_opts, callbacks) => {
     await callbacks.onControl?.({ type: "done", finishReason: "stop", usage: { total_tokens: 0 } });
   };
@@ -59,6 +90,40 @@ function installSelectorLogInterceptor(): void {
     }
     return originalInfo(...args);
   }) as typeof baseLog.info;
+}
+
+async function runOneShadow(
+  orchestrator: ShadowOrchestrator,
+  {
+    message,
+    guestId,
+  }: {
+    message: string;
+    guestId: string;
+  }
+): Promise<ShadowRunResult> {
+  const payload: GetEcoParams = {
+    messages: [
+      {
+        id: `${guestId}-msg`,
+        role: "user",
+        content: message,
+      },
+    ],
+    userId: guestId,
+    userName: undefined,
+    mems: [],
+    forcarMetodoViva: false,
+    blocoTecnicoForcado: null,
+    clientHour: undefined,
+    sessionMeta: undefined,
+    isGuest: true,
+    guestId,
+    accessToken: undefined,
+    activationTracer: undefined,
+  };
+
+  return (await orchestrator(payload as any)) as unknown as ShadowRunResult;
 }
 
 interface FamilyAggregateEntry {
@@ -80,26 +145,47 @@ interface FamilyAggregateEntry {
   beta: number | null;
 }
 
+type TSPickLog = {
+  selector_stage: "ts_pick";
+  family: string;
+  ts_pick: string | null;
+  chosen: string | null;
+  chosen_by: string;
+  reward_key: string | null;
+  alpha: number | null;
+  beta: number | null;
+  tokens_planned: number | null;
+  eligible_arms: Array<{
+    id: string;
+    size?: string;
+    tokens_avg?: number;
+  }>;
+};
+
 function buildFamilyAggregates(decisions: any[]): {
   aggregate: Record<string, FamilyAggregateEntry>;
   failingFamilies: string[];
-  tsLogs: Array<Record<string, unknown>>;
+  tsLogs: TSPickLog[];
 } {
   const aggregate: Record<string, FamilyAggregateEntry> = {};
   const failingFamilies: string[] = [];
-  const tsLogs: Array<Record<string, unknown>> = [];
+  const tsLogs: TSPickLog[] = [];
 
   for (const decision of decisions) {
     const familyId = typeof decision?.familyId === "string" ? decision.familyId : "(unknown)";
     const eligibleArms = Array.isArray(decision?.eligibleArms) ? decision.eligibleArms : [];
-    const normalizedEligible = eligibleArms.map((arm: any) => ({
-      id: typeof arm?.id === "string" ? arm.id : "",
-      gate_passed: Boolean(arm?.gatePassed),
-      tokens_avg: Number.isFinite(arm?.tokensAvg) ? Number(arm.tokensAvg) : 0,
-      alpha: Number.isFinite(arm?.alpha) ? Number(arm.alpha) : null,
-      beta: Number.isFinite(arm?.beta) ? Number(arm.beta) : null,
-      count: Number.isFinite(arm?.count) ? Number(arm.count) : null,
-    }));
+    const normalizedEligible = eligibleArms.map(
+      (arm: EligibleArm): FamilyAggregateEntry["eligible"][number] => ({
+        id: typeof arm?.id === "string" ? arm.id : "",
+        gate_passed: Boolean(arm?.gatePassed),
+        tokens_avg: Number.isFinite(arm?.tokensAvg ?? arm?.tokens_avg)
+          ? Number(arm.tokensAvg ?? arm.tokens_avg)
+          : 0,
+        alpha: Number.isFinite(arm?.alpha) ? Number(arm.alpha) : null,
+        beta: Number.isFinite(arm?.beta) ? Number(arm.beta) : null,
+        count: Number.isFinite(arm?.count) ? Number(arm.count) : null,
+      })
+    );
 
     const tsPick = typeof decision?.tsPick === "string" ? decision.tsPick : null;
     const chosen = typeof decision?.chosen === "string" ? decision.chosen : null;
@@ -107,7 +193,10 @@ function buildFamilyAggregates(decisions: any[]): {
     const rewardKey = typeof decision?.rewardKey === "string" ? decision.rewardKey : null;
     const tokensPlanned = Number.isFinite(decision?.tokensPlanned) ? Number(decision.tokensPlanned) : null;
 
-    const statsSource = normalizedEligible.find((arm) => arm.id && (arm.id === tsPick || arm.id === chosen)) ?? null;
+    const statsSource =
+      normalizedEligible.find(
+        (arm: FamilyAggregateEntry["eligible"][number]) => arm.id && (arm.id === tsPick || arm.id === chosen)
+      ) ?? null;
 
     aggregate[familyId] = {
       id: familyId,
@@ -121,9 +210,17 @@ function buildFamilyAggregates(decisions: any[]): {
       beta: statsSource?.beta ?? null,
     };
 
-    if (!normalizedEligible.some((arm) => arm.gate_passed)) {
+    if (!normalizedEligible.some((arm: FamilyAggregateEntry["eligible"][number]) => arm.gate_passed)) {
       failingFamilies.push(familyId);
     }
+
+    const eligibleSnapshot = eligibleArms.map((arm: EligibleArm) => ({
+      id: typeof arm?.id === "string" ? arm.id : "",
+      size: typeof arm?.size === "string" ? arm.size : undefined,
+      tokens_avg: Number.isFinite(arm?.tokens_avg ?? arm?.tokensAvg)
+        ? Number(arm.tokens_avg ?? arm.tokensAvg)
+        : undefined,
+    }));
 
     tsLogs.push({
       selector_stage: "ts_pick",
@@ -135,10 +232,23 @@ function buildFamilyAggregates(decisions: any[]): {
       alpha: statsSource?.alpha ?? null,
       beta: statsSource?.beta ?? null,
       tokens_planned: tokensPlanned,
+      eligible_arms: eligibleSnapshot,
     });
   }
 
   return { aggregate, failingFamilies, tsLogs };
+}
+
+function logTSPick(interaction: number, entry: TSPickLog): void {
+  const payload = {
+    ...entry,
+    eligible_arms: entry.eligible_arms.map((arm: EligibleArm) => ({
+      id: arm?.id ?? "",
+      size: arm?.size,
+      tokens_avg: arm?.tokens_avg,
+    })),
+  };
+  console.log(JSON.stringify({ interaction, ...payload }, null, 2));
 }
 
 async function main(): Promise<void> {
@@ -159,24 +269,7 @@ async function main(): Promise<void> {
 
     const logStart = capturedSelectorLogs.length;
 
-    const response = await getEcoResponse({
-      messages: [
-        {
-          id: `${guestId}-msg`,
-          role: "user",
-          content: message,
-        },
-      ],
-      userId: guestId,
-      userName: null,
-      mems: [],
-      forcarMetodoViva: false,
-      blocoTecnicoForcado: null,
-      clientHour: undefined,
-      sessionMeta: undefined,
-      isGuest: true,
-      guestId,
-    } as any);
+    const response = await runOneShadow(getEcoResponse, { message, guestId });
 
     const debugTrace: DebugTrace = ((response as any)?.meta?.debug_trace ?? {}) as DebugTrace;
     const selectorStages: SelectorStages = (debugTrace?.signals?.selectorStages ?? {}) as SelectorStages;
@@ -193,7 +286,7 @@ async function main(): Promise<void> {
       JSON.stringify({ selector_stage: "family_group", interaction: i + 1, families: aggregate }, null, 2)
     );
     for (const logEntry of tsLogs) {
-      console.log(JSON.stringify({ interaction: i + 1, ...logEntry }, null, 2));
+      logTSPick(i + 1, logEntry);
     }
 
     const knapsack = selectorStages.knapsack ?? null;
