@@ -31,20 +31,92 @@ import {
 } from "../quality/validators";
 import { qualityAnalyticsStore } from "../analytics/analyticsStore";
 import { ModuleStore } from "../promptContext/ModuleStore";
+import { getManifestDefaults } from "../promptContext/moduleManifest";
 import type { GetEcoResult } from "../../utils";
 import type { EcoHints } from "../../utils/types";
 import type { EcoLatencyMarks } from "./types";
 import type { EcoDecisionResult } from "./ecoDecisionHub";
-import {
-  updateArm as updateBanditArm,
-  type BanditSelectionMap,
-} from "../orchestrator/bandits/ts";
 import { createHash } from "node:crypto";
 import { insertModuleUsages, updateInteraction } from "./interactionAnalytics";
 
-const BANDIT_TOKEN_PENALTY_LAMBDA = 0.01;
-
 type PromptMessage = { role: string; content: string; name?: string };
+
+type BanditRewardRecord = {
+  family: string;
+  arm_id: string | null;
+  chosen_by: "ts" | "baseline";
+  reward_key: string | null;
+  reward: number | null;
+  tokens: number | null;
+  ttfb_ms: number | null;
+  ttlc_ms: number | null;
+  like: number | null;
+  dislike_reason: string | null;
+  emotional_intensity: number | null;
+  memory_saved: boolean | null;
+  reply_within_10m: boolean | null;
+};
+
+function computeBanditRewardScore(
+  rewardKey: string | null | undefined,
+  metrics: {
+    like: number;
+    replyWithin10m: boolean;
+    intensityFlag: boolean;
+    memorySaved: boolean;
+    tokens?: number | null;
+    defaults: ReturnType<typeof getManifestDefaults>;
+  }
+): number | null {
+  const like = Number.isFinite(metrics.like) ? Number(metrics.like) : 0;
+  const reply = metrics.replyWithin10m ? 1 : 0;
+  const intensity = metrics.intensityFlag ? 1 : 0;
+  const memory = metrics.memorySaved ? 1 : 0;
+  const tokens =
+    metrics.tokens != null && Number.isFinite(metrics.tokens)
+      ? Number(metrics.tokens)
+      : null;
+
+  switch (rewardKey) {
+    case "emotional_engagement":
+      return Number((0.5 * like + 0.4 * intensity + 0.1 * reply).toFixed(6));
+    case "clarity_engagement":
+      return Number((0.7 * like + 0.3 * reply).toFixed(6));
+    case "memory_efficiency": {
+      const penalty =
+        tokens != null && tokens > metrics.defaults.maxAuxTokens ? 0.1 : 0;
+      const base = 0.5 * like + 0.5 * memory - penalty;
+      return Number(Math.max(0, base).toFixed(6));
+    }
+    case "dialogue_continuation":
+      return Number((1 * reply).toFixed(6));
+    case "like_bias":
+      return Number((1 * like).toFixed(6));
+    default: {
+      const fallback = 0.5 * like + 0.5 * reply;
+      if (fallback === 0 && !intensity && !memory) {
+        return null;
+      }
+      return Number(fallback.toFixed(6));
+    }
+  }
+}
+
+type BanditRewardRecord = {
+  family: string;
+  arm_id: string | null;
+  chosen_by: "ts" | "baseline";
+  reward_key: string | null;
+  reward: number | null;
+  tokens: number | null;
+  ttfb_ms: number | null;
+  ttlc_ms: number | null;
+  like: number | null;
+  dislike_reason: string | null;
+  emotional_intensity: number | null;
+  memory_saved: boolean | null;
+  reply_within_10m: boolean | null;
+};
 
 function computePromptHash(messages?: PromptMessage[]): string | null {
   if (!Array.isArray(messages) || messages.length === 0) {
@@ -634,7 +706,7 @@ export class ResponseFinalizer {
       };
     });
 
-    const banditRewardRecords: Array<{ pilar: string; arm: string; recompensa: number }> = [];
+    const banditRewardRecords: BanditRewardRecord[] = [];
     const moduleOutcomeRecords: Array<{
       module_id: string;
       tokens: number;
@@ -804,34 +876,82 @@ export class ResponseFinalizer {
       }
     }
 
-    const banditSelections =
-      (ecoDecision.banditArms as BanditSelectionMap | undefined) ??
-      (ecoDecision.debug?.bandits as BanditSelectionMap | undefined);
-    if (banditSelections && Object.values(banditSelections).some(Boolean)) {
+    const computedTtfbMs =
+      timingsSnapshot?.llmStart != null && timingsSnapshot?.contextBuildEnd != null
+        ? Math.max(0, Math.round(timingsSnapshot.llmStart - timingsSnapshot.contextBuildEnd))
+        : null;
+    const computedTtlcMs =
+      typeof debugTrace.latencyMs === "number" && Number.isFinite(debugTrace.latencyMs)
+        ? Math.max(0, Math.round(debugTrace.latencyMs))
+        : null;
+
+    const banditPlan = (ecoDecision.debug as any)?.banditPlan;
+    const banditDecisions: any[] = Array.isArray(banditPlan?.decisions)
+      ? banditPlan.decisions
+      : [];
+    if (banditDecisions.length > 0) {
+      const defaults = getManifestDefaults();
       const safeTokens =
         typeof tokensTotal === "number" && Number.isFinite(tokensTotal)
           ? Math.max(tokensTotal, 0)
           : 0;
-      const reward = q - BANDIT_TOKEN_PENALTY_LAMBDA * (safeTokens / 1000);
-      if (Number.isFinite(reward)) {
-        for (const selection of Object.values(banditSelections)) {
-          if (!selection) continue;
-          const moduleId = typeof selection.module === "string" ? selection.module : "";
-          if (!moduleId) continue;
-          if (!resolvedSelectedModules.includes(moduleId)) continue;
+      const ttfbMs = computedTtfbMs;
+      const ttlcMs = computedTtlcMs;
+      const likeScore: number | null = null;
+      const replyWithin10m = false;
+      const memorySaved = ecoDecision.saveMemory ? true : false;
+      const emotionalIntensity =
+        typeof (normalizedBloco as any)?.intensidade === "number"
+          ? Number((normalizedBloco as any).intensidade)
+          : null;
+      const intensityFlag = emotionalIntensity != null && emotionalIntensity >= 7;
 
-          updateBanditArm(selection.pilar, selection.arm, reward);
-          banditRewardRecords.push({
-            pilar: selection.pilar,
-            arm: selection.arm,
-            recompensa: Number(reward),
-          });
+      for (const decision of banditDecisions) {
+        const familyId = typeof decision.familyId === "string" ? decision.familyId : null;
+        const chosen = typeof decision.chosen === "string" ? decision.chosen : null;
+        if (!familyId || !chosen) continue;
+        if (!resolvedSelectedModules.includes(chosen)) continue;
+
+        const tokensPlanned =
+          decision.tokensPlanned != null && Number.isFinite(decision.tokensPlanned)
+            ? Number(decision.tokensPlanned)
+            : null;
+        const reward = computeBanditRewardScore(decision.rewardKey, {
+          like: likeScore ?? 0,
+          replyWithin10m,
+          intensityFlag,
+          memorySaved,
+          tokens: tokensPlanned ?? safeTokens,
+          defaults,
+        });
+
+        if (reward != null) {
+          qualityAnalyticsStore.recordBanditOutcome(familyId, chosen, { reward });
+        }
+
+        banditRewardRecords.push({
+          family: familyId,
+          arm_id: chosen,
+          chosen_by: decision.chosenBy === "ts" ? "ts" : "baseline",
+          reward_key: decision.rewardKey ?? null,
+          reward,
+          tokens: tokensPlanned ?? null,
+          ttfb_ms: ttfbMs,
+          ttlc_ms: ttlcMs,
+          like: likeScore,
+          dislike_reason: null,
+          emotional_intensity: emotionalIntensity,
+          memory_saved: memorySaved,
+          reply_within_10m: replyWithin10m,
+        });
+
+        if (reward != null) {
           try {
             this.deps.trackBanditArmUpdate({
               distinctId,
               userId,
-              pilar: selection.pilar,
-              arm: selection.arm,
+              pilar: familyId,
+              arm: chosen,
               recompensa: reward,
             });
           } catch {
@@ -961,11 +1081,8 @@ export class ResponseFinalizer {
           }
         : null,
       latency: {
-        ttfb_ms: null as number | null,
-        ttlc_ms:
-          typeof debugTrace.latencyMs === "number" && Number.isFinite(debugTrace.latencyMs)
-            ? Number(debugTrace.latencyMs)
-            : null,
+        ttfb_ms: computedTtfbMs,
+        ttlc_ms: computedTtlcMs,
         tokens_total: tokensTotalValue,
       },
     };
