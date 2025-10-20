@@ -9,6 +9,7 @@ import {
 import {
   defaultParallelFetchService,
   withTimeoutOrNull,
+  type ParallelFetchResult,
 } from "./parallelFetch";
 import { log as defaultLogger } from "../promptContext/logger";
 import type { RetrieveMode } from "../supabase/memoriaRepository";
@@ -29,6 +30,10 @@ export interface ConversationContextResult {
     diasDesde: number | null;
     memoryRef: Record<string, unknown> | null;
   };
+  sources?: {
+    heuristicas: "live" | "cache" | "empty";
+    mems: "live" | "cache" | "empty";
+  };
 }
 
 interface CacheLike<T> {
@@ -42,11 +47,7 @@ interface ParallelFetchLike {
     userId?: string;
     supabase?: any;
     retrieveMode?: RetrieveMode;
-  }): Promise<{
-    heuristicas: any[];
-    userEmbedding: number[];
-    memsSemelhantes: any[];
-  }>;
+  }): Promise<ParallelFetchResult>;
 }
 
 export interface LoadConversationContextOptions {
@@ -78,6 +79,7 @@ const EMPTY_PARALLEL_RESULT = {
   heuristicas: [] as any[],
   userEmbedding: [] as number[],
   memsSemelhantes: [] as any[],
+  sources: { heuristicas: "empty" as const, mems: "empty" as const },
 };
 
 export async function loadConversationContext(
@@ -221,6 +223,8 @@ export async function loadConversationContext(
     derivadosFetchPromise.then(cacheDerivados).catch(() => undefined);
   }
 
+  const heuristicaSource = paralelas?.sources?.heuristicas ?? "empty";
+  const memSource = paralelas?.sources?.mems ?? "empty";
   const heuristicas: any[] = paralelas?.heuristicas ?? [];
   const userEmbedding: number[] = paralelas?.userEmbedding ?? [];
   const memsSemelhantes: any[] = paralelas?.memsSemelhantes ?? [];
@@ -284,6 +288,10 @@ export async function loadConversationContext(
       similarity: continuityDecision.similarity,
       diasDesde: continuityDecision.diasDesde,
       memoryRef: continuityRef,
+    },
+    sources: {
+      heuristicas: heuristicaSource,
+      mems: memSource,
     },
   };
 }
