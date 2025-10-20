@@ -1,5 +1,5 @@
 import { decodeSseChunk } from "../utils/decodeSse";
-import { getOrCreateGuestId } from "../utils/guest";
+import { getGuestIdHeader, rememberGuestIdFromResponse } from "../utils/guest";
 
 export type EcoLatencyStage = "prompt_ready" | "ttfb" | "ttlc" | "abort";
 
@@ -230,6 +230,7 @@ export function startEcoStream({
 
   const finished = (async () => {
     try {
+      const guestId = getGuestIdHeader();
       const response = await fetch(endpoint, {
         method: "POST",
         mode: "cors",
@@ -237,11 +238,13 @@ export function startEcoStream({
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
-          "X-Guest-Id": getOrCreateGuestId(),
+          ...(guestId ? { "X-Eco-Guest-Id": guestId } : {}),
         },
         body: JSON.stringify(body),
         signal: controller.signal,
       });
+
+      rememberGuestIdFromResponse(response);
 
       if (!response.ok) {
         const error = new Error(`Eco stream HTTP ${response.status}`);

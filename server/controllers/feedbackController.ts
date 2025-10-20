@@ -39,6 +39,7 @@ export async function registrarFeedback(req: Request, res: Response) {
   }
 
   const analytics = getAnalyticsClient();
+  const guestIdHeader = normalizeText(req.get("X-Eco-Guest-Id") ?? req.get("X-Guest-Id") ?? null);
   const reward = vote === "up" ? 1 : 0;
 
   let armKey = normalizeText(body.arm);
@@ -89,6 +90,15 @@ export async function registrarFeedback(req: Request, res: Response) {
 
     if (feedbackError) {
       const code = feedbackError.code ?? null;
+      if (code === "23503") {
+        logger.warn("feedback.persist_unknown_interaction", {
+          interaction_id: interactionId,
+          response_id: responseId,
+          guest_id: guestIdHeader ?? null,
+          message: feedbackError.message,
+        });
+        return res.status(400).json({ error: "unknown_interaction" });
+      }
       logger.error("feedback.persist_failed", {
         interaction_id: interactionId,
         message: feedbackError.message,
@@ -96,6 +106,7 @@ export async function registrarFeedback(req: Request, res: Response) {
         details: feedbackError.details ?? null,
         table: "eco_feedback",
         payload: feedbackPayload,
+        guest_id: guestIdHeader ?? null,
       });
     } else {
       logger.info("feedback.persist_success", {
@@ -103,6 +114,7 @@ export async function registrarFeedback(req: Request, res: Response) {
         interaction_id: interactionId,
         response_id: responseId,
         vote,
+        guest_id: guestIdHeader ?? null,
       });
     }
   }

@@ -21,15 +21,24 @@ export function isAllowedOrigin(origin?: string | null): boolean {
 }
 
 export const CORS_ALLOW_HEADERS = [
+  "Accept",
   "Content-Type",
-  "Authorization",
+  "Origin",
+  "X-Eco-Guest-Id",
+  "X-Eco-Session-Id",
   "X-Guest-Id",
   "X-Session-Id",
   "X-Requested-With",
   "Cache-Control",
+  "Authorization",
 ] as const;
 export const CORS_ALLOW_METHODS = ["GET", "POST", "OPTIONS"] as const;
-export const CORS_EXPOSE_HEADERS = ["X-Request-Id", "Cache-Control"] as const;
+export const CORS_EXPOSE_HEADERS = [
+  "X-Request-Id",
+  "Cache-Control",
+  "X-Eco-Guest-Id",
+  "X-Guest-Id",
+] as const;
 export const CORS_MAX_AGE_SECONDS = 600; // 10 min
 
 /**

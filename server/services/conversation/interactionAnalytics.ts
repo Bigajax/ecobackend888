@@ -25,6 +25,19 @@ export interface InteractionUpdate {
   moduleCombo?: string[] | null;
 }
 
+export interface InteractionSnapshot {
+  id: string;
+  userId?: string | null;
+  sessionId?: string | null;
+  messageId?: string | null;
+  promptHash?: string | null;
+  moduleCombo?: string[] | null;
+  tokensIn?: number | null;
+  tokensOut?: number | null;
+  latencyMs?: number | null;
+  meta?: Record<string, unknown> | null;
+}
+
 export interface ModuleUsageRow {
   moduleKey: string;
   tokens?: number | null;
@@ -48,6 +61,17 @@ function sanitizeModuleCombo(combo: string[] | null | undefined): string[] | nul
     .map((item) => (typeof item === "string" ? item.trim() : ""))
     .filter((item) => item.length > 0);
   return cleaned.length ? cleaned : [];
+}
+
+function sanitizeMeta(meta: Record<string, unknown> | null | undefined): Record<string, unknown> | null {
+  if (!meta || typeof meta !== "object") {
+    return null;
+  }
+  try {
+    return JSON.parse(JSON.stringify(meta));
+  } catch {
+    return null;
+  }
 }
 
 export async function createInteraction(seed: InteractionSeed): Promise<string | null> {
@@ -149,6 +173,71 @@ export async function updateInteraction(
   } catch (error) {
     logger.warn("interaction.update_unexpected", {
       interaction_id: interactionId,
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+export async function upsertInteractionSnapshot(snapshot: InteractionSnapshot): Promise<void> {
+  if (analyticsClientMode !== "enabled") {
+    return;
+  }
+
+  if (!snapshot || typeof snapshot.id !== "string" || !snapshot.id.trim()) {
+    return;
+  }
+
+  const payload: Record<string, unknown> = { id: snapshot.id };
+
+  if (snapshot.userId !== undefined) {
+    payload.user_id = snapshot.userId ?? null;
+  }
+  if (snapshot.sessionId !== undefined) {
+    payload.session_id = snapshot.sessionId ?? null;
+  }
+  if (snapshot.messageId !== undefined) {
+    payload.message_id = snapshot.messageId ?? null;
+  }
+  if (snapshot.promptHash !== undefined) {
+    payload.prompt_hash = snapshot.promptHash ?? null;
+  }
+
+  if (snapshot.moduleCombo !== undefined) {
+    const moduleCombo = sanitizeModuleCombo(snapshot.moduleCombo ?? null);
+    payload.module_combo = moduleCombo;
+  }
+
+  if (snapshot.tokensIn !== undefined) {
+    payload.tokens_in = toNullableInteger(snapshot.tokensIn ?? null);
+  }
+  if (snapshot.tokensOut !== undefined) {
+    payload.tokens_out = toNullableInteger(snapshot.tokensOut ?? null);
+  }
+  if (snapshot.latencyMs !== undefined) {
+    payload.latency_ms = toNullableInteger(snapshot.latencyMs ?? null);
+  }
+
+  if (snapshot.meta !== undefined) {
+    payload.meta = sanitizeMeta(snapshot.meta);
+  }
+
+  try {
+    const analytics = getAnalyticsClient();
+    const { error } = await analytics
+      .from("eco_interactions")
+      .upsert([payload], { onConflict: "id" });
+
+    if (error) {
+      logger.warn("interaction.upsert_failed", {
+        interaction_id: snapshot.id,
+        message: error.message,
+        code: error.code ?? null,
+        table: "eco_interactions",
+      });
+    }
+  } catch (error) {
+    logger.warn("interaction.upsert_unexpected", {
+      interaction_id: snapshot.id,
       message: error instanceof Error ? error.message : String(error),
     });
   }
