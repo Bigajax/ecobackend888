@@ -12,7 +12,7 @@ create table if not exists auth.users (
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(5);
+select plan(6);
 
 -- Seed user and rows
 insert into auth.users (id, email)
@@ -104,6 +104,22 @@ select cmp_ok(
     '>=',
     0,
     'Token counts are non-negative'
+);
+
+select cmp_ok(
+    (select count(*) from public.buscar_memorias_semanticas_v2(
+        '00000000-0000-0000-0000-000000000001',
+        (array_fill(0.1::float4, array[1536]))::vector(1536),
+        (array_fill(0.1::float4, array[256]))::vector(256),
+        array['familia'],
+        null,
+        true,
+        5,
+        200
+    )),
+    '>=',
+    1,
+    'buscar_memorias_semanticas_v2 returns rows'
 );
 
 select finish();

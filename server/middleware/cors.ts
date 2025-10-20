@@ -26,8 +26,6 @@ export const CORS_ALLOW_HEADERS = [
   "Origin",
   "X-Eco-Guest-Id",
   "X-Eco-Session-Id",
-  "X-Guest-Id",
-  "X-Session-Id",
   "X-Requested-With",
   "Cache-Control",
   "Authorization",
@@ -37,7 +35,7 @@ export const CORS_EXPOSE_HEADERS = [
   "X-Request-Id",
   "Cache-Control",
   "X-Eco-Guest-Id",
-  "X-Guest-Id",
+  "X-Eco-Session-Id",
 ] as const;
 export const CORS_MAX_AGE_SECONDS = 600; // 10 min
 
@@ -82,7 +80,7 @@ function applyPreflightHeaders(req: Request, res: Response, allowed: boolean) {
   );
   res.setHeader(
     "Access-Control-Allow-Methods",
-    CORS_ALLOW_METHODS.join(", ")
+    CORS_ALLOW_METHODS.join(",")
   );
   res.setHeader("Access-Control-Max-Age", String(CORS_MAX_AGE_SECONDS));
   res.setHeader("Access-Control-Expose-Headers", CORS_EXPOSE_HEADERS.join(","));
@@ -118,7 +116,7 @@ export function applyCorsResponseHeaders(req: Request, res: Response) {
 
   res.setHeader("Access-Control-Allow-Credentials", "false");
   res.setHeader("Access-Control-Allow-Headers", CORS_ALLOW_HEADERS.join(", "));
-  res.setHeader("Access-Control-Allow-Methods", CORS_ALLOW_METHODS.join(", "));
+  res.setHeader("Access-Control-Allow-Methods", CORS_ALLOW_METHODS.join(","));
   res.setHeader("Access-Control-Max-Age", String(CORS_MAX_AGE_SECONDS));
   res.setHeader("Access-Control-Expose-Headers", CORS_EXPOSE_HEADERS.join(","));
 }

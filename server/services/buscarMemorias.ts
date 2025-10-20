@@ -80,71 +80,87 @@ export async function buscarMemoriasSemelhantes(
     const queryEmbedding = await prepareQueryEmbedding({ texto, userEmbedding });
     if (!queryEmbedding) return [];
 
+    if (!userId) {
+      return [];
+    }
+
     const match_count = Math.max(1, k); // LATENCY: top_k
     const match_threshold = Math.max(0, Math.min(1, Number(threshold) || 0.8));
 
-    // Helper para chamar a RPC v2 com days_back variável
-    const call = async (db: number | null) => {
-      const { data, error } = await sb.rpc(
-        "buscar_memorias_semelhantes_v2",
-        {
-          query_embedding: queryEmbedding,  // float8[] / vector
-          user_id_input: userId,            // uuid ou null (busca global se null)
-          match_count,
-          match_threshold,
-          days_back: db,                    // inteiro (dias) ou null
-        } as any // <- se seu tipo gerado não estiver atualizado
-      );
-      if (error) {
-        console.warn("⚠️ RPC buscar_memorias_semelhantes_v2 falhou:", {
-          message: (error as any)?.message,
-          details: (error as any)?.details,
-          hint: (error as any)?.hint,
-        });
-        return [] as any[];
-      }
-      return (data ?? []) as any[];
-    };
+    const { data, error } = await sb.rpc(
+      "buscar_memorias_semanticas_v2",
+      {
+        p_usuario_id: userId,
+        p_query: queryEmbedding,
+        p_limit: match_count,
+        p_lambda_mmr: 0.6,
+        p_recency_halflife_hours:
+          daysBack == null ? 48 : Math.max(1, Math.min(720, Math.round(Math.max(daysBack, 1) * 24))),
+        p_token_budget: 1800,
+        p_tags: [],
+        p_emocao: null,
+        p_include_referencias: true,
+        p_query_emocional: null,
+      } as Record<string, unknown>
+    );
 
-    // ---------------------------
-    // Estratégia de fallback: 30d → 180d → sem filtro
-    // ---------------------------
-    let rows: any[] = [];
-    const tryOrder: (number | null)[] =
-      daysBack === null ? [null] : [daysBack ?? 30, 180, null];
-
-    for (const db of tryOrder) {
-      rows = await call(db);
-      if (rows && rows.length) break;
+    if (error) {
+      console.warn("⚠️ RPC buscar_memorias_semanticas_v2 falhou:", {
+        message: (error as any)?.message,
+        details: (error as any)?.details,
+        hint: (error as any)?.hint,
+      });
+      return [];
     }
 
-    // Normaliza resultado para o shape da app
+    const rows = Array.isArray(data) ? (data as any[]) : [];
+
     return rows
-      .map((d) => ({
-        id: d.id as string,
-        resumo_eco: d.resumo_eco as string,
-        tags: d.tags ?? undefined,
-        emocao_principal: d.emocao_principal ?? undefined,
-        intensidade:
+      .filter((row) => {
+        const score = typeof row?.effective_score === "number" ? Number(row.effective_score) : null;
+        return score == null || score >= match_threshold;
+      })
+      .map((d) => {
+        const similarity =
+          typeof d.similarity_score === "number"
+            ? Number(d.similarity_score)
+            : typeof d.similarity === "number"
+            ? Number(d.similarity)
+            : undefined;
+        const intensityValue =
           typeof d.intensidade === "number"
-            ? d.intensidade
+            ? Number(d.intensidade)
             : d.intensidade != null
             ? Number(d.intensidade)
-            : undefined,
-        created_at: d.created_at as string | undefined,
-        similarity:
-          typeof d.similarity === "number"
-            ? d.similarity
-            : typeof d.similaridade === "number"
-            ? d.similaridade
-            : undefined,
-        distancia:
-          typeof d.distancia === "number"
-            ? d.distancia
-            : typeof d.similarity === "number"
-            ? 1 - d.similarity
-            : undefined,
-      }))
+            : undefined;
+        const memoriaId =
+          typeof d.memoria_id === "string" && d.memoria_id.trim().length > 0
+            ? d.memoria_id
+            : typeof d.id === "string" && d.id.trim().length > 0
+            ? d.id
+            : null;
+        if (!memoriaId) return null;
+        return {
+          id: memoriaId,
+          resumo_eco: typeof d.resumo_eco === "string" ? d.resumo_eco : "",
+          tags: Array.isArray(d.tags) ? d.tags : undefined,
+          emocao_principal: d.emocao_principal ?? undefined,
+          intensidade: intensityValue,
+          created_at: typeof d.created_at === "string" ? d.created_at : undefined,
+          similarity,
+          distancia: typeof similarity === "number" ? Math.max(0, 1 - similarity) : undefined,
+        };
+      })
+      .filter((entry): entry is {
+        id: string;
+        resumo_eco: string;
+        tags?: string[];
+        emocao_principal?: string;
+        intensidade?: number;
+        created_at?: string;
+        similarity?: number;
+        distancia?: number;
+      } => Boolean(entry))
       .slice(0, k);
   } catch (e) {
     console.error("❌ Erro interno ao buscar memórias:", (e as Error).message);

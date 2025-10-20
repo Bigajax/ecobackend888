@@ -1,5 +1,6 @@
 import { decodeSseChunk } from "../utils/decodeSse";
 import { getGuestIdHeader, rememberGuestIdFromResponse } from "../utils/guest";
+import { getSessionIdHeader, rememberSessionIdFromResponse } from "../utils/session";
 
 export type EcoLatencyStage = "prompt_ready" | "ttfb" | "ttlc" | "abort";
 
@@ -22,8 +23,9 @@ export type EcoClientEvent =
   | { type: "prompt_ready"; at?: number; sinceStartMs?: number; timings?: EcoLatencyTimings }
   | { type: "first_token" }
   | { type: "chunk"; delta: string; index: number }
-  | { type: "reconnect"; attempt?: number }
-  | { type: "done"; meta?: Record<string, unknown>; at?: number; sinceStartMs?: number; timings?: EcoLatencyTimings }
+  | { type: "meta"; data: Record<string, unknown> }
+  | { type: "memory_saved"; saved: boolean; meta?: Record<string, unknown> }
+  | { type: "done"; meta?: Record<string, unknown>; at?: number; sinceStartMs?: number; timings?: EcoLatencyTimings; content?: string | null }
   | { type: "error"; message: string }
   | EcoLatencyEvent;
 
@@ -31,8 +33,9 @@ type EcoServerEvent =
   | { type: "prompt_ready"; at?: number; sinceStartMs?: number; timings?: EcoLatencyTimings }
   | { type: "first_token" }
   | { type: "chunk"; delta?: string; content?: string; index?: number }
-  | { type: "reconnect"; attempt?: number }
-  | { type: "done"; meta?: Record<string, unknown>; at?: number; sinceStartMs?: number; timings?: EcoLatencyTimings }
+  | { type: "meta"; data?: Record<string, unknown>; meta?: Record<string, unknown> }
+  | { type: "memory_saved"; meta?: Record<string, unknown>; saved?: boolean; value?: boolean }
+  | { type: "done"; meta?: Record<string, unknown>; at?: number; sinceStartMs?: number; timings?: EcoLatencyTimings; content?: string | null }
   | { type: "error"; message?: string; error?: { message?: string } | string }
   | EcoLatencyEvent
   | { type: "control"; name: string; timings?: EcoLatencyTimings; meta?: Record<string, unknown>; attempt?: number }
@@ -103,8 +106,28 @@ function normalizeServerEvent(event: EcoServerEvent, rawEventName?: string): Eco
       return [{ type: "first_token" }];
     case "chunk":
       return asChunkEvent((event as any).delta ?? (event as any).content, (event as any).index);
-    case "reconnect":
-      return [{ type: "reconnect", attempt: coerceNumber((event as any).attempt) }];
+    case "meta": {
+      const data =
+        (event as any).data && typeof (event as any).data === "object"
+          ? ((event as any).data as Record<string, unknown>)
+          : (event as any).meta && typeof (event as any).meta === "object"
+          ? ((event as any).meta as Record<string, unknown>)
+          : {};
+      return [{ type: "meta", data }];
+    }
+    case "memory_saved": {
+      const meta =
+        (event as any).meta && typeof (event as any).meta === "object"
+          ? ((event as any).meta as Record<string, unknown>)
+          : undefined;
+      const savedRaw =
+        typeof (event as any).saved === "boolean"
+          ? (event as any).saved
+          : typeof (event as any).value === "boolean"
+          ? (event as any).value
+          : Boolean(meta);
+      return [{ type: "memory_saved", saved: savedRaw, meta }];
+    }
     case "done":
       return [
         {
@@ -113,6 +136,10 @@ function normalizeServerEvent(event: EcoServerEvent, rawEventName?: string): Eco
           at: coerceNumber((event as any).at),
           sinceStartMs: coerceNumber((event as any).sinceStartMs),
           timings: (event as any).timings,
+          content:
+            typeof (event as any).content === "string"
+              ? (event as any).content
+              : undefined,
         },
       ];
     case "error": {
@@ -155,8 +182,13 @@ function normalizeServerEvent(event: EcoServerEvent, rawEventName?: string): Eco
       if (control.name === "first_token") {
         return [{ type: "first_token" }];
       }
-      if (control.name === "reconnect") {
-        return [{ type: "reconnect", attempt: coerceNumber(control.attempt) }];
+      if (control.name === "meta") {
+        const data = control.meta && typeof control.meta === "object" ? control.meta : {};
+        return [{ type: "meta", data }];
+      }
+      if (control.name === "memory_saved") {
+        const meta = control.meta && typeof control.meta === "object" ? control.meta : undefined;
+        return [{ type: "memory_saved", saved: true, meta }];
       }
       if (control.name === "done") {
         return [
@@ -185,6 +217,20 @@ function normalizeServerEvent(event: EcoServerEvent, rawEventName?: string): Eco
     }
     if (fallback === "chunk" || fallback === "token") {
       return asChunkEvent(payloadAny?.delta ?? payloadAny?.text ?? payloadAny?.content, payloadAny?.index);
+    }
+    if (fallback === "meta") {
+      const data =
+        payloadAny && typeof payloadAny === "object"
+          ? ((payloadAny.meta ?? payloadAny.data ?? {}) as Record<string, unknown>)
+          : {};
+      return [{ type: "meta", data }];
+    }
+    if (fallback === "memory_saved") {
+      const meta =
+        payloadAny && typeof payloadAny === "object" && payloadAny.meta && typeof payloadAny.meta === "object"
+          ? (payloadAny.meta as Record<string, unknown>)
+          : undefined;
+      return [{ type: "memory_saved", saved: true, meta }];
     }
   }
 
@@ -231,6 +277,7 @@ export function startEcoStream({
   const finished = (async () => {
     try {
       const guestId = getGuestIdHeader();
+      const sessionId = getSessionIdHeader();
       const response = await fetch(endpoint, {
         method: "POST",
         mode: "cors",
@@ -239,12 +286,14 @@ export function startEcoStream({
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
           ...(guestId ? { "X-Eco-Guest-Id": guestId } : {}),
+          ...(sessionId ? { "X-Eco-Session-Id": sessionId } : {}),
         },
         body: JSON.stringify(body),
         signal: controller.signal,
       });
 
       rememberGuestIdFromResponse(response);
+      rememberSessionIdFromResponse(response);
 
       if (!response.ok) {
         const error = new Error(`Eco stream HTTP ${response.status}`);

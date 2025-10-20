@@ -16,9 +16,7 @@ export type GuestIdentity = {
 export const resolveGuestIdentity = (req: GuestAwareRequest): GuestIdentity => {
   const headerGuestId =
     (req.headers["x-eco-guest-id"] as string | undefined)?.trim() ||
-    (req.headers["X-Eco-Guest-Id"] as string | undefined)?.trim() ||
-    (req.headers["x-guest-id"] as string | undefined)?.trim() ||
-    (req.headers["X-Guest-Id"] as string | undefined)?.trim();
+    (req.headers["X-Eco-Guest-Id"] as string | undefined)?.trim();
 
   const bodyIsGuest = Boolean(req.body?.isGuest);
   const bodyGuestId = typeof req.body?.guestId === "string" ? req.body.guestId.trim() : "";

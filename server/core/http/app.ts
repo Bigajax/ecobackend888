@@ -122,7 +122,7 @@ export function createApp(): Express {
   app.use(express.json({ limit: "1mb" }));
   app.use(express.urlencoded({ extended: true }));
 
-  // 3) Identidade guest (gera/propaga X-Guest-Id / cookie)
+  // 3) Identidade guest (gera/propaga X-Eco-Guest-Id / cookie e X-Eco-Session-Id)
   app.use(ensureGuestIdentity);
 
   // 4) Rate limit simples baseado em JWT/guest/ip

@@ -10,21 +10,21 @@
 - **Express app** (`server/core/http/app.ts`): preflight CORS, JSON parsing, guest identity cookies, per-token rate limiting, and route registration under `/api/*`. SSE route `/api/ask-eco` is exposed directly before other prompt endpoints for low-latency streaming. Health checks `/`, `/healthz`, `/api/health`, `/readyz` provide deployment probes.
 - **Conversation orchestration** (`server/routes/promptRoutes.ts`, `server/services/ConversationOrchestrator.ts`):
   - Normalizes body payloads accepting `{messages[]}`, `{text}`, or `{mensagem}` fields, resolves guest/session identifiers, and toggles SSE if `Accept: text/event-stream` or `stream=true`.
-  - Streams tokens through SSE (`prompt_ready`, `first_token`, `chunk`, `latency`, `done`) while capturing the interaction id emitted by the orchestrator. Passive signals (prompt ready, done) queue until the interaction id is known, then insert into `analytics.eco_passive_signals`.
+  - Streams tokens through SSE in a strict order — `prompt_ready` → `first_token` → `chunk*` → `meta?` → `memory_saved?` → `latency` → `done` — and mirrors the same `done` payload when JSON fallback is used (including `content`, `meta`, `timings`, `at`, and `sinceStartMs`). Passive signals queue until the interaction id is known, then insert into `analytics.eco_passive_signals`.
   - Conversation orchestrator persists analytics batches per response: `analytics.eco_interactions` (insert/update), `analytics.resposta_q`, `analytics.module_outcomes`, `analytics.bandit_rewards`, `analytics.knapsack_decision`, `analytics.latency_samples`, plus heuristics events when present.
-  - Memory retrieval uses Supabase RPC `public.buscar_memorias_semanticas` to merge `public.memories` and `public.referencias_temporarias` with token budgets, similarity scores, and recency weights.
+  - Memory retrieval uses Supabase RPC `public.buscar_memorias_semanticas_v2` to merge `public.memories` and `public.referencias_temporarias` with token budgets, similarity scores, and recency weights.
 - **Signal intake** (`server/controllers/signalController.ts`): rate-limited POST storing lifecycle and engagement events into `analytics.eco_passive_signals`, enforcing UUID interaction ids and safe metadata cloning.
 - **Feedback intake** (`server/controllers/feedbackController.ts`): accepts explicit votes, infers module arm when absent, records rows in `analytics.eco_feedback`, upserts `analytics.bandit_rewards`, then runs RPC `analytics.update_bandit_arm` to update Thompson sampling priors.
 - **Guest upgrades** (`server/routes/guestRoutes.ts`): authenticated users claim guest history, migrating `public.referencias_temporarias` rows and blocking the guest id to avoid reuse.
 
 ## Frontend Overview
 - **Streaming client** (`web/src/api/ecoStream.ts`, `web/src/api/chatStreamClient.ts`):
-  - `startEcoStream` POSTs JSON to `/ask-eco` with `Authorization: Bearer <token>` and optional `X-Eco-Guest-Id`, decoding SSE chunks into normalized events for immediate rendering.
+  - `startEcoStream` POSTs JSON to `/ask-eco` with `Authorization: Bearer <token>` plus stored `X-Eco-Guest-Id`/`X-Eco-Session-Id`, decoding SSE chunks into normalized events for immediate rendering and updating both headers from every response.
   - `streamConversation` wraps the transport to aggregate text, expose lifecycle callbacks, emit latency analytics, persist the returned `interaction_id`, and trigger passive signals (`first_token`, `done`, `view`).
-  - Headers expected by backend: `Authorization`, `Content-Type: application/json`, and guest id header; responses may echo `X-Eco-Guest-Id` for storage.
-  - SSE events consumed: `prompt_ready` (pipeline ready), `latency` stages (`prompt_ready`, `ttfb`, `ttlc`), `chunk` (text delta), `done` (final metadata), `error` (fallback handling).
-- **Signal hook** (`web/src/api/signals.ts`): posts `{signal, interaction_id, value?, session_id?, meta?}` to `/api/signal` with stored guest header; gracefully ignores network failures while persisting returned guest ids.
-- **Guest utilities** (`web/src/utils/guest.ts`): normalizes UUID-based guest ids, stores them in localStorage, and hydrates request headers so backend session middleware can stitch analytics and rate limiting per guest.
+  - Headers expected by backend: `Authorization`, `Content-Type: application/json`, `X-Eco-Guest-Id`, and `X-Eco-Session-Id`; responses echo both so the frontend caches them in storage.
+  - SSE events consumed: `prompt_ready`, `first_token`, `chunk`, `meta`, `memory_saved`, `latency` (staged), `done` (final metadata + `content`), and `error` for rare fallbacks.
+- **Signal hook** (`web/src/api/signals.ts`): posts `{signal, interaction_id, value?, session_id?, meta?}` to `/api/signal` with stored guest/session headers; gracefully ignores network failures while persisting returned ids.
+- **Guest & session utilities** (`web/src/utils/guest.ts`, `web/src/utils/session.ts`): normalize identifiers, persist them in browser storage, and hydrate request headers so backend middleware can stitch analytics, rate limiting, and telemetry.
 
 ## Supabase Schema Summary
 ### Public Schema (Memory)
@@ -55,9 +55,9 @@
 #### `public.referencias_temporarias`
 Same shape as `public.memories` but `salvar_memoria` defaults false and includes `expires_at` to age out low-intensity (<7) references.
 
-#### RPC `public.buscar_memorias_semanticas`
+#### RPC `public.buscar_memorias_semanticas_v2`
 - **Inputs:** `p_usuario_id`, `p_query` (vector), optional `p_query_emocional`, `p_tags`, `p_emocao`, `p_include_referencias`, `p_limit`, `p_token_budget`, `p_lambda_mmr`, `p_recency_halflife_hours`, `p_pin_boost`.
-- **Outputs:** rows with origin (`memories` or `referencias_temporarias`), ids, content, tags, emotion fields, composite and component scores, honoring MMR and token budgets.
+- **Outputs:** rows with origin (`memories` or `referencias_temporarias`), ids, content, tags, emotion fields, composite and component scores, honoring MMR and token budgets; thin wrapper over `public.buscar_memorias_semanticas` for v2 clients.
 
 ### Analytics Schema
 #### `analytics.eco_interactions`
@@ -65,7 +65,7 @@ Same shape as `public.memories` but `salvar_memoria` defaults false and includes
 | --- | --- | --- |
 | `id` | `uuid` | Primary interaction/response id referenced by all analytics tables. |
 | `user_id` | `uuid` | Authenticated user when available; nullable for guests. |
-| `session_id` | `text` | Front session glue (via `X-Eco-Session`). |
+| `session_id` | `text` | Front session glue (via `X-Eco-Session-Id`). |
 | `message_id` | `text` | Upstream message guid. |
 | `prompt_hash` | `text` | Template hash to correlate experiments. |
 | `module_combo` | `text[]` | Modules triggered during orchestration. |
@@ -77,7 +77,7 @@ Same shape as `public.memories` but `salvar_memoria` defaults false and includes
 Stores `{interaction_id, user_id, session_id, vote enum('up','down'), reason[], source, meta, created_at}` to track explicit votes.
 
 #### `analytics.eco_passive_signals`
-Captures `{interaction_id, signal, meta, created_at}` for lifecycle telemetry (prompt ready, first token, view, etc.).
+Captures `{interaction_id, signal, meta jsonb not null, created_at}` for lifecycle telemetry (prompt_ready, first_token, done, view, etc.) within the analytics schema (no RLS).
 
 #### `analytics.eco_module_usages`
 Links module execution to interactions with `{module_key, tokens, position, created_at}`.
@@ -111,16 +111,16 @@ Mutable policy/budget configuration store `{key, tokens_budget, config jsonb, up
 ## API Contract Table
 | Method | Endpoint | Request Body | Response | Supabase Touchpoints | Frontend Hook |
 | --- | --- | --- | --- | --- | --- |
-| POST | `/api/ask-eco` | `{ messages[]? \| text? \| mensagem?, nome_usuario?, usuario_id?, sessionMeta?, stream? }` plus headers `Authorization: Bearer`, `X-Eco-Guest-Id?`, `X-Eco-Session-Id?` | SSE stream (`prompt_ready`, `latency`, `chunk`, `done`) or JSON `{ content }` when SSE disabled | RPC `public.buscar_memorias_semanticas`; tables `analytics.eco_interactions`, `analytics.resposta_q`, `analytics.module_outcomes`, `analytics.bandit_rewards`, `analytics.knapsack_decision`, `analytics.latency_samples`, `analytics.eco_passive_signals` | `startEcoStream` → `streamConversation` (renders text, emits analytics) |
-| POST | `/api/signal` | `{ signal, interaction_id, value?, session_id?, meta? }` with headers `X-Eco-Guest-Id?`, `X-Eco-Session-Id?` | `204 No Content` (`429` on rate limit, `400` invalid interaction) | `analytics.eco_passive_signals` | `postSignal` (lifecycle + engagement pings) |
-| POST | `/api/feedback` | `{ interaction_id?, response_id?, vote: "up"|"down", reason?, pillar?, arm? }` headers optionally include guest/session ids | `204 No Content` (`400` when missing ids) | `analytics.eco_feedback`, `analytics.bandit_rewards`, RPC `analytics.update_bandit_arm`, lookup `analytics.eco_module_usages` | Feedback UI (TODO) — ensure request mirrors backend contract |
+| POST | `/api/ask-eco` | `{ messages[]? \| text? \| mensagem?, nome_usuario?, usuario_id?, sessionMeta?, stream? }` plus headers `Authorization: Bearer`, `X-Eco-Guest-Id`, `X-Eco-Session-Id` | SSE events `prompt_ready` → `first_token` → `chunk*` → `meta?` → `memory_saved?` → `latency` → `done` (with `content`, `meta`, `timings`, `at`, `sinceStartMs`); JSON fallback returns the same `done` payload shape | RPC `public.buscar_memorias_semanticas_v2`; tables `analytics.eco_interactions`, `analytics.resposta_q`, `analytics.module_outcomes`, `analytics.bandit_rewards`, `analytics.knapsack_decision`, `analytics.latency_samples`, `analytics.eco_passive_signals` | `startEcoStream` → `streamConversation` (renders text, emits analytics) |
+| POST | `/api/signal` | `{ signal, interaction_id, value?, session_id?, meta? }` with headers `X-Eco-Guest-Id?`, `X-Eco-Session-Id?` | `204 No Content` (`429` on rate limit, `400` invalid interaction) | `analytics.eco_passive_signals` (analytics schema) | `postSignal` (lifecycle + engagement pings) |
+| POST | `/api/feedback` | `{ interaction_id?, response_id?, vote: "up"|"down", reason?, pillar?, arm? }` headers optionally include guest/session ids | `204 No Content`; on validation/analytics errors return `{message,status}` JSON | `analytics.eco_feedback`, `analytics.bandit_rewards`, RPC `analytics.update_bandit_arm`, lookup `analytics.eco_module_usages` | Feedback UI (TODO) — ensure request mirrors backend contract |
 | POST | `/api/guest/claim` | Auth header `Bearer <user token>`; body `{ guestId \| guest_id \| id }` | `200 { migrated }` or `401/400/500` | `public.referencias_temporarias` (updates owner), guest session cache invalidation | Account linking screen (TODO) — must pass stored guest id |
 
 ## Front–Back Connection Map
 - `streamConversation` → `/api/ask-eco` → orchestrator → Supabase analytics inserts; frontend renders `chunk` events, logs latencies, and persists `interaction_id` for downstream calls.
 - `streamConversation` lifecycle callback → `postSignal("first_token"|"done"|"view")` → `/api/signal` → `analytics.eco_passive_signals`.
 - Future feedback component will reuse stored `interaction_id` to POST votes to `/api/feedback`, feeding `analytics.eco_feedback` and updating bandit priors before surfacing dashboards in Metabase.
-- Guest claim flow will promote `guest_id` to auth user id, ensuring subsequent `/api/ask-eco` runs load consolidated memories from both `public.referencias_temporarias` and `public.memories`.
+- Guest claim flow (`/api/guest/claim`) promotes the stored `X-Eco-Guest-Id` to the authenticated user id, ensuring subsequent `/api/ask-eco` runs load consolidated memories from both `public.referencias_temporarias` and `public.memories`.
 - Metabase dashboards query `analytics.*` tables and views (e.g., `analytics.v_interactions_recent`, `analytics.mv_latency_agg_7d`) for parity checks against frontend telemetry.
 
 ## Sequence Diagram (Mermaid)
@@ -134,10 +134,10 @@ sequenceDiagram
   participant M as Metabase
 
   U->>F: Start conversation
-  F->>B: POST /api/ask-eco (Authorization, X-Eco-Guest-Id)
-  B->>S: RPC buscar_memorias_semanticas (context)
+  F->>B: POST /api/ask-eco (Authorization, X-Eco-Guest-Id, X-Eco-Session-Id)
+  B->>S: RPC buscar_memorias_semanticas_v2 (context)
   S-->>B: Memory rows
-  B-->>F: SSE prompt_ready / latency / chunk / done
+  B-->>F: SSE prompt_ready → first_token → chunk* → meta? → memory_saved? → latency → done
   F->>B: POST /api/signal (first_token, done, view)
   B->>S: Insert eco_passive_signals
   B->>S: Insert/Upsert analytics tables (eco_interactions, resposta_q, module_outcomes, bandit_rewards, knapsack_decision, latency_samples)
@@ -149,8 +149,10 @@ sequenceDiagram
 ```
 
 ## Launch Checklist
-- [ ] Confirm analytics parity: for each streamed response, verify `interaction_id` exists across `eco_interactions`, `eco_passive_signals`, `resposta_q`, and latency tables.
-- [ ] Validate headers: frontend sends `Authorization`, `X-Eco-Guest-Id`, `X-Eco-Session-Id` (if available) and stores returned guest id for reuse.
-- [ ] Monitor latency: ensure SSE emits `prompt_ready`, `ttfb`, `ttlc`; check Supabase `latency_samples` and Metabase `mv_latency_agg_7d` for regressions.
-- [ ] Guard memory saves: confirm intensity gating (`>=7`) keeps long-term memories in `public.memories` and short-term references in `public.referencias_temporarias`.
-- [ ] Feedback loop: smoke-test `/api/feedback` to ensure bandit rewards and `update_bandit_arm` execute without conflicts.
+- [ ] Confirm analytics parity: for each streamed response, verify `interaction_id` spans `eco_interactions`, `eco_passive_signals` (with `meta` jsonb), `resposta_q`, and latency tables.
+- [ ] Validate headers: frontend sends and persists `Authorization`, `X-Eco-Guest-Id`, `X-Eco-Session-Id`; backend echoes both on every response for storage.
+- [ ] Verify streaming contract: SSE events follow `prompt_ready` → `first_token` → `chunk*` → `meta?` → `memory_saved?` → `latency` → `done`, and JSON fallback returns the same `done` payload (including `content`, `meta`, `timings`).
+- [ ] Ensure similarity calls hit only `public.buscar_memorias_semanticas_v2` (no legacy fallbacks) from both backend routes and frontend fetches.
+- [ ] Check passive signals land in `analytics.eco_passive_signals` (analytics schema) with structured metadata, and `/api/signal` enforces interaction ids.
+- [ ] Feedback flow: success yields `204`, while validation/analytics failures return `{message,status}` JSON and still update bandit arms when applicable.
+- [ ] Guest claim path: `/api/guest/claim` promoted in the connection map, echoes the canonical `X-Eco-Guest-Id`, and blocks reuse post-migration.

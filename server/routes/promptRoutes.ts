@@ -368,8 +368,7 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
   const guestIdFromSession: string | undefined = (req as any)?.guest?.id || undefined;
   const guestIdFromRequest =
     typeof reqWithIdentity.guestId === "string" ? reqWithIdentity.guestId : undefined;
-  const guestIdFromHeader =
-    req.get("X-Eco-Guest-Id")?.trim() ?? req.get("X-Guest-Id")?.trim();
+  const guestIdFromHeader = req.get("X-Eco-Guest-Id")?.trim();
   const guestIdFromCookie = getGuestIdFromCookies(req);
 
   const body = req.body && typeof req.body === "object" ? (req.body as Record<string, any>) : {};

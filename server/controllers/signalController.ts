@@ -55,8 +55,8 @@ export async function registrarSignal(req: Request, res: Response) {
   const rawInteractionId = typeof body.interaction_id === "string" ? body.interaction_id : null;
   const userOrGuest = normalizeSignal(body.user_or_guest ?? null);
 
-  const guestIdHeader = normalizeSignal(req.get("X-Eco-Guest-Id") ?? req.get("X-Guest-Id"));
-  const sessionIdHeader = normalizeSignal(req.get("X-Eco-Session-Id") ?? req.get("X-Session-Id"));
+  const guestIdHeader = normalizeSignal(req.get("X-Eco-Guest-Id"));
+  const sessionIdHeader = normalizeSignal(req.get("X-Eco-Session-Id"));
 
   const noop = (reason: string) => {
     logger.warn("signal.ignored", {
