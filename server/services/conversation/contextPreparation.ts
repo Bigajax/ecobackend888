@@ -20,6 +20,7 @@ interface PrepareContextParams {
   onDerivadosError?: (error: unknown) => void;
   cacheUserId?: string;
   isGuest?: boolean;
+  guestId?: string | null;
   activationTracer?: ActivationTracer;
   retrieveMode?: RetrieveMode;
 }
@@ -43,6 +44,7 @@ export async function prepareConversationContext({
   onDerivadosError,
   cacheUserId,
   isGuest,
+  guestId,
   activationTracer,
   retrieveMode,
 }: PrepareContextParams): Promise<PreparedContext> {
@@ -109,6 +111,7 @@ export async function prepareConversationContext({
     promptOverride ??
     (await defaultContextCache.build({
       userId: cacheUserId ?? userId,
+      guestId: isGuest ? guestId ?? null : null,
       userName: userName ?? undefined,
       perfil: null,
       mems,
@@ -125,6 +128,9 @@ export async function prepareConversationContext({
       aberturaHibrida: context.aberturaHibrida,
       decision,
       activationTracer,
+      passiveSignals: Array.isArray((context as any)?.passiveSignals)
+        ? ((context as any).passiveSignals as string[])
+        : null,
     }));
 
   return { systemPrompt, context };

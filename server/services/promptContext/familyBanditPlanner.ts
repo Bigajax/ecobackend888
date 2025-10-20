@@ -1,5 +1,7 @@
 import { log } from "./logger";
+import type { HeuristicsRuntime } from "./heuristicsV2";
 import type { Flags } from "./Selector";
+import type { ManifestModule } from "./moduleManifest";
 import {
   getManifestDefaults,
   getManifestFamily,
@@ -23,6 +25,7 @@ export interface FamilyContextSnapshot {
   isVulnerable: boolean;
   flags: Flags;
   signals?: Record<string, boolean>;
+  heuristicsV2?: HeuristicsRuntime | null;
 }
 
 export interface FamilyDecisionLog {
@@ -51,18 +54,81 @@ export interface FamilyPlannerResult {
   dependencies: string[];
 }
 
+type GateArm = Pick<ManifestModule, "id" | "gate">;
+
 function gatePasses(
   context: FamilyContextSnapshot,
-  signal: string | undefined,
-  minOpen: number | undefined
+  arm: GateArm,
+  heuristicsState: { runtime: HeuristicsRuntime | null; opened: number }
 ): boolean {
+  const gate = arm?.gate ?? {};
+  const signal = gate.signal;
+  const minOpen = gate.min_open;
   if (minOpen != null && context.openness < minOpen) {
     return false;
   }
   if (!signal) return true;
+
+  const heuristicsRuntime = heuristicsState.runtime;
+  if (signal.startsWith("bias:") && heuristicsRuntime) {
+    heuristicsRuntime.moduleSignalMap.set(arm.id, signal);
+    const detail = heuristicsRuntime.details?.[signal] ?? null;
+    let logEntry = heuristicsRuntime.logs.get(signal);
+    if (!logEntry) {
+      logEntry = {
+        name: signal,
+        current: detail?.currentScore ?? 0,
+        decayed: detail?.decayedScore ?? 0,
+        effective: detail?.effectiveScore ?? 0,
+        source: detail?.source ?? "pattern",
+        last_seen_at: detail?.lastSeenAt ?? new Date().toISOString(),
+        ttl_s: detail?.ttlSeconds ?? 1800,
+        cooldown_active: detail?.cooldownActive ?? false,
+        turns_since_fired: detail?.turnsSinceFired ?? null,
+        opened_arms: [],
+        suppressed_by: new Set<string>(),
+      };
+      heuristicsRuntime.logs.set(signal, logEntry);
+    }
+    const reasons: string[] = [];
+    const minScore =
+      typeof gate.min === "number"
+        ? Math.max(0, Math.min(1, gate.min))
+        : heuristicsRuntime.config.defaultMin;
+
+    if (!detail || detail.effectiveScore < minScore) {
+      reasons.push("low_score");
+    }
+    if (
+      detail?.cooldownActive &&
+      (detail.currentScore ?? 0) < heuristicsRuntime.config.hardOverride
+    ) {
+      reasons.push("cooldown");
+    }
+    if (heuristicsState.opened >= heuristicsRuntime.config.maxArms) {
+      reasons.push("max_limit");
+    }
+
+    if (logEntry) {
+      if (reasons.length === 0 && !logEntry.opened_arms.includes(arm.id)) {
+        logEntry.opened_arms.push(arm.id);
+      }
+      for (const reason of reasons) {
+        logEntry.suppressed_by.add(reason);
+      }
+    }
+
+    const passes = reasons.length === 0;
+    if (passes) {
+      heuristicsState.opened += 1;
+    }
+    return passes;
+  }
+
   if (signal.startsWith("bias:")) {
     return Boolean(context.signals?.[signal]);
   }
+
   switch (signal) {
     case "open":
       return context.openness >= (minOpen ?? 1);
@@ -150,8 +216,13 @@ export function planFamilyModules(
     const eligible: FamilyDecisionLog["eligibleArms"] = [];
     let tsPick: { id: string; score: number; alpha: number; beta: number; count: number; tokens: number; cold: boolean } | null = null;
 
+    const heuristicsState = {
+      runtime: familyId === "heuristica" ? context.heuristicsV2 ?? null : null,
+      opened: 0,
+    };
+
     for (const arm of familyModules) {
-      const passes = gatePasses(context, arm.gate?.signal, arm.gate?.min_open);
+      const passes = gatePasses(context, arm, heuristicsState);
       const posterior = qualityAnalyticsStore.getBanditPosterior(familyId, arm.id);
       const variance =
         (posterior.alpha * posterior.beta) /

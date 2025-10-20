@@ -16,6 +16,7 @@ import { detectarContinuidade } from "./continuityDetector";
 import { buscarMemoriasSemelhantesV2 } from "../buscarMemorias";
 import { planFamilyModules } from "./familyBanditPlanner";
 import { getManifestDefaults } from "./moduleManifest";
+import { evaluateHeuristicSignals, type HeuristicsRuntime } from "./heuristicsV2";
 
 // ✨ usa o módulo central
 import {
@@ -28,6 +29,22 @@ import {
 import { ordemAbsoluta } from "./matrizPromptBaseV2";
 import { qualityAnalyticsStore } from "../analytics/analyticsStore";
 import { solveKnapsack } from "../orchestrator/knapsack";
+
+const HEURISTICS_HARD_OVERRIDE = 0.8;
+
+function parseEnvNumber(
+  raw: string | undefined,
+  fallback: number,
+  options: { min?: number; max?: number; integer?: boolean } = {}
+): number {
+  const parsed = raw != null ? Number(raw) : Number.NaN;
+  if (!Number.isFinite(parsed)) return fallback;
+  let value = parsed;
+  if (options.min != null && value < options.min) value = options.min;
+  if (options.max != null && value > options.max) value = options.max;
+  if (options.integer) value = Math.round(value);
+  return value;
+}
 
 function collectTagsFromMemories(mems: SimilarMemory[] | undefined): string[] {
   if (!Array.isArray(mems)) return [];
@@ -362,25 +379,38 @@ function hasRationalCue(normalized: string, raw: string): boolean {
   return /\bracional\b/i.test(raw) || /\blogic[ao]\b/i.test(raw);
 }
 
-function buildDecisionSignals(params: {
-  texto: string;
-  heuristicaFlags: HeuristicaFlagRecord;
-  intensity: number;
-  memsSemelhantes: SimilarMemory[] | undefined;
-}): DecisionSignalMap {
+function buildDecisionSignals(
+  params: {
+    texto: string;
+    heuristicaFlags: HeuristicaFlagRecord;
+    intensity: number;
+    memsSemelhantes: SimilarMemory[] | undefined;
+  },
+  heuristicsRuntime?: HeuristicsRuntime | null
+): DecisionSignalMap {
   const raw = typeof params.texto === "string" ? params.texto : "";
   const normalized = normalizeForSignals(raw);
   const signals: DecisionSignalMap = {};
 
-  for (const [signal, patterns] of Object.entries(heuristicaSignalPatterns)) {
-    if (patterns.some((pattern) => matchesPattern(pattern, normalized, raw))) {
-      signals[signal] = true;
+  if (heuristicsRuntime) {
+    for (const [signal, detail] of Object.entries(
+      heuristicsRuntime.details ?? {}
+    )) {
+      if (detail?.passesDefault) {
+        signals[signal] = true;
+      }
     }
-  }
+  } else {
+    for (const [signal, patterns] of Object.entries(heuristicaSignalPatterns)) {
+      if (patterns.some((pattern) => matchesPattern(pattern, normalized, raw))) {
+        signals[signal] = true;
+      }
+    }
 
-  for (const [flag, signal] of Object.entries(heuristicaFlagToSignal)) {
-    if ((params.heuristicaFlags as Record<string, boolean | undefined>)[flag]) {
-      signals[signal] = true;
+    for (const [flag, signal] of Object.entries(heuristicaFlagToSignal)) {
+      if ((params.heuristicaFlags as Record<string, boolean | undefined>)[flag]) {
+        signals[signal] = true;
+      }
     }
   }
 
@@ -460,6 +490,7 @@ export interface ContextBuildResult {
 export async function montarContextoEco(params: BuildParams): Promise<ContextBuildResult> {
   const {
     userId: _userId,
+    guestId: _guestId = null,
     userName: _userName,
     texto,
     mems = [],
@@ -477,6 +508,7 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
     activationTracer,
     contextFlags: contextFlagsParam = {},
     contextMeta: contextMetaParam = {},
+    passiveSignals: passiveSignalsParam = null,
   } = params;
 
   const memsSemelhantesNorm =
@@ -496,6 +528,8 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
   const normalizedUserId =
     typeof _userId === "string" && _userId.trim().length ? _userId.trim() : "";
   const normalizedTexto = typeof texto === "string" ? texto : "";
+  const normalizedGuestId =
+    typeof _guestId === "string" && _guestId.trim().length ? _guestId.trim() : "";
 
   let continuityRefCandidate = contextMetaBase?.continuityRef ?? null;
   let hasContinuityCandidate = Boolean(
@@ -559,12 +593,91 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
   const heuristicaFlags = mapHeuristicasToFlags(_heuristicas);
   const ecoDecision = decision ?? computeEcoDecision(texto, { heuristicaFlags });
 
-  const decisionSignals = buildDecisionSignals({
-    texto: normalizedTexto,
-    heuristicaFlags,
-    intensity: ecoDecision.intensity,
-    memsSemelhantes: memsSemelhantesNorm,
-  });
+  const heuristicsEnabled = process.env.ECO_HEUR_V2 === "1";
+  const heuristicsHalfLife = parseEnvNumber(
+    process.env.ECO_HEUR_HALF_LIFE_MIN,
+    20,
+    { min: 1 }
+  );
+  const heuristicsCooldownTurns = parseEnvNumber(
+    process.env.ECO_HEUR_COOLDOWN_TURNS,
+    2,
+    { min: 0, integer: true }
+  );
+  const heuristicsMaxArms = parseEnvNumber(
+    process.env.ECO_HEUR_MAX_ARMS_PER_TURN,
+    1,
+    { min: 1, integer: true }
+  );
+  const heuristicsDefaultMin = parseEnvNumber(
+    process.env.ECO_HEUR_MIN_SCORE_DEFAULT,
+    0.3,
+    { min: 0, max: 1 }
+  );
+
+  const heuristicaFlagSignals = heuristicsEnabled
+    ? Array.from(
+        new Set(
+          Object.entries(heuristicaFlagToSignal)
+            .filter(([flag]) =>
+              Boolean(
+                (heuristicaFlags as Record<string, boolean | undefined>)[
+                  flag as keyof HeuristicaFlagRecord
+                ]
+              )
+            )
+            .map(([, signal]) => signal)
+        )
+      )
+    : [];
+
+  const passiveSignalsMerged: string[] = [];
+  if (Array.isArray(passiveSignalsParam)) {
+    passiveSignalsMerged.push(...passiveSignalsParam);
+  }
+  const metaPassiveRaw = (contextMetaBase as Record<string, unknown>)?.passiveSignals;
+  if (Array.isArray(metaPassiveRaw)) {
+    passiveSignalsMerged.push(...metaPassiveRaw);
+  }
+  const passiveSignalsNormalized = passiveSignalsMerged.length
+    ? Array.from(
+        new Set(
+          passiveSignalsMerged
+            .map((item) =>
+              typeof item === "string" ? item.trim().toLowerCase() : ""
+            )
+            .filter((item) => item.length > 0)
+        )
+      )
+    : undefined;
+
+  const identityKey = normalizedUserId || normalizedGuestId || "";
+  const heuristicsRuntime: HeuristicsRuntime | null = heuristicsEnabled
+    ? evaluateHeuristicSignals({
+        identityKey: identityKey || null,
+        textCurrent: normalizedTexto,
+        passiveSignals: passiveSignalsNormalized,
+        flagSignals: heuristicaFlagSignals,
+        halfLifeMinutes: heuristicsHalfLife,
+        cooldownTurns: heuristicsCooldownTurns,
+        defaultMin: heuristicsDefaultMin,
+        maxArms: heuristicsMaxArms,
+        hardOverride: HEURISTICS_HARD_OVERRIDE,
+      }) ?? null
+    : null;
+
+  const heuristicsRuntimeActive =
+    heuristicsEnabled && heuristicsRuntime ? heuristicsRuntime : null;
+
+  const decisionSignals = buildDecisionSignals(
+    {
+      texto: normalizedTexto,
+      heuristicaFlags,
+      intensity: ecoDecision.intensity,
+      memsSemelhantes: memsSemelhantesNorm,
+    },
+    heuristicsRuntimeActive
+  );
   ecoDecision.signals = decisionSignals;
   const activeSignals = Object.keys(decisionSignals).sort();
   if (ecoDecision.debug) {
@@ -662,10 +775,68 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
     isVulnerable: ecoDecision.isVulnerable,
     flags: ecoDecision.flags,
     signals: decisionSignals,
+    heuristicsV2: heuristicsRuntimeActive ?? undefined,
   });
 
   ecoDecision.debug.banditFamilies = familyPlan.decisions;
   const selectorStages = (ecoDecision.debug as any).selectorStages ?? {};
+
+  if (heuristicsRuntimeActive) {
+    const heuristicaDecision = familyPlan.decisions.find(
+      (entry) => entry.familyId === "heuristica"
+    );
+    const heuristicsLogEntries = Array.from(
+      heuristicsRuntimeActive.logs.values()
+    ).map((entry) => ({
+      signal: entry.name,
+      current: entry.current,
+      decayed: entry.decayed,
+      effective: entry.effective,
+      source: entry.source,
+      last_seen_at: entry.last_seen_at,
+      ttl_s: entry.ttl_s,
+      cooldown_active: entry.cooldown_active,
+      turns_since_fired: entry.turns_since_fired,
+      opened_arms: entry.opened_arms.slice(),
+      suppressed_by: Array.from(entry.suppressed_by),
+    }));
+
+    const pickedArmId = heuristicaDecision?.chosen ?? null;
+    if (pickedArmId) {
+      heuristicsRuntimeActive.registerSelection(pickedArmId);
+    } else {
+      heuristicsRuntimeActive.registerSelection(null);
+    }
+
+    const pickedSignal = pickedArmId
+      ? heuristicsRuntimeActive.moduleSignalMap.get(pickedArmId) ?? null
+      : null;
+
+    const heuristicsStage = {
+      signals: heuristicsLogEntries,
+      picked: heuristicaDecision
+        ? {
+            family: heuristicaDecision.familyId,
+            arm_id: heuristicaDecision.chosen ?? null,
+            signal: pickedSignal,
+          }
+        : { family: "heuristica", arm_id: null, signal: null },
+    };
+
+    selectorStages.heuristics = heuristicsStage;
+
+    log.info({
+      selector_stage: "heuristics_eval",
+      signals: heuristicsStage.signals.map((entry) => ({
+        signal: entry.signal,
+        effective_score: Number(entry.effective.toFixed(3)),
+        opened_arms: entry.opened_arms,
+        suppressed_by: entry.suppressed_by,
+      })),
+      picked_arm: heuristicsStage.picked?.arm_id ?? null,
+    });
+  }
+
   selectorStages.family = {
     decisions: familyPlan.decisions,
     signals: activeSignals,
@@ -1050,6 +1221,10 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
 
   return { base, montarMensagemAtual };
 }
+
+export const __internals = {
+  buildDecisionSignals,
+};
 
 export const ContextBuilder = {
   async build(params: BuildParams): Promise<ContextBuildResult> {

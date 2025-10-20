@@ -1264,6 +1264,53 @@ export class ResponseFinalizer {
           metaForInteraction.context_flags = null;
         }
       }
+
+      const selectorStages = (ecoDecision?.debug as any)?.selectorStages ?? null;
+      const heuristicsStage = selectorStages?.heuristics ?? null;
+      if (heuristicsStage && Array.isArray(heuristicsStage.signals)) {
+        const heuristicsSignalsMeta: Record<string, { effective: number; reason: string }> = {};
+        for (const entry of heuristicsStage.signals as Array<{
+          signal?: string;
+          effective?: number;
+          opened_arms?: string[];
+          suppressed_by?: string[];
+        }>) {
+          if (!entry || typeof entry.signal !== "string") continue;
+          const suppressed = Array.isArray(entry.suppressed_by)
+            ? entry.suppressed_by
+            : [];
+          let reason = "inactive";
+          if (Array.isArray(entry.opened_arms) && entry.opened_arms.length) {
+            reason = "opened";
+          } else if (suppressed.includes("cooldown")) {
+            reason = "cooldown";
+          } else if (suppressed.includes("low_score")) {
+            reason = "low_score";
+          } else if (suppressed.includes("max_limit")) {
+            reason = "max_limit";
+          }
+          const effective =
+            typeof entry.effective === "number"
+              ? Number(entry.effective.toFixed(3))
+              : 0;
+          heuristicsSignalsMeta[entry.signal] = { effective, reason };
+        }
+
+        const pickedMeta = heuristicsStage.picked ?? null;
+        if (
+          Object.keys(heuristicsSignalsMeta).length > 0 ||
+          (pickedMeta && pickedMeta.arm_id)
+        ) {
+          metaForInteraction.heuristics = {
+            signals: heuristicsSignalsMeta,
+            picked: {
+              family: pickedMeta?.family ?? null,
+              arm_id: pickedMeta?.arm_id ?? null,
+            },
+          };
+        }
+      }
+
       await upsertInteractionSnapshot({
         id: interactionId,
         userId: !isGuest ? userId ?? null : null,

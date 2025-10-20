@@ -828,6 +828,7 @@ export async function getEcoResponse({
       },
       cacheUserId: userId,
       isGuest,
+      guestId: guestId ?? undefined,
       activationTracer,
       retrieveMode: retrieveDecision.mode,
     });
