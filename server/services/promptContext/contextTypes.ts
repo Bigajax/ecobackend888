@@ -20,6 +20,7 @@ import type { ActivationTracer } from "../../core/activationTracer";
 
 export type BuildParams = {
   userId?: string | null;
+  guestId?: string | null;
   userName?: string | null;
   texto: string;
   mems?: MemoriaCompacta[];
@@ -37,4 +38,5 @@ export type BuildParams = {
   activationTracer?: ActivationTracer;
   contextFlags?: Record<string, unknown>;
   contextMeta?: Record<string, unknown>;
+  passiveSignals?: string[] | null;
 };

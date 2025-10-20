@@ -9,6 +9,7 @@ import type { ActivationTracer } from "../../core/activationTracer";
 
 export interface ContextCacheParams {
   userId?: string;
+  guestId?: string | null;
   userName?: string;
   perfil?: any;
   mems?: any[];
@@ -25,6 +26,7 @@ export interface ContextCacheParams {
   aberturaHibrida?: any;
   decision?: EcoDecisionResult;
   activationTracer?: ActivationTracer;
+  passiveSignals?: string[] | null;
 }
 
 interface ContextCacheDeps {
@@ -94,7 +96,8 @@ export class ContextCache {
       ? "1"
       : "0";
 
-    const cacheKey = `ctx:${params.userId || "anon"}:${nivel}:${Math.round(
+    const cacheIdentity = params.userId || params.guestId || "anon";
+    const cacheKey = `ctx:${cacheIdentity}:${nivel}:${Math.round(
       intensidade
     )}:ms${msCount}:tg${memoryTagSignature}:v${vivaFlag}:d${derivadosFlag}:a${aberturaFlag}:h${heuristicasFlag}:e${embeddingFlag}`;
 

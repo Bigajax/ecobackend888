@@ -12,6 +12,7 @@ const gateSchema = z
   .object({
     signal: z.string().min(1).optional(),
     min_open: z.number().int().nonnegative().optional(),
+    min: z.number().min(0).max(1).optional(),
   })
   .partial();
 
