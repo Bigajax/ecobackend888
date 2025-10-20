@@ -17,6 +17,8 @@ import { buscarMemoriasSemelhantesV2 } from "../buscarMemorias";
 import { planFamilyModules } from "./familyBanditPlanner";
 import { getManifestDefaults } from "./moduleManifest";
 import { evaluateHeuristicSignals, type HeuristicsRuntime } from "./heuristicsV2";
+// Inject ECO identity and philosophy modules
+import { loadEcoIdentityModules, type IdentityModule } from "./identityModules";
 
 // ✨ usa o módulo central
 import {
@@ -31,6 +33,13 @@ import { qualityAnalyticsStore } from "../analytics/analyticsStore";
 import { solveKnapsack } from "../orchestrator/knapsack";
 
 const HEURISTICS_HARD_OVERRIDE = 0.8;
+
+function formatIdentityModuleSection(module: IdentityModule): string {
+  const body = module.text.trim();
+  if (!body) return "";
+  const header = `// ${module.name}`;
+  return `${header}\n${body}`.trim();
+}
 
 function parseEnvNumber(
   raw: string | undefined,
@@ -580,9 +589,12 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
     ...contextFlagsBase,
     HAS_CONTINUITY: Boolean(hasContinuityCandidate),
   };
+  const identityModules = await loadEcoIdentityModules();
+
   const contextMeta: Record<string, unknown> = {
     ...contextMetaBase,
     continuityRef: hasContinuityCandidate ? continuityRefCandidate ?? null : null,
+    identityModules: identityModules.map((module) => module.name),
   };
   const continuityRef = contextMeta?.continuityRef;
   const hasContinuity = Boolean((contextFlags as any)?.HAS_CONTINUITY && continuityRef);
@@ -1176,8 +1188,13 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
   });
 
   // Monta base completa: Identidade + Estilo + Política de Memória + Core
+  const identitySections = identityModules
+    .map((module) => formatIdentityModuleSection(module))
+    .filter((section) => section.length > 0);
+
   const baseSections = [
     promptCoreBase.trim(),
+    ...identitySections,
     ID_ECO_FULL.trim(),
     STYLE_HINTS_FULL.trim(),
     MEMORY_POLICY_EXPLICIT.trim(),
