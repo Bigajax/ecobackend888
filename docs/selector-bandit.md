@@ -96,6 +96,24 @@ These logs replace ad-hoc debug prints and allow quick verification during shado
 
 Rollback remains instant: set `ECO_BANDIT_EARLY=0` to revert to baseline behaviour.
 
+## New Arms (referencing Identity)
+
+| Family | Arm | Size | tokens_avg | reward_key | Gate |
+| --- | --- | --- | --- | --- | --- |
+| linguagem | LINGUAGEM_NATURAL_guided.txt | M | 320 | clarity_engagement | open ≥1 |
+| linguagem | LINGUAGEM_NATURAL_micro.txt | S | 190 | clarity_engagement | open ≥1 |
+| linguagem | LINGUAGEM_NATURAL_rules_v2.txt | M | 300 | clarity_engagement | open ≥1 |
+| estrutura_resposta | ECO_ESTRUTURA_com_exemplos.txt | M | 310 | clarity_engagement | open ≥1 |
+| estrutura_resposta | ECO_ESTRUTURA_ultra_min.txt | S | 180 | clarity_engagement | open ≥1 |
+| modulacao | MODULACAO_calma_objetiva.txt | M | 250 | like_bias | open ≥1 |
+| modulacao | MODULACAO_direta_brief.txt | S | 190 | like_bias | open ≥1 |
+| encerramento | ENCERRAMENTO_mini_acao.txt | S | 170 | dialogue_continuation | open ≥1 |
+| encerramento | ENCERRAMENTO_soft_prompt.txt | S | 180 | dialogue_continuation | open ≥1 |
+| vulnerabilidade | eco_vulnerabilidade_micro_presenca.txt | S | 180 | emotional_engagement | vulnerability ≥2 |
+| vulnerabilidade | eco_vulnerabilidade_micro_reframe.txt | S | 180 | emotional_engagement | vulnerability ≥2 |
+
+These arms respect the fixed IDENTIDADE/guardrails and focus on phrasing, structure, modulation, closure, or vulnerability cues.
+
 ## Shadow smoke validation
 
 Run the shadow smoke helper to simulate guest conversations without touching real providers:
