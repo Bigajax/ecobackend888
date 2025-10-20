@@ -29,7 +29,11 @@ type BanditRewardRecord = {
   reward?: number | null;
   reward_key?: string | null;
   tokens?: number | null;
-  chosen_by?: string | null;
+  tokens_cap?: number | null;
+  tokens_planned?: number | null;
+  chosen_by?: "ts" | "baseline" | "shadow" | null;
+  reward_reason?: string | null;
+  like_source?: string | null;
 };
 
 const capturedSelectorLogs: Array<Record<string, unknown>> = [];
@@ -183,7 +187,9 @@ async function main(): Promise<void> {
       for (const decision of decisions) {
         const familyId = typeof decision?.familyId === "string" ? decision.familyId : "(unknown)";
         const chosen = typeof decision?.chosen === "string" ? decision.chosen : null;
-        const chosenBy = decision?.chosenBy === "ts" ? "ts" : "baseline";
+        const chosenByRaw = typeof decision?.chosenBy === "string" ? decision.chosenBy : null;
+        const chosenBy: "ts" | "baseline" | "shadow" =
+          chosenByRaw === "ts" || chosenByRaw === "shadow" ? chosenByRaw : "baseline";
         if (chosenBy === "ts") {
           sawTsThisInteraction = true;
         }

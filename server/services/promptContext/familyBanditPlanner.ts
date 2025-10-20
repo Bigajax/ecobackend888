@@ -29,7 +29,7 @@ export interface FamilyDecisionLog {
   rewardKey: string | null;
   baseline: string | null;
   chosen: string | null;
-  chosenBy: "ts" | "baseline";
+  chosenBy: "ts" | "baseline" | "shadow";
   tsPick: string | null;
   eligibleArms: Array<{
     id: string;
@@ -103,7 +103,11 @@ export function planFamilyModules(
   const featureFlags = resolveFeatureFlags();
   const roll = Math.random() * 100;
   const applyTs = !featureFlags.shadow && (!featureFlags.early || roll < featureFlags.pilotPercent);
-  const chosenByGlobal: "ts" | "baseline" = applyTs ? "ts" : "baseline";
+  const chosenByGlobal: "ts" | "baseline" | "shadow" = featureFlags.shadow
+    ? "shadow"
+    : applyTs
+    ? "ts"
+    : "baseline";
 
   const uniqueOrder = Array.from(new Set([...orderedBase, ...extras]));
   const seenFamilies = new Set<string>();

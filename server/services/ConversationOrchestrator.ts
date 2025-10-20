@@ -41,19 +41,27 @@ export { getEcoResponse as getEcoResponseOtimizado };
 export type { EcoStreamEvent, EcoStreamHandler, EcoStreamingResult, EcoLatencyMarks };
 
 type ResponseBanditReward = {
+  interaction_id: string | null;
   family: string;
   arm_id: string;
-  chosen_by: "ts" | "baseline";
+  chosen_by: "ts" | "baseline" | "shadow";
   reward_key: string | null;
   reward: number | null;
+  reward_reason: string | null;
   tokens: number | null;
+  tokens_cap: number | null;
+  tokens_planned: number | null;
   ttfb_ms: number | null;
   ttlc_ms: number | null;
   like: number | null;
+  like_source: string | null;
   dislike_reason: string | null;
   emotional_intensity: number | null;
   memory_saved: boolean | null;
   reply_within_10m: boolean | null;
+  user_id: string | null;
+  guest_id: string | null;
+  meta: Record<string, unknown> | null;
 };
 
 type ResponseAnalyticsMeta = {
@@ -291,27 +299,47 @@ export async function persistAnalyticsRecords({
         if (!reward) return false;
         const familyValid = typeof reward.family === "string" && reward.family.length > 0;
         const armValid = typeof reward.arm_id === "string" && reward.arm_id.length > 0;
-        const chooserValid = reward.chosen_by === "ts" || reward.chosen_by === "baseline";
+        const chooserValid =
+          reward.chosen_by === "ts" ||
+          reward.chosen_by === "baseline" ||
+          reward.chosen_by === "shadow";
         return familyValid && armValid && chooserValid;
       })
       .map((reward) => ({
+        interaction_id: reward.interaction_id ?? responseId ?? null,
         response_id: responseId,
         pilar: reward.family,
+        family: reward.family,
         arm: reward.arm_id,
+        arm_id: reward.arm_id,
         recompensa:
           typeof reward.reward === "number" && Number.isFinite(reward.reward)
             ? reward.reward
             : null,
+        reward:
+          typeof reward.reward === "number" && Number.isFinite(reward.reward)
+            ? reward.reward
+            : null,
+        reward_reason: reward.reward_reason ?? null,
         chosen_by: reward.chosen_by,
         reward_key: reward.reward_key,
         tokens: reward.tokens,
+        tokens_cap:
+          typeof reward.tokens_cap === "number" && Number.isFinite(reward.tokens_cap)
+            ? reward.tokens_cap
+            : null,
+        tokens_planned: reward.tokens_planned,
         ttfb_ms: reward.ttfb_ms,
         ttlc_ms: reward.ttlc_ms,
         like: reward.like,
+        like_source: reward.like_source,
         dislike_reason: reward.dislike_reason,
         emotional_intensity: reward.emotional_intensity,
         memory_saved: reward.memory_saved,
         reply_within_10m: reward.reply_within_10m,
+        user_id: reward.user_id,
+        guest_id: reward.guest_id,
+        meta: reward.meta ?? null,
       }));
     if (banditRows.length) {
       tasks.push(insertRows("bandit_rewards", banditRows));

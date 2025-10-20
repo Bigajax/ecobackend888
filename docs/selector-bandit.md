@@ -55,6 +55,23 @@ Where `intensity_flag` comes from the technical block (`intensidade >= 7`). Cold
 
 Every interaction persists a detailed record (`bandit_rewards`) with the family, arm, reward key, chosen source (`ts` or `baseline`), composite reward, token usage, latency and qualitative flags.
 
+### Reward signals & fallbacks
+
+* Rewards are now clamped to `[0, 1]` and recorded alongside `reward_reason`.
+* When any required signal is missing (e.g. no latency → `reply_within_10m` undefined, or no implicit like score), the reward defaults to `0` with `reward_reason="missing_signals"` so dashboards can filter them out.
+* Memory-heavy answers incur a fixed `0.15` penalty whenever the selected arm exceeds the active token cap (`ECO_KNAPSACK_BUDGET_TOKENS` or the manifest default).
+* Each row also captures `tokens_cap`, `tokens_planned`, `like_source`, user/guest ids and a `meta` JSON payload containing the cold-start flag, TS pick, baseline arm and whether a penalty fired.
+
+## 14-day posterior window
+
+`qualityAnalyticsStore` now hydrates Beta posteriors by querying `analytics.bandit_rewards` for the last 14 days (supporting both the legacy `pilar/arm` columns and the new `family/arm_id` aliases). Updates reuse the same sliding window in-memory, so restarts or cache misses never double-count old samples.
+
+Use `qualityAnalyticsStore.dumpBanditPosteriors()` in a REPL to inspect `{ family, arm_id, alpha, beta, samples, mean_reward }` for each arm and confirm the sliding window behaves as expected.
+
+## Cold-start strategy
+
+Arms with fewer than 20 samples continue to receive the configured cold-start boost (`defaults.cold_start_boost`, 0.35 by default). The planner annotates each decision with `cold_start` in the `meta` blob so operators can correlate elevated rewards with early exploration.
+
 ## Logging
 
 `getEcoResponse` now emits structured logs:
@@ -98,3 +115,14 @@ npm run pilot:smoke
 ```
 
 The pilot script disables shadow mode, flips `ECO_BANDIT_EARLY=1`, and forces one of five guest interactions through Thompson sampling. For each family it logs the chosen arm, reward key, composite reward, and Beta parameters, then summarizes per-family averages. The command fails if fewer than 10% of interactions route through `ts`, if rewards stay below 0.4 on average, or if the knapsack exceeds the configured token cap.
+
+## Operator snippet
+
+```bash
+npm run pilot:smoke
+# Inspect recent rewards and traffic splits
+psql ... -c "select * from analytics.v_reward_48h order by reward_avg desc;"
+psql ... -c "select * from analytics.v_split_48h;"
+# Inspect posterior cache from a REPL
+node -e "require('./server/services/analytics/analyticsStore').qualityAnalyticsStore.dumpBanditPosteriors().forEach(console.log)"
+```
