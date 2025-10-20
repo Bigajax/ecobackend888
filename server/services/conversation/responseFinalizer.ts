@@ -41,22 +41,6 @@ import { insertModuleUsages, updateInteraction } from "./interactionAnalytics";
 
 type PromptMessage = { role: string; content: string; name?: string };
 
-type BanditRewardRecord = {
-  family: string;
-  arm_id: string | null;
-  chosen_by: "ts" | "baseline";
-  reward_key: string | null;
-  reward: number | null;
-  tokens: number | null;
-  ttfb_ms: number | null;
-  ttlc_ms: number | null;
-  like: number | null;
-  dislike_reason: string | null;
-  emotional_intensity: number | null;
-  memory_saved: boolean | null;
-  reply_within_10m: boolean | null;
-};
-
 function computeBanditRewardScore(
   rewardKey: string | null | undefined,
   metrics: {
@@ -884,6 +868,9 @@ export class ResponseFinalizer {
       typeof debugTrace.latencyMs === "number" && Number.isFinite(debugTrace.latencyMs)
         ? Math.max(0, Math.round(debugTrace.latencyMs))
         : null;
+    const normalizedQ = Number.isFinite(q) ? Math.max(0, Math.min(1, q)) : null;
+    const likeScore = normalizedQ != null && normalizedQ > 0 ? Math.max(normalizedQ, 0.5) : 0.5;
+    const replyWithin10m = computedTtlcMs != null ? computedTtlcMs <= 600_000 : true;
 
     const banditPlan = (ecoDecision.debug as any)?.banditPlan;
     const banditDecisions: any[] = Array.isArray(banditPlan?.decisions)
@@ -897,8 +884,6 @@ export class ResponseFinalizer {
           : 0;
       const ttfbMs = computedTtfbMs;
       const ttlcMs = computedTtlcMs;
-      const likeScore: number | null = null;
-      const replyWithin10m = false;
       const memorySaved = ecoDecision.saveMemory ? true : false;
       const emotionalIntensity =
         typeof (normalizedBloco as any)?.intensidade === "number"

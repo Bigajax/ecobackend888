@@ -9,6 +9,7 @@ import {
 import {
   defaultParallelFetchService,
   withTimeoutOrNull,
+  type ParallelFetchResult,
 } from "./parallelFetch";
 import { log as defaultLogger } from "../promptContext/logger";
 import type { RetrieveMode } from "../supabase/memoriaRepository";
@@ -46,11 +47,7 @@ interface ParallelFetchLike {
     userId?: string;
     supabase?: any;
     retrieveMode?: RetrieveMode;
-  }): Promise<{
-    heuristicas: any[];
-    userEmbedding: number[];
-    memsSemelhantes: any[];
-  }>;
+  }): Promise<ParallelFetchResult>;
 }
 
 export interface LoadConversationContextOptions {

@@ -40,6 +40,22 @@ import type { RuntimeMetrics } from "../types/telemetry";
 export { getEcoResponse as getEcoResponseOtimizado };
 export type { EcoStreamEvent, EcoStreamHandler, EcoStreamingResult, EcoLatencyMarks };
 
+type ResponseBanditReward = {
+  family: string;
+  arm_id: string;
+  chosen_by: "ts" | "baseline";
+  reward_key: string | null;
+  reward: number | null;
+  tokens: number | null;
+  ttfb_ms: number | null;
+  ttlc_ms: number | null;
+  like: number | null;
+  dislike_reason: string | null;
+  emotional_intensity: number | null;
+  memory_saved: boolean | null;
+  reply_within_10m: boolean | null;
+};
+
 type ResponseAnalyticsMeta = {
   response_id: string | null;
   q?: number;
@@ -49,7 +65,7 @@ type ResponseAnalyticsMeta = {
   tokens_total?: number | null;
   tokens_aditivos?: number | null;
   mem_count?: number;
-  bandit_rewards?: Array<{ pilar: string; arm: string; recompensa: number }>;
+  bandit_rewards?: Array<ResponseBanditReward | null | undefined>;
   module_outcomes?: Array<{ module_id: string; tokens: number; q: number; vpt: number | null }>;
   knapsack?: {
     budget: number | null;
@@ -271,30 +287,13 @@ export async function persistAnalyticsRecords({
 
   if (Array.isArray(analyticsMeta.bandit_rewards) && analyticsMeta.bandit_rewards.length > 0) {
     const banditRows = analyticsMeta.bandit_rewards
-      .filter(
-        (reward): reward is {
-          family: string;
-          arm_id: string;
-          chosen_by: "ts" | "baseline";
-          reward_key: string | null;
-          reward: number | null;
-          tokens: number | null;
-          ttfb_ms: number | null;
-          ttlc_ms: number | null;
-          like: number | null;
-          dislike_reason: string | null;
-          emotional_intensity: number | null;
-          memory_saved: boolean | null;
-          reply_within_10m: boolean | null;
-        } =>
-          Boolean(
-            reward &&
-              typeof reward.family === "string" &&
-              reward.family &&
-              typeof reward.arm_id === "string" &&
-              reward.arm_id
-          )
-      )
+      .filter((reward): reward is ResponseBanditReward => {
+        if (!reward) return false;
+        const familyValid = typeof reward.family === "string" && reward.family.length > 0;
+        const armValid = typeof reward.arm_id === "string" && reward.arm_id.length > 0;
+        const chooserValid = reward.chosen_by === "ts" || reward.chosen_by === "baseline";
+        return familyValid && armValid && chooserValid;
+      })
       .map((reward) => ({
         response_id: responseId,
         pilar: reward.family,

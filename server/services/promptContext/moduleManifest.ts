@@ -254,14 +254,15 @@ class ModuleManifestRegistry {
   private resolveCandidates(): string[] {
     const override = process.env.ECO_MODULE_MANIFEST;
     const cwd = process.cwd();
-    const candidates = [
+    const candidates: Array<string | undefined> = [
       override,
       path.resolve(__dirname, "../assets/modules.manifest.json"),
       path.resolve(__dirname, "../../assets/modules.manifest.json"),
       path.resolve(cwd, "server/assets/modules.manifest.json"),
       path.resolve(cwd, "dist/assets/modules.manifest.json"),
     ];
-    return Array.from(new Set(candidates.filter(Boolean)));
+    const normalized = candidates.filter((candidate): candidate is string => Boolean(candidate));
+    return Array.from(new Set(normalized));
   }
 
   hasManifest(): boolean {

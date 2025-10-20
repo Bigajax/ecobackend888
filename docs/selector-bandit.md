@@ -88,3 +88,13 @@ npm run shadow:smoke
 ```
 
 This command forces `ECO_BANDIT_SHADOW=1`, mocks Claude responses, and prints structured selector logs for three sample interactions. The script exits with code 1 if any family lacks an eligible arm or if the knapsack ever exceeds the configured budget, making it safe to wire into CI.
+
+## Pilot smoke validation
+
+To exercise the 10% early rollout path and inspect composite rewards, run:
+
+```bash
+npm run pilot:smoke
+```
+
+The pilot script disables shadow mode, flips `ECO_BANDIT_EARLY=1`, and forces one of five guest interactions through Thompson sampling. For each family it logs the chosen arm, reward key, composite reward, and Beta parameters, then summarizes per-family averages. The command fails if fewer than 10% of interactions route through `ts`, if rewards stay below 0.4 on average, or if the knapsack exceeds the configured token cap.
