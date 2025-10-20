@@ -4,7 +4,7 @@ import { isDebug, log } from "./logger";
 import { Selector } from "./Selector";
 import { mapHeuristicasToFlags } from "./heuristicaFlags";
 import type { BuildParams, SimilarMemory } from "./contextTypes";
-import type { DecSnapshot } from "./Selector";
+import type { DecSnapshot, ModuleDebugEntry } from "./Selector";
 import { ModuleCatalog } from "./moduleCatalog";
 import { planBudget } from "./budget";
 import { formatMemRecall } from "./memoryRecall";
@@ -13,7 +13,8 @@ import { applyCurrentMessage, composePromptBase } from "./promptComposer";
 import { applyReductions, stitchModules } from "./stitcher";
 import { detectarContinuidade } from "./continuityDetector";
 import { buscarMemoriasSemelhantesV2 } from "../buscarMemorias";
-import type { BanditSelectionMap } from "../orchestrator/bandits/ts";
+import { planFamilyModules } from "./familyBanditPlanner";
+import { getManifestDefaults } from "./moduleManifest";
 
 // ✨ usa o módulo central
 import {
@@ -264,38 +265,8 @@ const MINIMAL_VITAL_SET = [
   "METODO_VIVA_ENXUTO.txt",
 ];
 
-const KNAPSACK_BUDGET_DEFAULT = 1200;
 const KNAPSACK_BUDGET_ENV = "ECO_KNAPSACK_BUDGET_TOKENS";
 const VPT_FALLBACK = 0.0001;
-
-function buildBanditReplacementMap(
-  selections: BanditSelectionMap | undefined
-): Map<string, string> {
-  const mapping = new Map<string, string>();
-  if (!selections) return mapping;
-  const values = Object.values(selections) as Array<
-    | {
-        baseModule?: string;
-        module?: string;
-      }
-    | undefined
-  >;
-  for (const item of values) {
-    if (!item) continue;
-    const base = typeof item.baseModule === "string" ? item.baseModule.trim() : "";
-    const module = typeof item.module === "string" ? item.module.trim() : "";
-    if (!base || !module) continue;
-    mapping.set(base, module);
-  }
-  return mapping;
-}
-
-function applyBanditMapping(list: string[], mapping: Map<string, string>): string[] {
-  if (!Array.isArray(list) || list.length === 0 || mapping.size === 0) {
-    return Array.isArray(list) ? list.slice() : [];
-  }
-  return list.map((name) => mapping.get(name) ?? name);
-}
 
 function computeKnapsackBudget(): number {
   const envValueRaw = process.env[KNAPSACK_BUDGET_ENV];
@@ -305,7 +276,8 @@ function computeKnapsackBudget(): number {
       return parsed;
     }
   }
-  return KNAPSACK_BUDGET_DEFAULT;
+  const defaults = getManifestDefaults();
+  return defaults.maxAuxTokens;
 }
 
 function resolvePriorPeso(moduleName: string): number {
@@ -468,19 +440,13 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
     hasTechBlock: ecoDecision.hasTechBlock,
   });
   ecoDecision.debug.modules = baseSelection.debug.modules;
-
-  const banditSelections =
-    (ecoDecision.banditArms as BanditSelectionMap | undefined) ??
-    (ecoDecision.debug?.bandits as BanditSelectionMap | undefined);
-  const banditReplacementMap = buildBanditReplacementMap(banditSelections);
-
-  if (banditReplacementMap.size > 0 && Array.isArray(ecoDecision.debug.modules)) {
-    ecoDecision.debug.modules = ecoDecision.debug.modules.map((entry) => {
-      const replacement = banditReplacementMap.get(entry.id);
-      if (!replacement) return entry;
-      return { ...entry, id: replacement };
-    });
-  }
+  (ecoDecision.debug as any).selectorStages = {
+    gates: {
+      raw: baseSelection.raw,
+      allowed: baseSelection.posGating,
+      priorizado: baseSelection.priorizado,
+    },
+  };
 
   const toUnique = (list: string[] | undefined) =>
     Array.from(new Set(Array.isArray(list) ? list : []));
@@ -513,13 +479,55 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
       : modulesAfterGatingBase
   );
 
-  const modulesRaw = applyBanditMapping(modulesRawBase, banditReplacementMap);
-  const modulesAfterGating = applyBanditMapping(
-    modulesAfterGatingBase,
-    banditReplacementMap
+  ecoDecision.banditArms = undefined;
+  if (ecoDecision.debug) {
+    (ecoDecision.debug as any).bandits = undefined;
+  }
+
+  const familyPlan = planFamilyModules(orderedBase, intentAndFlagModules, {
+    openness: nivel,
+    intensity: ecoDecision.intensity,
+    isVulnerable: ecoDecision.isVulnerable,
+    flags: ecoDecision.flags,
+  });
+
+  ecoDecision.debug.banditFamilies = familyPlan.decisions;
+  const selectorStages = (ecoDecision.debug as any).selectorStages ?? {};
+  selectorStages.family = {
+    decisions: familyPlan.decisions,
+  };
+  if (Array.isArray(ecoDecision.debug.modules)) {
+    for (const decision of familyPlan.decisions) {
+      if (!decision.chosen) continue;
+      const entry: ModuleDebugEntry = {
+        id: decision.chosen,
+        source: "bandit",
+        activated: decision.chosenBy === "ts",
+        reason: decision.chosenBy,
+      };
+      ecoDecision.debug.modules.push(entry);
+    }
+  }
+  const banditTokensPlanned = familyPlan.decisions.reduce(
+    (acc, decision) => acc + (Number.isFinite(decision.tokensPlanned) ? decision.tokensPlanned : 0),
+    0
   );
-  let ordered = applyBanditMapping(orderedBase, banditReplacementMap);
-  ordered = ensureDeveloperPromptFirst(toUnique(ordered));
+  (ecoDecision.debug as any).banditPlan = {
+    decisions: familyPlan.decisions,
+    excluded: familyPlan.excluded,
+    dependencies: familyPlan.dependencies,
+    tokensPlanned: banditTokensPlanned,
+  };
+  (ecoDecision.debug as any).selectorStages = {
+    ...selectorStages,
+    family: {
+      decisions: familyPlan.decisions,
+    },
+  };
+
+  let ordered = ensureDeveloperPromptFirst(
+    toUnique([...familyPlan.modules, ...intentAndFlagModules])
+  );
 
   for (const coreName of MINIMAL_VITAL_SET) {
     if (!ordered.includes(coreName)) {
@@ -659,6 +667,15 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
     marginalGain: knapsackResult.marginalGain,
     tokensAditivos,
   };
+  (ecoDecision.debug as any).selectorStages = {
+    ...(ecoDecision.debug as any).selectorStages,
+    knapsack: {
+      budget: knapsackBudget,
+      adopted: Array.from(adoptedSet),
+      marginalGain: knapsackResult.marginalGain,
+      tokensAditivos,
+    },
+  };
 
   for (const module of modulesWithTokens) {
     if (usedSet.has(module.name)) continue;
@@ -686,6 +703,12 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
   const moduleDebugEntries = Array.from(debugMap.values());
   ecoDecision.debug.modules = moduleDebugEntries;
   ecoDecision.debug.selectedModules = budgetResult.used;
+  (ecoDecision.debug as any).selectorStages = {
+    ...(ecoDecision.debug as any).selectorStages,
+    stitch: {
+      final: budgetResult.used,
+    },
+  };
 
   if (activationTracer) {
     for (const entry of moduleDebugEntries) {

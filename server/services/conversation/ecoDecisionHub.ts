@@ -1,5 +1,6 @@
 import { estimarIntensidade0a10, derivarFlags, type Flags, type ModuleDebugEntry } from "../promptContext/Selector";
 import type { BanditSelectionMap } from "../orchestrator/bandits/ts";
+import type { FamilyDecisionLog } from "../promptContext/familyBanditPlanner";
 import type { HeuristicaFlagRecord } from "../promptContext/heuristicaFlags";
 
 export type EcoVivaStep = "V" | "I" | "A" | "Pausa";
@@ -20,6 +21,7 @@ export interface EcoDecisionDebug {
     tokensAditivos: number;
   } | null;
   bandits?: BanditSelectionMap;
+  banditFamilies?: FamilyDecisionLog[];
 }
 
 export interface EcoDecisionResult {
