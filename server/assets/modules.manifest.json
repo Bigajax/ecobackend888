@@ -1,0 +1,260 @@
+{
+  "version": "1.0.0",
+  "defaults": {
+    "window_days": 14,
+    "alpha_prior": 1.5,
+    "beta_prior": 1.5,
+    "max_aux_tokens": 350,
+    "cold_start_boost": 0.35
+  },
+  "families": {
+    "linguagem": {
+      "reward_key": "clarity_engagement",
+      "baseline": "LINGUAGEM_NATURAL.txt",
+      "enabled": true
+    },
+    "encerramento": {
+      "reward_key": "dialogue_continuation",
+      "baseline": "ENCERRAMENTO_SENSIVEL.txt",
+      "enabled": true
+    },
+    "modulacao": {
+      "reward_key": "like_bias",
+      "baseline": "MODULACAO_TOM_REGISTRO.txt",
+      "enabled": true
+    },
+    "estrutura_resposta": {
+      "reward_key": "clarity_engagement",
+      "baseline": "ECO_ESTRUTURA_DE_RESPOSTA.txt",
+      "enabled": true
+    },
+    "vulnerabilidade": {
+      "reward_key": "emotional_engagement",
+      "baseline": "eco_vulnerabilidade_defesas.txt",
+      "enabled": true
+    }
+  },
+  "modules": [
+    {
+      "id": "LINGUAGEM_NATURAL.txt",
+      "family": "linguagem",
+      "role": "instruction",
+      "size": "M",
+      "tokens_avg": 420,
+      "gate": { "signal": "open", "min_open": 1 },
+      "excludes": [],
+      "depends_on": [],
+      "reward_key": "clarity_engagement",
+      "path_hint": "modulos_core/LINGUAGEM_NATURAL.txt",
+      "enabled": true
+    },
+    {
+      "id": "LINGUAGEM_NATURAL_full.txt",
+      "family": "linguagem",
+      "role": "instruction",
+      "size": "L",
+      "tokens_avg": 560,
+      "gate": { "signal": "open", "min_open": 2 },
+      "excludes": [],
+      "depends_on": [],
+      "reward_key": "clarity_engagement",
+      "path_hint": "modulos_core/LINGUAGEM_NATURAL_full.txt",
+      "enabled": true
+    },
+    {
+      "id": "LINGUAGEM_NATURAL_mini.txt",
+      "family": "linguagem",
+      "role": "instruction",
+      "size": "S",
+      "tokens_avg": 260,
+      "gate": { "signal": "open", "min_open": 1 },
+      "excludes": [],
+      "depends_on": [],
+      "reward_key": "clarity_engagement",
+      "path_hint": "modulos_core/LINGUAGEM_NATURAL_mini.txt",
+      "enabled": true
+    },
+    {
+      "id": "LINGUAGEM_NATURAL_rules.txt",
+      "family": "linguagem",
+      "role": "instruction",
+      "size": "M",
+      "tokens_avg": 410,
+      "gate": { "signal": "open", "min_open": 2 },
+      "excludes": [],
+      "depends_on": [],
+      "reward_key": "clarity_engagement",
+      "path_hint": "modulos_core/LINGUAGEM_NATURAL_rules.txt",
+      "enabled": true
+    },
+    {
+      "id": "ENCERRAMENTO_SENSIVEL.txt",
+      "family": "encerramento",
+      "role": "instruction",
+      "size": "M",
+      "tokens_avg": 280,
+      "gate": { "signal": "open", "min_open": 1 },
+      "excludes": [],
+      "depends_on": [],
+      "reward_key": "dialogue_continuation",
+      "path_hint": "modulos_core/ENCERRAMENTO_SENSIVEL.txt",
+      "enabled": true
+    },
+    {
+      "id": "ENCERRAMENTO_SENSIVEL_full.txt",
+      "family": "encerramento",
+      "role": "instruction",
+      "size": "L",
+      "tokens_avg": 360,
+      "gate": { "signal": "open", "min_open": 2 },
+      "excludes": [],
+      "depends_on": [],
+      "reward_key": "dialogue_continuation",
+      "path_hint": "modulos_core/ENCERRAMENTO_SENSIVEL_full.txt",
+      "enabled": true
+    },
+    {
+      "id": "ENCERRAMENTO_SENSIVEL_mini.txt",
+      "family": "encerramento",
+      "role": "instruction",
+      "size": "S",
+      "tokens_avg": 160,
+      "gate": { "signal": "open", "min_open": 1 },
+      "excludes": [],
+      "depends_on": [],
+      "reward_key": "dialogue_continuation",
+      "path_hint": "modulos_core/ENCERRAMENTO_SENSIVEL_mini.txt",
+      "enabled": true
+    },
+    {
+      "id": "ENCERRAMENTO_SENSIVEL_rules.txt",
+      "family": "encerramento",
+      "role": "instruction",
+      "size": "M",
+      "tokens_avg": 300,
+      "gate": { "signal": "open", "min_open": 2 },
+      "excludes": [],
+      "depends_on": [],
+      "reward_key": "dialogue_continuation",
+      "path_hint": "modulos_core/ENCERRAMENTO_SENSIVEL_rules.txt",
+      "enabled": true
+    },
+    {
+      "id": "MODULACAO_TOM_REGISTRO.txt",
+      "family": "modulacao",
+      "role": "instruction",
+      "size": "M",
+      "tokens_avg": 260,
+      "gate": { "signal": "open", "min_open": 1 },
+      "excludes": [],
+      "depends_on": [],
+      "reward_key": "like_bias",
+      "path_hint": "modulos_core/MODULACAO_TOM_REGISTRO.txt",
+      "enabled": true
+    },
+    {
+      "id": "MODULACAO_TOM_REGISTRO_full.txt",
+      "family": "modulacao",
+      "role": "instruction",
+      "size": "L",
+      "tokens_avg": 330,
+      "gate": { "signal": "open", "min_open": 2 },
+      "excludes": [],
+      "depends_on": [],
+      "reward_key": "like_bias",
+      "path_hint": "modulos_core/MODULACAO_TOM_REGISTRO_full.txt",
+      "enabled": true
+    },
+    {
+      "id": "MODULACAO_TOM_REGISTRO_mini.txt",
+      "family": "modulacao",
+      "role": "instruction",
+      "size": "S",
+      "tokens_avg": 190,
+      "gate": { "signal": "open", "min_open": 1 },
+      "excludes": [],
+      "depends_on": [],
+      "reward_key": "like_bias",
+      "path_hint": "modulos_core/MODULACAO_TOM_REGISTRO_mini.txt",
+      "enabled": true
+    },
+    {
+      "id": "MODULACAO_TOM_REGISTRO_rules.txt",
+      "family": "modulacao",
+      "role": "instruction",
+      "size": "M",
+      "tokens_avg": 270,
+      "gate": { "signal": "open", "min_open": 2 },
+      "excludes": [],
+      "depends_on": [],
+      "reward_key": "like_bias",
+      "path_hint": "modulos_core/MODULACAO_TOM_REGISTRO_rules.txt",
+      "enabled": true
+    },
+    {
+      "id": "ECO_ESTRUTURA_DE_RESPOSTA.txt",
+      "family": "estrutura_resposta",
+      "role": "instruction",
+      "size": "M",
+      "tokens_avg": 340,
+      "gate": { "signal": "open", "min_open": 1 },
+      "excludes": [],
+      "depends_on": [],
+      "reward_key": "clarity_engagement",
+      "path_hint": "modulos_core/ECO_ESTRUTURA_DE_RESPOSTA.txt",
+      "enabled": true
+    },
+    {
+      "id": "ECO_ESTRUTURA_min.txt",
+      "family": "estrutura_resposta",
+      "role": "instruction",
+      "size": "S",
+      "tokens_avg": 200,
+      "gate": { "signal": "open", "min_open": 1 },
+      "excludes": [],
+      "depends_on": [],
+      "reward_key": "clarity_engagement",
+      "path_hint": "modulos_core/ECO_ESTRUTURA_min.txt",
+      "enabled": true
+    },
+    {
+      "id": "eco_vulnerabilidade_defesas.txt",
+      "family": "vulnerabilidade",
+      "role": "context",
+      "size": "M",
+      "tokens_avg": 220,
+      "gate": { "signal": "vulnerability", "min_open": 2 },
+      "excludes": [],
+      "depends_on": [],
+      "reward_key": "emotional_engagement",
+      "path_hint": "modulos_emocionais/eco_vulnerabilidade_defesas.txt",
+      "enabled": true
+    },
+    {
+      "id": "eco_vulnerabilidade_mitos.txt",
+      "family": "vulnerabilidade",
+      "role": "context",
+      "size": "M",
+      "tokens_avg": 210,
+      "gate": { "signal": "vulnerability", "min_open": 2 },
+      "excludes": [],
+      "depends_on": [],
+      "reward_key": "emotional_engagement",
+      "path_hint": "modulos_emocionais/eco_vulnerabilidade_mitos.txt",
+      "enabled": true
+    },
+    {
+      "id": "eco_emo_vergonha_combate.txt",
+      "family": "vulnerabilidade",
+      "role": "context",
+      "size": "S",
+      "tokens_avg": 180,
+      "gate": { "signal": "vulnerability", "min_open": 2 },
+      "excludes": [],
+      "depends_on": [],
+      "reward_key": "emotional_engagement",
+      "path_hint": "modulos_emocionais/eco_emo_vergonha_combate.txt",
+      "enabled": true
+    }
+  ]
+}
