@@ -4,7 +4,7 @@ import { ensureModuleManifest } from "../../server/services/promptContext/module
 import { qualityAnalyticsStore } from "../../server/services/analytics/analyticsStore";
 import { __internals as ContextBuilderInternals } from "../../server/services/promptContext/ContextBuilder";
 
-const { buildDecisionSignals } = ContextBuilderInternals;
+const { buildDecisionSignals, resolveBiasSnapshots } = ContextBuilderInternals;
 
 describe("HeuristicSignalizer", () => {
   it("combines pattern, behavior and flag signals with proper precedence", () => {
@@ -96,6 +96,7 @@ describe("Heuristic gating and cooldown", () => {
 
     const runtimeFirst = evaluateHeuristicSignals(baseParams);
     expect(runtimeFirst).not.toBeNull();
+    const snapshotFirst = resolveBiasSnapshots(runtimeFirst, {}, {} as any, baseParams.defaultMin);
     const planFirst = planFamilyModules(
       [heuristicsModule],
       [],
@@ -106,6 +107,7 @@ describe("Heuristic gating and cooldown", () => {
         flags: {} as any,
         signals: {},
         heuristicsV2: runtimeFirst,
+        decayedBiases: snapshotFirst.decayedMap,
       }
     );
 
@@ -118,6 +120,7 @@ describe("Heuristic gating and cooldown", () => {
 
     const runtimeSecond = evaluateHeuristicSignals(baseParams);
     expect(runtimeSecond?.details[signalName]?.suppressedByCooldown).toBe(true);
+    const snapshotSecond = resolveBiasSnapshots(runtimeSecond, {}, {} as any, baseParams.defaultMin);
 
     const planSecond = planFamilyModules(
       [heuristicsModule],
@@ -129,6 +132,7 @@ describe("Heuristic gating and cooldown", () => {
         flags: {} as any,
         signals: {},
         heuristicsV2: runtimeSecond,
+        decayedBiases: snapshotSecond.decayedMap,
       }
     );
 

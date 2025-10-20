@@ -24,6 +24,8 @@ export interface EcoDecisionDebug {
   banditFamilies?: FamilyDecisionLog[];
   signals?: string[];
   selectorStages?: Record<string, unknown>;
+  activeBiases?: ActiveBiasSnapshot[];
+  decayedActiveBiases?: string[];
 }
 
 export interface EcoDecisionResult {
@@ -39,6 +41,16 @@ export interface EcoDecisionResult {
   signals: Record<string, boolean>;
   debug: EcoDecisionDebug;
   banditArms?: BanditSelectionMap;
+  activeBiases: ActiveBiasSnapshot[];
+  decayedActiveBiases: string[];
+}
+
+export interface ActiveBiasSnapshot {
+  bias: string;
+  confidence: number;
+  decayApplied: boolean;
+  source: string;
+  lastSeenAt: string | null;
 }
 
 export const MEMORY_THRESHOLD = 7;
@@ -133,7 +145,11 @@ export function computeEcoDecision(texto: string, options: EcoDecisionOptions = 
       selectedModules: [],
       knapsack: null,
       bandits: undefined,
+      activeBiases: [],
+      decayedActiveBiases: [],
     },
     banditArms: undefined,
+    activeBiases: [],
+    decayedActiveBiases: [],
   };
 }

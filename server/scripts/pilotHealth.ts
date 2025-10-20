@@ -7,6 +7,71 @@ interface CliOptions {
   windowLabel: string;
   windowMs: number;
   tolerateCap: number;
+  allowOffline: boolean;
+}
+
+class AnalyticsUnavailableError extends Error {
+  constructor(
+    readonly stage: "client_init" | "bandit_rewards" | "module_usages" | "unknown",
+    readonly reason: string,
+    options?: { cause?: unknown }
+  ) {
+    super(`analytics unavailable (${stage}): ${reason}`, options);
+    this.name = "AnalyticsUnavailableError";
+  }
+}
+
+function isFetchUnavailableError(error: unknown): boolean {
+  if (!error) {
+    return false;
+  }
+  const candidate = error instanceof Error ? error : null;
+  const message = candidate?.message ?? (typeof error === "string" ? error : "");
+  if (typeof message === "string") {
+    const normalized = message.toLowerCase();
+    if (
+      normalized.includes("fetch failed") ||
+      normalized.includes("getaddrinfo") ||
+      normalized.includes("etimedout") ||
+      normalized.includes("econnrefused") ||
+      normalized.includes("network timeout")
+    ) {
+      return true;
+    }
+  }
+  const errorCode = (candidate as { code?: unknown } | null)?.code;
+  if (typeof errorCode === "string") {
+    const normalizedCode = errorCode.toLowerCase();
+    if (
+      normalizedCode === "etimedout" ||
+      normalizedCode === "econnrefused" ||
+      normalizedCode === "enotfound" ||
+      normalizedCode === "fetch_failed"
+    ) {
+      return true;
+    }
+  }
+  return candidate instanceof TypeError && candidate.message.includes("fetch");
+}
+
+function handleAnalyticsUnavailable(
+  options: CliOptions,
+  payload: { stage: AnalyticsUnavailableError["stage"]; reason: string }
+): void {
+  const serialized = JSON.stringify({
+    pilot_health_skipped: {
+      window: options.windowLabel,
+      stage: payload.stage,
+      reason: payload.reason,
+      allow_offline: options.allowOffline,
+    },
+  });
+  if (options.allowOffline) {
+    console.warn(serialized);
+    return;
+  }
+  console.error(serialized);
+  process.exitCode = 1;
 }
 
 interface RawBanditRewardRow {
@@ -103,9 +168,10 @@ function parseWindowMs(value: string): number {
 function parseCli(argv: string[]): CliOptions {
   let windowLabel = "24h";
   let tolerateCap = 0;
+  let allowOffline = false;
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i]!;
-    if (arg.startsWith("--window")) {
+    if (arg.startsWith("--window") || arg.startsWith("--range")) {
       const value = arg.includes("=") ? arg.split("=", 2)[1] ?? "" : argv[i + 1] ?? "";
       if (!value) {
         throw new Error("--window flag requires a value");
@@ -127,10 +193,12 @@ function parseCli(argv: string[]): CliOptions {
       if (!arg.includes("=")) {
         i += 1;
       }
+    } else if (arg === "--allow-offline" || arg === "--offline-ok") {
+      allowOffline = true;
     }
   }
 
-  return { windowLabel, windowMs: parseWindowMs(windowLabel), tolerateCap };
+  return { windowLabel, windowMs: parseWindowMs(windowLabel), tolerateCap, allowOffline };
 }
 
 function clamp01(value: number | null | undefined): number {
@@ -218,7 +286,7 @@ function computePercentile(values: number[], percentile: number): number | null 
 
 async function fetchBanditRewards(sinceIso: string): Promise<RawBanditRewardRow[]> {
   if (analyticsClientMode !== "enabled") {
-    throw new Error("analytics client disabled");
+    throw new AnalyticsUnavailableError("client_init", "analytics_disabled");
   }
   const client = getAnalyticsClient();
   const selections = [
@@ -237,10 +305,22 @@ async function fetchBanditRewards(sinceIso: string): Promise<RawBanditRewardRow[
         .gte("created_at", sinceIso)
         .order("created_at", { ascending: true })
         .range(from, from + pageSize - 1);
-      const { data, error } = await query;
+      let response;
+      try {
+        response = await query;
+      } catch (error) {
+        if (isFetchUnavailableError(error)) {
+          throw new AnalyticsUnavailableError("bandit_rewards", "fetch_failed", { cause: error });
+        }
+        throw error;
+      }
+      const { data, error } = response;
       if (error) {
         if (error.code === "42703") {
           break;
+        }
+        if (isFetchUnavailableError(error)) {
+          throw new AnalyticsUnavailableError("bandit_rewards", "fetch_failed", { cause: error });
         }
         throw new Error(error.message ?? "bandit_rewards_fetch_failed");
       }
@@ -257,7 +337,7 @@ async function fetchBanditRewards(sinceIso: string): Promise<RawBanditRewardRow[
 
 async function fetchModuleUsageTotals(sinceIso: string): Promise<Map<string, number>> {
   if (analyticsClientMode !== "enabled") {
-    throw new Error("analytics client disabled");
+    throw new AnalyticsUnavailableError("client_init", "analytics_disabled");
   }
   const client = getAnalyticsClient();
   const totals = new Map<string, number>();
@@ -278,11 +358,23 @@ async function fetchModuleUsageTotals(sinceIso: string): Promise<Map<string, num
         .gte("created_at", sinceIso)
         .order("created_at", { ascending: true })
         .range(from, from + pageSize - 1);
-      const { data, error } = await query;
+      let response;
+      try {
+        response = await query;
+      } catch (error) {
+        if (isFetchUnavailableError(error)) {
+          throw new AnalyticsUnavailableError("module_usages", "fetch_failed", { cause: error });
+        }
+        throw error;
+      }
+      const { data, error } = response;
       if (error) {
         if (error.code === "42703") {
           encounteredColumnError = true;
           break;
+        }
+        if (isFetchUnavailableError(error)) {
+          throw new AnalyticsUnavailableError("module_usages", "fetch_failed", { cause: error });
         }
         throw new Error(error.message ?? "module_usages_fetch_failed");
       }
@@ -555,13 +647,58 @@ async function main(): Promise<void> {
     return;
   }
 
+  if (analyticsClientMode !== "enabled") {
+    handleAnalyticsUnavailable(options, {
+      stage: "client_init",
+      reason: "analytics_disabled",
+    });
+    return;
+  }
+
   try {
     const since = new Date(Date.now() - options.windowMs);
     const sinceIso = since.toISOString();
-    const [banditRows, usageTotals] = await Promise.all([
-      fetchBanditRewards(sinceIso),
-      fetchModuleUsageTotals(sinceIso),
-    ]);
+    let banditRows: RawBanditRewardRow[];
+    try {
+      banditRows = await fetchBanditRewards(sinceIso);
+    } catch (error) {
+      if (error instanceof AnalyticsUnavailableError) {
+        handleAnalyticsUnavailable(options, {
+          stage: error.stage,
+          reason: error.reason,
+        });
+        return;
+      }
+      if (isFetchUnavailableError(error)) {
+        handleAnalyticsUnavailable(options, {
+          stage: "bandit_rewards",
+          reason: "fetch_failed",
+        });
+        return;
+      }
+      throw error;
+    }
+
+    let usageTotals: Map<string, number>;
+    try {
+      usageTotals = await fetchModuleUsageTotals(sinceIso);
+    } catch (error) {
+      if (error instanceof AnalyticsUnavailableError) {
+        handleAnalyticsUnavailable(options, {
+          stage: error.stage,
+          reason: error.reason,
+        });
+        return;
+      }
+      if (isFetchUnavailableError(error)) {
+        handleAnalyticsUnavailable(options, {
+          stage: "module_usages",
+          reason: "fetch_failed",
+        });
+        return;
+      }
+      throw error;
+    }
 
     const normalized = normalizeRows(banditRows, usageTotals);
     if (normalized.length === 0) {
@@ -594,6 +731,20 @@ async function main(): Promise<void> {
       process.exitCode = 1;
     }
   } catch (error) {
+    if (error instanceof AnalyticsUnavailableError) {
+      handleAnalyticsUnavailable(options, {
+        stage: error.stage,
+        reason: error.reason,
+      });
+      return;
+    }
+    if (isFetchUnavailableError(error)) {
+      handleAnalyticsUnavailable(options, {
+        stage: "unknown",
+        reason: "fetch_failed",
+      });
+      return;
+    }
     const message = error instanceof Error ? error.message : String(error);
     console.error(
       JSON.stringify({ pilot_health_error: { stage: "run", message } })

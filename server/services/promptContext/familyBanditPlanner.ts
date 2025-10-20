@@ -19,6 +19,16 @@ function sampleStandardNormal(): number {
   return Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
 }
 
+const COLD_START_THRESHOLD = 20;
+
+type BiasGateEntry = {
+  bias: string;
+  confidence: number;
+  decayApplied: boolean;
+  source: string;
+  lastSeenAt: string | null;
+};
+
 export interface FamilyContextSnapshot {
   openness: number;
   intensity: number;
@@ -26,6 +36,7 @@ export interface FamilyContextSnapshot {
   flags: Flags;
   signals?: Record<string, boolean>;
   heuristicsV2?: HeuristicsRuntime | null;
+  decayedBiases?: Record<string, BiasGateEntry>;
 }
 
 export interface FamilyDecisionLog {
@@ -105,6 +116,10 @@ function gatePasses(
     ) {
       reasons.push("cooldown");
     }
+    const decayedEntry = context.decayedBiases?.[signal] ?? null;
+    if (!decayedEntry) {
+      reasons.push("decayed_inactive");
+    }
     if (heuristicsState.opened >= heuristicsRuntime.config.maxArms) {
       reasons.push("max_limit");
     }
@@ -126,6 +141,10 @@ function gatePasses(
   }
 
   if (signal.startsWith("bias:")) {
+    const decayedEntry = context.decayedBiases?.[signal] ?? null;
+    if (decayedEntry) {
+      return true;
+    }
     return Boolean(context.signals?.[signal]);
   }
 
@@ -214,7 +233,15 @@ export function planFamilyModules(
     const familyModules = listManifestModulesByFamily(familyId).filter((arm) => arm.enabled !== false);
 
     const eligible: FamilyDecisionLog["eligibleArms"] = [];
-    let tsPick: { id: string; score: number; alpha: number; beta: number; count: number; tokens: number; cold: boolean } | null = null;
+    let tsPick: {
+      id: string;
+      score: number;
+      alpha: number;
+      beta: number;
+      count: number;
+      tokens: number;
+      cold: boolean;
+    } | null = null;
 
     const heuristicsState = {
       runtime: familyId === "heuristica" ? context.heuristicsV2 ?? null : null,
@@ -230,10 +257,9 @@ export function planFamilyModules(
       const stddev = Math.sqrt(Math.max(variance, 1e-6));
       let draw = posterior.alpha / Math.max(posterior.alpha + posterior.beta, 1e-6);
       draw += stddev * sampleStandardNormal();
-      let coldApplied = false;
-      if (posterior.count < 20) {
+      const isCold = posterior.count < COLD_START_THRESHOLD;
+      if (isCold) {
         draw += coldStartBoost;
-        coldApplied = true;
       }
       draw = Math.min(Math.max(draw, 0), 1);
       eligible.push({
@@ -253,7 +279,7 @@ export function planFamilyModules(
           beta: posterior.beta,
           count: posterior.count,
           tokens: arm.tokens_avg,
-          cold: coldApplied,
+          cold: isCold,
         };
       }
     }
@@ -266,7 +292,11 @@ export function planFamilyModules(
       log.warn("[FamilyBandit] family_disabled", { familyId });
     }
 
-    const tokensPlanned = (familyModules.find((arm) => arm.id === chosenModule)?.tokens_avg ?? manifestEntry.tokens_avg) || defaults.maxAuxTokens;
+    const tokensPlanned =
+      (familyModules.find((arm) => arm.id === chosenModule)?.tokens_avg ?? manifestEntry.tokens_avg) ||
+      defaults.maxAuxTokens;
+    const chosenEligible = eligible.find((entry) => entry.id === chosenModule);
+    const coldStartApplied = chosenEligible ? chosenEligible.count < COLD_START_THRESHOLD : Boolean(tsPick?.cold && applyTs);
 
     decisions.push({
       familyId,
@@ -277,7 +307,7 @@ export function planFamilyModules(
       tsPick: tsPick ? tsPick.id : null,
       eligibleArms: eligible,
       tokensPlanned,
-      coldStartApplied: Boolean(tsPick?.cold && applyTs),
+      coldStartApplied,
     });
 
     if (chosenModule) {
