@@ -144,3 +144,11 @@ from analytics.bandit_posteriors_cache
 where snapshot_at > now() - interval '7 days'
 order by snapshot_at asc;
 ```
+
+To double-check the cron freshness without opening Metabase, run:
+
+```bash
+npm run cron:self-test
+```
+
+The helper exits with status `1` (and prints `posterior_cache_self_test` with `status:"stale"`) when the most recent snapshot is older than two hours.
