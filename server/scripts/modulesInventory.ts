@@ -325,7 +325,39 @@ async function writeInventory(entries: ModuleEntry[]) {
   await fs.writeFile(INVENTORY_PATH, header + rows + "\n", "utf-8");
 }
 
+async function dumpManifestSummary() {
+  const { moduleManifest } = await import("../services/promptContext/moduleManifest");
+  await moduleManifest.ensureLoaded();
+  const snapshot = moduleManifest.describe();
+
+  if (!snapshot.path) {
+    console.log("[modules] manifest not found (fallback to filesystem)");
+    return;
+  }
+
+  console.log("[modules] manifest", {
+    path: snapshot.path,
+    version: snapshot.version,
+    defaults: snapshot.defaults,
+  });
+
+  for (const family of snapshot.families) {
+    const enabledArms = family.arms.filter((arm) => arm.enabled !== false);
+    console.log(`- ${family.id} (reward=${family.rewardKey}) baseline=${family.baseline ?? "<none>"} enabled=${family.enabled}`);
+    console.log(
+      `  arms: ${enabledArms
+        .map((arm) => `${arm.id}#${arm.role}/${arm.size}`)
+        .join(", ")}`
+    );
+  }
+}
+
 async function main() {
+  if (process.argv.includes("--dump-modules")) {
+    await dumpManifestSummary();
+    return;
+  }
+
   const references = await collectModuleReferences();
   const entries: ModuleEntry[] = [];
 
