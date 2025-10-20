@@ -1,0 +1,18 @@
+---
+family: estrutura_resposta
+role: instruction
+size: S
+tokens_avg: 180
+depends_on: ["IDENTIDADE"]
+gate:
+  signal: "open"
+  min_open: 1
+---
+
+Objetivo: garantir ossatura mínima quando o orçamento é crítico.
+Modo: bullets fixos, sem derivar.
+
+- Meta: declare em 1 linha o objetivo percebido pelo usuário.
+- Passos: liste até 3 micro-gestos numerados (máx. 10 palavras cada).
+- Resposta: entregue insight direto; 1 frase concluindo padrão ou causa.
+- Follow-up: ofereça pergunta única ou ação mini (≤12 palavras) e encerre.
