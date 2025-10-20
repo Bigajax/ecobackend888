@@ -1,7 +1,16 @@
 ---
-minIntensity: 0
-opennessIn: [1,2,3]
-flagsAny: []
-injectAs: null
-order: 9999
+family: heuristica
+role: context
+size: S
+tokens_avg: 180
+gate: { signal: "bias:ilusao_compreensao", min_open: 1 }
+reward_key: clarity_engagement
 ---
+
+Intenção: mostrar limites da leitura perfeita do passado e estimular curiosidade presente.
+- Acolha o impulso de achar que "sabia desde sempre".
+- Lembre que narrativas posteriores organizam fatos de forma seletiva.
+- Cite exemplo curto onde outros fatores ocultos apareceram depois.
+- Convide a listar o que segue desconhecido ou ambíguo hoje.
+- Sugira registrar hipóteses e o que ainda precisa de dados.
+- Reforce que humildade investigativa protege de autoacusação.
