@@ -17,6 +17,10 @@ export interface ParallelFetchResult {
   heuristicas: any[];
   userEmbedding: number[];
   memsSemelhantes: any[];
+  sources: {
+    heuristicas: "live" | "cache" | "empty";
+    mems: "live" | "cache" | "empty";
+  };
 }
 
 interface ParallelFetchDeps {
@@ -26,6 +30,10 @@ interface ParallelFetchDeps {
   logger: typeof log;
   debug: typeof isDebug;
 }
+
+const RPC_TIMEOUT_MS = 1200;
+const CACHE_LIMIT = 5;
+const ANON_KEY = "__anon__";
 
 export class ParallelFetchService {
   constructor(
@@ -37,6 +45,10 @@ export class ParallelFetchService {
       debug: isDebug,
     }
   ) {}
+
+  private heuristicaCache = new Map<string, any[]>();
+
+  private memoriaCache = new Map<string, any[]>();
 
   async run({
     ultimaMsg,
@@ -58,16 +70,32 @@ export class ParallelFetchService {
     }
 
     let heuristicas: any[] = [];
+    let heuristicaSource: "live" | "cache" | "empty" = "empty";
     let memsSemelhantes: any[] = [];
+    let memSource: "live" | "cache" | "empty" = "empty";
 
     if (userEmbedding.length > 0) {
-      const heuristicasPromise = this.deps
-        .getHeuristicas({
-          usuarioId: userId ?? null,
-          userEmbedding,
-          matchCount: 4, // LATENCY: top_k
-        })
-        .catch(() => []);
+      const cacheKey = userId ?? ANON_KEY;
+
+      const heuristicasPromise = withTimeoutOrNull(
+        this.deps
+          .getHeuristicas({
+            usuarioId: userId ?? null,
+            userEmbedding,
+            matchCount: 4, // LATENCY: top_k
+          })
+          .catch((error: any) => {
+            if (this.deps.debug()) {
+              this.deps.logger.warn(
+                `[ParallelFetch] heuristica_rpc falhou: ${error?.message}`
+              );
+            }
+            return [];
+          }),
+        RPC_TIMEOUT_MS,
+        "heuristica_rpc",
+        { logger: this.deps.logger }
+      );
 
       const memsPromise = userId
         ? withTimeoutOrNull(
@@ -86,7 +114,7 @@ export class ParallelFetchService {
                 }
                 return [];
               }),
-            800,
+            RPC_TIMEOUT_MS,
             "mem_lookup",
             { logger: this.deps.logger }
           ).then((result) => result ?? [])
@@ -97,8 +125,31 @@ export class ParallelFetchService {
         memsPromise,
       ]);
 
-      heuristicas = heuristicasResult ?? [];
-      memsSemelhantes = userId ? (memsResult ?? []) : [];
+      if (heuristicasResult != null) {
+        heuristicas = heuristicasResult ?? [];
+        heuristicaSource = heuristicas.length ? "live" : "empty";
+        if (heuristicas.length) {
+          this.heuristicaCache.set(cacheKey, heuristicas.slice(0, CACHE_LIMIT));
+        }
+      } else {
+        const cached = this.heuristicaCache.get(cacheKey) ?? [];
+        heuristicas = cached;
+        heuristicaSource = cached.length ? "cache" : "empty";
+      }
+
+      if (userId) {
+        if (memsResult != null) {
+          memsSemelhantes = memsResult ?? [];
+          memSource = memsSemelhantes.length ? "live" : "empty";
+          if (memsSemelhantes.length) {
+            this.memoriaCache.set(cacheKey, memsSemelhantes.slice(0, CACHE_LIMIT));
+          }
+        } else {
+          const cached = this.memoriaCache.get(cacheKey) ?? [];
+          memsSemelhantes = cached;
+          memSource = cached.length ? "cache" : "empty";
+        }
+      }
 
       if (userId && typeof this.deps.logger?.info === "function") {
         const top = Array.isArray(memsSemelhantes) && memsSemelhantes.length
@@ -110,9 +161,31 @@ export class ParallelFetchService {
           top: top ?? null,
         });
       }
+
+      if (heuristicaSource === "cache") {
+        this.deps.logger.warn("[ParallelFetch] heuristica_cache_fallback", {
+          userId: cacheKey,
+        });
+      }
+      if (memSource === "cache") {
+        this.deps.logger.warn("[ParallelFetch] memoria_cache_fallback", {
+          userId: cacheKey,
+        });
+      }
+      if (memSource === "empty") {
+        this.deps.logger.info("[ParallelFetch] memoria_empty", { userId: cacheKey });
+      }
     }
 
-    return { heuristicas, userEmbedding, memsSemelhantes };
+    return {
+      heuristicas,
+      userEmbedding,
+      memsSemelhantes,
+      sources: {
+        heuristicas: heuristicaSource,
+        mems: memSource,
+      },
+    };
   }
 }
 

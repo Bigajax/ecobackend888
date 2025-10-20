@@ -272,22 +272,47 @@ export async function persistAnalyticsRecords({
   if (Array.isArray(analyticsMeta.bandit_rewards) && analyticsMeta.bandit_rewards.length > 0) {
     const banditRows = analyticsMeta.bandit_rewards
       .filter(
-        (reward): reward is { pilar: string; arm: string; recompensa: number } =>
+        (reward): reward is {
+          family: string;
+          arm_id: string;
+          chosen_by: "ts" | "baseline";
+          reward_key: string | null;
+          reward: number | null;
+          tokens: number | null;
+          ttfb_ms: number | null;
+          ttlc_ms: number | null;
+          like: number | null;
+          dislike_reason: string | null;
+          emotional_intensity: number | null;
+          memory_saved: boolean | null;
+          reply_within_10m: boolean | null;
+        } =>
           Boolean(
             reward &&
-              typeof reward.pilar === "string" &&
-              reward.pilar &&
-              typeof reward.arm === "string" &&
-              reward.arm &&
-              typeof reward.recompensa === "number" &&
-              Number.isFinite(reward.recompensa)
+              typeof reward.family === "string" &&
+              reward.family &&
+              typeof reward.arm_id === "string" &&
+              reward.arm_id
           )
       )
       .map((reward) => ({
         response_id: responseId,
-        pilar: reward.pilar,
-        arm: reward.arm,
-        recompensa: reward.recompensa,
+        pilar: reward.family,
+        arm: reward.arm_id,
+        recompensa:
+          typeof reward.reward === "number" && Number.isFinite(reward.reward)
+            ? reward.reward
+            : null,
+        chosen_by: reward.chosen_by,
+        reward_key: reward.reward_key,
+        tokens: reward.tokens,
+        ttfb_ms: reward.ttfb_ms,
+        ttlc_ms: reward.ttlc_ms,
+        like: reward.like,
+        dislike_reason: reward.dislike_reason,
+        emotional_intensity: reward.emotional_intensity,
+        memory_saved: reward.memory_saved,
+        reply_within_10m: reward.reply_within_10m,
       }));
     if (banditRows.length) {
       tasks.push(insertRows("bandit_rewards", banditRows));
@@ -376,6 +401,94 @@ async function persistAnalyticsSafe(options: {
       const message = error instanceof Error ? error.message : String(error);
       log.debug("[analytics]", { tabela: "persist_failed", response_id: responseId, motivo: message });
     }
+  }
+}
+
+function logSelectorPipeline(decision: EcoDecisionResult, contextSource?: string | null) {
+  const debug = (decision as any)?.debug ?? {};
+  const stages = debug.selectorStages ?? {};
+
+  const gates = stages.gates ?? null;
+  if (gates) {
+    log.info({
+      selector_stage: "gates",
+      raw_count: Array.isArray(gates.raw) ? gates.raw.length : null,
+      allowed_count: Array.isArray(gates.allowed) ? gates.allowed.length : null,
+      priorizado_count: Array.isArray(gates.priorizado) ? gates.priorizado.length : null,
+      nivel: decision.openness,
+      intensidade: decision.intensity,
+    });
+  }
+
+  const familyDecisions: any[] = Array.isArray(stages.family?.decisions)
+    ? stages.family.decisions
+    : [];
+  for (const entry of familyDecisions) {
+    const eligibleArms = Array.isArray(entry.eligibleArms)
+      ? entry.eligibleArms.map((arm: any) => ({
+          id: arm.id,
+          gate_passed: arm.gatePassed,
+          tokens_avg: arm.tokensAvg,
+        }))
+      : [];
+    log.info({
+      selector_stage: "family_group",
+      family: entry.familyId ?? null,
+      eligible_arms: eligibleArms,
+    });
+
+    const statsSource = Array.isArray(entry.eligibleArms)
+      ? entry.eligibleArms.find(
+          (arm: any) => arm.id === (entry.tsPick ?? entry.chosen ?? null)
+        )
+      : null;
+
+    log.info({
+      selector_stage: "ts_pick",
+      family: entry.familyId ?? null,
+      ts_pick: entry.tsPick ?? null,
+      chosen: entry.chosen ?? null,
+      chosen_by: entry.chosenBy ?? null,
+      alpha: statsSource?.alpha ?? null,
+      beta: statsSource?.beta ?? null,
+      reward_key: entry.rewardKey ?? null,
+      tokens_planned: entry.tokensPlanned ?? null,
+    });
+  }
+
+  const knapsack = debug.knapsack ?? null;
+  if (knapsack) {
+    const cap = Number.isFinite(knapsack.budget) ? Number(knapsack.budget) : null;
+    const aux = Number.isFinite(knapsack.tokensAditivos)
+      ? Number(knapsack.tokensAditivos)
+      : null;
+    log.info({
+      selector_stage: "knapsack",
+      aux_tokens_planned: aux,
+      cap,
+      within_cap: cap != null && aux != null ? aux <= cap : null,
+      adopted: Array.isArray(knapsack.adotados) ? knapsack.adotados : [],
+    });
+  }
+
+  const stitch = stages.stitch ?? null;
+  if (stitch) {
+    const finals = Array.isArray(stitch.final)
+      ? stitch.final
+      : Array.isArray(debug.selectedModules)
+      ? debug.selectedModules
+      : [];
+    log.info({
+      selector_stage: "stitch",
+      final_modules: finals,
+    });
+  }
+
+  if (contextSource) {
+    log.info({
+      selector_stage: "rpc",
+      context_source: contextSource,
+    });
   }
 }
 
@@ -680,6 +793,8 @@ export async function getEcoResponse({
       activationTracer,
       retrieveMode: retrieveDecision.mode,
     });
+
+    logSelectorPipeline(ecoDecision, context?.sources?.mems ?? null);
 
     const memsSemelhantes = Array.isArray(context?.memsSemelhantes)
       ? context.memsSemelhantes

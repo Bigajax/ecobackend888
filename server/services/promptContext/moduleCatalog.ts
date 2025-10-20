@@ -1,5 +1,6 @@
 import { ModuleStore } from "./ModuleStore";
 import { isDebug, log } from "./logger";
+import { ensureModuleManifest } from "./moduleManifest";
 
 export type ModuleFrontMatter = {
   minIntensity?: number;
@@ -146,6 +147,7 @@ export class ModuleCatalog {
     } else {
       await ModuleStore.buildFileIndexOnce();
     }
+    await ensureModuleManifest();
     await this.buildRelaxedIndexIfPossible();
   }
 
