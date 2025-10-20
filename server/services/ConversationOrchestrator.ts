@@ -64,6 +64,21 @@ type ResponseBanditReward = {
   meta: Record<string, unknown> | null;
 };
 
+type PersistedBiasSnapshot = {
+  bias: string;
+  confidence: number;
+  decay_applied: boolean;
+  source: string;
+  last_seen_at: string | null;
+};
+
+type ResponseHeuristicsEvent = {
+  interaction_id: string | null;
+  active_biases: PersistedBiasSnapshot[];
+  decayed_active_biases: string[];
+  meta: Record<string, unknown> | null;
+};
+
 type ResponseAnalyticsMeta = {
   response_id: string | null;
   q?: number;
@@ -75,6 +90,7 @@ type ResponseAnalyticsMeta = {
   mem_count?: number;
   bandit_rewards?: Array<ResponseBanditReward | null | undefined>;
   module_outcomes?: Array<{ module_id: string; tokens: number; q: number; vpt: number | null }>;
+  heuristics_events?: Array<ResponseHeuristicsEvent | null | undefined>;
   knapsack?: {
     budget: number | null;
     adotados: string[];
@@ -378,6 +394,23 @@ export async function persistAnalyticsRecords({
     }
   }
 
+  if (Array.isArray(analyticsMeta.heuristics_events) && analyticsMeta.heuristics_events.length > 0) {
+    const heuristicRows = analyticsMeta.heuristics_events
+      .filter((entry): entry is ResponseHeuristicsEvent => Boolean(entry))
+      .map((entry) => ({
+        interaction_id: entry.interaction_id ?? responseId ?? null,
+        response_id: responseId,
+        active_biases: Array.isArray(entry.active_biases) ? entry.active_biases : [],
+        decayed_active_biases: Array.isArray(entry.decayed_active_biases)
+          ? entry.decayed_active_biases
+          : [],
+        meta: entry.meta ?? null,
+      }));
+    if (heuristicRows.length) {
+      tasks.push(insertRows("heuristics_events", heuristicRows));
+    }
+  }
+
   if (analyticsMeta.knapsack) {
     const knapsack = analyticsMeta.knapsack;
     const budget = asInteger(knapsack.budget);
@@ -451,6 +484,12 @@ function logSelectorPipeline(decision: EcoDecisionResult, contextSource?: string
       nivel: decision.openness,
       intensidade: decision.intensity,
       signals: gateSignals,
+      active_biases: Array.isArray((gates as any).active_biases)
+        ? (gates as any).active_biases
+        : [],
+      decayed_active_biases: Array.isArray((gates as any).decayed_active_biases)
+        ? (gates as any).decayed_active_biases
+        : [],
     });
   }
 
@@ -473,6 +512,7 @@ function logSelectorPipeline(decision: EcoDecisionResult, contextSource?: string
       family: entry.familyId ?? null,
       eligible_arms: eligibleArms,
       signals: familySignals,
+      cold_start: entry.coldStartApplied ?? null,
     });
 
     const statsSource = Array.isArray(entry.eligibleArms)
@@ -491,6 +531,7 @@ function logSelectorPipeline(decision: EcoDecisionResult, contextSource?: string
       beta: statsSource?.beta ?? null,
       reward_key: entry.rewardKey ?? null,
       tokens_planned: entry.tokensPlanned ?? null,
+      cold_start: entry.coldStartApplied ?? null,
     });
   }
 

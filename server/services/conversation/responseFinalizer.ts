@@ -35,7 +35,7 @@ import { getManifestDefaults } from "../promptContext/moduleManifest";
 import type { GetEcoResult } from "../../utils";
 import type { EcoHints } from "../../utils/types";
 import type { EcoLatencyMarks } from "./types";
-import type { EcoDecisionResult } from "./ecoDecisionHub";
+import type { EcoDecisionResult, ActiveBiasSnapshot } from "./ecoDecisionHub";
 import { createHash } from "node:crypto";
 import { insertModuleUsages, updateInteraction, upsertInteractionSnapshot } from "./interactionAnalytics";
 import type { ModuleUsageRow } from "./interactionAnalytics";
@@ -151,6 +151,34 @@ type BanditRewardRecord = {
   guest_id: string | null;
   meta: Record<string, unknown> | null;
 };
+
+type PersistedBiasSnapshot = {
+  bias: string;
+  confidence: number;
+  decay_applied: boolean;
+  source: string;
+  last_seen_at: string | null;
+};
+
+type HeuristicsEventRecord = {
+  interaction_id: string | null;
+  active_biases: PersistedBiasSnapshot[];
+  decayed_active_biases: string[];
+  meta: Record<string, unknown> | null;
+};
+
+function serializeBiasSnapshots(biases: ActiveBiasSnapshot[] | undefined): PersistedBiasSnapshot[] {
+  if (!Array.isArray(biases) || biases.length === 0) {
+    return [];
+  }
+  return biases.map((entry) => ({
+    bias: entry.bias,
+    confidence: Number(Number(entry.confidence).toFixed(3)),
+    decay_applied: Boolean(entry.decayApplied),
+    source: entry.source,
+    last_seen_at: entry.lastSeenAt ?? null,
+  }));
+}
 
 function computePromptHash(messages?: PromptMessage[]): string | null {
   if (!Array.isArray(messages) || messages.length === 0) {
@@ -775,6 +803,10 @@ export class ResponseFinalizer {
       signals: ecoDecision.debug,
       latencyMs: now() - startedAt,
       timings: timingsSnapshot ?? undefined,
+      biasContext: {
+        active: ecoDecision.activeBiases,
+        decayed: ecoDecision.decayedActiveBiases,
+      },
     };
 
     if (process.env.ECO_LOGIC_DEBUG === "1") {
@@ -1021,6 +1053,15 @@ export class ResponseFinalizer {
         if (rewardComputation.reason === "token_penalty") {
           rewardMeta.token_penalty = true;
         }
+        if (
+          Array.isArray(ecoDecision.activeBiases) &&
+          (ecoDecision.activeBiases.length > 0 || ecoDecision.decayedActiveBiases.length > 0)
+        ) {
+          rewardMeta.bias_context = {
+            active: serializeBiasSnapshots(ecoDecision.activeBiases),
+            decayed_active_biases: ecoDecision.decayedActiveBiases.slice(),
+          };
+        }
 
         const record: BanditRewardRecord = {
           interaction_id: analyticsInteractionId ?? null,
@@ -1199,6 +1240,7 @@ export class ResponseFinalizer {
       mem_count: memCount,
       bandit_rewards: banditRewardRecords,
       module_outcomes: moduleOutcomeRecords,
+      heuristics_events: [] as HeuristicsEventRecord[],
       knapsack: knapsackInfo
         ? {
             budget: Number.isFinite(knapsackInfo.budget) ? Number(knapsackInfo.budget) : null,
@@ -1217,6 +1259,39 @@ export class ResponseFinalizer {
         tokens_total: tokensTotalValue,
       },
     };
+
+    const selectorStages = (ecoDecision?.debug as any)?.selectorStages ?? null;
+    const heuristicsStage = selectorStages?.heuristics ?? null;
+    const normalizedActiveBiases = serializeBiasSnapshots(ecoDecision.activeBiases);
+    const heuristicsMetaPayload: Record<string, unknown> = {};
+    if (heuristicsStage) {
+      heuristicsMetaPayload.stage = {
+        signals: Array.isArray(heuristicsStage.signals)
+          ? heuristicsStage.signals
+          : [],
+        picked: heuristicsStage.picked ?? null,
+      };
+    }
+    if (Array.isArray(heuristicsStage?.active_biases)) {
+      heuristicsMetaPayload.active_biases = heuristicsStage.active_biases;
+    }
+    if (Array.isArray(heuristicsStage?.decayed_active_biases)) {
+      heuristicsMetaPayload.decayed_active_biases = heuristicsStage.decayed_active_biases;
+    }
+    const heuristicsEventBase: HeuristicsEventRecord | null =
+      normalizedActiveBiases.length > 0 ||
+      ecoDecision.decayedActiveBiases.length > 0 ||
+      Object.keys(heuristicsMetaPayload).length > 0
+        ? {
+            interaction_id: null,
+            active_biases: normalizedActiveBiases,
+            decayed_active_biases: ecoDecision.decayedActiveBiases.slice(),
+            meta:
+              Object.keys(heuristicsMetaPayload).length > 0
+                ? heuristicsMetaPayload
+                : null,
+          }
+        : null;
 
     const latencyMs = Number.isFinite(duracao) ? Math.max(0, Math.round(duracao)) : null;
 
@@ -1265,8 +1340,6 @@ export class ResponseFinalizer {
         }
       }
 
-      const selectorStages = (ecoDecision?.debug as any)?.selectorStages ?? null;
-      const heuristicsStage = selectorStages?.heuristics ?? null;
       if (heuristicsStage && Array.isArray(heuristicsStage.signals)) {
         const heuristicsSignalsMeta: Record<string, { effective: number; reason: string }> = {};
         for (const entry of heuristicsStage.signals as Array<{
@@ -1324,6 +1397,11 @@ export class ResponseFinalizer {
         meta: metaForInteraction,
       });
       await insertModuleUsages(interactionId, moduleUsageLogs);
+    }
+
+    if (heuristicsEventBase) {
+      heuristicsEventBase.interaction_id = interactionId ?? analyticsInteractionId ?? null;
+      analyticsMeta.heuristics_events.push(heuristicsEventBase);
     }
 
     try {

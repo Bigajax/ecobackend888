@@ -115,6 +115,25 @@ async function seedAnalyticsTables(client: GenericClient): Promise<{
   ]);
   console.log("[analytics] inserted latency_samples", latencyRows[0]);
 
+  const heuristicsRows = await insertRows(client, "heuristics_events", [
+    {
+      response_id: responseId,
+      interaction_id: responseId,
+      active_biases: [
+        {
+          bias: "bias:ancoragem",
+          confidence: 0.72,
+          decay_applied: false,
+          source: "legacy",
+          last_seen_at: new Date().toISOString(),
+        },
+      ],
+      decayed_active_biases: ["bias:ancoragem"],
+      meta: { stage: { picked: null } },
+    },
+  ]);
+  console.log("[analytics] inserted heuristics_events", heuristicsRows[0]);
+
   return { responseId, userId };
 }
 
