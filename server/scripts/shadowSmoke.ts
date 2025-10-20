@@ -28,11 +28,24 @@ type EligibleArm = {
   id: string;
   size?: string;
   tokens_avg?: number;
+};
+
+type RawEligibleArm = Partial<EligibleArm> & {
   tokensAvg?: number;
   gatePassed?: boolean;
+  gate_passed?: boolean;
   alpha?: number;
   beta?: number;
   count?: number;
+};
+
+type FamilyEligibleEntry = {
+  id: string;
+  gate_passed: boolean;
+  tokens_avg: number;
+  alpha: number | null;
+  beta: number | null;
+  count: number | null;
 };
 
 type SelectorStages = {
@@ -128,14 +141,7 @@ async function runOneShadow(
 
 interface FamilyAggregateEntry {
   id: string;
-  eligible: Array<{
-    id: string;
-    gate_passed: boolean;
-    tokens_avg: number;
-    alpha: number | null;
-    beta: number | null;
-    count: number | null;
-  }>;
+  eligible: FamilyEligibleEntry[];
   tsPick: string | null;
   chosen: string | null;
   chosenBy: string | null;
@@ -155,11 +161,7 @@ type TSPickLog = {
   alpha: number | null;
   beta: number | null;
   tokens_planned: number | null;
-  eligible_arms: Array<{
-    id: string;
-    size?: string;
-    tokens_avg?: number;
-  }>;
+  eligible_arms: EligibleArm[];
 };
 
 function buildFamilyAggregates(decisions: any[]): {
@@ -173,19 +175,22 @@ function buildFamilyAggregates(decisions: any[]): {
 
   for (const decision of decisions) {
     const familyId = typeof decision?.familyId === "string" ? decision.familyId : "(unknown)";
-    const eligibleArms = Array.isArray(decision?.eligibleArms) ? decision.eligibleArms : [];
-    const normalizedEligible = eligibleArms.map(
-      (arm: EligibleArm): FamilyAggregateEntry["eligible"][number] => ({
-        id: typeof arm?.id === "string" ? arm.id : "",
-        gate_passed: Boolean(arm?.gatePassed),
-        tokens_avg: Number.isFinite(arm?.tokensAvg ?? arm?.tokens_avg)
-          ? Number(arm.tokensAvg ?? arm.tokens_avg)
-          : 0,
+    const eligibleArmsRaw: RawEligibleArm[] = Array.isArray(decision?.eligibleArms)
+      ? (decision.eligibleArms as RawEligibleArm[])
+      : [];
+    const normalizedEligible = eligibleArmsRaw.map((arm: RawEligibleArm): FamilyEligibleEntry => {
+      const id = typeof arm?.id === "string" ? arm.id : "";
+      const tokensCandidate = arm?.tokens_avg ?? arm?.tokensAvg;
+      const tokensAvg = Number.isFinite(tokensCandidate) ? Number(tokensCandidate) : 0;
+      return {
+        id,
+        gate_passed: Boolean(arm?.gatePassed ?? arm?.gate_passed),
+        tokens_avg: tokensAvg,
         alpha: Number.isFinite(arm?.alpha) ? Number(arm.alpha) : null,
         beta: Number.isFinite(arm?.beta) ? Number(arm.beta) : null,
         count: Number.isFinite(arm?.count) ? Number(arm.count) : null,
-      })
-    );
+      };
+    });
 
     const tsPick = typeof decision?.tsPick === "string" ? decision.tsPick : null;
     const chosen = typeof decision?.chosen === "string" ? decision.chosen : null;
@@ -194,9 +199,8 @@ function buildFamilyAggregates(decisions: any[]): {
     const tokensPlanned = Number.isFinite(decision?.tokensPlanned) ? Number(decision.tokensPlanned) : null;
 
     const statsSource =
-      normalizedEligible.find(
-        (arm: FamilyAggregateEntry["eligible"][number]) => arm.id && (arm.id === tsPick || arm.id === chosen)
-      ) ?? null;
+      normalizedEligible.find((arm: FamilyEligibleEntry) => arm.id && (arm.id === tsPick || arm.id === chosen)) ??
+      null;
 
     aggregate[familyId] = {
       id: familyId,
@@ -210,17 +214,23 @@ function buildFamilyAggregates(decisions: any[]): {
       beta: statsSource?.beta ?? null,
     };
 
-    if (!normalizedEligible.some((arm: FamilyAggregateEntry["eligible"][number]) => arm.gate_passed)) {
+    if (!normalizedEligible.some((arm: FamilyEligibleEntry) => arm.gate_passed)) {
       failingFamilies.push(familyId);
     }
 
-    const eligibleSnapshot = eligibleArms.map((arm: EligibleArm) => ({
-      id: typeof arm?.id === "string" ? arm.id : "",
-      size: typeof arm?.size === "string" ? arm.size : undefined,
-      tokens_avg: Number.isFinite(arm?.tokens_avg ?? arm?.tokensAvg)
-        ? Number(arm.tokens_avg ?? arm.tokensAvg)
-        : undefined,
-    }));
+    const eligibleSnapshot = eligibleArmsRaw.map((arm: RawEligibleArm) => {
+      const snapshot: EligibleArm = {
+        id: typeof arm?.id === "string" ? arm.id : "",
+      };
+      if (typeof arm?.size === "string") {
+        snapshot.size = arm.size;
+      }
+      const tokensCandidate = arm?.tokens_avg ?? arm?.tokensAvg;
+      if (Number.isFinite(tokensCandidate)) {
+        snapshot.tokens_avg = Number(tokensCandidate);
+      }
+      return snapshot;
+    });
 
     tsLogs.push({
       selector_stage: "ts_pick",
