@@ -27,7 +27,7 @@ The manifest is loaded once at boot (`moduleManifest.ts`), validated with zod, a
 To inspect the manifest at runtime:
 
 ```bash
-npm run --prefix server ts-node scripts/modulesInventory.ts --dump-modules
+npm run modules:dump
 ```
 
 ## Feature flags
@@ -74,7 +74,17 @@ These logs replace ad-hoc debug prints and allow quick verification during shado
 2. **Pilot smoke test** – set `ECO_BANDIT_EARLY=1`, `ECO_BANDIT_PILOT_PERCENT=10`, ensure only ~10% of requests swap arms and the `bandit_rewards` table stores detailed rows.
 3. **RPC fallback** – simulate Supabase timeouts; verify logs show `rpc` stage with `cache`/`empty`, and prompts still build via cached memories.
 4. **Budget guard** – enforce a small `ECO_KNAPSACK_BUDGET_TOKENS`, confirm knapsack log reports `within_cap: true` and trimmed modules.
-5. **CLI sanity** – run `npm run --prefix server ts-node scripts/modulesInventory.ts --dump-modules` to inspect manifest families and enabled arms.
+5. **CLI sanity** – run `npm run modules:dump` to inspect manifest families and enabled arms.
 6. **Posterior dump** – call `qualityAnalyticsStore.dumpBanditPosteriors()` (e.g., in a REPL) to confirm Beta parameters respect the 14-day window.
 
 Rollback remains instant: set `ECO_BANDIT_EARLY=0` to revert to baseline behaviour.
+
+## Shadow smoke validation
+
+Run the shadow smoke helper to simulate guest conversations without touching real providers:
+
+```bash
+npm run shadow:smoke
+```
+
+This command forces `ECO_BANDIT_SHADOW=1`, mocks Claude responses, and prints structured selector logs for three sample interactions. The script exits with code 1 if any family lacks an eligible arm or if the knapsack ever exceeds the configured budget, making it safe to wire into CI.
