@@ -1,14 +1,18 @@
 import type { NextFunction, Request, Response } from "express";
-import cors, { type CorsOptions } from "cors";
 import { log } from "../services/promptContext/logger";
 
 type OriginRule =
   | { type: "exact"; value: string }
   | { type: "pattern"; value: string; regex: RegExp };
 
-const DEFAULT_FRONT_ORIGIN = "https://ecofrontend888.vercel.app";
+const DEFAULT_ALLOWED_ORIGINS = [
+  "https://ecofrontend888.vercel.app",
+  "https://*.vercel.app",
+  "http://localhost:5173",
+  "http://localhost:3000",
+];
 
-const RAW_ENV_ORIGINS = process.env.CORS_ORIGINS?.split(",") ?? [];
+const RAW_ENV_ORIGINS = process.env.ALLOWED_ORIGINS?.split(",") ?? [];
 
 function normalizeEntry(entry: string): string {
   return entry.trim();
@@ -21,27 +25,15 @@ function wildcardToRegex(value: string): RegExp {
 }
 
 function buildOriginRules(): OriginRule[] {
-  const entries = RAW_ENV_ORIGINS.map(normalizeEntry).filter(Boolean);
+  const envEntries = RAW_ENV_ORIGINS.map(normalizeEntry).filter(Boolean);
+  const entries = envEntries.length > 0 ? envEntries : DEFAULT_ALLOWED_ORIGINS;
 
-  if (entries.length > 0) {
-    return entries.map((entry) => {
-      if (entry.includes("*")) {
-        return { type: "pattern", value: entry, regex: wildcardToRegex(entry) };
-      }
-      return { type: "exact", value: entry };
-    });
-  }
-
-  return [
-    { type: "pattern", value: "http(s)://localhost:*", regex: /^https?:\/\/localhost(?::\d+)?$/i },
-    { type: "pattern", value: "http(s)://127.0.0.1:*", regex: /^https?:\/\/127\.0\.0\.1(?::\d+)?$/i },
-    {
-      type: "pattern",
-      value: "https://ecofrontend888-*.vercel.app",
-      regex: /^https:\/\/ecofrontend888-[a-z0-9-]+\.vercel\.app$/i,
-    },
-    { type: "exact", value: DEFAULT_FRONT_ORIGIN },
-  ];
+  return entries.map((entry) => {
+    if (entry.includes("*")) {
+      return { type: "pattern", value: entry, regex: wildcardToRegex(entry) };
+    }
+    return { type: "exact", value: entry };
+  });
 }
 
 const ORIGIN_RULES = buildOriginRules();
@@ -96,14 +88,12 @@ export function isAllowedOrigin(origin?: string | null): boolean {
 }
 
 export const CORS_ALLOW_HEADERS = [
-  "Content-Type",
-  "Authorization",
+  "content-type",
+  "authorization",
   "apikey",
-  "X-Client-Id",
-  "X-Trace-Id",
-  "x-supabase-auth",
-  "x-supabase-signature",
   "x-requested-with",
+  "x-client-id",
+  "x-trace-id",
 ] as const;
 
 export const CORS_ALLOW_METHODS = [
@@ -115,43 +105,39 @@ export const CORS_ALLOW_METHODS = [
   "OPTIONS",
 ] as const;
 
-export const CORS_EXPOSE_HEADERS = [
-  "X-Request-Id",
-  "Cache-Control",
-  "X-Eco-Guest-Id",
-  "X-Eco-Session-Id",
-] as const;
+export const CORS_EXPOSE_HEADERS = ["content-type", "x-request-id"] as const;
 
-export const corsOptions: CorsOptions = {
-  credentials: true,
-  methods: [...CORS_ALLOW_METHODS],
-  allowedHeaders: [...CORS_ALLOW_HEADERS],
-  exposedHeaders: [...CORS_EXPOSE_HEADERS],
-  maxAge: 600,
-  optionsSuccessStatus: 200,
-  origin(origin, callback) {
-    const { normalized, allowed } = resolveOrigin(origin ?? undefined);
-
-    if (!allowed && normalized) {
-      log.warn("CORS_BLOCKED", { origin: normalized });
-      callback(null, false);
-      return;
-    }
-
-    callback(null, normalized ?? true);
-  },
+type CorsLocals = {
+  corsAllowed?: boolean;
+  corsOrigin?: string | null;
 };
 
-export const corsMiddleware = cors(corsOptions);
+function resolveAndCacheOrigin(req: Request, res: Response) {
+  const locals = (res.locals ?? {}) as CorsLocals;
+  if (typeof locals.corsAllowed === "boolean") {
+    return {
+      allowed: locals.corsAllowed,
+      normalized: locals.corsOrigin ?? null,
+    };
+  }
 
-export function applyCorsResponseHeaders(req: Request, res: Response) {
   const headerOrigin =
     typeof req.headers.origin === "string" ? req.headers.origin : undefined;
-  const locals = (res.locals ?? {}) as Record<string, unknown>;
-  const explicitOrigin =
-    typeof locals.corsOrigin === "string" ? (locals.corsOrigin as string) : undefined;
-  const origin = explicitOrigin ?? headerOrigin ?? null;
-  const { normalized, allowed } = resolveOrigin(origin);
+  const { normalized, allowed } = resolveOrigin(headerOrigin);
+
+  locals.corsAllowed = allowed;
+  locals.corsOrigin = normalized;
+  res.locals = locals;
+
+  if (!allowed && normalized) {
+    log.warn("CORS_BLOCKED", { origin: normalized });
+  }
+
+  return { allowed, normalized };
+}
+
+export function applyCorsResponseHeaders(req: Request, res: Response) {
+  const { normalized, allowed } = resolveAndCacheOrigin(req, res);
 
   setVaryHeader(res, "Origin");
 
@@ -162,9 +148,10 @@ export function applyCorsResponseHeaders(req: Request, res: Response) {
   }
 
   res.setHeader("Access-Control-Allow-Credentials", "true");
-  res.setHeader("Access-Control-Allow-Headers", CORS_ALLOW_HEADERS.join(","));
+  res.setHeader("Access-Control-Allow-Headers", CORS_ALLOW_HEADERS.join(", "));
   res.setHeader("Access-Control-Allow-Methods", CORS_ALLOW_METHODS.join(","));
-  res.setHeader("Access-Control-Expose-Headers", CORS_EXPOSE_HEADERS.join(","));
+  res.setHeader("Access-Control-Expose-Headers", CORS_EXPOSE_HEADERS.join(", "));
+  res.setHeader("Access-Control-Max-Age", "600");
 }
 
 export function corsResponseInjector(
@@ -178,6 +165,36 @@ export function corsResponseInjector(
 
 export function getConfiguredCorsOrigins(): string[] {
   return ORIGIN_RULES.map((rule) => rule.value);
+}
+
+export function corsMiddleware(req: Request, res: Response, next: NextFunction) {
+  const { normalized, allowed } = resolveAndCacheOrigin(req, res);
+  applyCorsResponseHeaders(req, res);
+
+  if (req.method === "OPTIONS") {
+    const acrMethodRaw = req.headers["access-control-request-method"];
+    const acrHeadersRaw = req.headers["access-control-request-headers"];
+
+    const acrMethod = Array.isArray(acrMethodRaw)
+      ? acrMethodRaw.join(",")
+      : acrMethodRaw ?? null;
+    const acrHeaders = Array.isArray(acrHeadersRaw)
+      ? acrHeadersRaw.join(",")
+      : acrHeadersRaw ?? null;
+
+    log.info("CORS_OPTIONS", {
+      origin: normalized,
+      method: req.method,
+      path: req.originalUrl,
+      acrm: typeof acrMethod === "string" ? acrMethod : null,
+      acrh: typeof acrHeaders === "string" ? acrHeaders : null,
+      allowed,
+    });
+
+    return res.status(204).end();
+  }
+
+  return next();
 }
 
 export default corsMiddleware;
