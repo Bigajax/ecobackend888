@@ -1,5 +1,3 @@
-import type { Config } from 'jest';
-
 const config = {
   preset: 'ts-jest/presets/default-esm',
   useESM: true,
@@ -14,6 +12,6 @@ const config = {
       tsconfig: '<rootDir>/__tests__/tsconfig.json'
     }
   }
-} as Config;
+};
 
 export default config;
