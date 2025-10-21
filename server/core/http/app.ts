@@ -11,10 +11,8 @@ import express, {
   type NextFunction,
 } from "express";
 
-import cors from "cors";
 import corsMiddleware, {
   applyCorsResponseHeaders,
-  corsOptions,
   corsResponseInjector,
 } from "../../middleware/cors";
 import { requestLogger } from "./middlewares/logger";
@@ -105,16 +103,15 @@ export function createApp(): Express {
   app.set("trust proxy", 1);
 
   // 1) CORS global antes de qualquer rota
-  const corsPreflight = cors(corsOptions);
   app.use(corsMiddleware);
   app.use(corsResponseInjector);
-  app.options("*", corsPreflight);
-  app.options("/ask-eco", corsPreflight);
-  app.options("/api/ask-eco", corsPreflight);
-  app.options("/similares_v2", corsPreflight);
-  app.options("/api/memorias/similares_v2", corsPreflight);
-  app.options("/api/similares_v2", corsPreflight);
-  app.options("/memorias/similares_v2", corsPreflight);
+  app.options("*", corsMiddleware);
+  app.options("/ask-eco", corsMiddleware);
+  app.options("/api/ask-eco", corsMiddleware);
+  app.options("/similares_v2", corsMiddleware);
+  app.options("/api/memorias/similares_v2", corsMiddleware);
+  app.options("/api/similares_v2", corsMiddleware);
+  app.options("/memorias/similares_v2", corsMiddleware);
 
   // 2) Parsers (não executam em OPTIONS)
   app.use(express.json({ limit: "1mb" }));
