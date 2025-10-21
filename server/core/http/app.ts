@@ -11,10 +11,11 @@ import express, {
   type NextFunction,
 } from "express";
 
+import cors from "cors";
 import corsMiddleware, {
   applyCorsResponseHeaders,
+  corsOptions,
   corsResponseInjector,
-  preflightHandler,
 } from "../../middleware/cors";
 import { requestLogger } from "./middlewares/logger";
 import { normalizeQuery } from "./middlewares/queryNormalizer";
@@ -103,19 +104,17 @@ export function createApp(): Express {
   app.disable("x-powered-by");
   app.set("trust proxy", 1);
 
-  // 1) Preflight manual → cors → body parsers
-  app.use(preflightHandler);
+  // 1) CORS global antes de qualquer rota
+  const corsPreflight = cors(corsOptions);
   app.use(corsMiddleware);
   app.use(corsResponseInjector);
-
-  // Fallback to guarantee CORS on API prefixes even if upstream middlewares skip it
-  app.use("/api/*", (req, res, next) => {
-    const locals = (res.locals ?? {}) as Record<string, unknown>;
-    if (typeof locals.__corsHandled === "boolean" && locals.__corsHandled) {
-      return next();
-    }
-    return corsMiddleware(req, res, next);
-  });
+  app.options("*", corsPreflight);
+  app.options("/ask-eco", corsPreflight);
+  app.options("/api/ask-eco", corsPreflight);
+  app.options("/similares_v2", corsPreflight);
+  app.options("/api/memorias/similares_v2", corsPreflight);
+  app.options("/api/similares_v2", corsPreflight);
+  app.options("/memorias/similares_v2", corsPreflight);
 
   // 2) Parsers (não executam em OPTIONS)
   app.use(express.json({ limit: "1mb" }));
