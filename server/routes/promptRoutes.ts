@@ -22,6 +22,66 @@ function sanitizeOutput(input?: string): string {
     .trim();
 }
 
+type DonePayload = {
+  content: string | null;
+  interaction_id: string | null;
+  tokens: { in: number | null; out: number | null };
+  meta: Record<string, unknown> | null;
+  timings: Record<string, unknown> | null;
+  at: string;
+  sinceStartMs: number;
+};
+
+function buildDonePayload(options: {
+  content?: string | null;
+  interactionId?: string | null;
+  tokens?: { in?: number | null; out?: number | null } | null;
+  meta?: Record<string, unknown> | null | undefined;
+  timings?: Record<string, unknown> | null | undefined;
+  firstTokenLatency?: number | null;
+  totalLatency?: number | null;
+  timestamp?: number;
+}): DonePayload {
+  const {
+    content = null,
+    interactionId = null,
+    tokens,
+    meta,
+    timings,
+    firstTokenLatency,
+    totalLatency,
+    timestamp,
+  } = options;
+
+  const resolvedTokens = {
+    in: tokens?.in ?? null,
+    out: tokens?.out ?? null,
+  };
+
+  const payloadTimings: Record<string, unknown> = {
+    ...(timings ?? {}),
+  };
+
+  if (firstTokenLatency != null) {
+    payloadTimings.firstTokenLatencyMs = firstTokenLatency;
+  }
+  if (totalLatency != null) {
+    payloadTimings.totalLatencyMs = totalLatency;
+  }
+
+  const now = typeof timestamp === "number" && Number.isFinite(timestamp) ? timestamp : Date.now();
+
+  return {
+    content,
+    interaction_id: interactionId ?? null,
+    tokens: resolvedTokens,
+    meta: meta ? { ...meta } : null,
+    timings: Object.keys(payloadTimings).length ? payloadTimings : null,
+    at: new Date(now).toISOString(),
+    sinceStartMs: totalLatency ?? 0,
+  };
+}
+
 const router = Router();
 const askEcoRouter = Router();
 
@@ -480,7 +540,58 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
           mode: "json",
           hasContent: textOut.length > 0,
         });
-        return res.status(200).json({ content: textOut || null });
+        const tokens = (() => {
+          const usageSource =
+            (result as any)?.usage ||
+            (result as any)?.token_usage ||
+            (result as any)?.tokens ||
+            (result as any)?.meta?.usage ||
+            (result as any)?.meta?.token_usage ||
+            (result as any)?.meta?.tokens ||
+            {};
+          const inValue =
+            usageSource?.prompt_tokens ??
+            usageSource?.input_tokens ??
+            usageSource?.tokens_in ??
+            usageSource?.in ??
+            (result as any)?.prompt_tokens ??
+            (result as any)?.input_tokens ??
+            null;
+          const outValue =
+            usageSource?.completion_tokens ??
+            usageSource?.output_tokens ??
+            usageSource?.tokens_out ??
+            usageSource?.out ??
+            (result as any)?.completion_tokens ??
+            (result as any)?.output_tokens ??
+            null;
+          return {
+            in: typeof inValue === "number" && Number.isFinite(inValue) ? Number(inValue) : null,
+            out: typeof outValue === "number" && Number.isFinite(outValue) ? Number(outValue) : null,
+          };
+        })();
+
+        const resultMeta = (result as any)?.meta;
+        const metaPayload =
+          resultMeta && typeof resultMeta === "object"
+            ? { ...(resultMeta as Record<string, unknown>) }
+            : null;
+        const rawTimings = (result as any)?.timings;
+        const timingsPayload =
+          rawTimings && typeof rawTimings === "object"
+            ? { ...(rawTimings as Record<string, unknown>) }
+            : null;
+
+        const donePayload = buildDonePayload({
+          content: textOut || null,
+          interactionId:
+            typeof resultMeta?.interaction_id === "string" ? resultMeta.interaction_id : null,
+          tokens,
+          meta: metaPayload,
+          timings: timingsPayload,
+        });
+
+        return res.status(200).json(donePayload);
       } catch (error) {
         if (isHttpError(error)) {
           log.warn("[ask-eco] json_error", { code: (error as any).body?.code, status: error.status });
@@ -624,6 +735,12 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
       model: null as string | null,
       firstTokenTelemetrySent: false,
       endLogged: false,
+      contentPieces: [] as string[],
+      metaPayload: {} as Record<string, unknown>,
+      memoryEvents: [] as Array<Record<string, unknown>>,
+      usageTokens: { in: null as number | null, out: null as number | null },
+      latencyMarks: {} as Record<string, unknown>,
+      streamResult: null as Record<string, unknown> | null,
     };
 
     const consoleStreamEnd = (payload?: Record<string, unknown>) => {
@@ -634,6 +751,40 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
         streamId: streamId ?? null,
         ...(payload ?? {}),
       });
+    };
+
+    const updateUsageTokens = (meta: any) => {
+      if (!meta || typeof meta !== "object") return;
+      const source = meta as Record<string, any>;
+      const usage = source.usage || source.token_usage || source.tokens || {};
+      const maybeIn =
+        usage?.prompt_tokens ??
+        usage?.input_tokens ??
+        usage?.tokens_in ??
+        usage?.in ??
+        source.prompt_tokens ??
+        source.input_tokens ??
+        null;
+      const maybeOut =
+        usage?.completion_tokens ??
+        usage?.output_tokens ??
+        usage?.tokens_out ??
+        usage?.out ??
+        source.completion_tokens ??
+        source.output_tokens ??
+        null;
+
+      if (typeof maybeIn === "number" && Number.isFinite(maybeIn)) {
+        state.usageTokens.in = Number(maybeIn);
+      }
+      if (typeof maybeOut === "number" && Number.isFinite(maybeOut)) {
+        state.usageTokens.out = Number(maybeOut);
+      }
+    };
+
+    const mergeLatencyMarks = (marks: Record<string, unknown> | null | undefined) => {
+      if (!marks || typeof marks !== "object") return;
+      state.latencyMarks = { ...state.latencyMarks, ...marks };
     };
 
     const idleTimeoutMs =
@@ -662,7 +813,17 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
     };
 
     function sendMeta(obj: Record<string, unknown>) {
+      state.metaPayload = { ...state.metaPayload, ...obj };
       sse.send("meta", obj);
+    }
+
+    function sendMemorySaved(obj: Record<string, unknown>) {
+      state.memoryEvents.push(obj);
+      sse.send("memory_saved", obj);
+    }
+
+    function sendLatency(payload: Record<string, unknown>) {
+      sse.send("latency", payload);
     }
 
     function sendToken(text: string) {
@@ -705,11 +866,62 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
         });
       }
 
+      const streamMeta = state.streamResult && typeof state.streamResult === "object"
+        ? (state.streamResult as Record<string, unknown>)
+        : null;
+
+      updateUsageTokens(streamMeta);
+      updateUsageTokens(streamMeta?.meta);
+      mergeLatencyMarks(streamMeta?.timings as Record<string, unknown> | undefined);
+
+      const aggregatedMeta = (() => {
+        const combined: Record<string, unknown> = { ...state.metaPayload };
+        if (streamMeta?.meta && typeof streamMeta.meta === "object") {
+          Object.assign(combined, streamMeta.meta as Record<string, unknown>);
+        }
+        if (state.memoryEvents.length) {
+          combined.memory_events = state.memoryEvents;
+        }
+        return Object.keys(combined).length ? combined : null;
+      })();
+
+      if (streamMeta?.timings && typeof streamMeta.timings === "object") {
+        mergeLatencyMarks(streamMeta.timings as Record<string, unknown>);
+      }
+
+      const latencyPayload = compactMeta({
+        first_token_latency_ms: firstTokenLatency ?? undefined,
+        total_latency_ms: totalLatency,
+        marks: Object.keys(state.latencyMarks).length ? state.latencyMarks : undefined,
+      });
+
+      if (Object.keys(latencyPayload).length) {
+        sendLatency(latencyPayload);
+      }
+
+      const donePayload = buildDonePayload({
+        content: state.contentPieces.join("").trim() || null,
+        interactionId:
+          resolvedInteractionId ??
+          (typeof streamMeta?.meta === "object"
+            ? ((streamMeta.meta as Record<string, unknown>).interaction_id as string | undefined) ?? null
+            : null),
+        tokens: state.usageTokens,
+        meta: aggregatedMeta ?? null,
+        timings: Object.keys(state.latencyMarks).length ? state.latencyMarks : null,
+        firstTokenLatency,
+        totalLatency,
+        timestamp: finishedAt,
+      });
+
+      sse.send("done", donePayload);
+
       sse.sendControl("done", {
         reason: finishReason,
         totalChunks: state.chunksCount,
         bytes: state.bytesCount,
         durationMs: totalLatency,
+        summary: donePayload,
       });
 
       log.info("[ask-eco] stream_end", {
@@ -777,6 +989,7 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
       sse.send("chunk", { delta: finalText, index: chunkIndex });
 
       state.chunksCount = chunkIndex + 1;
+      state.contentPieces.push(finalText);
 
       sendToken(finalText);
     }
@@ -826,6 +1039,18 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
                 ? (meta as any).modelo
                 : undefined;
             if (maybeModel) state.model = maybeModel;
+            updateUsageTokens(meta);
+          }
+          if (evt?.timings && typeof evt.timings === "object") {
+            mergeLatencyMarks(evt.timings as Record<string, unknown>);
+          }
+          if (name === "meta" && meta) {
+            sendMeta(meta);
+            return;
+          }
+          if (name === "memory_saved" && meta) {
+            sendMemorySaved(meta);
+            return;
           }
           if (name === "done") {
             sendDone(evt?.meta?.finishReason ?? evt?.finishReason ?? "done");
@@ -853,6 +1078,10 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
                 ? (meta as any).modelo
                 : undefined;
             if (maybeModel) state.model = maybeModel;
+            updateUsageTokens(meta);
+          }
+          if (evt?.timings && typeof evt.timings === "object") {
+            mergeLatencyMarks(evt.timings as Record<string, unknown>);
           }
           sendDone(evt?.meta?.finishReason ?? evt?.finishReason ?? "done");
           return;
@@ -888,7 +1117,13 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
             ? (result as any).model
             : undefined;
         if (maybeModel) state.model = maybeModel;
+        state.streamResult = result as Record<string, unknown>;
         captureInteractionId((result as any)?.meta?.interaction_id);
+        updateUsageTokens(result);
+        updateUsageTokens((result as any)?.meta);
+        if ((result as any)?.timings && typeof (result as any).timings === "object") {
+          mergeLatencyMarks((result as any).timings as Record<string, unknown>);
+        }
       }
 
       if (!state.done) {

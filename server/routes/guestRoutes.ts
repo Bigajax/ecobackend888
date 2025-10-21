@@ -124,9 +124,17 @@ router.post("/claim", async (req: Request, res: Response) => {
 
     trackGuestClaimed({ guestId: norm.canonical, userId });
 
-    return res
-      .status(200)
-      .json({ migrated: Array.isArray(updatedRows) ? updatedRows.length : 0 });
+    const incomingGuestId = req.get("X-Eco-Guest-Id");
+    const incomingSessionId = req.get("X-Eco-Session-Id");
+
+    if (incomingGuestId) {
+      res.setHeader("X-Eco-Guest-Id", incomingGuestId);
+    }
+    if (incomingSessionId) {
+      res.setHeader("X-Eco-Session-Id", incomingSessionId);
+    }
+
+    return res.status(204).end();
   } catch (error: any) {
     return res.status(500).json({ error: "Erro interno.", details: error?.message });
   }

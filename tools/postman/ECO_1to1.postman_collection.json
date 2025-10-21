@@ -1,0 +1,231 @@
+{
+  "info": {
+    "name": "ECO 1:1 Contract",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "Contract checks for ECO FE ↔ BE agreement."
+  },
+  "item": [
+    {
+      "name": "AskEco",
+      "item": [
+        {
+          "name": "AskEco SSE",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Accept", "value": "text/event-stream" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": { "raw": "{{baseUrl}}/api/ask-eco", "host": ["{{baseUrl}}"], "path": ["api", "ask-eco"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"stream\": true,\n  \"messages\": [{ \"role\": \"user\", \"content\": \"Olá, ECO!\" }]\n}"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const guest = pm.response.headers.get('X-Eco-Guest-Id');",
+                  "if (guest) { pm.environment.set('ecoGuestId', guest); }",
+                  "const session = pm.response.headers.get('X-Eco-Session-Id');",
+                  "if (session) { pm.environment.set('ecoSessionId', session); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "AskEco JSON",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": { "raw": "{{baseUrl}}/api/ask-eco", "host": ["{{baseUrl}}"], "path": ["api", "ask-eco"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"stream\": false,\n  \"messages\": [{ \"role\": \"user\", \"content\": \"Resumo final?\" }]\n}"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const guest = pm.response.headers.get('X-Eco-Guest-Id');",
+                  "if (guest) { pm.environment.set('ecoGuestId', guest); }",
+                  "const session = pm.response.headers.get('X-Eco-Session-Id');",
+                  "if (session) { pm.environment.set('ecoSessionId', session); }"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Feedback",
+      "item": [
+        {
+          "name": "Submit Feedback",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": { "raw": "{{baseUrl}}/api/feedback", "host": ["{{baseUrl}}"], "path": ["api", "feedback"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"interaction_id\": \"{{interactionId}}\",\n  \"vote\": \"up\",\n  \"reason\": \"insightful\",\n  \"source\": \"chat\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const guest = pm.response.headers.get('X-Eco-Guest-Id');",
+                  "if (guest) { pm.environment.set('ecoGuestId', guest); }",
+                  "const session = pm.response.headers.get('X-Eco-Session-Id');",
+                  "if (session) { pm.environment.set('ecoSessionId', session); }"
+                ]
+              }
+            }
+          ],
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Signal",
+      "item": [
+        {
+          "name": "Passive Signal",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": { "raw": "{{baseUrl}}/api/signal", "host": ["{{baseUrl}}"], "path": ["api", "signal"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"signal\": \"view\",\n  \"interaction_id\": \"{{interactionId}}\",\n  \"meta\": { \"percent\": 100 }\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const guest = pm.response.headers.get('X-Eco-Guest-Id');",
+                  "if (guest) { pm.environment.set('ecoGuestId', guest); }",
+                  "const session = pm.response.headers.get('X-Eco-Session-Id');",
+                  "if (session) { pm.environment.set('ecoSessionId', session); }"
+                ]
+              }
+            }
+          ],
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "GuestClaim",
+      "item": [
+        {
+          "name": "Claim Guest",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": { "raw": "{{baseUrl}}/api/guest/claim", "host": ["{{baseUrl}}"], "path": ["api", "guest", "claim"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"guestId\": \"guest_{{guestUuid}}\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const guest = pm.response.headers.get('X-Eco-Guest-Id');",
+                  "if (guest) { pm.environment.set('ecoGuestId', guest); }",
+                  "const session = pm.response.headers.get('X-Eco-Session-Id');",
+                  "if (session) { pm.environment.set('ecoSessionId', session); }"
+                ]
+              }
+            }
+          ],
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "SimilaresV2",
+      "item": [
+        {
+          "name": "List similares_v2",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/memorias/similares_v2?usuario_id={{usuarioId}}&texto=olá&k=5&threshold=0.25",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "memorias", "similares_v2"],
+              "query": [
+                { "key": "usuario_id", "value": "{{usuarioId}}" },
+                { "key": "texto", "value": "olá" },
+                { "key": "k", "value": "5" },
+                { "key": "threshold", "value": "0.25" }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const guest = pm.response.headers.get('X-Eco-Guest-Id');",
+                  "if (guest) { pm.environment.set('ecoGuestId', guest); }",
+                  "const session = pm.response.headers.get('X-Eco-Session-Id');",
+                  "if (session) { pm.environment.set('ecoSessionId', session); }"
+                ]
+              }
+            }
+          ],
+          "response": []
+        }
+      ]
+    }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "exec": [
+          "let guestId = pm.environment.get('ecoGuestId');",
+          "if (!guestId) { guestId = pm.variables.replaceIn('{{{{$randomUUID}}}}'); pm.environment.set('ecoGuestId', guestId); }",
+          "let sessionId = pm.environment.get('ecoSessionId');",
+          "if (!sessionId) { sessionId = 'sess-' + pm.variables.replaceIn('{{{{$timestamp}}}}'); pm.environment.set('ecoSessionId', sessionId); }",
+          "pm.request.headers.upsert({ key: 'X-Eco-Guest-Id', value: guestId });",
+          "pm.request.headers.upsert({ key: 'X-Eco-Session-Id', value: sessionId });",
+          "pm.environment.set('guestUuid', guestId);"
+        ]
+      }
+    }
+  ],
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:3001" },
+    { "key": "interactionId", "value": "00000000-0000-4000-8000-000000000001" },
+    { "key": "usuarioId", "value": "user-1" },
+    { "key": "accessToken", "value": "" },
+    { "key": "guestUuid", "value": "00000000-0000-4000-8000-000000000002" }
+  ]
+}

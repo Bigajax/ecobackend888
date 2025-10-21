@@ -33,7 +33,6 @@ import moduleUsageRoutes from "../../routes/moduleUsageRoutes";
 import banditRoutes from "../../routes/banditRoutes";
 import policyRoutes from "../../routes/policyRoutes";
 import memoryRoutes from "../../domains/memory/routes";
-import similaresV2Routes from "../../routes/similaresV2AliasRoutes";
 import { log } from "../../services/promptContext/logger";
 import { isSupabaseConfigured } from "../../lib/supabaseAdmin";
 import { guestSessionMiddleware } from "./middlewares/guestSession";
@@ -159,7 +158,6 @@ export function createApp(): Express {
   // 7) Rotas (prefixo /api) — /api/ask-eco (SSE) vive em promptRoutes
   app.use("/api/ask-eco", askEcoRoutes);
   app.use("/api", promptRoutes);
-  app.use("/api/similares_v2", similaresV2Routes);
   app.use("/api/memorias", memoryRoutes);
   app.use("/api/memories", memoryRoutes);
   app.use("/api/perfil-emocional", profileRoutes);
