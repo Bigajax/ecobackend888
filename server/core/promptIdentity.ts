@@ -83,7 +83,7 @@ COMO USAR MEMÓRIAS:
 • Se nada for relevante agora, não force conexões artificiais
 • Se o usuário trouxer algo importante mas disperso, pergunte: "Quer que eu registre isso em uma frase para continuarmos depois?"
 
-NUNCA invente memórias. Use somente MEMORIAS_RELEVANTES fornecidas e o que o usuário afirmar na mensagem atual.`;
+NUNCA invente memórias. Use somente MEMÓRIAS PERTINENTES fornecidas e o que o usuário afirmar na mensagem atual.`;
 
 // --- Versões compactas para respostas curtas / latência baixa ---
 export const ID_ECO_MINI =

@@ -47,6 +47,8 @@ interface ParallelFetchLike {
     userId?: string;
     supabase?: any;
     retrieveMode?: RetrieveMode;
+    currentMemoryId?: string | null;
+    userIdUsedForInsert?: string | null;
   }): Promise<ParallelFetchResult>;
 }
 
@@ -118,6 +120,18 @@ export async function loadConversationContext(
     ? cache.get(derivadosCacheKey) ?? null
     : null;
 
+  const currentMemoryId =
+    typeof (metaFromBuilder as any)?.currentMemoryId === "string" &&
+    (metaFromBuilder as any).currentMemoryId.trim().length
+      ? ((metaFromBuilder as any).currentMemoryId as string).trim()
+      : null;
+
+  const userIdUsedForInsert =
+    typeof (metaFromBuilder as any)?.userIdUsedForInsert === "string" &&
+    (metaFromBuilder as any).userIdUsedForInsert.trim().length
+      ? ((metaFromBuilder as any).userIdUsedForInsert as string).trim()
+      : userId;
+
   const paralelasPromise = promptOverride
     ? Promise.resolve(EMPTY_PARALLEL_RESULT)
     : Promise.race([
@@ -126,6 +140,8 @@ export async function loadConversationContext(
           userId,
           supabase,
           retrieveMode,
+          currentMemoryId,
+          userIdUsedForInsert,
         }),
         sleepFn(paralelasTimeoutMs).then(() => EMPTY_PARALLEL_RESULT),
       ]);

@@ -1,6 +1,10 @@
 import mixpanel from "../../server/lib/mixpanel";
 import { getSupabaseAdmin } from "../../server/lib/supabaseAdmin";
 import type { RetrieveMode } from "../promptPlan/montarContextoEco";
+import {
+  buscarMemoriasSemelhantesV2 as callSemanticMemories,
+  type BuscarMemoriasSemelhantesParams,
+} from "../../server/services/supabase/semanticMemoryClient";
 
 export interface RetrieveConfig {
   k: number;
@@ -18,14 +22,20 @@ export interface BuscarMemoriasParams {
     emocao?: string | null;
     includeReferencias?: boolean;
     queryEmocional?: number[] | null;
+    currentMemoryId?: string | null;
+    userIdUsedForInsert?: string | null;
   };
 }
 
 export interface MemoriaSemantica {
   id: string;
-  conteudo: string;
-  tokens?: number;
-  effective_score?: number;
+  resumo_eco?: string | null;
+  tags?: string[] | null;
+  emocao_principal?: string | null;
+  intensidade?: number | null;
+  created_at?: string | null;
+  similarity?: number | null;
+  distancia?: number | null;
   [key: string]: unknown;
 }
 
@@ -57,7 +67,7 @@ export function resolveRetrieveConfig(mode: RetrieveMode): RetrieveConfig {
 export async function buscarMemoriasSemanticas(
   params: BuscarMemoriasParams
 ): Promise<MemoriaSemantica[]> {
-  const config = resolveRetrieveConfig(params.mode);
+  resolveRetrieveConfig(params.mode);
   const client = getSupabaseAdmin();
 
   if (!client) {
@@ -66,33 +76,16 @@ export async function buscarMemoriasSemanticas(
   }
 
   try {
-    const { data, error } = await client.rpc("buscar_memorias_semanticas_v2", {
-      p_usuario_id: params.userId,
-      p_query: params.queryEmbedding,
-      p_limit: config.k,
-      p_lambda_mmr: config.mmr,
-      p_recency_halflife_hours: 72,
-      p_token_budget: params.filtros?.tokenBudget ?? 1200,
-      p_tags: params.filtros?.tags ?? [],
-      p_emocao: params.filtros?.emocao ?? null,
-      p_include_referencias: params.filtros?.includeReferencias ?? true,
-      p_query_emocional: params.filtros?.queryEmocional ?? null,
-    } as Record<string, unknown>);
+    const paramsRpc: BuscarMemoriasSemelhantesParams = {
+      userId: params.userId,
+      queryEmbedding: params.queryEmbedding,
+      supabaseClient: client,
+      currentMemoryId: params.filtros?.currentMemoryId ?? null,
+      userIdUsedForInsert: params.filtros?.userIdUsedForInsert ?? params.userId,
+    };
 
-    if (error) {
-      console.warn("[ecoCortex] rpc_error", {
-        message: (error as any)?.message,
-        details: (error as any)?.details,
-        hint: (error as any)?.hint,
-      });
-      return [];
-    }
-
-    const rows = Array.isArray(data) ? (data as MemoriaSemantica[]) : [];
-    return rows.filter((row) => {
-      const score = typeof row?.effective_score === "number" ? row.effective_score : null;
-      return score == null || score >= config.limiar;
-    });
+    const { rows } = await callSemanticMemories(paramsRpc);
+    return rows as MemoriaSemantica[];
   } catch (error) {
     console.error("[ecoCortex] buscar_memorias_failed", error);
     return [];

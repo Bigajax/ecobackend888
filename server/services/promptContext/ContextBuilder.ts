@@ -1265,11 +1265,11 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
 
   if (askedAboutMemory && hasMemories) {
     extras.push(
-      "Se perguntarem se você lembra: responda afirmativamente e cite 1-2 pontos de MEMORIAS_RELEVANTES brevemente."
+      "Se perguntarem se você lembra: responda afirmativamente e cite 1-2 pontos de MEMÓRIAS PERTINENTES brevemente."
     );
   } else if (askedAboutMemory && !hasMemories) {
     extras.push(
-      "Se perguntarem se você lembra e não houver MEMORIAS_RELEVANTES: diga que não encontrou memórias relacionadas desta vez e convide a resumir em 1 frase para registrar."
+      "Se perguntarem se você lembra e não houver MEMÓRIAS PERTINENTES: diga que não encontrou memórias relacionadas desta vez e convide a resumir em 1 frase para registrar."
     );
   }
 
@@ -1277,10 +1277,7 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
   const MAX_EXTRAS = 6;
   while (extras.length > MAX_EXTRAS) extras.pop();
 
-  // 🔁 Sempre injete bloco de memórias — mesmo vazio
-  const memRecallBlock =
-    formatMemRecall(memsSemelhantesNorm) ||
-    "MEMORIAS_RELEVANTES:\n(nenhuma encontrada desta vez)";
+  const memRecallBlock = formatMemRecall(memsSemelhantesNorm) ?? "";
 
   const continuityPrelude = hasContinuity
     ? [

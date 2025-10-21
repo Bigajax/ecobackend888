@@ -2,9 +2,9 @@ import type { SimilarMemoryList } from "./contextTypes";
 import type { TokenEncoder } from "../../utils/text";
 import { getTokenEncoder } from "../../utils/text";
 
-const TOKEN_LIMIT = 350; // orçamento por item (não por bloco)
-const MAX_BLOCK_TOKENS = 600;
-const MAX_ITEMS = 2;
+const TOKEN_LIMIT = 300; // orçamento por item (não por bloco)
+const MAX_BLOCK_TOKENS = 800;
+const MAX_ITEMS = 5;
 const ELLIPSIS = "…";
 const FALLBACK_CHARS_PER_TOKEN = 4; // heurística rápida para ausência de encoder
 
@@ -66,24 +66,9 @@ function normalizeAndLimit(text: string): string {
   return `${trimmed}${ELLIPSIS}`;
 }
 
-function fmtScore(sim: number | undefined): string {
-  if (typeof sim !== "number" || Number.isNaN(sim)) return "";
-  const pct = Math.round(sim * 100);
-  return ` ~${pct}%`;
-}
-
-function fmtWhen(iso?: string): string {
-  if (!iso) return "";
-  // Só o ano-mês-dia para não gastar tokens
-  return new Date(iso).toISOString().slice(0, 10); // YYYY-MM-DD
-}
-
-export function formatMemRecall(mems: SimilarMemoryList): string {
-  const header = "MEMORIAS_RELEVANTES:";
-
-  if (!mems || !mems.length) {
-    // 🔁 Sempre retorna um bloco — evita o disclaimer do LLM
-    return `${header}\n(nenhuma encontrada desta vez)`;
+export function formatMemRecall(mems: SimilarMemoryList): string | null {
+  if (!Array.isArray(mems) || mems.length === 0) {
+    return null;
   }
 
   const pickText = (memory: any) =>
@@ -93,47 +78,42 @@ export function formatMemRecall(mems: SimilarMemoryList): string {
     memory?.conteudo ||
     "";
 
-  const linhas = mems.slice(0, MAX_ITEMS).map((memory) => {
-    const sim =
+  const entries = mems.slice(0, MAX_ITEMS).map((memory, index) => {
+    const rawScore =
       typeof memory?.similarity === "number"
         ? memory.similarity
         : typeof memory?.similaridade === "number"
         ? memory.similaridade
         : undefined;
 
-    const addScore = fmtScore(sim);
-    const when = fmtWhen(memory?.created_at);
-    const tags = Array.isArray(memory?.tags) && memory.tags.length
-      ? ` [${memory.tags.slice(0, 3).join(", ")}]`
-      : "";
+    const score = Number.isFinite(rawScore) ? Number(rawScore) : null;
+    const scoreStr = score != null ? score.toFixed(3) : "---";
+    const tagsRaw = Array.isArray(memory?.tags)
+      ? memory.tags.filter((tag: unknown) => typeof tag === "string" && tag.trim().length > 0)
+      : [];
+    const tags = tagsRaw.slice(0, 3).join(", ") || "—";
+    const normalizedText = normalizeAndLimit(String(pickText(memory)));
+    if (!normalizedText) return "";
 
-    const value = normalizeAndLimit(String(pickText(memory)));
-    if (!value) return "";
-
-    // Ex.: "- (2025-09-14 [ansiedade, trabalho] ~82%) resumo curtinho…"
-    const metaParts = [when, tags || undefined, addScore || undefined].filter(Boolean).join(" ");
-    const meta = metaParts ? `(${metaParts}) ` : "";
-    return `- ${meta}${value}`;
+    const lineHeader = `• [${index + 1}] score=${scoreStr} tags=${tags}`;
+    return `${lineHeader}\n${normalizedText}`;
   });
 
-  let blocos = linhas.filter(Boolean);
-  if (!blocos.length) {
-    // Se por algum motivo nenhum item resultou em linha válida, mantenha o cabeçalho
-    return `${header}\n(nenhuma encontrada desta vez)`;
+  let validEntries = entries.filter((line) => line.length > 0);
+  if (!validEntries.length) {
+    return null;
   }
 
-  if (blocos.length > 1) {
+  if (validEntries.length > 1) {
     const encoder = getTokenEncoder();
-    const blockPreview = [header, ...blocos].join("\n");
+    const preview = ["MEMÓRIAS PERTINENTES", ...validEntries].join("\n");
     const estimatedTokens = encoder
-      ? encoder.encode(blockPreview).length
-      : Math.ceil(blockPreview.length / FALLBACK_CHARS_PER_TOKEN);
+      ? encoder.encode(preview).length
+      : Math.ceil(preview.length / FALLBACK_CHARS_PER_TOKEN);
     if (estimatedTokens > MAX_BLOCK_TOKENS) {
-      blocos = blocos.slice(0, 1);
+      validEntries = validEntries.slice(0, 1);
     }
   }
 
-  // 🔹 Importante: sem instruções que proíbam “lembrar”.
-  // A MEMORY_POLICY no ContextBuilder já define como a IA deve falar sobre memórias.
-  return [header, ...blocos].join("\n");
+  return ["MEMÓRIAS PERTINENTES", ...validEntries].join("\n");
 }
