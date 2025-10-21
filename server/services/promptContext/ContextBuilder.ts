@@ -633,6 +633,12 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
   const normalizedTexto = typeof texto === "string" ? texto : "";
   const normalizedGuestId =
     typeof _guestId === "string" && _guestId.trim().length ? _guestId.trim() : "";
+  const metaUserInsertRaw =
+    typeof (contextMetaBase as any)?.userIdUsedForInsert === "string" &&
+    (contextMetaBase as any).userIdUsedForInsert.trim().length
+      ? ((contextMetaBase as any).userIdUsedForInsert as string).trim()
+      : "";
+  const effectiveUserInsertId = metaUserInsertRaw || normalizedUserId;
 
   let continuityRefCandidate = contextMetaBase?.continuityRef ?? null;
   let hasContinuityCandidate = Boolean(
@@ -689,6 +695,7 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
     ...contextMetaBase,
     continuityRef: hasContinuityCandidate ? continuityRefCandidate ?? null : null,
     identityModules: identityModules.map((module) => module.name),
+    userIdUsedForInsert: effectiveUserInsertId || null,
   };
   const continuityRef = contextMeta?.continuityRef;
   const hasContinuity = Boolean((contextFlags as any)?.HAS_CONTINUITY && continuityRef);
@@ -1224,6 +1231,15 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
   const instructionText = renderInstructionBlocks(instructionBlocks).trim();
 
   const extras: string[] = [];
+  const memoryTagHighlights = collectTagsFromMemories(memsSemelhantesNorm);
+  if (hasMemories) {
+    const tagLine = memoryTagHighlights.length
+      ? memoryTagHighlights.join(", ")
+      : "os padrões que você já registrou";
+    extras.unshift(
+      `Quando houver MEMÓRIAS PERTINENTES, comece com: "Estou acessando o que você já compartilhou. Vejo registros sobre ${tagLine} — especialmente {resumo curto}. Queremos retomar a partir daí?" Substitua {resumo curto} por uma síntese breve da memória mais relevante.`
+    );
+  }
   const nomeUsuario = firstName(params.userName ?? undefined);
   if (nomeUsuario) {
     extras.push(

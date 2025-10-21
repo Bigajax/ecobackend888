@@ -590,6 +590,7 @@ export async function getEcoResponse(
 export async function getEcoResponse({
   messages,
   userId,
+  authUid = null,
   userName,
   accessToken,
   mems = [],
@@ -872,6 +873,7 @@ export async function getEcoResponse({
       guestId: guestId ?? undefined,
       activationTracer,
       retrieveMode: retrieveDecision.mode,
+      authUid,
     });
 
     logSelectorPipeline(ecoDecision, context?.sources?.mems ?? null);

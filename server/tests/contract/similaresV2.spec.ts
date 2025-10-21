@@ -25,7 +25,7 @@ jest.mock("../../mw/requireAdmin", () => ({
 
 function createSupabaseStub() {
   return {
-    rpc: jest.fn(async (_fn: string, _args: Record<string, unknown>) => ({
+    rpc: jest.fn(async (_fn: string, _args: any) => ({
       data: [
         {
           memoria_id: "mem-1",
@@ -77,8 +77,14 @@ describe("/api/memorias/similares_v2 contract", () => {
     });
     expect(prepareQueryEmbeddingMock).toHaveBeenCalledWith({ texto: "hello world" });
     expect(supabaseStub.rpc).toHaveBeenCalledWith(
-      "buscar_memorias_semanticas_v2",
-      expect.objectContaining({ p_usuario_id: "user-1" })
+      "buscar_memorias_semelhantes_v2_safe",
+      expect.arrayContaining([
+        expect.any(Array),
+        "user-1",
+        expect.any(Number),
+        expect.any(Number),
+        expect.any(Number),
+      ])
     );
   });
 

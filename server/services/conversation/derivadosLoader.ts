@@ -49,6 +49,7 @@ interface ParallelFetchLike {
     retrieveMode?: RetrieveMode;
     currentMemoryId?: string | null;
     userIdUsedForInsert?: string | null;
+    authUid?: string | null;
   }): Promise<ParallelFetchResult>;
 }
 
@@ -68,6 +69,7 @@ export interface LoadConversationContextOptions {
   onDerivadosError?: (error: unknown) => void;
   activationTracer?: ActivationTracer;
   retrieveMode?: RetrieveMode;
+  authUid?: string | null;
 }
 
 export const DEFAULT_DERIVADOS_TIMEOUT_MS = Number(
@@ -105,6 +107,7 @@ export async function loadConversationContext(
     onDerivadosError,
     activationTracer,
     retrieveMode = "FAST",
+    authUid = null,
   } = options;
 
   const shouldSkipDerivados =
@@ -142,6 +145,7 @@ export async function loadConversationContext(
           retrieveMode,
           currentMemoryId,
           userIdUsedForInsert,
+          authUid,
         }),
         sleepFn(paralelasTimeoutMs).then(() => EMPTY_PARALLEL_RESULT),
       ]);
@@ -298,7 +302,7 @@ export async function loadConversationContext(
     derivados: (derivados ?? null) as Derivados | null,
     aberturaHibrida,
     flags: { HAS_CONTINUITY: continuityDecision.hasContinuity },
-    meta: { continuityRef },
+    meta: { continuityRef, userIdUsedForInsert },
     continuity: {
       hasContinuity: continuityDecision.hasContinuity,
       similarity: continuityDecision.similarity,
