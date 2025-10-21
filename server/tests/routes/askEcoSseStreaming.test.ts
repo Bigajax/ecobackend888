@@ -40,6 +40,8 @@ const getRouteHandler = (router: any, path: string) => {
   return handler;
 };
 
+const DEFAULT_USUARIO_ID = "c5c5b1af-5f6c-4e5f-8cb4-7a6d12345678";
+
 class MockRequest extends EventEmitter {
   body: any;
   headers: Record<string, string>;
@@ -54,7 +56,35 @@ class MockRequest extends EventEmitter {
 
   constructor(body: any, headers: Record<string, string>) {
     super();
-    this.body = body;
+    if (body && typeof body === "object" && !Array.isArray(body)) {
+      const normalized = { ...body } as Record<string, any>;
+      const existingTexto =
+        typeof normalized.texto === "string" ? normalized.texto.trim() : "";
+      if (!existingTexto) {
+        const firstUserMessage = Array.isArray(normalized.messages)
+          ? normalized.messages.find(
+              (msg: any) =>
+                msg && typeof msg.content === "string" && msg.role === "user"
+            )?.content
+          : null;
+        const fallbackTexto =
+          typeof firstUserMessage === "string" && firstUserMessage.trim()
+            ? firstUserMessage.trim()
+            : "Olá";
+        normalized.texto = fallbackTexto;
+      } else {
+        normalized.texto = existingTexto;
+      }
+
+      const usuarioIdRaw =
+        typeof normalized.usuario_id === "string" && normalized.usuario_id.trim()
+          ? normalized.usuario_id.trim()
+          : DEFAULT_USUARIO_ID;
+      normalized.usuario_id = usuarioIdRaw;
+      this.body = normalized;
+    } else {
+      this.body = body;
+    }
     this.headers = headers;
   }
 

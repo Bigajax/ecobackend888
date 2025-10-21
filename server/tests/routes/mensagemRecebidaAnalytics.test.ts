@@ -152,7 +152,8 @@ test("/ask-eco delega prompt ao orquestrador e propaga eventos de prompt_ready",
   const res = makeResponse();
   const req = {
     body: {
-      usuario_id: "user-1",
+      usuario_id: "2f1e3d4c-5b6a-4789-9abc-def012345678",
+      texto: "Oi Eco",
       messages: [{ role: "user", content: "Oi Eco" }],
       sessionMeta: {
         distinctId: "distinct-1",

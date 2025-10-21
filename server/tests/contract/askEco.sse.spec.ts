@@ -12,6 +12,7 @@ jest.mock("../../services/ConversationOrchestrator", () => ({
 }));
 
 const capturedSseEvents: Array<{ event: string; data: string }> = [];
+const DEFAULT_USUARIO_ID = "a1b2c3d4-e5f6-4a7b-9c8d-ef0123456789";
 
 class MockRequest extends EventEmitter {
   body: any;
@@ -27,7 +28,35 @@ class MockRequest extends EventEmitter {
 
   constructor(body: any, headers: Record<string, string>) {
     super();
-    this.body = body;
+    if (body && typeof body === "object" && !Array.isArray(body)) {
+      const normalized = { ...body } as Record<string, any>;
+      const textoRaw =
+        typeof normalized.texto === "string" ? normalized.texto.trim() : "";
+      if (!textoRaw) {
+        const firstUserMessage = Array.isArray(normalized.messages)
+          ? normalized.messages.find(
+              (msg: any) =>
+                msg && typeof msg.content === "string" && msg.role === "user"
+            )?.content
+          : null;
+        const fallbackTexto =
+          typeof firstUserMessage === "string" && firstUserMessage.trim()
+            ? firstUserMessage.trim()
+            : "Olá";
+        normalized.texto = fallbackTexto;
+      } else {
+        normalized.texto = textoRaw;
+      }
+
+      const usuarioIdRaw =
+        typeof normalized.usuario_id === "string" && normalized.usuario_id.trim()
+          ? normalized.usuario_id.trim()
+          : DEFAULT_USUARIO_ID;
+      normalized.usuario_id = usuarioIdRaw;
+      this.body = normalized;
+    } else {
+      this.body = body;
+    }
     this.headers = Object.fromEntries(
       Object.entries(headers).map(([key, value]) => [key.toLowerCase(), value])
     );
@@ -320,6 +349,8 @@ describe("/api/ask-eco SSE contract", () => {
       .set("X-Eco-Session-Id", sessionId)
       .send({
         stream: false,
+        usuario_id: guestId,
+        texto: "Tudo bem?",
         messages: [{ role: "user", content: "Tudo bem?" }],
       });
 

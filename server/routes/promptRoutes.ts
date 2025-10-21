@@ -318,6 +318,9 @@ function getGuestIdFromCookies(req: Request): string | undefined {
 
 type NormalizedMessage = { id?: string; role: string; content: string };
 
+const UUID_V4_REGEX =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 function normalizeMessages(payload: unknown): { messages: NormalizedMessage[]; shape: string } {
   const body = payload && typeof payload === "object" ? (payload as Record<string, any>) : {};
   const result: NormalizedMessage[] = [];
@@ -417,6 +420,43 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
     return res.status(403).end();
   }
 
+  const rawBody = req.body;
+  const isJsonObject = rawBody && typeof rawBody === "object" && !Array.isArray(rawBody);
+  if (!isJsonObject) {
+    log.warn("[ask-eco] payload_invalid", { reason: "body_not_object" });
+    return res
+      .status(400)
+      .json({ ok: false, error: "payload inválido: texto, usuario_id obrigatórios" });
+  }
+
+  const body = rawBody as Record<string, any>;
+  const textoRaw = typeof body.texto === "string" ? body.texto.trim() : "";
+  const usuarioIdRaw = typeof body.usuario_id === "string" ? body.usuario_id.trim() : "";
+  const contextoValue = body.contexto;
+  const contextoValid =
+    contextoValue === undefined ||
+    contextoValue === null ||
+    (typeof contextoValue === "object" && !Array.isArray(contextoValue));
+
+  if (!textoRaw || !usuarioIdRaw || !UUID_V4_REGEX.test(usuarioIdRaw) || !contextoValid) {
+    log.warn("[ask-eco] payload_invalid", {
+      reason: "missing_required_fields",
+      hasTexto: Boolean(textoRaw),
+      hasUsuarioId: Boolean(usuarioIdRaw),
+      contextoType: Array.isArray(contextoValue)
+        ? "array"
+        : contextoValue === null
+        ? "null"
+        : typeof contextoValue,
+    });
+    return res
+      .status(400)
+      .json({ ok: false, error: "payload inválido: texto, usuario_id obrigatórios" });
+  }
+
+  body.texto = textoRaw;
+  body.usuario_id = usuarioIdRaw;
+
   const locals = (res.locals ?? {}) as Record<string, unknown>;
   locals.corsAllowed = allowedOrigin;
   locals.corsOrigin = origin ?? null;
@@ -431,7 +471,6 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
   const guestIdFromHeader = req.get("X-Eco-Guest-Id")?.trim();
   const guestIdFromCookie = getGuestIdFromCookies(req);
 
-  const body = req.body && typeof req.body === "object" ? (req.body as Record<string, any>) : {};
   const {
     nome_usuario,
     usuario_id,
@@ -446,6 +485,12 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
       ? (sessionMeta as Record<string, unknown>)
       : undefined;
 
+  const sessionIdHeaderRaw = req.get("X-Eco-Session-Id");
+  const sessionIdHeader =
+    typeof sessionIdHeaderRaw === "string" && sessionIdHeaderRaw.trim()
+      ? sessionIdHeaderRaw.trim()
+      : null;
+
   const normalized = normalizeMessages(body);
   const payloadShape = normalized.shape;
 
@@ -456,6 +501,18 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
     guestIdFromRequest,
     guestIdFromSession
   );
+
+  const sessionId =
+    sessionIdHeader ??
+    extractSessionIdLoose(sessionMetaObject) ??
+    extractSessionIdLoose(body) ??
+    null;
+
+  log.info("[ask-eco] payload_valid", {
+    origin: origin ?? null,
+    guestId: guestIdResolved ?? null,
+    sessionId,
+  });
 
   const identityKey =
     (typeof reqWithIdentity.user?.id === "string" && reqWithIdentity.user.id.trim()

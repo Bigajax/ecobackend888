@@ -106,12 +106,6 @@ export function createApp(): Express {
   app.use(corsMiddleware);
   app.use(corsResponseInjector);
   app.options("*", corsMiddleware);
-  app.options("/ask-eco", corsMiddleware);
-  app.options("/api/ask-eco", corsMiddleware);
-  app.options("/similares_v2", corsMiddleware);
-  app.options("/api/memorias/similares_v2", corsMiddleware);
-  app.options("/api/similares_v2", corsMiddleware);
-  app.options("/memorias/similares_v2", corsMiddleware);
 
   // 2) Parsers (não executam em OPTIONS)
   app.use(express.json({ limit: "1mb" }));
