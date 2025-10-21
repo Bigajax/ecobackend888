@@ -11,7 +11,7 @@ import type { BuildParams, SimilarMemory } from "./contextTypes";
 import type { DecSnapshot, ModuleDebugEntry } from "./Selector";
 import { ModuleCatalog } from "./moduleCatalog";
 import { planBudget } from "./budget";
-import { formatMemRecall } from "./memoryRecall";
+import type { ContextMeta } from "../../utils/types";
 import { buildInstructionBlocks, renderInstructionBlocks } from "./instructionPolicy";
 import { applyCurrentMessage, composePromptBase } from "./promptComposer";
 import { applyReductions, stitchModules } from "./stitcher";
@@ -596,7 +596,7 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
     guestId: _guestId = null,
     userName: _userName,
     texto,
-    mems = [],
+    mems: memsCompact = [],
     heuristicas: _heuristicas = [],
     userEmbedding: _userEmbedding = [],
     forcarMetodoViva = false,
@@ -612,21 +612,43 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
     contextFlags: contextFlagsParam = {},
     contextMeta: contextMetaParam = {},
     passiveSignals: passiveSignalsParam = null,
+    recall: recallParam = null,
   } = params;
-
-  const memsSemelhantesNorm =
-    (memsSemelhantes && Array.isArray(memsSemelhantes) && memsSemelhantes.length
-      ? memsSemelhantes
-      : memoriasSemelhantes) || [];
 
   const contextFlagsBase =
     contextFlagsParam && typeof contextFlagsParam === "object"
       ? { ...(contextFlagsParam as Record<string, unknown>) }
       : {};
-  const contextMetaBase =
+  const contextMetaBase: ContextMeta =
     contextMetaParam && typeof contextMetaParam === "object"
-      ? { ...(contextMetaParam as Record<string, unknown>) }
+      ? { ...(contextMetaParam as ContextMeta) }
       : {};
+
+  const recallFromParams =
+    recallParam && typeof recallParam === "object" && recallParam !== null
+      ? recallParam
+      : null;
+  const recallMetaCandidate = (contextMetaBase as any)?.recall;
+  const recallFromMeta =
+    recallMetaCandidate && typeof recallMetaCandidate === "object"
+      ? (recallMetaCandidate as unknown)
+      : null;
+  const recall = (recallFromParams ?? recallFromMeta ?? null) as
+    | { items?: SimilarMemory[] | null; memories?: SimilarMemory[] | null }
+    | null;
+
+  const recallItemsCandidate =
+    (recall?.items ?? recall?.memories) as unknown;
+  const mems = Array.isArray(recallItemsCandidate)
+    ? (recallItemsCandidate as SimilarMemory[])
+    : [];
+  const hasMemories: boolean = mems.length > 0;
+
+  const memsFallback =
+    (memsSemelhantes && Array.isArray(memsSemelhantes) && memsSemelhantes.length
+      ? memsSemelhantes
+      : memoriasSemelhantes) || [];
+  const memsSemelhantesNorm = hasMemories ? mems : memsFallback;
 
   const normalizedUserId =
     typeof _userId === "string" && _userId.trim().length ? _userId.trim() : "";
@@ -691,11 +713,12 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
   };
   const identityModules = await loadEcoIdentityModules();
 
-  const contextMeta: Record<string, unknown> = {
+  const contextMeta: ContextMeta = {
     ...contextMetaBase,
     continuityRef: hasContinuityCandidate ? continuityRefCandidate ?? null : null,
     identityModules: identityModules.map((module) => module.name),
     userIdUsedForInsert: effectiveUserInsertId || null,
+    hasMemories,
   };
   const continuityRef = contextMeta?.continuityRef;
   const hasContinuity = Boolean((contextFlags as any)?.HAS_CONTINUITY && continuityRef);
@@ -813,7 +836,7 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
   (ecoDecision as any).debug = (ecoDecision as any).debug ?? { modules: [], selectedModules: [] };
 
   const nivel = ecoDecision.openness as 1 | 2 | 3;
-  const memCount = mems.length;
+  const memCount = memsCompact.length;
 
   const decisionTagsRaw = Array.isArray((ecoDecision as any).tags)
     ? ((ecoDecision as any).tags as string[])
@@ -1230,6 +1253,46 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
   const instructionBlocks = buildInstructionBlocks(nivel);
   const instructionText = renderInstructionBlocks(instructionBlocks).trim();
 
+  const contextSections: string[] = [];
+  if (hasMemories) {
+    const bloco =
+      "MEMÓRIAS PERTINENTES\n" +
+      mems
+        .slice(0, 5)
+        .map((m, i) => {
+          const rawSimilarity =
+            typeof m?.similarity === "number"
+              ? m.similarity
+              : typeof (m as any)?.similaridade === "number"
+              ? ((m as any).similaridade as number)
+              : 0;
+          const score = Number(rawSimilarity ?? 0).toFixed(3);
+          const tagArray = Array.isArray((m as any)?.tags)
+            ? ((m as any).tags as unknown[])
+                .filter((tag) => typeof tag === "string" && tag.trim().length > 0)
+                .map((tag) => (tag as string).trim())
+            : [];
+          const tagsLabel = tagArray.length ? tagArray.join(", ") : "—";
+          const resumo =
+            (typeof m?.resumo_eco === "string" && m.resumo_eco) ||
+            (typeof (m as any)?.analise_resumo === "string" &&
+              ((m as any).analise_resumo as string)) ||
+            (typeof m?.texto === "string" && m.texto) ||
+            (typeof (m as any)?.conteudo === "string" &&
+              ((m as any).conteudo as string)) ||
+            "";
+          const corpo = String(resumo ?? "").trim();
+          const header = `• [${i + 1}] score=${score} tags=${tagsLabel}`;
+          return corpo.length ? `${header}\n${corpo}` : header;
+        })
+        .filter((entry) => entry.length > 0)
+        .join("\n\n");
+
+    if (bloco.trim().length > 0) {
+      contextSections.push(bloco);
+    }
+  }
+
   const extras: string[] = [];
   const memoryTagHighlights = collectTagsFromMemories(memsSemelhantesNorm);
   if (hasMemories) {
@@ -1277,8 +1340,6 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
 
   const askedAboutMemory =
     /\b(lembr(a|ou)|record(a|a-se)|mem[oó]ria(s)?|conversas? anteriores?)\b/i.test(texto);
-  const hasMemories = Array.isArray(memsSemelhantesNorm) && memsSemelhantesNorm.length > 0;
-
   if (askedAboutMemory && hasMemories) {
     extras.push(
       "Se perguntarem se você lembra: responda afirmativamente e cite 1-2 pontos de MEMÓRIAS PERTINENTES brevemente."
@@ -1292,8 +1353,6 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
   // Cap suave para não inflar tokens
   const MAX_EXTRAS = 6;
   while (extras.length > MAX_EXTRAS) extras.pop();
-
-  const memRecallBlock = formatMemRecall(memsSemelhantesNorm) ?? "";
 
   const continuityPrelude = hasContinuity
     ? [
@@ -1311,7 +1370,6 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
     extras,
     stitched,
     footer: footerText,
-    memRecallBlock,
     instructionText,
     decBlock,
     prelude: continuityPrelude || undefined,
@@ -1329,7 +1387,8 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
     STYLE_HINTS_FULL.trim(),
     MEMORY_POLICY_EXPLICIT.trim(),
   ].filter((section) => section.length > 0);
-  const base = baseSections.join("\n\n");
+  contextSections.push(...baseSections);
+  const base = contextSections.join("\n\n");
   const montarMensagemAtual = (textoAtual: string) => applyCurrentMessage(base, textoAtual);
 
   const promptComTexto = montarMensagemAtual(texto);

@@ -65,6 +65,11 @@ export type ResponsePlanContext = {
   motivos?: string[];
 };
 
+export interface ContextMeta {
+  hasMemories?: boolean;
+  [key: string]: unknown;
+}
+
 export type GetEcoResult = {
   message: string;
   intensidade?: number;

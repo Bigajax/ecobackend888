@@ -17,6 +17,7 @@ export type SimilarMemory = {
 export type SimilarMemoryList = SimilarMemory[] | undefined;
 
 import type { ActivationTracer } from "../../core/activationTracer";
+import type { ContextMeta } from "../../utils/types";
 
 export type BuildParams = {
   userId?: string | null;
@@ -37,6 +38,7 @@ export type BuildParams = {
   decision?: import("../conversation/ecoDecisionHub").EcoDecisionResult;
   activationTracer?: ActivationTracer;
   contextFlags?: Record<string, unknown>;
-  contextMeta?: Record<string, unknown>;
+  contextMeta?: ContextMeta;
   passiveSignals?: string[] | null;
+  recall?: { items?: SimilarMemory[] | null; memories?: SimilarMemory[] | null } | null;
 };
