@@ -11,6 +11,8 @@ export interface ParallelFetchParams {
   userId?: string;
   supabase?: any;
   retrieveMode?: RetrieveMode;
+  currentMemoryId?: string | null;
+  userIdUsedForInsert?: string | null;
 }
 
 export interface ParallelFetchResult {
@@ -55,6 +57,8 @@ export class ParallelFetchService {
     userId,
     supabase,
     retrieveMode = "FAST",
+    currentMemoryId,
+    userIdUsedForInsert,
   }: ParallelFetchParams): Promise<ParallelFetchResult> {
     let userEmbedding: number[] = [];
     const trimmed = (ultimaMsg || "").trim();
@@ -104,6 +108,10 @@ export class ParallelFetchService {
                 userId,
                 embedding: userEmbedding,
                 mode: retrieveMode,
+                filtros: {
+                  currentMemoryId: currentMemoryId ?? null,
+                  userIdUsedForInsert: userIdUsedForInsert ?? userId,
+                },
                 supabaseClient: supabase,
               })
               .catch((e: any) => {

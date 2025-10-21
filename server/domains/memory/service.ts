@@ -139,7 +139,6 @@ export class MemoryService {
     return buscarMemoriasSemelhantes(userId, {
       texto: input.texto,
       k: input.limite,
-      threshold: input.threshold,
     });
   }
 }

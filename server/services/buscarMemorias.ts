@@ -2,6 +2,10 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getSupabaseAdmin } from "../lib/supabaseAdmin";
 import { prepareQueryEmbedding } from "./prepareQueryEmbedding";
+import {
+  buscarMemoriasSemelhantesV2 as buscarSemelhantesDirect,
+  type BuscarMemoriasSemelhantesParams,
+} from "./supabase/semanticMemoryClient";
 
 export interface MemoriaSimilar {
   id: string;
@@ -80,10 +84,9 @@ export type BuscarMemsOpts = {
   texto?: string;                 // usado se não houver userEmbedding
   userEmbedding?: number[];       // se vier, não recalcula (normaliza!)
   k?: number;                     // default 4
-  threshold?: number;             // default 0.80 (similaridade ∈ [0..1])
-  daysBack?: number | null;       // default 30; null = sem filtro; usamos fallback
   userId?: string | null;         // se não vier, busca global (todas as memórias salvas)
   supabaseClient?: SupabaseClient; // ✅ novo: permite injeção de client
+  currentMemoryId?: string | null;
 };
 
 /**
@@ -103,27 +106,26 @@ export async function buscarMemoriasSemelhantes(
     let texto = "";
     let userEmbedding: number[] | undefined;
     let k = 4;
-    let threshold = 0.8;        // ✅ default mais útil
-    let daysBack: number | null = 30;
     let userId: string | null = userIdOrNull;
     let supabaseClient: SupabaseClient | undefined;
+    let currentMemoryId: string | null = null;
 
     if (typeof entradaOrOpts === "string") {
       texto = entradaOrOpts ?? "";
+      currentMemoryId = null;
     } else {
       texto = entradaOrOpts.texto ?? "";
       userEmbedding = entradaOrOpts.userEmbedding;
       const requestedK =
         typeof entradaOrOpts.k === "number" ? Math.max(1, entradaOrOpts.k) : 4;
       k = Math.min(requestedK, 4); // LATENCY: top_k
-      threshold =
-        typeof entradaOrOpts.threshold === "number" ? entradaOrOpts.threshold : threshold;
-      daysBack =
-        typeof entradaOrOpts.daysBack === "number" || entradaOrOpts.daysBack === null
-          ? entradaOrOpts.daysBack
-          : daysBack;
       if (typeof entradaOrOpts.userId === "string") userId = entradaOrOpts.userId;
       supabaseClient = entradaOrOpts.supabaseClient; // ✅ injetado (se vier)
+      currentMemoryId =
+        typeof entradaOrOpts.currentMemoryId === "string" &&
+        entradaOrOpts.currentMemoryId.trim().length
+          ? entradaOrOpts.currentMemoryId.trim()
+          : null;
     }
     k = Math.min(Math.max(1, k), 4); // LATENCY: top_k
 
@@ -146,46 +148,20 @@ export async function buscarMemoriasSemelhantes(
       return [];
     }
 
-    const match_count = Math.max(1, k); // LATENCY: top_k
-    const match_threshold = Math.max(0, Math.min(1, Number(threshold) || 0.8));
+    const params: BuscarMemoriasSemelhantesParams = {
+      userId,
+      queryEmbedding,
+      supabaseClient: sb,
+      currentMemoryId,
+      userIdUsedForInsert: userId,
+    };
 
-    const { data, error } = await sb.rpc(
-      "buscar_memorias_semanticas_v2",
-      {
-        p_usuario_id: userId,
-        p_query: queryEmbedding,
-        p_limit: match_count,
-        p_lambda_mmr: 0.6,
-        p_recency_halflife_hours:
-          daysBack == null ? 48 : Math.max(1, Math.min(720, Math.round(Math.max(daysBack, 1) * 24))),
-        p_token_budget: 1800,
-        p_tags: [],
-        p_emocao: null,
-        p_include_referencias: true,
-        p_query_emocional: null,
-      } as Record<string, unknown>
-    );
-
-    if (error) {
-      console.warn("⚠️ RPC buscar_memorias_semanticas_v2 falhou:", {
-        message: (error as any)?.message,
-        details: (error as any)?.details,
-        hint: (error as any)?.hint,
-      });
-      return [];
-    }
-
-    const rows: DBRow[] = Array.isArray(data) ? (data as DBRow[]) : [];
+    const { rows } = await buscarSemelhantesDirect(params);
 
     return rows
-      .filter((row) => {
-        const score =
-          typeof row?.effective_score === "number" ? Number(row.effective_score) : null;
-        return score == null || score >= match_threshold;
-      })
       .map(toMemoriaSimilar)
       .filter(isMemoriaSimilar)
-      .slice(0, k);
+      .slice(0, Math.min(k, rows.length));
   } catch (e) {
     console.error("❌ Erro interno ao buscar memórias:", (e as Error).message);
     return [];
