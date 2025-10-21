@@ -127,7 +127,9 @@ export function createApp(): Express {
   app.get("/healthz", (_req, res) =>
     res.status(200).json({ status: "ok", timestamp: new Date().toISOString() })
   );
-  app.get("/api/health", (_req, res) => res.status(200).json({ ok: true }));
+  app.get("/api/health", (_req, res) =>
+    res.status(200).json({ ok: true, service: "eco-backend", ts: new Date().toISOString() })
+  );
   app.get("/readyz", (_req, res) => {
     if (!isSupabaseConfigured()) {
       return res.status(503).json({ status: "degraded", reason: "no-admin-config" });
