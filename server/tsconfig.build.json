@@ -9,8 +9,23 @@
     "skipLibCheck": true
   },
   "include": [
-    "**/*.ts",
-    "types/**/*.d.ts"
+    "./server.ts",
+    "./adapters/**/*.ts",
+    "./analytics/**/*.ts",
+    "./bootstrap/**/*.ts",
+    "./controllers/**/*.ts",
+    "./core/**/*.ts",
+    "./data/**/*.ts",
+    "./domains/**/*.ts",
+    "./lib/**/*.ts",
+    "./middleware/**/*.ts",
+    "./mw/**/*.ts",
+    "./routes/**/*.ts",
+    "./schemas/**/*.ts",
+    "./services/**/*.ts",
+    "./types/**/*.ts",
+    "./types/**/*.d.ts",
+    "./utils/**/*.ts"
   ],
   "exclude": [
     "node_modules",
@@ -19,6 +34,12 @@
     "**/__tests__/**",
     "**/*.test.ts",
     "**/*.spec.ts",
+    "**/*.contract.ts",
+    "tests/**",
+    "jest*.ts",
+    "jest.config.ts",
+    "jest.contract.config.ts",
+    "vitest.config.*",
     "../tests"
   ]
 }
