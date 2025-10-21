@@ -15,6 +15,7 @@ export interface BuscarMemoriasComModoArgs {
   filtros?: {
     currentMemoryId?: string | null;
     userIdUsedForInsert?: string | null;
+    authUid?: string | null;
   };
   supabaseClient?: SupabaseClient;
 }
@@ -37,6 +38,7 @@ export async function buscarMemoriasComModo({
     currentMemoryId: filtros?.currentMemoryId ?? null,
     supabaseClient,
     userIdUsedForInsert: filtros?.userIdUsedForInsert ?? userId,
+    authUid: filtros?.authUid ?? null,
   };
 
   const { rows } = await buscarMemoriasSemelhantesV2(params);

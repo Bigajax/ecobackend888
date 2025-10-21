@@ -1,6 +1,7 @@
 import express, { type NextFunction, type Request, type Response } from "express";
 import multer from "multer";
 import { generateAudio } from "../services/elevenlabsService";
+import { supabaseWithBearer } from "../adapters/SupabaseAdapter";
 import { getEcoResponse } from "../services/ConversationOrchestrator";
 import { transcribeWithWhisper } from "../scripts/transcribe";
 import { extractSessionMeta } from "./sessionMeta";
@@ -167,9 +168,21 @@ router.post("/transcribe-and-respond", (req: Request, res: Response, next: NextF
         ? mensagensParsed
         : [{ role: "user", content: normalizedUserText }];
 
+    let authUid: string | null = null;
+    try {
+      const supabaseAuthClient = supabaseWithBearer(access_token);
+      const { data, error } = await supabaseAuthClient.auth.getUser();
+      if (!error && data?.user?.id) {
+        authUid = data.user.id;
+      }
+    } catch (authError) {
+      console.warn("[/transcribe-and-respond] falha ao obter auth.uid", authError);
+    }
+
     const eco = await getEcoResponse({
       messages: msgs,
       userId: usuario_id || "anon",
+      authUid,
       accessToken: access_token,
       sessionMeta,
     });

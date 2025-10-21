@@ -23,6 +23,7 @@ interface PrepareContextParams {
   guestId?: string | null;
   activationTracer?: ActivationTracer;
   retrieveMode?: RetrieveMode;
+  authUid?: string | null;
 }
 
 export interface PreparedContext {
@@ -47,6 +48,7 @@ export async function prepareConversationContext({
   guestId,
   activationTracer,
   retrieveMode,
+  authUid,
 }: PrepareContextParams): Promise<PreparedContext> {
   const effectiveUserId = supabase && !isGuest ? userId : undefined;
   const context = await loadConversationContext(effectiveUserId, ultimaMsg, supabase, {
@@ -55,6 +57,7 @@ export async function prepareConversationContext({
     onDerivadosError,
     activationTracer,
     retrieveMode,
+    authUid,
   });
 
   const memsSemelhantesList = Array.isArray(context.memsSemelhantes)

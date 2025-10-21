@@ -40,6 +40,7 @@ import type { ActivationTracer } from "../core/activationTracer";
 export type GetEcoParams = {
   messages: ChatMessage[];
   userId: string;
+  authUid?: string | null;
   userName?: string;
   accessToken?: string;
   mems?: any[];
@@ -63,6 +64,11 @@ export type ResponsePlanContext = {
   origem: "auto_reply_guard" | "manual";
   motivos?: string[];
 };
+
+export interface ContextMeta {
+  hasMemories?: boolean;
+  [key: string]: unknown;
+}
 
 export type GetEcoResult = {
   message: string;

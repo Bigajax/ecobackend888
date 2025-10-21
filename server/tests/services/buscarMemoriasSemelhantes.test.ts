@@ -20,7 +20,7 @@ test("buscarMemoriasSemelhantes normalizes provided embeddings", async () => {
   ensureSupabaseEnv();
   const { buscarMemoriasSemelhantes } = await import("../../services/buscarMemorias");
 
-  const calls: Array<{ fn: string; params: Record<string, any> }> = [];
+  const calls: Array<{ fn: string; params: any }> = [];
   const fakeClient = {
     rpc: async (fn: string, params: Record<string, any>) => {
       calls.push({ fn, params });
@@ -45,7 +45,14 @@ test("buscarMemoriasSemelhantes normalizes provided embeddings", async () => {
   });
 
   assert.equal(calls.length, 1, "deveria chamar a RPC apenas uma vez");
-  const embedding = calls[0].params.query_embedding as number[];
+  assert.equal(calls[0].fn, "buscar_memorias_semelhantes_v2_safe");
+  const rpcArgs = calls[0].params as any[];
+  assert.ok(Array.isArray(rpcArgs), "payload deve ser posicional");
+  const embedding = rpcArgs[0] as number[];
+  assert.equal(rpcArgs[1], "user-1");
+  assert.equal(rpcArgs[2], 5);
+  assert.equal(rpcArgs[3], 0.72);
+  assert.equal(rpcArgs[4], 365);
   assert.ok(Math.abs(Math.hypot(...embedding) - 1) < 1e-9, "embedding deve ter norma 1");
   assert.ok(Math.abs(embedding[0] - 0.6) < 1e-12);
   assert.ok(Math.abs(embedding[1] - 0.8) < 1e-12);

@@ -7,6 +7,8 @@ const supabase = createClient(
   process.env.SUPABASE_ANON_KEY!
 );
 
+const DAYS_BACK = 365;
+
 export type MemoriaEncadeada = {
   id: string;
   referencia_anterior_id: string | null;
@@ -74,18 +76,19 @@ export async function buscarEncadeamentosPassados(
     const match_threshold = threshold;
 
     const call = async (db: number | null) => {
+      const payload = [
+        consulta_embedding,
+        userId,
+        match_count,
+        match_threshold,
+        db ?? DAYS_BACK,
+      ] as const;
       const { data, error } = await supabase.rpc(
-        "buscar_memorias_semelhantes_v2",
-        {
-          query_embedding: consulta_embedding,
-          user_id_input: userId,
-          match_count,
-          match_threshold,
-          days_back: db, // inteiro (dias) ou null
-        }
+        "buscar_memorias_semelhantes_v2_safe",
+        payload as unknown as Record<string, unknown>
       );
       if (error) {
-        console.error("❌ Erro RPC buscar_memorias_semelhantes_v2:", {
+        console.error("❌ Erro RPC buscar_memorias_semelhantes_v2_safe:", {
           message: error.message,
           details: (error as any)?.details ?? null,
           hint: (error as any)?.hint ?? null,
