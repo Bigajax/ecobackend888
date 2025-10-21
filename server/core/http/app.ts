@@ -191,21 +191,19 @@ export function createApp(): Express {
 
   // 9) 500
   app.use((err: any, req: Request, res: Response, _next: NextFunction) => {
-    // Garantia: não deixe OPTIONS cair aqui
-    if (req.method === "OPTIONS") {
-      applyCorsResponseHeaders(req, res);
-      return res.status(204).end();
-    }
-
     applyCorsResponseHeaders(req, res);
 
     log.error("Erro não tratado:", {
       message: err?.message,
       stack: err?.stack,
       name: err?.name,
+      status: err?.status ?? err?.statusCode,
     });
 
-    return res.status(500).json({ error: "Erro interno" });
+    const status = Number(err?.status || err?.statusCode) || 500;
+    const message = err?.message || "Erro interno";
+
+    res.status(status).json({ ok: false, error: message });
   });
 
   return app;
