@@ -27,7 +27,7 @@ async function closeServer(server: Server) {
   });
 }
 
-test("OPTIONS /api/ask-eco responde 204 com allowlist padrão", async () => {
+test("OPTIONS /api/ask-eco responde 200 com allowlist padrão", async () => {
   const app = createApp();
   const server = app.listen(0);
 
@@ -45,7 +45,7 @@ test("OPTIONS /api/ask-eco responde 204 com allowlist padrão", async () => {
       },
     });
 
-    assert.equal(response.status, 204, "preflight deve responder 204");
+    assert.equal(response.status, 200, "preflight deve responder 200");
     assert.equal(
       response.headers.get("access-control-allow-origin"),
       "https://ecofrontend888.vercel.app",
@@ -53,17 +53,31 @@ test("OPTIONS /api/ask-eco responde 204 com allowlist padrão", async () => {
     );
     assert.equal(
       response.headers.get("access-control-allow-credentials"),
-      "false",
-      "preflight deve sinalizar ausência de credenciais",
+      "true",
+      "preflight deve sinalizar credenciais habilitadas",
     );
-    assert.equal(
-      response.headers.get("access-control-allow-headers"),
-      "Accept, Content-Type, Origin, X-Eco-Guest-Id, X-Eco-Session-Id, X-Requested-With, Cache-Control, Authorization",
+    const allowHeaders = response.headers
+      .get("access-control-allow-headers")
+      ?.split(",")
+      .map((value) => value.trim())
+      .filter(Boolean);
+    assert.deepEqual(
+      allowHeaders,
+      [
+        "Content-Type",
+        "Authorization",
+        "apikey",
+        "X-Client-Id",
+        "X-Trace-Id",
+        "x-supabase-auth",
+        "x-supabase-signature",
+        "x-requested-with",
+      ],
       "deve aplicar a lista padrão de headers",
     );
     assert.equal(
       response.headers.get("access-control-allow-methods"),
-      "GET,POST,OPTIONS",
+      "GET,POST,PUT,PATCH,DELETE,OPTIONS",
       "deve aplicar a lista padrão de métodos",
     );
   } finally {
