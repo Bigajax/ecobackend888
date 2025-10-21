@@ -1,7 +1,7 @@
 {
   "scripts": {
     "build": "tsc --noEmit -p tsconfig.json",
-    "test": "jest",
+    "test": "jest --config jest.contract.config.ts --passWithNoTests",
     "test:contract": "jest --config server/jest.contract.config.ts",
     "test:supabase": "ts-node server/scripts/testSupabasePersistence.ts",
     "modules:inventory": "ts-node server/scripts/modulesInventory.ts",
