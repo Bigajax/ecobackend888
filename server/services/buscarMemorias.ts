@@ -6,12 +6,74 @@ import { prepareQueryEmbedding } from "./prepareQueryEmbedding";
 export interface MemoriaSimilar {
   id: string;
   resumo_eco: string;
-  tags?: string[];
+  tags: string[];
   emocao_principal?: string;
   intensidade?: number;
   created_at?: string;
-  similarity?: number;   // v2
-  distancia?: number;    // v2 (1 - similarity)
+  similarity?: number; // v2
+  distancia?: number; // v2 (1 - similarity)
+}
+
+type Nullable<T> = T | null | undefined;
+
+export interface DBRow {
+  memoria_id?: Nullable<string>;
+  id?: Nullable<string>;
+  resumo_eco?: Nullable<string>;
+  tags?: Nullable<unknown>;
+  emocao_principal?: Nullable<string>;
+  intensidade?: Nullable<number>;
+  created_at?: Nullable<string>;
+  similarity_score?: Nullable<number>;
+  similarity?: Nullable<number>;
+  effective_score?: Nullable<number>;
+}
+
+function toMemoriaSimilar(row: DBRow): MemoriaSimilar | null {
+  const memoriaId =
+    typeof row.memoria_id === "string" && row.memoria_id.trim().length > 0
+      ? row.memoria_id
+      : typeof row.id === "string" && row.id.trim().length > 0
+      ? row.id
+      : null;
+  if (!memoriaId) return null;
+
+  const resumoEco = typeof row.resumo_eco === "string" ? row.resumo_eco : "";
+  const tags = Array.isArray(row.tags)
+    ? (row.tags.filter((tag): tag is string => typeof tag === "string") ?? [])
+    : [];
+  const similarity =
+    typeof row.similarity_score === "number"
+      ? Number(row.similarity_score)
+      : typeof row.similarity === "number"
+      ? Number(row.similarity)
+      : undefined;
+  const intensidade =
+    typeof row.intensidade === "number"
+      ? Number(row.intensidade)
+      : row.intensidade != null
+      ? Number(row.intensidade)
+      : undefined;
+  const createdAt = typeof row.created_at === "string" ? row.created_at : undefined;
+  const emocaoPrincipal =
+    typeof row.emocao_principal === "string" && row.emocao_principal.trim().length > 0
+      ? row.emocao_principal
+      : undefined;
+
+  return {
+    id: memoriaId,
+    resumo_eco: resumoEco,
+    tags,
+    emocao_principal: emocaoPrincipal,
+    intensidade,
+    created_at: createdAt,
+    similarity,
+    distancia: typeof similarity === "number" ? Math.max(0, 1 - similarity) : undefined,
+  };
+}
+
+function isMemoriaSimilar(value: MemoriaSimilar | null): value is MemoriaSimilar {
+  return value !== null;
 }
 
 export type BuscarMemsOpts = {
@@ -113,54 +175,16 @@ export async function buscarMemoriasSemelhantes(
       return [];
     }
 
-    const rows = Array.isArray(data) ? (data as any[]) : [];
+    const rows: DBRow[] = Array.isArray(data) ? (data as DBRow[]) : [];
 
     return rows
       .filter((row) => {
-        const score = typeof row?.effective_score === "number" ? Number(row.effective_score) : null;
+        const score =
+          typeof row?.effective_score === "number" ? Number(row.effective_score) : null;
         return score == null || score >= match_threshold;
       })
-      .map((d) => {
-        const similarity =
-          typeof d.similarity_score === "number"
-            ? Number(d.similarity_score)
-            : typeof d.similarity === "number"
-            ? Number(d.similarity)
-            : undefined;
-        const intensityValue =
-          typeof d.intensidade === "number"
-            ? Number(d.intensidade)
-            : d.intensidade != null
-            ? Number(d.intensidade)
-            : undefined;
-        const memoriaId =
-          typeof d.memoria_id === "string" && d.memoria_id.trim().length > 0
-            ? d.memoria_id
-            : typeof d.id === "string" && d.id.trim().length > 0
-            ? d.id
-            : null;
-        if (!memoriaId) return null;
-        return {
-          id: memoriaId,
-          resumo_eco: typeof d.resumo_eco === "string" ? d.resumo_eco : "",
-          tags: Array.isArray(d.tags) ? d.tags : undefined,
-          emocao_principal: d.emocao_principal ?? undefined,
-          intensidade: intensityValue,
-          created_at: typeof d.created_at === "string" ? d.created_at : undefined,
-          similarity,
-          distancia: typeof similarity === "number" ? Math.max(0, 1 - similarity) : undefined,
-        };
-      })
-      .filter((entry): entry is {
-        id: string;
-        resumo_eco: string;
-        tags?: string[];
-        emocao_principal?: string;
-        intensidade?: number;
-        created_at?: string;
-        similarity?: number;
-        distancia?: number;
-      } => Boolean(entry))
+      .map(toMemoriaSimilar)
+      .filter(isMemoriaSimilar)
       .slice(0, k);
   } catch (e) {
     console.error("❌ Erro interno ao buscar memórias:", (e as Error).message);
