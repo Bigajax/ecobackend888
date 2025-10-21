@@ -464,6 +464,10 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
     (typeof reqWithIdentity.guestId === "string" && reqWithIdentity.guestId.trim()
       ? reqWithIdentity.guestId.trim()
       : null);
+  const authUid =
+    typeof reqWithIdentity.user?.id === "string" && reqWithIdentity.user.id.trim().length
+      ? reqWithIdentity.user.id.trim()
+      : null;
   const hasGuestId = Boolean(identityKey);
   const userMode = reqWithIdentity.user?.id ? "authenticated" : "guest";
 
@@ -501,6 +505,7 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
     const params: Record<string, unknown> = {
       messages: normalized.messages,
       isGuest: Boolean(isGuest),
+      authUid: authUid ?? null,
     };
 
     if (typeof bearer === "string" && bearer.trim()) {

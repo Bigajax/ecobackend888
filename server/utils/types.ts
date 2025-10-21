@@ -40,6 +40,7 @@ import type { ActivationTracer } from "../core/activationTracer";
 export type GetEcoParams = {
   messages: ChatMessage[];
   userId: string;
+  authUid?: string | null;
   userName?: string;
   accessToken?: string;
   mems?: any[];

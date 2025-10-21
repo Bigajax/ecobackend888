@@ -24,6 +24,7 @@ export interface BuscarMemoriasParams {
     queryEmocional?: number[] | null;
     currentMemoryId?: string | null;
     userIdUsedForInsert?: string | null;
+    authUid?: string | null;
   };
 }
 
@@ -82,6 +83,7 @@ export async function buscarMemoriasSemanticas(
       supabaseClient: client,
       currentMemoryId: params.filtros?.currentMemoryId ?? null,
       userIdUsedForInsert: params.filtros?.userIdUsedForInsert ?? params.userId,
+      authUid: params.filtros?.authUid ?? null,
     };
 
     const { rows } = await callSemanticMemories(paramsRpc);

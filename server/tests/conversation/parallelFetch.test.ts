@@ -98,6 +98,11 @@ test("encaminha embedding para heurísticas e memórias quando disponível", asy
     userId: "user-123",
     embedding: fakeEmbedding,
     mode: "FAST",
+    filtros: {
+      currentMemoryId: null,
+      userIdUsedForInsert: "user-123",
+      authUid: null,
+    },
     supabaseClient: { tag: "db" },
   });
 });

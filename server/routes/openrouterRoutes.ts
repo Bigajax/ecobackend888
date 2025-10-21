@@ -330,6 +330,7 @@ router.post("/ask-eco", async (req: GuestAwareRequest, res: Response) => {
     const resposta = await getEcoResponse({
       messages: mensagensParaIA,
       userId: pipelineUserId,
+      authUid: authenticatedUserId ?? null,
       userName: nome_usuario,
       accessToken: identity.token,
       sessionMeta,
