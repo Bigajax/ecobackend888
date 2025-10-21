@@ -8,6 +8,7 @@ import {
 } from "../../adapters/supabaseMemoryRepository";
 import { MemoryService, type RegisterMemoryInput } from "./service";
 import type { MemoryRepository } from "./repository";
+import { applyCorsResponseHeaders } from "../../middleware/cors";
 
 interface ControllerDependencies {
   service?: MemoryService;
@@ -314,6 +315,7 @@ export class MemoryController {
   };
 
   findSimilarV2 = async (req: Request, res: Response) => {
+    applyCorsResponseHeaders(req, res);
     const usuarioId = getUsuarioIdFromQuery(req);
     const queryText =
       getQueryString(req.query?.q) ||
@@ -324,11 +326,9 @@ export class MemoryController {
       getQueryString((req.query as Record<string, unknown>)?.mensagemId);
 
     if (!usuarioId) {
-      return res.status(200).json({ success: true, similares: [] });
-    }
-
-    if (!queryText && !mensagemId) {
-      return res.status(200).json({ success: true, similares: [] });
+      return res
+        .status(400)
+        .json({ success: false, error: "usuario_id e texto são obrigatórios" });
     }
 
     let textoBase = queryText ?? "";
@@ -346,7 +346,9 @@ export class MemoryController {
         }
         const texto = typeof data?.texto === "string" ? data.texto.trim() : "";
         if (!texto) {
-          return res.status(200).json({ success: true, similares: [] });
+          return res
+            .status(400)
+            .json({ success: false, error: "usuario_id e texto são obrigatórios" });
         }
         textoBase = texto;
       } catch (fetchError) {
@@ -359,7 +361,9 @@ export class MemoryController {
     }
 
     if (!textoBase) {
-      return res.status(200).json({ success: true, similares: [] });
+      return res
+        .status(400)
+        .json({ success: false, error: "usuario_id e texto são obrigatórios" });
     }
 
     const limiteRaw =

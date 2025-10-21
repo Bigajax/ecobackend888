@@ -130,7 +130,7 @@ function resolveAndCacheOrigin(req: Request, res: Response) {
   res.locals = locals;
 
   if (!allowed && normalized) {
-    log.warn("CORS_BLOCKED", { origin: normalized });
+    log.warn("CORS_BLOCKED", { origin: normalized, method: req.method, path: req.originalUrl });
   }
 
   return { allowed, normalized };
@@ -186,8 +186,8 @@ export function corsMiddleware(req: Request, res: Response, next: NextFunction) 
       origin: normalized,
       method: req.method,
       path: req.originalUrl,
-      acrm: typeof acrMethod === "string" ? acrMethod : null,
-      acrh: typeof acrHeaders === "string" ? acrHeaders : null,
+      acrMethod: typeof acrMethod === "string" ? acrMethod : null,
+      acrHeaders: typeof acrHeaders === "string" ? acrHeaders : null,
       allowed,
     });
 

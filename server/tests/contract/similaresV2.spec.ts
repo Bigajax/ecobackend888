@@ -47,6 +47,7 @@ async function createApp() {
 
 const guestId = "5f9b4c1d-1234-4abc-9def-1234567890ab";
 const sessionId = "session-memoria-1";
+const usuarioId = "7c9e6679-7425-40de-944b-e07fc1f90ae7";
 
 describe("/api/memorias/similares_v2 contract", () => {
   beforeEach(() => {
@@ -62,7 +63,7 @@ describe("/api/memorias/similares_v2 contract", () => {
       .get("/api/memorias/similares_v2")
       .set("X-Eco-Guest-Id", guestId)
       .set("X-Eco-Session-Id", sessionId)
-      .query({ usuario_id: "user-1", texto: "hello world", k: 5, threshold: 0.25 });
+      .query({ usuario_id: usuarioId, texto: "hello world", k: 5, threshold: 0.25 });
 
     expect(response.status).toBe(200);
     expect(response.body.success).toBe(true);
@@ -80,7 +81,7 @@ describe("/api/memorias/similares_v2 contract", () => {
       "buscar_memorias_semelhantes_v2_safe",
       expect.arrayContaining([
         expect.any(Array),
-        "user-1",
+        usuarioId,
         expect.any(Number),
         expect.any(Number),
         expect.any(Number),
@@ -96,8 +97,25 @@ describe("/api/memorias/similares_v2 contract", () => {
       .get("/api/similares_v2")
       .set("X-Eco-Guest-Id", guestId)
       .set("X-Eco-Session-Id", sessionId)
-      .query({ usuario_id: "user-1", texto: "hello" });
+      .query({ usuario_id: usuarioId, texto: "hello" });
 
     expect(response.status).toBe(404);
+  });
+
+  it("requires texto e usuario_id", async () => {
+    const app = await createApp();
+    const agent = request(app);
+
+    const response = await agent
+      .get("/api/memorias/similares_v2")
+      .set("X-Eco-Guest-Id", guestId)
+      .set("X-Eco-Session-Id", sessionId)
+      .query({ usuario_id: usuarioId });
+
+    expect(response.status).toBe(400);
+    expect(response.body).toEqual({
+      success: false,
+      error: "usuario_id e texto são obrigatórios",
+    });
   });
 });

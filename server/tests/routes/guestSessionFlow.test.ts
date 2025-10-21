@@ -83,6 +83,8 @@ const createAnalyticsStub = (operations: AnalyticsOperation[]) => {
   };
 };
 
+const DEFAULT_USUARIO_ID = "d3a1f4c2-5b6d-4e7f-9a10-bcdef1234567";
+
 class MockRequest extends EventEmitter {
   body: any;
   headers: Record<string, string>;
@@ -97,7 +99,35 @@ class MockRequest extends EventEmitter {
 
   constructor(path: string, body: any, headers: Record<string, string>) {
     super();
-    this.body = body;
+    if (body && typeof body === "object" && !Array.isArray(body)) {
+      const normalized = { ...body } as Record<string, any>;
+      const textoRaw =
+        typeof normalized.texto === "string" ? normalized.texto.trim() : "";
+      if (!textoRaw) {
+        const firstUserMessage = Array.isArray(normalized.messages)
+          ? normalized.messages.find(
+              (msg: any) =>
+                msg && typeof msg.content === "string" && msg.role === "user"
+            )?.content
+          : null;
+        const fallbackTexto =
+          typeof firstUserMessage === "string" && firstUserMessage.trim()
+            ? firstUserMessage.trim()
+            : "Olá";
+        normalized.texto = fallbackTexto;
+      } else {
+        normalized.texto = textoRaw;
+      }
+
+      const usuarioIdRaw =
+        typeof normalized.usuario_id === "string" && normalized.usuario_id.trim()
+          ? normalized.usuario_id.trim()
+          : DEFAULT_USUARIO_ID;
+      normalized.usuario_id = usuarioIdRaw;
+      this.body = normalized;
+    } else {
+      this.body = body;
+    }
     this.headers = headers;
     this.path = path;
     this.originalUrl = path;

@@ -27,7 +27,7 @@ async function closeServer(server: Server) {
   });
 }
 
-test("OPTIONS /api/ask-eco responde 200 com allowlist padrão", async () => {
+test("OPTIONS /api/ask-eco responde 204 com allowlist padrão", async () => {
   const app = createApp();
   const server = app.listen(0);
 
@@ -45,7 +45,7 @@ test("OPTIONS /api/ask-eco responde 200 com allowlist padrão", async () => {
       },
     });
 
-    assert.equal(response.status, 200, "preflight deve responder 200");
+    assert.equal(response.status, 204, "preflight deve responder 204");
     assert.equal(
       response.headers.get("access-control-allow-origin"),
       "https://ecofrontend888.vercel.app",
@@ -64,14 +64,12 @@ test("OPTIONS /api/ask-eco responde 200 com allowlist padrão", async () => {
     assert.deepEqual(
       allowHeaders,
       [
-        "Content-Type",
-        "Authorization",
+        "content-type",
+        "authorization",
         "apikey",
-        "X-Client-Id",
-        "X-Trace-Id",
-        "x-supabase-auth",
-        "x-supabase-signature",
         "x-requested-with",
+        "x-client-id",
+        "x-trace-id",
       ],
       "deve aplicar a lista padrão de headers",
     );
