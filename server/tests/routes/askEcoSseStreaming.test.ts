@@ -38,13 +38,46 @@ const loadRouterWithStubs = async (modulePath: string, stubs: StubMap) => {
 
 const getRouteHandler = (router: any, path: string, method = "post") => {
   const normalizedMethod = method.toLowerCase();
-  const layer = router.stack.find(
-    (entry: any) => entry.route?.path === path && entry.route?.methods?.[normalizedMethod]
-  );
-  if (!layer) throw new Error(`Route ${path} not found`);
-  const handler = layer.route.stack.find((stackEntry: any) => stackEntry.method === normalizedMethod)
-    ?.handle;
-  if (!handler) throw new Error(`Handler for route ${path} not found`);
+
+  const searchStack = (stack: any[], prefixes: RegExp[]): any => {
+    for (const entry of stack) {
+      const nextPrefixes = entry.regexp instanceof RegExp ? [...prefixes, entry.regexp] : prefixes;
+
+      const matchesRoute = () => {
+        if (!entry.route || !entry.route.methods?.[normalizedMethod]) {
+          return false;
+        }
+        if (entry.route.path === path) {
+          return prefixes.every((rx) => rx.test(path));
+        }
+        if (entry.route.path === "/") {
+          return prefixes.length > 0 && prefixes.every((rx) => rx.test(path));
+        }
+        return false;
+      };
+
+      if (matchesRoute()) {
+        const match = entry.route.stack.find(
+          (stackEntry: any) => stackEntry.method === normalizedMethod
+        )?.handle;
+        if (!match) {
+          throw new Error(`Handler for route ${path} not found`);
+        }
+        return match;
+      }
+
+      if (entry.handle?.stack) {
+        const nested = searchStack(entry.handle.stack, nextPrefixes);
+        if (nested) return nested;
+      }
+    }
+    return null;
+  };
+
+  const handler = searchStack(router.stack, []);
+  if (!handler) {
+    throw new Error(`Route ${path} not found`);
+  }
   return handler;
 };
 
@@ -120,6 +153,22 @@ class MockResponse {
 
   setHeader(name: string, value: string) {
     this.headers.set(name.toLowerCase(), value);
+  }
+
+  getHeader(name: string) {
+    return this.headers.get(name.toLowerCase());
+  }
+
+  removeHeader(name: string) {
+    const key = name.toLowerCase();
+    this.headers.delete(key);
+    if (key === "content-encoding") {
+      this.headers.set(key, "identity");
+    }
+  }
+
+  hasHeader(name: string) {
+    return this.headers.has(name.toLowerCase());
   }
 
   write(chunk: string | Buffer) {
@@ -207,12 +256,13 @@ test("SSE streaming emits tokens, done and disables compression", async () => {
 
   const output = res.chunks.join("");
   assert.ok(res.chunks.length > 0, "should emit at least one SSE chunk");
+  const interactionChunk = res.chunks[0]?.replace(/\n/g, "\\n");
   assert.equal(
-    res.chunks[0],
+    interactionChunk,
     `event: interaction\\ndata: {"interaction_id":"${TEST_INTERACTION_ID}"}\\n\\n`,
     "first SSE event should share interaction_id"
   );
-  const finalChunk = res.chunks[res.chunks.length - 1];
+  const finalChunk = res.chunks[res.chunks.length - 1]?.replace(/\n/g, "\\n");
   assert.equal(
     finalChunk,
     "event: done\\ndata: ok\\n\\n",
@@ -220,20 +270,18 @@ test("SSE streaming emits tokens, done and disables compression", async () => {
   );
   assert.ok(!output.includes("event: ping"), "should no longer emit ping events");
   assert.ok(!output.includes(":keepalive"), "heartbeat comment should omit legacy keepalive tag");
-  const tokenCount = (output.match(/event: token/g) ?? []).length;
-  assert.ok(tokenCount >= 2, "should emit streamed token events");
+  const chunkCount = (output.match(/event: chunk/g) ?? []).length;
+  assert.ok(chunkCount >= 2, "should emit streamed chunk events");
   assert.ok(!output.includes("__prompt_ready__"), "should not emit synthetic prompt_ready token");
   assert.ok(/event: control/.test(output), "should emit control events");
-  assert.ok(
-    output.includes('event: first_token\ndata: {"delta":"primeiro"}'),
-    "should emit first_token event with first delta"
-  );
-  assert.ok(
-    output.includes('event: chunk\ndata: {"delta":"primeiro","index":0}'),
+  assert.match(
+    output,
+    /event: chunk\ndata: {"interaction_id":"[^"]+","index":0,"delta":"primeiro"}/,
     "should emit chunk event for first delta with index 0"
   );
-  assert.ok(
-    output.includes('event: chunk\ndata: {"delta":"segundo","index":1}'),
+  assert.match(
+    output,
+    /event: chunk\ndata: {"interaction_id":"[^"]+","index":1,"delta":"segundo"}/,
     "should emit chunk event for subsequent deltas with incrementing index"
   );
   assert.ok(
@@ -293,16 +341,21 @@ test("SSE streaming triggers timeout fallback when orchestrator stalls", async (
     await handler(req as any, res as any);
 
     const output = res.chunks.join("");
-    assert.equal(
-      res.chunks[0],
-      `event: interaction\\ndata: {"interaction_id":"${TEST_INTERACTION_ID}"}\\n\\n`,
-      "interaction event should be emitted before timeout handling"
+    assert.match(
+      output,
+      /type":"first_token_latency_ms"/,
+      "fallback should record first token latency"
     );
-    assert.match(output, /event: first_token/, "fallback should emit first_token event");
     assert.match(
       output,
       new RegExp(STREAM_TIMEOUT_MESSAGE.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")),
       "fallback chunk should contain timeout message"
+    );
+    const firstEvent = res.chunks[0]?.replace(/\n/g, "\\n");
+    assert.equal(
+      firstEvent,
+      `event: interaction\\ndata: {"interaction_id":"${TEST_INTERACTION_ID}"}\\n\\n`,
+      "interaction event should be emitted before timeout handling"
     );
     assert.match(output, /event: control/, "fallback should emit control events");
     assert.match(
@@ -426,4 +479,228 @@ test("HEAD /api/ask-eco responds 200 with CORS headers", async () => {
     "should include HEAD in allowed methods",
   );
   assert.equal(res.ended, true, "response should end");
+});
+
+test("client message ids are deduped with 409 without re-running orchestrator", async () => {
+  let orchestratorCalls = 0;
+  let interactionCreates = 0;
+  const router = await loadRouterWithStubs("../../routes/promptRoutes", {
+    "../services/ConversationOrchestrator": {
+      getEcoResponse: async (params: any) => {
+        orchestratorCalls += 1;
+        if (params.stream?.onEvent) {
+          params.stream.onEvent({ type: "chunk", delta: `resposta-${orchestratorCalls}` });
+          params.stream.onEvent({
+            type: "done",
+            meta: { finishReason: "stop" },
+          });
+        }
+        return { raw: `resposta-${orchestratorCalls}` };
+      },
+    },
+    "../services/conversation/interactionAnalytics": {
+      createInteraction: async () => {
+        interactionCreates += 1;
+        return TEST_INTERACTION_ID;
+      },
+    },
+    "../services/promptContext/logger": {
+      log: {
+        info: () => {},
+        warn: () => {},
+        error: () => {},
+        debug: () => {},
+      },
+    },
+  });
+
+  const handler = getRouteHandler(router, "/ask-eco");
+
+  const buildRequest = () => {
+    const req = new MockRequest(
+      {
+        stream: true,
+        clientMessageId: "client-123",
+        messages: [{ role: "user", content: "Olá" }],
+      },
+      {
+        accept: "text/event-stream",
+        "content-type": "application/json",
+      },
+    );
+    req.guest = { id: TEST_GUEST_ID };
+    req.guestId = TEST_GUEST_ID;
+    return req;
+  };
+
+  const firstRes = new MockResponse();
+  await handler(buildRequest() as any, firstRes as any);
+
+  assert.equal(firstRes.statusCode, 200, "first stream should succeed");
+  assert.equal(orchestratorCalls, 1, "orchestrator should be called once for first run");
+  assert.equal(interactionCreates, 1, "interaction row should be created once");
+
+  const secondRes = new MockResponse();
+  await handler(buildRequest() as any, secondRes as any);
+
+  assert.equal(secondRes.statusCode, 409, "duplicate client message should be rejected");
+  assert.equal(orchestratorCalls, 1, "duplicate should not reach orchestrator again");
+  assert.equal(interactionCreates, 1, "duplicate should not insert another interaction");
+  assert.ok(secondRes.chunks.length > 0, "duplicate response should include JSON body");
+  const duplicatePayload = JSON.parse(secondRes.chunks[0]);
+  assert.equal(duplicatePayload.code, "DUPLICATE_CLIENT_MESSAGE");
+});
+
+test("starting a new stream on the same stream id aborts the previous run", async () => {
+  const infoCalls: Array<unknown[]> = [];
+  let firstAbortReason: unknown = null;
+  let callCount = 0;
+
+  const logStub = {
+    info: (...args: unknown[]) => {
+      infoCalls.push(args);
+    },
+    warn: () => {},
+    error: () => {},
+    debug: () => {},
+    trace: () => {},
+    withContext: () => logStub,
+  } as const;
+
+  const router = await loadRouterWithStubs("../../routes/promptRoutes", {
+    "../services/ConversationOrchestrator": {
+      getEcoResponse: async (params: any) => {
+        callCount += 1;
+        if (callCount === 1) {
+          if (params.abortSignal) {
+            params.abortSignal.addEventListener(
+              "abort",
+              () => {
+                firstAbortReason = params.abortSignal?.reason;
+              },
+              { once: true },
+            );
+          }
+          return await new Promise((_, reject) => {
+            params.abortSignal?.addEventListener(
+              "abort",
+              () => reject(new Error("aborted by test")),
+              { once: true },
+            );
+          });
+        }
+
+        if (params.stream?.onEvent) {
+          params.stream.onEvent({ type: "chunk", delta: "segunda" });
+          params.stream.onEvent({ type: "done", meta: { finishReason: "stop" } });
+        }
+        return { raw: "segunda" };
+      },
+    },
+    "../services/conversation/interactionAnalytics": {
+      createInteraction: async () => TEST_INTERACTION_ID,
+    },
+    "../services/promptContext/logger": {
+      log: logStub,
+    },
+  });
+
+  const handler = getRouteHandler(router, "/ask-eco");
+
+  const makeRequest = () => {
+    const req = new MockRequest(
+      {
+        stream: true,
+        messages: [{ role: "user", content: "Olá" }],
+      },
+      {
+        accept: "text/event-stream",
+        "content-type": "application/json",
+        "x-stream-id": "stream-abc",
+      },
+    );
+    req.guest = { id: TEST_GUEST_ID };
+    req.guestId = TEST_GUEST_ID;
+    return req;
+  };
+
+  const firstRes = new MockResponse();
+  const firstPromise = handler(makeRequest() as any, firstRes as any);
+
+  await new Promise((resolve) => setImmediate(resolve));
+
+  const secondRes = new MockResponse();
+  await handler(makeRequest() as any, secondRes as any);
+  await firstPromise;
+
+  assert.equal(secondRes.statusCode, 200, "new stream should succeed");
+  assert.ok(infoCalls.some((entry) => entry[0] === "[ask-eco] sse_stream_replaced"));
+  assert.equal(firstRes.ended, true, "previous response should end after abort");
+  assert.equal(firstRes.chunks[firstRes.chunks.length - 1], "event: done\ndata: ok\n\n");
+  assert.ok(firstAbortReason instanceof Error || typeof firstAbortReason === "string");
+});
+
+test("three sequential streams emit independent chunk sequences", async () => {
+  const texts = ["resposta A", "resposta B", "resposta C"];
+  let callIndex = 0;
+  const createdInteractions: string[] = [];
+
+  const router = await loadRouterWithStubs("../../routes/promptRoutes", {
+    "../services/ConversationOrchestrator": {
+      getEcoResponse: async (params: any) => {
+        const current = callIndex;
+        callIndex += 1;
+        if (params.stream?.onEvent) {
+          params.stream.onEvent({ type: "chunk", delta: texts[current] });
+          params.stream.onEvent({ type: "done", meta: { finishReason: "stop" } });
+        }
+        return { raw: texts[current] };
+      },
+    },
+    "../services/conversation/interactionAnalytics": {
+      createInteraction: async () => {
+        const id = `${TEST_INTERACTION_ID}-${createdInteractions.length}`;
+        createdInteractions.push(id);
+        return id;
+      },
+    },
+    "../services/promptContext/logger": {
+      log: {
+        info: () => {},
+        warn: () => {},
+        error: () => {},
+        debug: () => {},
+      },
+    },
+  });
+
+  const handler = getRouteHandler(router, "/ask-eco");
+
+  for (let i = 0; i < texts.length; i += 1) {
+    const req = new MockRequest(
+      {
+        stream: true,
+        clientMessageId: `client-${i}`,
+        messages: [{ role: "user", content: `Olá ${i}` }],
+      },
+      {
+        accept: "text/event-stream",
+        "content-type": "application/json",
+      },
+    );
+    req.guest = { id: TEST_GUEST_ID };
+    req.guestId = TEST_GUEST_ID;
+
+    const res = new MockResponse();
+    await handler(req as any, res as any);
+
+    const output = res.chunks.join("");
+    assert.ok(output.includes(`event: chunk\ndata: {"interaction_id":"${createdInteractions[i]}`));
+    assert.ok(output.includes('"index":0')); // primeira bolha nasce no índice 0
+    assert.ok(output.includes(`"delta":"${texts[i]}"`));
+    assert.ok(output.includes('event: done'));
+  }
+
+  assert.equal(createdInteractions.length, texts.length, "should create one interaction per message");
+  assert.equal(callIndex, texts.length, "orchestrator should run for each message");
 });
