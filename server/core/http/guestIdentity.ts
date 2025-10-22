@@ -6,6 +6,22 @@ import { log } from "../../services/promptContext/logger";
 const COOKIE_NAME = "guest_id";
 export const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+function stripGuestPrefix(value: string): string {
+  if (/^guest_/i.test(value)) {
+    return value.replace(/^guest_/i, "");
+  }
+  return value;
+}
+
+export function normalizeGuestIdentifier(candidate: string | undefined): string | undefined {
+  if (!candidate) return undefined;
+  const trimmed = candidate.trim();
+  if (!trimmed) return undefined;
+  const withoutPrefix = stripGuestPrefix(trimmed);
+  if (!UUID_V4.test(withoutPrefix)) return undefined;
+  return withoutPrefix;
+}
+
 declare global {
   namespace Express {
     interface Request {
@@ -69,14 +85,6 @@ function mirrorGuestId(res: Response, id: string) {
   }
 }
 
-function normalizeGuestId(candidate: string | undefined): string | undefined {
-  if (!candidate) return undefined;
-  const trimmed = candidate.trim();
-  if (!trimmed) return undefined;
-  if (!UUID_V4.test(trimmed)) return undefined;
-  return trimmed;
-}
-
 function normalizeSessionId(candidate: string | undefined): string | undefined {
   if (!candidate) return undefined;
   const trimmed = candidate.trim();
@@ -107,11 +115,11 @@ export function ensureGuestIdentity(req: Request, res: Response, next: NextFunct
     return next();
   }
 
-  const headerCandidate =
-    getHeaderValue(req.headers["x-eco-guest-id"]);
+  const headerCandidate = getHeaderValue(req.headers["x-eco-guest-id"]);
   const cookieCandidate = readGuestIdFromCookies(req);
 
-  let guestId = normalizeGuestId(headerCandidate) ?? normalizeGuestId(cookieCandidate);
+  let guestId =
+    normalizeGuestIdentifier(headerCandidate) ?? normalizeGuestIdentifier(cookieCandidate);
 
   if (!guestId) {
     if (headerCandidate || cookieCandidate) {

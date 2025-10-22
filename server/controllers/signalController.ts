@@ -2,6 +2,7 @@ import type { Request, Response } from "express";
 import { getAnalyticsClient } from "../services/supabaseClient";
 import { log } from "../services/promptContext/logger";
 import { applyCorsResponseHeaders } from "../middleware/cors";
+import { normalizeGuestIdentifier } from "../core/http/guestIdentity";
 
 const logger = log.withContext("signal-controller");
 
@@ -35,6 +36,11 @@ function sanitizeMeta(value: unknown): Record<string, unknown> | undefined {
   }
 }
 
+function normalizeGuestIdValue(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  return normalizeGuestIdentifier(value);
+}
+
 function normalizeBody(body: SignalBody, headers: { guestId?: string; sessionId?: string }): NormalizedSignal {
   const safeType = normalizeString(body.type) ?? "passive";
   const fallbackName = normalizeString(body.signal) ?? "unknown";
@@ -44,8 +50,11 @@ function normalizeBody(body: SignalBody, headers: { guestId?: string; sessionId?
     normalizeString(body.interaction_id) ?? normalizeString((body as any).interactionId);
   const responseId = normalizeString(body.response_id) ?? normalizeString((body as any).responseId);
   const userId = normalizeString(body.user_id) ?? normalizeString((body as any).userId);
-  const guestId =
-    headers.guestId ?? normalizeString(body.guest_id) ?? normalizeString((body as any).guestId);
+  const headerGuestId = normalizeGuestIdValue(headers.guestId);
+  const guestIdCandidate =
+    normalizeGuestIdValue(normalizeString(body.guest_id)) ??
+    normalizeGuestIdValue(normalizeString((body as any).guestId));
+  const guestId = headerGuestId ?? guestIdCandidate;
   const ts = normalizeString(body.ts) ?? new Date().toISOString();
   const meta = sanitizeMeta(body.meta);
 
@@ -68,10 +77,10 @@ function normalizeBody(body: SignalBody, headers: { guestId?: string; sessionId?
     };
   }
 
-  if (headers.guestId && (!normalized.meta || !("guest_id_header" in normalized.meta))) {
+  if (headerGuestId && (!normalized.meta || !("guest_id_header" in normalized.meta))) {
     normalized.meta = {
       ...(normalized.meta ?? {}),
-      guest_id_header: headers.guestId,
+      guest_id_header: headerGuestId,
     };
   }
 
@@ -160,7 +169,6 @@ export async function registrarSignal(req: Request, res: Response) {
       throw error;
     }
   } catch (err) {
-    console.error("[signal] fail", { err, body: normalized });
     const errorMessage =
       err instanceof Error
         ? err.message
@@ -168,7 +176,7 @@ export async function registrarSignal(req: Request, res: Response) {
         ? String((err as { message?: unknown }).message)
         : "unknown_error";
     logger.error("signal.persist_failed", {
-      error: errorMessage,
+      message: errorMessage,
       name: normalized.name,
       type: normalized.type,
       interaction_id: normalized.interaction_id,

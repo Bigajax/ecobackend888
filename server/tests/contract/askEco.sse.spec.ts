@@ -5,10 +5,16 @@ import supertest from "supertest";
 import type { EcoStreamHandler } from "../../services/conversation/types";
 
 const getEcoResponseMock = jest.fn();
+const createInteractionMock = jest.fn(async () => "interaction-123");
 
 jest.mock("../../services/ConversationOrchestrator", () => ({
   __esModule: true,
   getEcoResponse: (...args: unknown[]) => getEcoResponseMock(...args),
+}));
+
+jest.mock("../../services/conversation/interactionAnalytics", () => ({
+  __esModule: true,
+  createInteraction: (...args: unknown[]) => createInteractionMock(...args),
 }));
 
 const capturedSseEvents: Array<{ event: string; data: string }> = [];
@@ -198,6 +204,8 @@ const sessionId = "session-test-123";
 describe("/api/ask-eco SSE contract", () => {
   beforeEach(() => {
     getEcoResponseMock.mockReset();
+    createInteractionMock.mockReset();
+    createInteractionMock.mockResolvedValue("interaction-123");
     capturedSseEvents.length = 0;
   });
 
@@ -276,6 +284,10 @@ describe("/api/ask-eco SSE contract", () => {
     expect(callArgs?.stream).toBeDefined();
 
     const events = parseSse(res.chunks.join(""));
+    expect(capturedSseEvents[0]).toEqual({
+      event: "interaction",
+      data: JSON.stringify({ interaction_id: "interaction-123" }),
+    });
     const sequence = extractEventSequence(events);
     const promptIndex = sequence.indexOf("prompt_ready");
     const firstTokenIndex = sequence.indexOf("first_token");
