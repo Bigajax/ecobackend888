@@ -1483,6 +1483,9 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
       const cleaned = sanitizeOutput(piece);
       const finalText = cleaned || piece.trim();
       if (!finalText) return;
+      if (finalText.trim().toLowerCase() === "ok") {
+        return;
+      }
 
       state.sawChunk = true;
       const chunkIndex = state.chunksCount;
