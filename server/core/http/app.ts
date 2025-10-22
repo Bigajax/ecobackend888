@@ -168,6 +168,7 @@ export function createApp(): Express {
   app.use("/api/relatorio_emocional", relatorioRoutes);
   app.use("/api/v1/relatorio-emocional", relatorioRoutes);
   app.use("/api/feedback", feedbackRoutes);
+  app.use("/api/mensagem", mensagemRoutes);
   app.use("/api/signal", signalRoutes);
   app.use("/api/module-usage", moduleUsageRoutes);
   app.use("/api/bandit", banditRoutes);
