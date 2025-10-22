@@ -3,12 +3,44 @@ import fs from "fs";
 import { ModuleCatalog } from "../domains/prompts/ModuleCatalog";
 import { log } from "../services/promptContext/logger";
 
+const fsp = fs.promises;
+
 function dirIfExists(p: string) {
   try {
-    return fs.statSync(p).isDirectory() ? p : null;
+    const resolved = path.resolve(p);
+    return fs.statSync(resolved).isDirectory() ? resolved : null;
   } catch {
     return null;
   }
+}
+
+async function peekFiles(base: string, limit = 5): Promise<string[]> {
+  const results: string[] = [];
+
+  async function walk(current: string, relative = ""): Promise<void> {
+    if (results.length >= limit) return;
+    const entries = await fsp.readdir(current, { withFileTypes: true });
+    entries.sort((a, b) => a.name.localeCompare(b.name));
+    for (const entry of entries) {
+      const rel = relative ? path.posix.join(relative, entry.name) : entry.name;
+      if (entry.isDirectory()) {
+        await walk(path.join(current, entry.name), rel);
+        if (results.length >= limit) break;
+      } else {
+        results.push(rel);
+        if (results.length >= limit) break;
+      }
+    }
+  }
+
+  try {
+    await walk(base);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return [`<error: ${message}>`];
+  }
+
+  return results.slice(0, limit);
 }
 
 /**
@@ -27,44 +59,37 @@ export async function configureModuleStore() {
     .filter(Boolean)
     .map((p) => (path.isAbsolute(p) ? p : path.join(CWD, p)))
     .map(dirIfExists)
-    .filter(Boolean) as string[];
+    .filter((p): p is string => Boolean(p));
 
-  // 2) DEV: suportar tanto server/assets quanto assets (raiz)
-  const devRootsServer = [
-    path.join(CWD, "server", "assets", "modulos_core"),
-    path.join(CWD, "server", "assets", "modulos_cognitivos"),
-    path.join(CWD, "server", "assets", "modulos_emocionais"),
-    path.join(CWD, "server", "assets", "modulos_extras"),
-    path.join(CWD, "server", "assets", "modulos_filosoficos"),
-  ].map(dirIfExists).filter(Boolean) as string[];
+  const canonicalCandidates = [
+    path.join(CWD, "dist", "assets"),
+    path.join(CWD, "server", "assets"),
+    path.join(CWD, "assets"),
+  ].map(dirIfExists);
 
-  const devRootsRoot = [
-    path.join(CWD, "assets", "modulos_core"),
-    path.join(CWD, "assets", "modulos_cognitivos"),
-    path.join(CWD, "assets", "modulos_emocionais"),
-    path.join(CWD, "assets", "modulos_extras"),
-    path.join(CWD, "assets", "modulos_filosoficos"),
-  ].map(dirIfExists).filter(Boolean) as string[];
-
-  // 3) PROD: o script copy:assets envia para dist/assets/...
-  const distRoots = [
-    path.join(CWD, "dist", "assets", "modulos_core"),
-    path.join(CWD, "dist", "assets", "modulos_cognitivos"),
-    path.join(CWD, "dist", "assets", "modulos_emocionais"),
-    path.join(CWD, "dist", "assets", "modulos_extras"),
-    path.join(CWD, "dist", "assets", "modulos_filosoficos"),
-  ].map(dirIfExists).filter(Boolean) as string[];
-
-  // Prioridade: env → dist → dev(server) → dev(root)
-  const roots = [...envRoots, ...distRoots, ...devRootsServer, ...devRootsRoot];
+  const ordered = [...envRoots, ...canonicalCandidates];
+  const seen = new Set<string>();
+  const roots = ordered
+    .filter((p): p is string => Boolean(p))
+    .filter((p) => {
+      const key = path.resolve(p);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
 
   ModuleCatalog.configure(roots);
   await ModuleCatalog.buildFileIndexOnce();
 
+  const stats = ModuleCatalog.stats();
+  const peekByRoot = await Promise.all(
+    roots.map(async (root) => ({ root, sample: await peekFiles(root, 5) }))
+  );
+
   log.info("[ModuleStore.bootstrap] configurado", {
     roots,
-    // mostra até 10 itens só pra sinalizar que indexou
-    indexedPeek: ModuleCatalog.listIndexed(10),
+    filesIndexed: stats.indexedCount,
+    peekByRoot,
   });
 
   if (roots.length === 0) {

@@ -106,7 +106,7 @@ test("GET /api/health responde payload esperado com headers CORS", async () => {
       headers: { Origin: "https://ecofrontend888.vercel.app" },
     });
 
-    assert.equal(response.status, 200, "deve responder 200");
+    assert.equal(response.status, 503, "deve responder 503 quando prompts indisponíveis");
     assert.equal(
       response.headers.get("access-control-allow-origin"),
       "https://ecofrontend888.vercel.app",
@@ -124,16 +124,15 @@ test("GET /api/health responde payload esperado com headers CORS", async () => {
     );
 
     const payload = (await response.json()) as Record<string, unknown>;
-    assert.deepEqual(
-      Object.keys(payload).sort(),
-      ["ok", "service", "ts"],
-      "payload deve conter campos esperados",
+    assert.equal(payload.ok, false, "ok deve ser false quando prompts ausentes");
+    assert.equal(
+      payload.reason,
+      "ECO_PROMPT_NOT_LOADED",
+      "reason deve sinalizar falta de prompts",
     );
-    const typedPayload = payload as { ok: boolean; service: string; ts: string };
-    assert.equal(typedPayload.ok, true, "ok deve ser true");
-    assert.equal(typedPayload.service, "eco-backend", "service deve ser eco-backend");
-    const parsedTs = Date.parse(typedPayload.ts);
-    assert.ok(Number.isFinite(parsedTs), "ts deve ser ISO date válido");
+    assert.equal(payload.prompts, "unknown", "estado inicial deve ser unknown");
+    assert.equal(payload.modulesIndexed, 0, "nenhum módulo deve estar indexado por padrão");
+    assert.deepEqual(payload.roots, [], "roots deve iniciar vazio");
   } finally {
     await closeServer(server);
   }
