@@ -21,7 +21,7 @@ import { ModuleCatalog } from "../../domains/prompts/ModuleCatalog";
 import { ensureGuestIdentity } from "./guestIdentity";
 import { getEcoPromptStatus } from "../../services/promptContext/identityModules";
 
-import promptRoutes, { askEcoRoutes } from "../../routes/promptRoutes";
+import promptRoutes from "../../routes/promptRoutes";
 import profileRoutes from "../../routes/perfilEmocionalRoutes";
 import voiceTTSRoutes from "../../routes/voiceTTSRoutes";
 import voiceFullRoutes from "../../routes/voiceFullRoutes";
@@ -188,7 +188,6 @@ export function createApp(): Express {
   });
 
   // 7) Rotas (prefixo /api) — /api/ask-eco (SSE) vive em promptRoutes
-  app.use("/api/ask-eco", askEcoRoutes);
   app.use("/api", promptRoutes);
   app.use("/api/memorias", memoryRoutes);
   app.use("/api/memories", memoryRoutes);

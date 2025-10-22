@@ -338,6 +338,19 @@ export class StreamSession {
 
   private handleChunk(content: string, index?: number) {
     if (!content) return;
+    const expectedIndex = this.lastChunkIndex + 1;
+    const hasExplicitIndex = typeof index === "number" && Number.isFinite(index);
+    const resolvedIndex = hasExplicitIndex ? (index as number) : expectedIndex;
+
+    if (hasExplicitIndex && resolvedIndex !== expectedIndex) {
+      log.warn("[ask-eco] chunk_index_out_of_order", {
+        expected: expectedIndex,
+        received: resolvedIndex,
+        clientIndex: index,
+      });
+      return;
+    }
+
     if (!this.firstChunkLogged) {
       this.firstChunkLogged = true;
       const at = now();
@@ -345,8 +358,6 @@ export class StreamSession {
     }
     this.aggregatedText += content;
     this.chunkReceived = true;
-    const resolvedIndex =
-      typeof index === "number" && Number.isFinite(index) ? index : this.lastChunkIndex + 1;
     this.lastChunkIndex = resolvedIndex;
     this.clearTimeoutGuard();
     this.dispatchEvent({ type: "chunk", delta: content, index: resolvedIndex });
