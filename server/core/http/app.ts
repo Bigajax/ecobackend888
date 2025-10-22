@@ -32,6 +32,7 @@ import moduleUsageRoutes from "../../routes/moduleUsageRoutes";
 import banditRoutes from "../../routes/banditRoutes";
 import policyRoutes from "../../routes/policyRoutes";
 import memoryRoutes from "../../domains/memory/routes";
+import mensagemRoutes from "../../routes/mensagemRoutes";
 import { log } from "../../services/promptContext/logger";
 import { isSupabaseConfigured } from "../../lib/supabaseAdmin";
 import { guestSessionMiddleware } from "./middlewares/guestSession";
@@ -163,6 +164,7 @@ export function createApp(): Express {
   app.use("/api/relatorio_emocional", relatorioRoutes);
   app.use("/api/v1/relatorio-emocional", relatorioRoutes);
   app.use("/api/feedback", feedbackRoutes);
+  app.use("/api/mensagem", mensagemRoutes);
   app.use("/api/signal", signalRoutes);
   app.use("/api/module-usage", moduleUsageRoutes);
   app.use("/api/bandit", banditRoutes);
