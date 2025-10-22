@@ -39,21 +39,22 @@ type EcoServerEvent =
   | { type: "error"; message?: string; error?: { message?: string } | string }
   | EcoLatencyEvent
   | { type: "control"; name: string; timings?: EcoLatencyTimings; meta?: Record<string, unknown>; attempt?: number }
-  | Record<string, unknown>;
+  | Record<string, unknown>
+  | string;
 
-function normalizeServerEvent(event: EcoServerEvent, rawEventName?: string): EcoClientEvent[] {
+export function normalizeServerEvent(event: EcoServerEvent, rawEventName?: string): EcoClientEvent[] {
   const sanitizeChunkText = (value: unknown): string | null => {
     if (typeof value !== "string") {
       return null;
     }
-    const text = value.trim();
-    if (!text) {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return value.length > 0 ? value : null;
+    }
+    if (trimmed === "__prompt_ready__" || trimmed === "prompt_ready") {
       return null;
     }
-    if (text === "__prompt_ready__" || text === "prompt_ready") {
-      return null;
-    }
-    return text;
+    return value;
   };
 
   const coerceNumber = (value: unknown): number | undefined => {
