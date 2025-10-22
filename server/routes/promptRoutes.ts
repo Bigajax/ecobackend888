@@ -853,7 +853,7 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
       Number.isFinite(streamTimeoutMs) && streamTimeoutMs > 0 ? streamTimeoutMs : 120_000;
 
     const sse = createSSE(res, req, {
-      heartbeatMs: 15_000,
+      heartbeatMs: 25_000,
       idleMs: idleTimeoutMs,
       onIdle: handleStreamTimeout,
     });

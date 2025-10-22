@@ -7,7 +7,7 @@ import type {
 } from "../../services/ConversationOrchestrator";
 import { log } from "../../services/promptContext/logger";
 import { now } from "../../utils";
-export const HEARTBEAT_INTERVAL_MS = 15_000;
+export const HEARTBEAT_INTERVAL_MS = 25_000;
 export const STREAM_TIMEOUT_GUARD_MS = 5_000;
 export const STREAM_TIMEOUT_MESSAGE =
   "Desculpe, não consegui enviar uma resposta a tempo. Pode tentar novamente em instantes?";
@@ -232,6 +232,12 @@ export class StreamSession {
     this.stopHeartbeat();
     this.clearTimeoutGuard();
     if (this.respondAsStream) {
+      try {
+        this.res.write(`event: done\ndata: ok\n\n`);
+        this.res.flush?.();
+      } catch {
+        // ignore failures writing the closing frame
+      }
       this.res.end();
     }
   }
@@ -366,7 +372,7 @@ export class StreamSession {
 
   private sendHeartbeat() {
     if (!this.respondAsStream || this.streamClosed || !this.sseStarted) return;
-    this.res.write(`:keepalive\n\n`);
+    this.res.write(`:\n\n`);
     this.res.flush?.();
   }
 

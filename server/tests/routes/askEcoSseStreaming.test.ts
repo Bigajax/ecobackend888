@@ -1,7 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
-import { STREAM_TIMEOUT_MESSAGE } from "../../routes/askEco/streaming";
+import {
+  STREAM_TIMEOUT_MESSAGE,
+  StreamSession,
+  HEARTBEAT_INTERVAL_MS,
+} from "../../routes/askEco/streaming";
 
 const Module = require("node:module");
 
@@ -192,8 +196,14 @@ test("SSE streaming emits tokens, done and disables compression", async () => {
   assert.ok(res.flushed, "safeWrite should flush chunks for SSE");
 
   const output = res.chunks.join("");
-  const pingCount = (output.match(/event: ping/g) ?? []).length;
-  assert.ok(pingCount >= 1, "should emit at least one ping event");
+  const finalChunk = res.chunks[res.chunks.length - 1];
+  assert.equal(
+    finalChunk,
+    "event: done\\ndata: ok\\n\\n",
+    "should append explicit done event before closing"
+  );
+  assert.ok(!output.includes("event: ping"), "should no longer emit ping events");
+  assert.ok(!output.includes(":keepalive"), "heartbeat comment should omit legacy keepalive tag");
   const tokenCount = (output.match(/event: token/g) ?? []).length;
   assert.ok(tokenCount >= 2, "should emit streamed token events");
   assert.ok(!output.includes("__prompt_ready__"), "should not emit synthetic prompt_ready token");
@@ -282,5 +292,78 @@ test("SSE streaming triggers timeout fallback when orchestrator stalls", async (
     } else {
       process.env.ECO_SSE_TIMEOUT_MS = previousTimeout;
     }
+  }
+});
+
+test("StreamSession heartbeats use comments and close with done event", async () => {
+  assert.ok(
+    HEARTBEAT_INTERVAL_MS >= 20_000 && HEARTBEAT_INTERVAL_MS <= 30_000,
+    "heartbeat interval should fall within 20-30 seconds"
+  );
+
+  const req = new EventEmitter();
+  const res = new MockResponse();
+  const tracer = {
+    markPromptReady: () => {},
+    markFirstToken: () => {},
+    markTotal: () => {},
+    addError: () => {},
+    snapshot: () => ({}),
+  } as any;
+
+  let capturedInterval: number | null = null;
+  let heartbeatCallback: (() => void) | null = null;
+  const originalSetInterval = global.setInterval;
+  const originalClearInterval = global.clearInterval;
+
+  try {
+    (global as any).setInterval = ((fn: () => void, ms: number) => {
+      capturedInterval = ms;
+      heartbeatCallback = fn;
+      return { ref: Symbol("interval") } as unknown as NodeJS.Timeout;
+    }) as typeof setInterval;
+    (global as any).clearInterval = () => {};
+
+    const session = new StreamSession({
+      req: req as any,
+      res: res as any,
+      respondAsStream: true,
+      activationTracer: tracer,
+      startTime: 0,
+      debugRequested: false,
+    });
+
+    session.initialize(false);
+
+    assert.equal(
+      capturedInterval,
+      HEARTBEAT_INTERVAL_MS,
+      "should schedule heartbeat using configured interval"
+    );
+    assert.ok(heartbeatCallback, "should capture heartbeat callback");
+
+    heartbeatCallback?.();
+    assert.ok(
+      res.chunks.includes(":\n\n"),
+      "heartbeat callback should write SSE comment"
+    );
+
+    session.end();
+    assert.equal(
+      res.chunks[res.chunks.length - 1],
+      "event: done\ndata: ok\n\n",
+      "StreamSession should append explicit done event on end"
+    );
+
+    const chunksAfterEnd = res.chunks.length;
+    heartbeatCallback?.();
+    assert.equal(
+      res.chunks.length,
+      chunksAfterEnd,
+      "heartbeat callback should be ignored after end"
+    );
+  } finally {
+    global.setInterval = originalSetInterval;
+    global.clearInterval = originalClearInterval;
   }
 });
