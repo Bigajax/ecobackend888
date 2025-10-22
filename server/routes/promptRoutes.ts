@@ -92,6 +92,75 @@ const activeStreamSessions = new Map<
   { controller: AbortController; interactionId: string }
 >();
 
+type ActiveInteractionState = {
+  controller: AbortController;
+  startedAt: number;
+};
+
+const ACTIVE_INTERACTION_TTL_MS = parseDurationEnv(
+  process.env.ECO_ACTIVE_INTERACTION_TTL_MS,
+  10 * 60 * 1000
+);
+
+const activeInteractions = new Map<string, ActiveInteractionState>();
+
+function pruneActiveInteractions(now: number = Date.now()): void {
+  for (const [key, entry] of activeInteractions.entries()) {
+    const isExpired = entry.startedAt + ACTIVE_INTERACTION_TTL_MS <= now;
+    if (isExpired || entry.controller.signal.aborted) {
+      activeInteractions.delete(key);
+    }
+  }
+}
+
+function reserveActiveInteraction(
+  key: string,
+  controller: AbortController
+): boolean {
+  const normalized = key.trim();
+  if (!normalized) {
+    return true;
+  }
+  pruneActiveInteractions();
+  const existing = activeInteractions.get(normalized);
+  if (existing) {
+    if (existing.controller === controller) {
+      return true;
+    }
+    if (existing.controller.signal.aborted) {
+      activeInteractions.delete(normalized);
+    } else {
+      return false;
+    }
+  }
+  activeInteractions.set(normalized, {
+    controller,
+    startedAt: Date.now(),
+  });
+  return true;
+}
+
+function releaseActiveInteraction(
+  key: string,
+  controller: AbortController
+): void {
+  const normalized = key.trim();
+  if (!normalized) {
+    return;
+  }
+  const existing = activeInteractions.get(normalized);
+  if (!existing) {
+    return;
+  }
+  if (existing.controller === controller) {
+    activeInteractions.delete(normalized);
+  }
+}
+
+function buildActiveInteractionKey(type: "client" | "interaction", value: string): string {
+  return `${type}:${value.trim()}`;
+}
+
 type ClientMessageState = {
   status: "active" | "completed";
   expiresAt: number;
@@ -844,6 +913,27 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
     const abortController = new AbortController();
     const abortSignal = abortController.signal;
 
+    const activeInteractionKeys = new Set<string>();
+
+    const registerActiveInteractionKey = (key: string | null | undefined): boolean => {
+      if (!key) return true;
+      const trimmed = key.trim();
+      if (!trimmed) return true;
+      const ok = reserveActiveInteraction(trimmed, abortController);
+      if (ok) {
+        activeInteractionKeys.add(trimmed);
+      }
+      return ok;
+    };
+
+    const releaseActiveInteractionKeys = () => {
+      if (!activeInteractionKeys.size) return;
+      for (const key of activeInteractionKeys) {
+        releaseActiveInteraction(key, abortController);
+      }
+      activeInteractionKeys.clear();
+    };
+
     const streamContextKey = (() => {
       if (typeof streamId === "string" && streamId.trim()) {
         return `stream:${streamId.trim()}`;
@@ -855,6 +945,7 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
     })();
 
     const releaseActiveStream = () => {
+      releaseActiveInteractionKeys();
       if (!streamContextKey) return;
       const current = activeStreamSessions.get(streamContextKey);
       if (current && current.controller === abortController) {
@@ -879,6 +970,27 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
       });
     }
 
+    if (clientMessageKey) {
+      const activeKey = buildActiveInteractionKey("client", clientMessageKey);
+      if (!registerActiveInteractionKey(activeKey)) {
+        log.warn("[ask-eco] active_interaction_conflict", {
+          clientMessageId: clientMessageId ?? null,
+          identity: identityKey ?? null,
+          origin: origin ?? null,
+        });
+        if (clientMessageReserved) {
+          releaseClientMessage(clientMessageKey);
+          clientMessageReserved = false;
+        }
+        releaseActiveInteractionKeys();
+        return res.status(409).json({
+          ok: false,
+          code: "STREAM_ALREADY_ACTIVE",
+          error: "Já existe uma interação ativa para esta mensagem.",
+        });
+      }
+    }
+
     const telemetryClient = (() => {
       const client = getSupabaseAdmin();
       if (!client) return null;
@@ -892,6 +1004,10 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
     const fallbackInteractionId = randomUUID();
     (params as any).interactionId = fallbackInteractionId;
     (params as any).abortSignal = abortSignal;
+
+    registerActiveInteractionKey(
+      buildActiveInteractionKey("interaction", fallbackInteractionId)
+    );
 
     const pendingSignals: Array<{ signal: string; meta: Record<string, unknown> }> = [];
     let resolvedInteractionId: string = fallbackInteractionId;
@@ -994,6 +1110,14 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
       resolvedInteractionId = trimmed;
       interactionIdReady = true;
       updateActiveStreamInteractionId(trimmed);
+      const interactionKey = buildActiveInteractionKey("interaction", trimmed);
+      if (!registerActiveInteractionKey(interactionKey)) {
+        log.warn("[ask-eco] active_interaction_conflict", {
+          interactionId: trimmed,
+          clientMessageId: clientMessageId ?? null,
+          origin: origin ?? null,
+        });
+      }
       flushPendingSignals();
     };
 
@@ -1263,6 +1387,15 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
         bytes: state.bytesCount,
         durationMs: totalLatency,
         summary: donePayload,
+      });
+
+      log.info("[ask-eco] stream_finalize", {
+        origin: origin ?? null,
+        interaction_id: resolvedInteractionId ?? null,
+        clientMessageId: clientMessageId ?? null,
+        stream_aborted: abortSignal.aborted,
+        final_chunk_sent: state.sawChunk,
+        finishReason,
       });
 
       finalizeClientMessageReservation(finishReason);
