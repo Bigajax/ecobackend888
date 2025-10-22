@@ -48,6 +48,7 @@ export function prepareSseHeaders(
   res.setHeader("Cache-Control", "no-cache, no-transform");
   res.setHeader("Connection", "keep-alive");
   res.setHeader("X-Accel-Buffering", "no");
+  res.setHeader("Transfer-Encoding", "chunked");
 
   if (flush) {
     (res as any).flushHeaders?.();
@@ -99,6 +100,9 @@ export function createSSE(
   }
   if (!res.hasHeader("X-Accel-Buffering")) {
     res.setHeader("X-Accel-Buffering", "no");
+  }
+  if (!res.hasHeader("Transfer-Encoding")) {
+    res.setHeader("Transfer-Encoding", "chunked");
   }
 
   (res as any).flushHeaders?.();

@@ -87,6 +87,11 @@ function buildDonePayload(options: {
 const router = Router();
 const askEcoRouter = Router();
 
+const activeStreamSessions = new Map<
+  string,
+  { controller: AbortController; interactionId: string }
+>();
+
 export { askEcoRouter as askEcoRoutes };
 
 const REQUIRE_GUEST_ID =
@@ -109,9 +114,15 @@ type RequestWithIdentity = Request & {
 };
 
 function disableCompressionForSse(response: Response) {
-  response.setHeader("Content-Encoding", "identity");
+  if (typeof (response as any).removeHeader === "function") {
+    (response as any).removeHeader("Content-Encoding");
+    (response as any).removeHeader("Content-Length");
+  } else {
+    response.setHeader("Content-Encoding", "");
+    response.removeHeader("Content-Encoding");
+    response.removeHeader("Content-Length");
+  }
   response.setHeader("X-No-Compression", "1");
-  (response as any).removeHeader?.("Content-Length");
 }
 
 function ensureVaryIncludes(response: Response, value: string) {
@@ -686,6 +697,44 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
       streamId: streamId ?? null,
     });
 
+    const abortController = new AbortController();
+    const abortSignal = abortController.signal;
+
+    const streamContextKey = (() => {
+      if (typeof streamId === "string" && streamId.trim()) {
+        return `stream:${streamId.trim()}`;
+      }
+      if (typeof sessionId === "string" && sessionId.trim()) {
+        return `session:${sessionId.trim()}`;
+      }
+      return null;
+    })();
+
+    const releaseActiveStream = () => {
+      if (!streamContextKey) return;
+      const current = activeStreamSessions.get(streamContextKey);
+      if (current && current.controller === abortController) {
+        activeStreamSessions.delete(streamContextKey);
+      }
+    };
+
+    if (streamContextKey) {
+      const existing = activeStreamSessions.get(streamContextKey);
+      if (existing) {
+        try {
+          existing.controller.abort(new Error("superseded_stream"));
+        } catch (error) {
+          log.warn("[ask-eco] prior_stream_abort_failed", {
+            message: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+      activeStreamSessions.set(streamContextKey, {
+        controller: abortController,
+        interactionId: "",
+      });
+    }
+
     const telemetryClient = (() => {
       const client = getSupabaseAdmin();
       if (!client) return null;
@@ -696,8 +745,24 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
       }
     })();
 
-    let resolvedInteractionId: string | null = null;
+    const fallbackInteractionId = randomUUID();
+    (params as any).interactionId = fallbackInteractionId;
+    (params as any).abortSignal = abortSignal;
+
     const pendingSignals: Array<{ signal: string; meta: Record<string, unknown> }> = [];
+    let resolvedInteractionId = fallbackInteractionId;
+    let interactionIdReady = false;
+
+    const updateActiveStreamInteractionId = (interactionId: string) => {
+      if (!streamContextKey) return;
+      const current = activeStreamSessions.get(streamContextKey);
+      if (current && current.controller === abortController) {
+        activeStreamSessions.set(streamContextKey, {
+          controller: abortController,
+          interactionId,
+        });
+      }
+    };
 
 
     const compactMeta = (meta: Record<string, unknown>): Record<string, unknown> => {
@@ -742,11 +807,11 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
         });
     };
 
-    const flushPendingSignals = (interactionId: string) => {
-      if (!interactionId || !pendingSignals.length) return;
+    const flushPendingSignals = () => {
+      if (!interactionIdReady || !pendingSignals.length) return;
       const queued = pendingSignals.splice(0, pendingSignals.length);
       for (const item of queued) {
-        sendSignalRow(interactionId, item.signal, item.meta);
+        sendSignalRow(resolvedInteractionId, item.signal, item.meta);
       }
     };
 
@@ -754,17 +819,19 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
       if (typeof value !== "string") return;
       const trimmed = value.trim();
       if (!trimmed) return;
-      if (resolvedInteractionId && resolvedInteractionId !== trimmed) {
+      if (interactionIdReady) {
+        if (resolvedInteractionId !== trimmed) {
         log.warn("[ask-eco] interaction_id_mismatch", {
           current: resolvedInteractionId,
           incoming: trimmed,
         });
+        }
         return;
       }
-      if (!resolvedInteractionId) {
-        resolvedInteractionId = trimmed;
-        flushPendingSignals(trimmed);
-      }
+      resolvedInteractionId = trimmed;
+      interactionIdReady = true;
+      updateActiveStreamInteractionId(trimmed);
+      flushPendingSignals();
     };
 
     const enqueuePassiveSignal = (
@@ -791,7 +858,7 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
         serializedMeta = {};
       }
 
-      if (resolvedInteractionId) {
+      if (interactionIdReady) {
         sendSignalRow(resolvedInteractionId, signal, serializedMeta);
         return;
       }
@@ -901,9 +968,10 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
     }
 
     if (initialInteractionId && typeof initialInteractionId === "string") {
-      resolvedInteractionId = initialInteractionId.trim();
+      captureInteractionId(initialInteractionId);
       (params as any).interactionId = resolvedInteractionId;
-      flushPendingSignals(resolvedInteractionId);
+    } else {
+      captureInteractionId(resolvedInteractionId);
     }
 
     const sse = createSSE(res, req, {
@@ -918,7 +986,7 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
     });
 
     const interactionEventPayload: Record<string, unknown> = {
-      interaction_id: resolvedInteractionId ?? initialInteractionId ?? null,
+      interaction_id: resolvedInteractionId,
     };
     sse.send("interaction", interactionEventPayload);
 
@@ -933,6 +1001,8 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
       );
     };
 
+    let abortListener: (() => void) | null = null;
+
     function sendMeta(obj: Record<string, unknown>) {
       state.metaPayload = { ...state.metaPayload, ...obj };
       sse.send("meta", obj);
@@ -945,10 +1015,6 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
 
     function sendLatency(payload: Record<string, unknown>) {
       sse.send("latency", payload);
-    }
-
-    function sendToken(text: string) {
-      sse.send("token", { text });
     }
 
     function sendErrorEvent(payload: Record<string, unknown>) {
@@ -1074,6 +1140,12 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
         })
       );
 
+      if (abortListener) {
+        abortSignal.removeEventListener("abort", abortListener);
+        abortListener = null;
+      }
+      releaseActiveStream();
+
       sse.end();
     }
 
@@ -1102,23 +1174,60 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
       if (!state.firstSent) {
         state.firstSent = true;
         state.firstTokenAt = now;
-        sse.send("first_token", { delta: finalText });
         sendMeta({ type: "first_token_latency_ms", value: state.firstTokenAt - state.t0 });
         recordFirstTokenTelemetry(chunkBytes);
       }
 
-      sse.send("chunk", { delta: finalText, index: chunkIndex });
+      const chunkPayload = {
+        interaction_id: resolvedInteractionId,
+        index: chunkIndex,
+        delta: finalText,
+      };
+      sse.send("chunk", chunkPayload);
 
       state.chunksCount = chunkIndex + 1;
       state.contentPieces.push(finalText);
-
-      sendToken(finalText);
     }
 
     const promptReadyMeta: Record<string, unknown> = { stream: true };
     if (resolvedInteractionId) {
       promptReadyMeta.interaction_id = resolvedInteractionId;
     }
+    abortListener = () => {
+      if (state.done) {
+        if (abortListener) {
+          abortSignal.removeEventListener("abort", abortListener);
+          abortListener = null;
+        }
+        releaseActiveStream();
+        return;
+      }
+      const reasonValue = abortSignal.reason;
+      const finishReason = (() => {
+        if (typeof reasonValue === "string" && reasonValue.trim()) {
+          return reasonValue.trim();
+        }
+        if (reasonValue instanceof Error) {
+          const message = reasonValue.message?.trim();
+          if (message) return message;
+          return reasonValue.name || "aborted";
+        }
+        return "aborted";
+      })();
+      if (finishReason === "client_closed") {
+        log.info("[ask-eco] sse_client_closed", {
+          origin,
+        });
+      } else if (finishReason === "superseded_stream") {
+        log.info("[ask-eco] sse_stream_replaced", {
+          origin: origin ?? null,
+          streamId: streamId ?? null,
+        });
+      }
+      state.clientClosed = state.clientClosed || finishReason === "client_closed";
+      sendDone(finishReason || "aborted");
+    };
+    abortSignal.addEventListener("abort", abortListener);
     sse.sendControl("prompt_ready", promptReadyMeta);
     enqueuePassiveSignal("prompt_ready", 1, {
       stream: true,
@@ -1128,21 +1237,8 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
     req.on("close", () => {
       if (state.clientClosed) return;
       state.clientClosed = true;
-      if (!state.done) {
-        log.info("[ask-eco] sse_client_closed", {
-          origin,
-        });
-        state.finishReason = state.finishReason || "client_closed";
-        state.done = true;
-        log.info("[ask-eco] stream_end", {
-          finishReason: state.finishReason,
-          chunks: state.chunksCount,
-          bytes: state.bytesCount,
-          clientClosed: state.clientClosed,
-          origin: origin ?? null,
-        });
-        consoleStreamEnd({ clientClosed: true });
-        sse.end();
+      if (!abortSignal.aborted) {
+        abortController.abort(new Error("client_closed"));
       }
     });
 
@@ -1182,7 +1278,13 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
           }
           return;
         }
-        case "first_token":
+        case "first_token": {
+          const text = extractEventText(evt);
+          if (typeof text === "string" && text && state.chunksCount === 0) {
+            sendChunk(text);
+          }
+          return;
+        }
         case "chunk":
         case "delta":
         case "token": {
@@ -1263,8 +1365,25 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
         }
       }
     } catch (error) {
-      if (isHttpError(error)) {
+      if (abortSignal.aborted) {
+        const reasonValue = abortSignal.reason;
+        const reasonMessage = (() => {
+          if (typeof reasonValue === "string" && reasonValue.trim()) {
+            return reasonValue.trim();
+          }
+          if (reasonValue instanceof Error) {
+            return reasonValue.message?.trim() || reasonValue.name || "aborted";
+          }
+          return "aborted";
+        })();
+        log.info("[ask-eco] stream_aborted", {
+          origin: origin ?? null,
+          reason: reasonMessage,
+        });
+        sendDone(reasonMessage || "aborted");
+      } else if (isHttpError(error)) {
         sendErrorEvent({ ...error.body, status: error.status });
+        sendDone("error");
       } else {
         const traceId = randomUUID();
         log.error("[ask-eco] sse_unexpected", {
@@ -1272,10 +1391,15 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
           message: (error as Error)?.message,
         });
         sendErrorEvent({ code: "INTERNAL_ERROR", trace_id: traceId });
+        sendDone("error");
       }
-      sendDone("error");
     } finally {
       if (!state.done) {
+        if (abortListener) {
+          abortSignal.removeEventListener("abort", abortListener);
+          abortListener = null;
+        }
+        releaseActiveStream();
         sse.end();
       }
     }

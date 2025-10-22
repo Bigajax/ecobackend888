@@ -110,7 +110,34 @@ export async function claudeChatCompletion({
 
     const timeoutMs = resolveTimeoutMs();
     const controller = new AbortController();
-    const timeoutHandle: NodeJS.Timeout = setTimeout(() => controller.abort(), timeoutMs);
+    const timeoutReason = new ClaudeTimeoutError(timeoutMs);
+    const timeoutHandle: NodeJS.Timeout = setTimeout(
+      () => controller.abort(timeoutReason),
+      timeoutMs
+    );
+    let externalAbortListener: (() => void) | null = null;
+    if (externalSignal) {
+      const abortFromExternal = () => {
+        const reason =
+          externalSignal.reason ??
+          (() => {
+            const error = new Error("stream_aborted");
+            error.name = "AbortError";
+            return error;
+          })();
+        if (reason instanceof Error) {
+          controller.abort(reason);
+        } else {
+          controller.abort(new Error(String(reason)));
+        }
+      };
+      if (externalSignal.aborted) {
+        abortFromExternal();
+      } else {
+        externalAbortListener = abortFromExternal;
+        externalSignal.addEventListener("abort", externalAbortListener);
+      }
+    }
 
     try {
       const resp = await fetch("https://openrouter.ai/api/v1/chat/completions", {
@@ -183,7 +210,8 @@ export async function streamClaudeChatCompletion(
     temperature?: number;
     maxTokens?: number;
   },
-  callbacks: ClaudeStreamCallbacks
+  callbacks: ClaudeStreamCallbacks,
+  options: { signal?: AbortSignal } = {}
 ): Promise<void> {
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) {
@@ -203,6 +231,8 @@ export async function streamClaudeChatCompletion(
     "X-Title": "Eco App - ClaudeAdapter",
   };
 
+  const { signal: externalSignal } = options;
+
   const attemptStream = async (modelToUse: string, emitErrorEvents: boolean): Promise<void> => {
     const payload = {
       model: modelToUse,
@@ -217,7 +247,34 @@ export async function streamClaudeChatCompletion(
 
     const timeoutMs = resolveTimeoutMs();
     const controller = new AbortController();
-    const timeoutHandle: NodeJS.Timeout = setTimeout(() => controller.abort(), timeoutMs);
+    const timeoutReason = new ClaudeTimeoutError(timeoutMs);
+    const timeoutHandle: NodeJS.Timeout = setTimeout(
+      () => controller.abort(timeoutReason),
+      timeoutMs
+    );
+    let externalAbortListener: (() => void) | null = null;
+    if (externalSignal) {
+      const abortFromExternal = () => {
+        const reason =
+          externalSignal.reason ??
+          (() => {
+            const error = new Error("stream_aborted");
+            error.name = "AbortError";
+            return error;
+          })();
+        if (reason instanceof Error) {
+          controller.abort(reason);
+        } else {
+          controller.abort(new Error(String(reason)));
+        }
+      };
+      if (externalSignal.aborted) {
+        abortFromExternal();
+      } else {
+        externalAbortListener = abortFromExternal;
+        externalSignal.addEventListener("abort", externalAbortListener);
+      }
+    }
 
     try {
       const request = async () =>
@@ -234,7 +291,16 @@ export async function streamClaudeChatCompletion(
         resp = await request();
       } catch (error) {
         if ((error as Error)?.name === "AbortError") {
-          throw new ClaudeTimeoutError(timeoutMs);
+          const reason = controller.signal.reason;
+          if (reason instanceof Error) {
+            throw reason;
+          }
+          if (typeof reason === "string" && reason.trim()) {
+            const err = new Error(reason.trim());
+            err.name = "AbortError";
+            throw err;
+          }
+          throw timeoutReason;
         }
         throw error;
       }
@@ -413,6 +479,18 @@ export async function streamClaudeChatCompletion(
         buffer += decoder.decode(new Uint8Array(), { stream: false });
         await flushBuffer(true);
       } catch (error) {
+        if ((error as Error)?.name === "AbortError") {
+          const reason = controller.signal.reason;
+          if (reason instanceof Error) {
+            throw reason;
+          }
+          if (typeof reason === "string" && reason.trim()) {
+            const err = new Error(reason.trim());
+            err.name = "AbortError";
+            throw err;
+          }
+          throw timeoutReason;
+        }
         const err = error instanceof Error ? error : new Error(String(error));
         if (emitErrorEvents || deliveredAnyEvents) {
           await callbacks.onError?.(err);
@@ -430,6 +508,9 @@ export async function streamClaudeChatCompletion(
         });
       }
     } finally {
+      if (externalAbortListener) {
+        externalSignal?.removeEventListener("abort", externalAbortListener);
+      }
       clearTimeout(timeoutHandle);
     }
   };

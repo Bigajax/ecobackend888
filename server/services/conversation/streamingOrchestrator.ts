@@ -77,6 +77,7 @@ interface StreamingExecutionParams {
     similarity?: number | null;
     diasDesde?: number | null;
   };
+  abortSignal?: AbortSignal;
 }
 
 export async function executeStreamingLLM({
@@ -104,6 +105,7 @@ export async function executeStreamingLLM({
   contextFlags,
   contextMeta,
   continuity,
+  abortSignal,
 }: StreamingExecutionParams): Promise<EcoStreamingResult> {
   const supabaseClient = supabase ?? null;
   const resolvedPromptHash =
@@ -129,10 +131,9 @@ export async function executeStreamingLLM({
 
   const emitStream = async (event: EcoStreamEvent) => {
     const payloadForLog: Record<string, unknown> = { type: event.type };
-    if (event.type === "chunk" || event.type === "first_token") {
-      const delta = event.type === "chunk" ? event.delta : event.delta;
-      payloadForLog.delta = summarizeDelta(delta);
-      if (event.type === "chunk" && typeof event.index === "number") {
+    if (event.type === "chunk") {
+      payloadForLog.delta = summarizeDelta(event.delta);
+      if (typeof event.index === "number") {
         payloadForLog.index = event.index;
       }
     } else if (event.type === "control") {
@@ -355,20 +356,12 @@ export async function executeStreamingLLM({
     streamedChunks.length = 0;
     streamedChunks.push(text);
 
-    const tokens = Array.from(text);
     if (!firstTokenSent) {
       firstTokenSent = true;
     }
-    const firstDelta = tokens.shift() ?? "";
-    if (firstDelta) {
-      await emitStream({ type: "first_token", delta: firstDelta });
-    }
-    const rest = tokens.join("");
-    if (rest) {
-      const currentIndex = chunkIndex;
-      chunkIndex += 1;
-      await emitStream({ type: "chunk", delta: rest, index: currentIndex });
-    }
+    const currentIndex = chunkIndex;
+    chunkIndex += 1;
+    await emitStream({ type: "chunk", delta: text, index: currentIndex });
 
     const doneSnapshot = { ...fallbackTimings };
     fallbackResult = {
@@ -394,6 +387,21 @@ export async function executeStreamingLLM({
   };
 
   let streamGuardTimer: NodeJS.Timeout | null = null;
+
+  const cleanupAbortListener = (() => {
+    if (!abortSignal) {
+      return null as (() => void) | null;
+    }
+    const onAbort = () => {
+      ignoreStreamEvents = true;
+      if (streamGuardTimer) {
+        clearStreamGuard(streamGuardTimer);
+        streamGuardTimer = null;
+      }
+    };
+    abortSignal.addEventListener("abort", onAbort);
+    return () => abortSignal.removeEventListener("abort", onAbort);
+  })();
 
   const armStreamGuard = (): Promise<"fallback" | "guard_disabled"> => {
     if (!Number.isFinite(STREAM_GUARD_MS) || STREAM_GUARD_MS <= 0) {
@@ -433,20 +441,8 @@ export async function executeStreamingLLM({
           clearStreamGuard(streamGuardTimer);
           streamGuardTimer = null;
         }
-        const tokens = Array.from(content);
         if (!firstTokenSent) {
           firstTokenSent = true;
-          const firstDelta = tokens.shift() ?? "";
-          if (firstDelta) {
-            await emitStream({ type: "first_token", delta: firstDelta });
-          }
-          const rest = tokens.join("");
-          if (rest) {
-            const currentIndex = chunkIndex;
-            chunkIndex += 1;
-            await emitStream({ type: "chunk", delta: rest, index: currentIndex });
-          }
-          return;
         }
         const currentIndex = chunkIndex;
         chunkIndex += 1;
@@ -474,7 +470,8 @@ export async function executeStreamingLLM({
         rejectRawForBloco(error);
         await emitStream({ type: "error", error });
       },
-    }
+    },
+    { signal: abortSignal }
   ).catch((error: any) => {
     const err = error instanceof Error ? error : new Error(String(error));
     streamFailure = err;
@@ -520,6 +517,7 @@ export async function executeStreamingLLM({
       clearStreamGuard(streamGuardTimer);
       streamGuardTimer = null;
     }
+    cleanupAbortListener?.();
     timings.llmEnd = now();
     log.info("// LATENCY: llm_request_end", {
       at: timings.llmEnd,
