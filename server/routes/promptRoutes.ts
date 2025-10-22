@@ -92,6 +92,73 @@ const activeStreamSessions = new Map<
   { controller: AbortController; interactionId: string }
 >();
 
+type ClientMessageState = {
+  status: "active" | "completed";
+  expiresAt: number;
+};
+
+function parseDurationEnv(value: string | undefined, fallback: number): number {
+  if (!value) return fallback;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return fallback;
+  }
+  return parsed;
+}
+
+const CLIENT_MESSAGE_ACTIVE_TTL_MS = parseDurationEnv(
+  process.env.ECO_CLIENT_MESSAGE_ACTIVE_TTL_MS,
+  5 * 60 * 1000
+);
+const CLIENT_MESSAGE_COMPLETED_TTL_MS = parseDurationEnv(
+  process.env.ECO_CLIENT_MESSAGE_COMPLETED_TTL_MS,
+  60 * 60 * 1000
+);
+
+const clientMessageRegistry = new Map<string, ClientMessageState>();
+
+function pruneClientMessageRegistry(now: number = Date.now()): void {
+  for (const [key, entry] of clientMessageRegistry.entries()) {
+    if (entry.expiresAt <= now) {
+      clientMessageRegistry.delete(key);
+    }
+  }
+}
+
+function reserveClientMessage(
+  key: string
+): { ok: true } | { ok: false; status: "active" | "completed" } {
+  const now = Date.now();
+  pruneClientMessageRegistry(now);
+  const existing = clientMessageRegistry.get(key);
+  if (existing && existing.expiresAt > now) {
+    return { ok: false, status: existing.status };
+  }
+  clientMessageRegistry.set(key, {
+    status: "active",
+    expiresAt: now + CLIENT_MESSAGE_ACTIVE_TTL_MS,
+  });
+  return { ok: true };
+}
+
+function markClientMessageCompleted(key: string): void {
+  const now = Date.now();
+  clientMessageRegistry.set(key, {
+    status: "completed",
+    expiresAt: now + CLIENT_MESSAGE_COMPLETED_TTL_MS,
+  });
+}
+
+function releaseClientMessage(key: string): void {
+  clientMessageRegistry.delete(key);
+}
+
+function buildClientMessageKey(identity: string | null, messageId: string): string {
+  const normalizedIdentity = identity && identity.trim() ? identity.trim() : null;
+  const normalizedMessageId = messageId.trim();
+  return normalizedIdentity ? `${normalizedIdentity}:${normalizedMessageId}` : normalizedMessageId;
+}
+
 export { askEcoRouter as askEcoRoutes };
 
 const REQUIRE_GUEST_ID =
@@ -513,6 +580,49 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
   const normalized = normalizeMessages(body);
   const payloadShape = normalized.shape;
 
+  const rawClientMessageId = (() => {
+    const candidate =
+      typeof body.clientMessageId === "string"
+        ? body.clientMessageId
+        : typeof body.client_message_id === "string"
+        ? body.client_message_id
+        : typeof body.messageId === "string"
+        ? body.messageId
+        : typeof body.message_id === "string"
+        ? body.message_id
+        : undefined;
+    if (typeof candidate !== "string") return null;
+    const trimmed = candidate.trim();
+    return trimmed ? trimmed : null;
+  })();
+
+  if (rawClientMessageId && normalized.messages.length) {
+    const lastIndex = normalized.messages.length - 1;
+    const lastMessage = normalized.messages[lastIndex];
+    lastMessage.id = rawClientMessageId;
+  }
+
+  const lastMessageWithId = [...normalized.messages]
+    .slice()
+    .reverse()
+    .find((msg) => typeof msg.id === "string");
+
+  let lastMessageId: string | null = null;
+  if (lastMessageWithId && typeof lastMessageWithId.id === "string") {
+    const trimmed = lastMessageWithId.id.trim();
+    if (trimmed) {
+      lastMessageWithId.id = trimmed;
+      lastMessageId = trimmed;
+    } else {
+      (lastMessageWithId as { id?: string }).id = undefined;
+    }
+  }
+
+  const clientMessageId = rawClientMessageId ?? lastMessageId;
+
+  let clientMessageKey: string | null = null;
+  let clientMessageReserved = false;
+
   const guestIdResolved = resolveGuestId(
     typeof guestId === "string" ? guestId : undefined,
     guestIdFromHeader,
@@ -571,6 +681,31 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
 
     if (REQUIRE_GUEST_ID && !hasGuestId) {
       throw createHttpError(400, "MISSING_GUEST_ID", "Informe X-Eco-Guest-Id");
+    }
+
+    if (clientMessageId) {
+      const dedupeIdentity =
+        identityKey ??
+        (typeof usuario_id === "string" && usuario_id.trim() ? usuario_id.trim() : null) ??
+        guestIdResolved ??
+        (typeof sessionId === "string" && sessionId.trim() ? sessionId.trim() : null);
+      clientMessageKey = buildClientMessageKey(dedupeIdentity ?? null, clientMessageId);
+      const reservation = reserveClientMessage(clientMessageKey);
+      if (reservation.ok === false) {
+        const duplicateStatus = reservation.status;
+        log.warn("[ask-eco] duplicate_client_message", {
+          clientMessageId,
+          status: duplicateStatus,
+          identity: dedupeIdentity ?? null,
+        });
+        return res.status(409).json({
+          ok: false,
+          code: "DUPLICATE_CLIENT_MESSAGE",
+          error: "Interação já processada",
+          status: duplicateStatus,
+        });
+      }
+      clientMessageReserved = true;
     }
 
     const bearer =
@@ -672,8 +807,17 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
           timings: timingsPayload,
         });
 
+        if (clientMessageReserved && clientMessageKey) {
+          markClientMessageCompleted(clientMessageKey);
+          clientMessageReserved = false;
+        }
+
         return res.status(200).json(donePayload);
       } catch (error) {
+        if (clientMessageReserved && clientMessageKey) {
+          releaseClientMessage(clientMessageKey);
+          clientMessageReserved = false;
+        }
         if (isHttpError(error)) {
           log.warn("[ask-eco] json_error", { code: (error as any).body?.code, status: error.status });
           return res.status(error.status).json((error as any).body);
@@ -752,6 +896,25 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
     const pendingSignals: Array<{ signal: string; meta: Record<string, unknown> }> = [];
     let resolvedInteractionId: string = fallbackInteractionId;
     let interactionIdReady = false;
+
+    const finalizeClientMessageReservation = (finishReason?: string | null) => {
+      if (!clientMessageReserved || !clientMessageKey) {
+        return;
+      }
+      const reason = typeof finishReason === "string" ? finishReason.toLowerCase() : "";
+      const isFailure =
+        reason.includes("error") ||
+        reason === "timeout" ||
+        reason === "aborted" ||
+        reason === "client_closed" ||
+        reason === "superseded_stream";
+      if (isFailure) {
+        releaseClientMessage(clientMessageKey);
+      } else {
+        markClientMessageCompleted(clientMessageKey);
+      }
+      clientMessageReserved = false;
+    };
 
     const updateActiveStreamInteractionId = (interactionId: string) => {
       if (!streamContextKey) return;
@@ -935,15 +1098,6 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
     const idleTimeoutMs =
       Number.isFinite(streamTimeoutMs) && streamTimeoutMs > 0 ? streamTimeoutMs : 120_000;
 
-    const lastMessageWithId = [...normalized.messages]
-      .slice()
-      .reverse()
-      .find((msg) => typeof msg.id === "string" && msg.id.trim());
-    const lastMessageId =
-      lastMessageWithId && typeof lastMessageWithId.id === "string" && lastMessageWithId.id.trim()
-        ? lastMessageWithId.id.trim()
-        : null;
-
     let initialInteractionId: string | null = null;
     try {
       const resolvedUserIdForInteraction =
@@ -1110,6 +1264,8 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
         durationMs: totalLatency,
         summary: donePayload,
       });
+
+      finalizeClientMessageReservation(finishReason);
 
       log.info("[ask-eco] stream_end", {
         finishReason,
@@ -1394,6 +1550,10 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
         sendDone("error");
       }
     } finally {
+      if (clientMessageReserved && clientMessageKey) {
+        releaseClientMessage(clientMessageKey);
+        clientMessageReserved = false;
+      }
       if (!state.done) {
         if (abortListener) {
           abortSignal.removeEventListener("abort", abortListener);
@@ -1404,6 +1564,10 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
       }
     }
   } catch (error) {
+    if (clientMessageReserved && clientMessageKey) {
+      releaseClientMessage(clientMessageKey);
+      clientMessageReserved = false;
+    }
     if (isHttpError(error)) {
       return res.status(error.status).json(error.body);
     }

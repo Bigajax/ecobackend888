@@ -78,6 +78,7 @@ export function streamConversation({
   const latencies: Partial<Record<EcoLatencyStage, EcoLatencyEvent>> = {};
   let analyticsSent = false;
   let lifecycleSignalsSent = false;
+  let lastChunkIndex: number | null = null;
 
   const emitAnalytics = (
     reason: "completed" | "aborted" | "error",
@@ -139,7 +140,6 @@ export function streamConversation({
       if (event.type === "latency") {
         registerLatency(event);
       }
-      callbacks.onEvent?.(event);
 
       if (event.type === "done" && !lifecycleSignalsSent) {
         const interactionId = extractInteractionId(event.meta);
@@ -151,10 +151,28 @@ export function streamConversation({
       }
 
       if (event.type === "chunk") {
+        const numericIndex =
+          typeof event.index === "number" && Number.isFinite(event.index)
+            ? event.index
+            : null;
+        if (numericIndex !== null) {
+          if (lastChunkIndex !== null && numericIndex <= lastChunkIndex) {
+            return;
+          }
+          lastChunkIndex = numericIndex;
+        } else if (lastChunkIndex === null) {
+          lastChunkIndex = 0;
+        } else {
+          lastChunkIndex += 1;
+        }
+        callbacks.onEvent?.(event);
         aggregated += event.delta;
         // LATENCY: repassa o texto parcial para atualizar o UI em tempo real.
         callbacks.onText?.(aggregated);
+        return;
       }
+
+      callbacks.onEvent?.(event);
 
       if (event.type === "done" && callbacks.onText) {
         callbacks.onText(aggregated);
