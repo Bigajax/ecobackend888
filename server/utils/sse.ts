@@ -84,7 +84,7 @@ export function createSSE(
   req: Request,
   opts: CreateSSEOptions = {}
 ): SSEConnection {
-  const { heartbeatMs = 15000, idleMs, onIdle } = opts;
+  const { heartbeatMs = 25000, idleMs, onIdle } = opts;
 
   res.status(200);
 
@@ -104,12 +104,12 @@ export function createSSE(
   (res as any).flushHeaders?.();
 
   let ended = false;
-  let heartbeatRef: IntervalRef | null = null;
+  let heartbeatRef: TimeoutRef | null = null;
   let idleRef: TimeoutRef | null = null;
 
   const clearHeartbeat = () => {
     if (heartbeatRef) {
-      clearInterval(heartbeatRef);
+      clearTimeout(heartbeatRef);
       heartbeatRef = null;
     }
   };
@@ -123,11 +123,24 @@ export function createSSE(
 
   const end = () => {
     if (ended) return;
-    ended = true;
     clearHeartbeat();
     clearIdle();
-    if (isWritable(res)) {
-      res.end();
+    let writable = isWritable(res);
+    if (writable) {
+      try {
+        res.write(`event: done\ndata: ok\n\n`);
+        (res as any).flush?.();
+      } catch {
+        writable = false;
+      }
+    }
+    ended = true;
+    if (writable && isWritable(res)) {
+      try {
+        res.end();
+      } catch {
+        // ignore errors closing the stream
+      }
     }
   };
 
@@ -165,9 +178,24 @@ export function createSSE(
     }
   };
 
+  const scheduleHeartbeat = () => {
+    if (ended || heartbeatMs <= 0) {
+      clearHeartbeat();
+      return;
+    }
+    clearHeartbeat();
+    heartbeatRef = setTimeout(() => {
+      heartbeatRef = null;
+      write(`:\n\n`);
+      scheduleHeartbeat();
+    }, heartbeatMs);
+  };
+
   const send = (event: string, data: unknown) => {
+    if (ended) return;
     const payload = typeof data === "string" ? data : JSON.stringify(data);
     write(`event: ${event}\ndata: ${payload}\n\n`);
+    scheduleHeartbeat();
     scheduleIdle();
   };
 
@@ -180,9 +208,7 @@ export function createSSE(
   };
 
   if (heartbeatMs > 0) {
-    heartbeatRef = setInterval(() => {
-      write(`event: ping\ndata: ${Date.now()}\n\n`);
-    }, heartbeatMs);
+    scheduleHeartbeat();
   }
 
   scheduleIdle();
