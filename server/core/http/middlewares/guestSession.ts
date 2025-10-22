@@ -1,12 +1,18 @@
 import { type NextFunction, type Request, type Response } from "express";
 
-import { UUID_V4 } from "../guestIdentity";
+import { normalizeGuestIdentifier } from "../guestIdentity";
 import { log } from "../../../services/promptContext/logger";
 
 const DEFAULT_RATE_LIMIT = { limit: 30, windowMs: 60_000 };
 const rateBuckets = new Map<string, { count: number; resetAt: number }>();
 const guestInteractions = new Map<string, { count: number; updatedAt: number }>();
 const blockedGuests = new Set<string>();
+
+const normalizeGuestKey = (guestId: string): string => {
+  const normalized = normalizeGuestIdentifier(guestId);
+  if (normalized) return normalized;
+  return guestId.trim();
+};
 
 interface RateLimitConfig {
   limit: number;
@@ -80,16 +86,18 @@ const isTruthyHeader = (value: string | undefined): boolean => {
 };
 
 export const getGuestInteractionCount = (guestId: string): number => {
-  const entry = guestInteractions.get(guestId);
+  const key = normalizeGuestKey(guestId);
+  const entry = guestInteractions.get(key);
   return entry?.count ?? 0;
 };
 
 export const incrementGuestInteraction = (guestId: string): number => {
   const now = Date.now();
-  const entry = guestInteractions.get(guestId);
+  const key = normalizeGuestKey(guestId);
+  const entry = guestInteractions.get(key);
   if (!entry) {
     const initial = { count: 1, updatedAt: now };
-    guestInteractions.set(guestId, initial);
+    guestInteractions.set(key, initial);
     return initial.count;
   }
   entry.count += 1;
@@ -98,12 +106,13 @@ export const incrementGuestInteraction = (guestId: string): number => {
 };
 
 export const resetGuestInteraction = (guestId: string): void => {
-  guestInteractions.delete(guestId);
+  const key = normalizeGuestKey(guestId);
+  guestInteractions.delete(key);
 };
 
 export const blockGuestId = (guestId: string): void => {
   if (guestId) {
-    blockedGuests.add(guestId);
+    blockedGuests.add(normalizeGuestKey(guestId));
   }
 };
 
@@ -146,27 +155,29 @@ export function guestSessionMiddleware(req: Request, res: Response, next: NextFu
     typeof req.guestId === "string"
       ? req.guestId
       : getHeaderString(req.headers["x-eco-guest-id"]);
-  const guestId = typeof candidate === "string" && UUID_V4.test(candidate.trim()) ? candidate.trim() : undefined;
+  const guestId = normalizeGuestIdentifier(candidate);
 
   if (!guestId) {
     log.warn("[guest-session] missing guest id for guest-mode request", { path: req.path });
     return next();
   }
 
-  if (blockedGuests.has(guestId)) {
+  const guestKey = normalizeGuestKey(guestId);
+
+  if (blockedGuests.has(guestKey)) {
     return res.status(403).json({ error: "Guest ID bloqueado." });
   }
 
   const ip = getClientIp(req);
-  const rateKey = `${ip}:${guestId}`;
+  const rateKey = `${ip}:${guestKey}`;
   const bucket = touchRateBucket(rateKey);
   if (bucket.count > rateLimitConfig.limit) {
     return res.status(429).json({ code: "RATE_LIMITED" });
   }
 
-  const interactionsUsed = getGuestInteractionCount(guestId);
+  const interactionsUsed = getGuestInteractionCount(guestKey);
   req.guest = {
-    id: guestId,
+    id: guestKey,
     ip,
     interactionsUsed,
     maxInteractions: guestMaxInteractions,
@@ -177,7 +188,7 @@ export function guestSessionMiddleware(req: Request, res: Response, next: NextFu
     },
   };
 
-  res.setHeader("X-Eco-Guest-Id", guestId);
+  res.setHeader("X-Eco-Guest-Id", guestKey);
 
   return next();
 }

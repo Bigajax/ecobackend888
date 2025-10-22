@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 
 import type { ActivationTracer } from "../../core/activationTracer";
 import { guestSessionConfig, incrementGuestInteraction } from "../../core/http/middlewares/guestSession";
+import { normalizeGuestIdentifier } from "../../core/http/guestIdentity";
 
 import type { GuestAwareRequest } from "./requestParsing";
 import { AskEcoRequestError } from "./errors";
@@ -32,10 +33,11 @@ export const resolveGuestIdentity = (req: GuestAwareRequest): GuestIdentity => {
     isGuest = false;
   } else if (req.guest?.id || headerGuestId || bodyIsGuest || bodyGuestId) {
     isGuest = true;
-    guestId = (req.guest?.id || headerGuestId || bodyGuestId || "").trim() || null;
+    const candidate = (req.guest?.id || headerGuestId || bodyGuestId || "").trim();
+    guestId = normalizeGuestIdentifier(candidate) ?? null;
   } else {
     isGuest = true;
-    guestId = `guest_${crypto.randomUUID()}`;
+    guestId = crypto.randomUUID();
   }
 
   return { isGuest, guestId, hasBearer, token };

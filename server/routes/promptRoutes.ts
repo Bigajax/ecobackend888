@@ -10,6 +10,8 @@ import { createHttpError, isHttpError } from "../utils/http";
 import { getSupabaseAdmin } from "../lib/supabaseAdmin";
 import { createSSE, prepareSseHeaders } from "../utils/sse";
 import { applyCorsResponseHeaders, isAllowedOrigin } from "../middleware/cors";
+import { normalizeGuestIdentifier } from "../core/http/guestIdentity";
+import { createInteraction } from "../services/conversation/interactionAnalytics";
 
 /** Sanitiza a saída removendo blocos ```json``` e JSON final pendurado */
 function sanitizeOutput(input?: string): string {
@@ -86,8 +88,6 @@ const router = Router();
 const askEcoRouter = Router();
 
 export { askEcoRouter as askEcoRoutes };
-
-console.log("Backend: promptRoutes carregado.");
 
 const REQUIRE_GUEST_ID =
   String(process.env.ECO_REQUIRE_GUEST_ID ?? "false").toLowerCase() === "true";
@@ -385,9 +385,10 @@ function resolveGuestId(
   ...candidates: Array<string | null | undefined>
 ): string | undefined {
   for (const candidate of candidates) {
-    if (typeof candidate === "string") {
-      const trimmed = candidate.trim();
-      if (trimmed) return trimmed;
+    if (typeof candidate !== "string") continue;
+    const normalized = normalizeGuestIdentifier(candidate);
+    if (normalized) {
+      return normalized;
     }
   }
   return undefined;
@@ -485,6 +486,8 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
     sessionMeta,
   } = body;
 
+  const isGuestRequest = Boolean(isGuest);
+
   const sessionMetaObject =
     sessionMeta && typeof sessionMeta === "object" && !Array.isArray(sessionMeta)
       ? (sessionMeta as Record<string, unknown>)
@@ -566,7 +569,7 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
 
     const params: Record<string, unknown> = {
       messages: normalized.messages,
-      isGuest: Boolean(isGuest),
+      isGuest: isGuestRequest,
       authUid: authUid ?? null,
     };
 
@@ -748,12 +751,20 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
     };
 
     const captureInteractionId = (value: unknown) => {
-      if (resolvedInteractionId) return;
       if (typeof value !== "string") return;
       const trimmed = value.trim();
       if (!trimmed) return;
-      resolvedInteractionId = trimmed;
-      flushPendingSignals(trimmed);
+      if (resolvedInteractionId && resolvedInteractionId !== trimmed) {
+        log.warn("[ask-eco] interaction_id_mismatch", {
+          current: resolvedInteractionId,
+          incoming: trimmed,
+        });
+        return;
+      }
+      if (!resolvedInteractionId) {
+        resolvedInteractionId = trimmed;
+        flushPendingSignals(trimmed);
+      }
     };
 
     const enqueuePassiveSignal = (
@@ -857,6 +868,44 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
     const idleTimeoutMs =
       Number.isFinite(streamTimeoutMs) && streamTimeoutMs > 0 ? streamTimeoutMs : 120_000;
 
+    const lastMessageWithId = [...normalized.messages]
+      .slice()
+      .reverse()
+      .find((msg) => typeof msg.id === "string" && msg.id.trim());
+    const lastMessageId =
+      lastMessageWithId && typeof lastMessageWithId.id === "string" && lastMessageWithId.id.trim()
+        ? lastMessageWithId.id.trim()
+        : null;
+
+    let initialInteractionId: string | null = null;
+    try {
+      const resolvedUserIdForInteraction =
+        !isGuestRequest && typeof (params as any).userId === "string"
+          ? ((params as any).userId as string).trim()
+          : null;
+      const normalizedSessionId =
+        typeof sessionId === "string" && sessionId.trim() ? sessionId.trim() : null;
+      initialInteractionId = await createInteraction({
+        userId:
+          resolvedUserIdForInteraction && resolvedUserIdForInteraction.length
+            ? resolvedUserIdForInteraction
+            : null,
+        sessionId: normalizedSessionId,
+        messageId: lastMessageId,
+        promptHash: null,
+      });
+    } catch (error) {
+      log.warn("[ask-eco] interaction_create_failed", {
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+
+    if (initialInteractionId && typeof initialInteractionId === "string") {
+      resolvedInteractionId = initialInteractionId.trim();
+      (params as any).interactionId = resolvedInteractionId;
+      flushPendingSignals(resolvedInteractionId);
+    }
+
     const sse = createSSE(res, req, {
       heartbeatMs: 25_000,
       idleMs: idleTimeoutMs,
@@ -867,6 +916,11 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
       origin: origin ?? null,
       idleTimeoutMs,
     });
+
+    const interactionEventPayload: Record<string, unknown> = {
+      interaction_id: resolvedInteractionId ?? initialInteractionId ?? null,
+    };
+    sse.send("interaction", interactionEventPayload);
 
     const recordFirstTokenTelemetry = (chunkBytes: number) => {
       if (state.firstTokenTelemetrySent) return;
@@ -1061,7 +1115,11 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
       sendToken(finalText);
     }
 
-    sse.sendControl("prompt_ready", { stream: true });
+    const promptReadyMeta: Record<string, unknown> = { stream: true };
+    if (resolvedInteractionId) {
+      promptReadyMeta.interaction_id = resolvedInteractionId;
+    }
+    sse.sendControl("prompt_ready", promptReadyMeta);
     enqueuePassiveSignal("prompt_ready", 1, {
       stream: true,
       origin: origin ?? null,
@@ -1071,7 +1129,7 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
       if (state.clientClosed) return;
       state.clientClosed = true;
       if (!state.done) {
-        log.warn("[ask-eco] sse_client_closed", {
+        log.info("[ask-eco] sse_client_closed", {
           origin,
         });
         state.finishReason = state.finishReason || "client_closed";

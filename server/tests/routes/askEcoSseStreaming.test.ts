@@ -49,6 +49,9 @@ const getRouteHandler = (router: any, path: string, method = "post") => {
 };
 
 const DEFAULT_USUARIO_ID = "c5c5b1af-5f6c-4e5f-8cb4-7a6d12345678";
+const TEST_GUEST_ID = "0c9c8b7a-6d5e-4f3a-8123-b4567890abcd";
+const TIMEOUT_GUEST_ID = "22222222-2222-4222-8222-222222222222";
+const TEST_INTERACTION_ID = "11111111-1111-4111-8111-111111111111";
 
 class MockRequest extends EventEmitter {
   body: any;
@@ -161,6 +164,9 @@ test("SSE streaming emits tokens, done and disables compression", async () => {
         return { raw: "resultado" };
       },
     },
+    "../services/conversation/interactionAnalytics": {
+      createInteraction: async () => TEST_INTERACTION_ID,
+    },
     "../services/promptContext/logger": {
       log: {
         info: () => {},
@@ -183,8 +189,8 @@ test("SSE streaming emits tokens, done and disables compression", async () => {
       "content-type": "application/json",
     }
   );
-  req.guest = { id: "guest-123" };
-  req.guestId = "guest-123";
+  req.guest = { id: TEST_GUEST_ID };
+  req.guestId = TEST_GUEST_ID;
 
   const res = new MockResponse();
 
@@ -200,6 +206,12 @@ test("SSE streaming emits tokens, done and disables compression", async () => {
   assert.ok(res.flushed, "safeWrite should flush chunks for SSE");
 
   const output = res.chunks.join("");
+  assert.ok(res.chunks.length > 0, "should emit at least one SSE chunk");
+  assert.equal(
+    res.chunks[0],
+    `event: interaction\\ndata: {"interaction_id":"${TEST_INTERACTION_ID}"}\\n\\n`,
+    "first SSE event should share interaction_id"
+  );
   const finalChunk = res.chunks[res.chunks.length - 1];
   assert.equal(
     finalChunk,
@@ -247,6 +259,9 @@ test("SSE streaming triggers timeout fallback when orchestrator stalls", async (
         return new Promise((resolve) => setTimeout(() => resolve({ raw: "" }), 50));
       },
     },
+    "../services/conversation/interactionAnalytics": {
+      createInteraction: async () => TEST_INTERACTION_ID,
+    },
     "../services/promptContext/logger": {
       log: {
         info: () => {},
@@ -269,8 +284,8 @@ test("SSE streaming triggers timeout fallback when orchestrator stalls", async (
       "content-type": "application/json",
     }
   );
-  req.guest = { id: "guest-timeout" };
-  req.guestId = "guest-timeout";
+  req.guest = { id: TIMEOUT_GUEST_ID };
+  req.guestId = TIMEOUT_GUEST_ID;
 
   const res = new MockResponse();
 
@@ -278,6 +293,11 @@ test("SSE streaming triggers timeout fallback when orchestrator stalls", async (
     await handler(req as any, res as any);
 
     const output = res.chunks.join("");
+    assert.equal(
+      res.chunks[0],
+      `event: interaction\\ndata: {"interaction_id":"${TEST_INTERACTION_ID}"}\\n\\n`,
+      "interaction event should be emitted before timeout handling"
+    );
     assert.match(output, /event: first_token/, "fallback should emit first_token event");
     assert.match(
       output,

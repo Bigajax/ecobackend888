@@ -208,6 +208,9 @@ test("guest flow completes ask-eco, signal and feedback", async () => {
         };
       },
     },
+    "../services/conversation/interactionAnalytics": {
+      createInteraction: async () => interactionId,
+    },
     "../lib/supabaseAdmin": { getSupabaseAdmin: () => null },
   });
 
