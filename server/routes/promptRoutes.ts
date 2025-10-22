@@ -87,6 +87,8 @@ function buildDonePayload(options: {
 const router = Router();
 const askEcoRouter = Router();
 
+const activeClientMessageLocks = new Map<string, true>();
+
 const activeStreamSessions = new Map<
   string,
   { controller: AbortController; interactionId: string }
@@ -688,6 +690,35 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
   }
 
   const clientMessageId = rawClientMessageId ?? lastMessageId;
+
+  const headerClientMessageIdRaw = req.get("X-Eco-Client-Message-Id");
+  const headerClientMessageId =
+    typeof headerClientMessageIdRaw === "string" && headerClientMessageIdRaw.trim()
+      ? headerClientMessageIdRaw.trim()
+      : null;
+  const activeClientMessageId =
+    headerClientMessageId ??
+    (typeof clientMessageId === "string" && clientMessageId.trim() ? clientMessageId.trim() : null);
+
+  if (!activeClientMessageId) {
+    log.warn("[ask-eco] missing_client_message_id");
+    return res.status(400).json({ ok: false, error: "missing clientMessageId" });
+  }
+
+  if (activeClientMessageLocks.has(activeClientMessageId)) {
+    log.warn("[ask-eco] duplicate_client_message_active", { clientMessageId: activeClientMessageId });
+    return res
+      .status(409)
+      .json({ ok: false, error: "duplicate message (already processing)", code: "CLIENT_MESSAGE_ACTIVE" });
+  }
+
+  activeClientMessageLocks.set(activeClientMessageId, true);
+  let clientMessageLockActive = true;
+  const finalizeClientMessageLock = () => {
+    if (!clientMessageLockActive) return;
+    clientMessageLockActive = false;
+    activeClientMessageLocks.delete(activeClientMessageId);
+  };
 
   let clientMessageKey: string | null = null;
   let clientMessageReserved = false;
@@ -1697,6 +1728,7 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
       }
     }
   } catch (error) {
+    finalizeClientMessageLock();
     if (clientMessageReserved && clientMessageKey) {
       releaseClientMessage(clientMessageKey);
       clientMessageReserved = false;
@@ -1707,6 +1739,8 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
     const traceId = randomUUID();
     log.error("[ask-eco] validation_unexpected", { trace_id: traceId, message: (error as Error)?.message });
     return res.status(500).json({ code: "INTERNAL_ERROR", trace_id: traceId });
+  } finally {
+    finalizeClientMessageLock();
   }
 });
 

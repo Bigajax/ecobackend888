@@ -245,7 +245,9 @@ describe("/api/ask-eco SSE contract", () => {
     });
 
     const { askEcoRoutes } = await import("../../routes/promptRoutes");
-    const handlerLayer = askEcoRoutes.stack.find((layer: any) => layer.route?.path === "/");
+    const handlerLayer = askEcoRoutes.stack.find(
+      (layer: any) => layer.route?.path === "/" && layer.route?.methods?.post
+    );
     if (!handlerLayer) {
       throw new Error("/api/ask-eco handler not found");
     }
@@ -258,12 +260,14 @@ describe("/api/ask-eco SSE contract", () => {
       {
         stream: true,
         messages: [{ role: "user", content: "Olá?" }],
+        clientMessageId: "sse-message-1",
       },
       {
         Accept: "text/event-stream",
         "Content-Type": "application/json",
         "X-Eco-Guest-Id": guestId,
         "X-Eco-Session-Id": sessionId,
+        "X-Eco-Client-Message-Id": "sse-message-1",
       }
     );
     req.guest = { id: guestId };
@@ -359,11 +363,13 @@ describe("/api/ask-eco SSE contract", () => {
       .post("/api/ask-eco")
       .set("X-Eco-Guest-Id", guestId)
       .set("X-Eco-Session-Id", sessionId)
+      .set("X-Eco-Client-Message-Id", "json-message-1")
       .send({
         stream: false,
         usuario_id: guestId,
         texto: "Tudo bem?",
         messages: [{ role: "user", content: "Tudo bem?" }],
+        clientMessageId: "json-message-1",
       });
 
     expect(response.status).toBe(200);
