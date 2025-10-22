@@ -4,27 +4,77 @@ import { ModuleStore } from "./ModuleStore";
 import { log } from "./logger";
 import { createHttpError, isHttpError } from "../../utils/http";
 
-export type IdentityModule = { name: string; text: string };
+export type IdentityModule = { name: string; text: string; sourcePath?: string };
 
 const PROMPT_SUBPATH = "prompts";
 const PROMPT_EXT = ".txt";
 
-const ORDERED_FILES = [
-  "eco_prompt_programavel.txt",
-  "eco_core_personality.txt",
-  "eco_behavioral_instructions.txt",
-  "eco_memory_logic.txt",
-  "eco_intro_inicial.txt",
+const DEFAULT_REQUIRED_PROMPTS = [
+  `${PROMPT_SUBPATH}/BASE_PROMPT.txt`,
+  `${PROMPT_SUBPATH}/BLOCO_TECNICO.txt`,
+  `${PROMPT_SUBPATH}/ESTRUTURA_PADRAO.txt`,
+  `${PROMPT_SUBPATH}/INTRO_INICIAL.txt`,
+  `${PROMPT_SUBPATH}/POLICY_MEMORIA.txt`,
 ];
 
-const REQUIRED_FILES = [...ORDERED_FILES];
-
-const PROMPT_DIR_CANDIDATES = [
-  path.resolve(__dirname, "../assets", PROMPT_SUBPATH),
-  path.resolve(__dirname, "../../assets", PROMPT_SUBPATH),
+const PROMPT_DIR_CANDIDATES = dedupePaths([
   path.resolve(process.cwd(), "dist/assets", PROMPT_SUBPATH),
+  path.resolve(__dirname, "../../assets", PROMPT_SUBPATH),
+  path.resolve(__dirname, "../assets", PROMPT_SUBPATH),
+  path.resolve(process.cwd(), "server/assets", PROMPT_SUBPATH),
   path.resolve(process.cwd(), "assets", PROMPT_SUBPATH),
-];
+]);
+
+const MANIFEST_CANDIDATES = dedupePaths([
+  path.resolve(process.cwd(), "dist/assets", "MANIFEST.json"),
+  path.resolve(__dirname, "../../assets", "MANIFEST.json"),
+  path.resolve(__dirname, "../assets", "MANIFEST.json"),
+  path.resolve(process.cwd(), "server/assets", "MANIFEST.json"),
+  path.resolve(process.cwd(), "assets", "MANIFEST.json"),
+]);
+
+type PromptStatus =
+  | { state: "unknown"; checkedAt: null }
+  | { state: "ready"; checkedAt: string; files: Array<{ path: string; bytes: number }> }
+  | { state: "error"; checkedAt: string; reason: string; details?: Record<string, unknown> | null };
+
+let promptStatus: PromptStatus = { state: "unknown", checkedAt: null };
+
+function dedupePaths(paths: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of paths) {
+    const normalized = path.resolve(raw);
+    if (seen.has(normalized)) continue;
+    seen.add(normalized);
+    out.push(normalized);
+  }
+  return out;
+}
+
+function markPromptsReady(modules: IdentityModule[]) {
+  promptStatus = {
+    state: "ready",
+    checkedAt: new Date().toISOString(),
+    files: modules.map((module) => ({
+      path: module.sourcePath ?? path.posix.join(PROMPT_SUBPATH, module.name),
+      bytes: Buffer.byteLength(module.text, "utf8"),
+    })),
+  };
+}
+
+function markPromptsError(reason: string, details?: Record<string, unknown> | null) {
+  promptStatus = {
+    state: "error",
+    checkedAt: new Date().toISOString(),
+    reason,
+    details: details ?? null,
+  };
+}
+
+export function getEcoPromptStatus(): PromptStatus {
+  return promptStatus;
+}
 
 async function dirExists(dir: string): Promise<boolean> {
   try {
@@ -33,6 +83,29 @@ async function dirExists(dir: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+async function loadPromptManifest(): Promise<string[] | null> {
+  for (const candidate of MANIFEST_CANDIDATES) {
+    try {
+      const raw = await fs.readFile(candidate, "utf8");
+      const parsed = JSON.parse(raw);
+      const required = Array.isArray(parsed?.requiredPrompts)
+        ? parsed.requiredPrompts.filter((entry: unknown) => typeof entry === "string")
+        : [];
+      if (required.length > 0) {
+        return required as string[];
+      }
+    } catch (error: any) {
+      if (error?.code !== "ENOENT") {
+        log.warn("[identityModules] failed to read manifest", {
+          path: candidate,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+  }
+  return null;
 }
 
 async function listPromptFiles(dir: string): Promise<string[]> {
@@ -50,31 +123,26 @@ async function listPromptFiles(dir: string): Promise<string[]> {
   }
 }
 
-function sortByExplicitOrder(files: string[]): string[] {
-  const orderMap = new Map<string, number>();
-  ORDERED_FILES.forEach((name, index) => {
-    orderMap.set(name, index);
-  });
-
-  return files
-    .slice()
-    .sort((a, b) => {
-      const weightA = orderMap.has(a) ? orderMap.get(a)! : ORDERED_FILES.length;
-      const weightB = orderMap.has(b) ? orderMap.get(b)! : ORDERED_FILES.length;
-      if (weightA !== weightB) return weightA - weightB;
-      return a.localeCompare(b);
-    });
+function normalizePromptEntry(entry: string): { full: string; file: string } {
+  const normalized = entry.replace(/\\/g, "/").replace(/^\.\//, "");
+  const withPrefix = normalized.startsWith(`${PROMPT_SUBPATH}/`)
+    ? normalized
+    : `${PROMPT_SUBPATH}/${normalized}`;
+  const file = path.posix.basename(withPrefix);
+  return { full: withPrefix, file };
 }
 
-async function readPromptContent(file: string): Promise<string | null> {
-  const withSubPath = await ModuleStore.read(`${PROMPT_SUBPATH}/${file}`);
-  if (withSubPath && withSubPath.trim().length > 0) {
-    return withSubPath.trim();
+async function readPromptContent(entry: { full: string; file: string }): Promise<string | null> {
+  const canonical = await ModuleStore.read(entry.full);
+  if (canonical && canonical.trim().length > 0) {
+    return canonical.trim();
   }
 
-  const direct = await ModuleStore.read(file);
-  if (direct && direct.trim().length > 0) {
-    return direct.trim();
+  if (entry.file !== entry.full) {
+    const fallback = await ModuleStore.read(entry.file);
+    if (fallback && fallback.trim().length > 0) {
+      return fallback.trim();
+    }
   }
 
   return null;
@@ -89,7 +157,7 @@ function logManifestOnce(modules: IdentityModule[]) {
   if (manifestLogged) return;
   manifestLogged = true;
   const manifest = modules.map((module) => ({
-    name: module.name,
+    name: module.sourcePath ?? path.posix.join(PROMPT_SUBPATH, module.name),
     bytes: Buffer.byteLength(module.text, "utf8"),
   }));
   console.info("[eco-prompts] loaded", {
@@ -103,55 +171,80 @@ function buildPromptLoadError(extra: Record<string, unknown> = {}) {
 
 async function loadIdentityModulesInternal(): Promise<IdentityModule[]> {
   await ModuleStore.bootstrap();
+  try {
+    const manifestEntries = await loadPromptManifest();
+    const requiredEntries = (manifestEntries ?? DEFAULT_REQUIRED_PROMPTS).map(normalizePromptEntry);
+    const requiredFullSet = new Set(requiredEntries.map((entry) => entry.full));
+    const requiredByFile = new Map(requiredEntries.map((entry) => [entry.file, entry.full]));
 
-  const seen = new Set<string>();
+    const availableFiles = new Set<string>();
 
-  for (const candidate of PROMPT_DIR_CANDIDATES) {
-    if (!(await dirExists(candidate))) continue;
-    for (const file of await listPromptFiles(candidate)) {
-      seen.add(file);
-    }
-  }
-
-  if (seen.size === 0) {
-    throw buildPromptLoadError({
-      reason: "PROMPT_DIR_EMPTY",
-      searched: PROMPT_DIR_CANDIDATES,
-    });
-  }
-
-  const ordered = sortByExplicitOrder(Array.from(seen));
-  const modules: IdentityModule[] = [];
-  const missingRequired = new Set<string>();
-
-  for (const file of ordered) {
-    const content = await readPromptContent(file);
-    if (content && content.trim().length > 0) {
-      modules.push({ name: file, text: content.trim() });
-    } else {
-      log.warn("[identityModules] prompt file missing or empty", { file });
-      if (REQUIRED_FILES.includes(file)) {
-        missingRequired.add(file);
+    for (const candidate of PROMPT_DIR_CANDIDATES) {
+      if (!(await dirExists(candidate))) continue;
+      for (const file of await listPromptFiles(candidate)) {
+        availableFiles.add(file);
       }
     }
-  }
 
-  for (const required of REQUIRED_FILES) {
-    if (!modules.some((module) => module.name === required)) {
-      missingRequired.add(required);
+    if (availableFiles.size === 0) {
+      const details = { reason: "PROMPT_DIR_EMPTY", searched: PROMPT_DIR_CANDIDATES };
+      markPromptsError("PROMPT_DIR_EMPTY", details);
+      throw buildPromptLoadError(details);
     }
+
+    const orderedEntries: Array<{ full: string; file: string }> = [...requiredEntries];
+    const extras = Array.from(availableFiles)
+      .map((file) => normalizePromptEntry(file))
+      .filter((entry) => !requiredFullSet.has(entry.full))
+      .sort((a, b) => a.full.localeCompare(b.full));
+
+    orderedEntries.push(...extras);
+
+    const modules: IdentityModule[] = [];
+    const missingRequired = new Set<string>();
+
+    for (const entry of orderedEntries) {
+      const content = await readPromptContent(entry);
+      if (content && content.length > 0) {
+        modules.push({ name: entry.file, text: content, sourcePath: entry.full });
+      } else {
+        log.warn("[identityModules] prompt file missing or empty", { file: entry.full });
+        const canonical = requiredByFile.get(entry.file) ?? entry.full;
+        if (requiredFullSet.has(canonical)) {
+          missingRequired.add(canonical);
+        }
+      }
+    }
+
+    for (const required of requiredEntries) {
+      if (!modules.some((module) => module.sourcePath === required.full)) {
+        missingRequired.add(required.full);
+      }
+    }
+
+    if (modules.length === 0 || missingRequired.size > 0) {
+      const details = {
+        reason: "PROMPT_MISSING",
+        missing: Array.from(missingRequired),
+        available: modules.map((module) => module.sourcePath ?? module.name),
+        required: requiredEntries.map((entry) => entry.full),
+      };
+      markPromptsError("PROMPT_MISSING", details);
+      throw buildPromptLoadError(details);
+    }
+
+    markPromptsReady(modules);
+    logManifestOnce(modules);
+
+    return modules;
+  } catch (error) {
+    if (promptStatus.state !== "error") {
+      markPromptsError("PROMPT_LOAD_FAILED", {
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+    throw error;
   }
-
-  if (modules.length === 0 || missingRequired.size > 0) {
-    throw buildPromptLoadError({
-      missing: Array.from(missingRequired),
-      available: modules.map((module) => module.name),
-    });
-  }
-
-  logManifestOnce(modules);
-
-  return modules;
 }
 
 export async function loadEcoIdentityModules(): Promise<IdentityModule[]> {
@@ -171,10 +264,17 @@ export async function ensureEcoIdentityPromptAvailability(): Promise<void> {
     await loadEcoIdentityModules();
   } catch (error) {
     const payload = isHttpError(error) ? error.body : undefined;
-    console.error("[eco-prompts] failed to load", {
-      message: error instanceof Error ? error.message : String(error),
+    const reason =
+      (payload && typeof payload === "object" && "reason" in payload
+        ? (payload as Record<string, unknown>).reason
+        : undefined) ?? "PROMPT_LOAD_FAILED";
+    console.error({
+      code: "ECO_PROMPT_NOT_LOADED",
+      reason,
       details: payload ?? null,
+      message: error instanceof Error ? error.message : String(error),
     });
+    process.exitCode = 1;
     process.exit(1);
   }
 }

@@ -5,12 +5,12 @@
   "main": "server.ts",
   "type": "commonjs",
   "engines": {
-    "node": ">=18.17.0"
+    "node": ">=18.17.0 <21"
   },
   "scripts": {
     "dev": "nodemon",
     "build": "tsc -p tsconfig.build.json && npm run copy:assets",
-    "copy:assets": "cpx \"assets/**/*.{txt,md}\" dist/assets",
+    "copy:assets": "cpx \"assets/**/*\" dist/assets",
     "start": "node dist/server.js"
   },
   "dependencies": {

@@ -1,0 +1,9 @@
+{
+  "requiredPrompts": [
+    "prompts/BASE_PROMPT.txt",
+    "prompts/BLOCO_TECNICO.txt",
+    "prompts/ESTRUTURA_PADRAO.txt",
+    "prompts/INTRO_INICIAL.txt",
+    "prompts/POLICY_MEMORIA.txt"
+  ]
+}

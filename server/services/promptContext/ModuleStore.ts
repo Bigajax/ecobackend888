@@ -31,6 +31,12 @@ function normKey(name: string) {
 /** Extensões suportadas para módulos. */
 const ALLOWED_EXT = new Set([".txt", ".md"]);
 
+type FileMetadata = {
+  full: string;
+  name: string;
+  rel: string;
+};
+
 /** -------------------------- Helpers de path -------------------------- */
 
 /** Retorna apenas diretórios que existem. */
@@ -88,7 +94,8 @@ export class ModuleStore {
 
   private roots: string[] = [];
   private fileIndexBuilt = false;
-  private fileIndex = new Map<string, { full: string; name: string }>(); // key(norm) -> file metadata
+  private fileIndex = new Map<string, FileMetadata>(); // key(norm) -> file metadata
+  private uniqueFiles = new Map<string, FileMetadata>();
   private cacheModulos = new Map<string, string>(); // key(norm) -> content
   private tokenCountCache = new Map<string, number>(); // key -> tokens
   private buildLock: Promise<void> | null = null;
@@ -101,6 +108,7 @@ export class ModuleStore {
     this.roots = (roots || []).filter(Boolean);
     this.fileIndexBuilt = false;
     this.fileIndex.clear();
+    this.uniqueFiles.clear();
     this.cacheModulos.clear();
     this.tokenCountCache.clear();
     this.bootstrapped = this.roots.length > 0;
@@ -136,7 +144,7 @@ export class ModuleStore {
   stats() {
     return {
       roots: [...this.roots],
-      indexedCount: this.fileIndex.size,
+      indexedCount: this.uniqueFiles.size,
       cachedCount: this.cacheModulos.size,
       built: this.fileIndexBuilt,
     };
@@ -144,14 +152,20 @@ export class ModuleStore {
 
   /** Lista até N nomes indexados (sem caminhos), útil para debug. */
   listIndexed(limit = 50) {
-    return Array.from(this.fileIndex.values())
-      .map((item) => item.name)
-      .slice(0, limit);
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const item of this.uniqueFiles.values()) {
+      if (seen.has(item.full)) continue;
+      seen.add(item.full);
+      out.push(item.rel || item.name);
+      if (out.length >= limit) break;
+    }
+    return out;
   }
 
   async listNames(): Promise<string[]> {
     await this.buildFileIndexOnce();
-    return Array.from(this.fileIndex.values()).map((item) => item.name);
+    return Array.from(this.uniqueFiles.values()).map((item) => item.name);
   }
 
   /** Invalida caches (tudo ou só um módulo). */
@@ -193,19 +207,21 @@ export class ModuleStore {
   /** -------------------- Indexação de arquivos ------------------- */
 
   /** Varre diretórios recursivamente e retorna arquivos suportados. */
-  private async walkDir(base: string): Promise<Array<{ name: string; full: string }>> {
-    const out: Array<{ name: string; full: string }> = [];
+  private async walkDir(base: string, relative = ""): Promise<FileMetadata[]> {
+    const out: FileMetadata[] = [];
     try {
       const entries: Dirent[] = await fs.readdir(base, { withFileTypes: true });
+      entries.sort((a, b) => a.name.localeCompare(b.name));
       for (const ent of entries) {
         const full = path.join(base, ent.name);
+        const rel = relative ? path.posix.join(relative, ent.name) : ent.name;
         if (ent.isDirectory()) {
-          const nested = await this.walkDir(full);
+          const nested = await this.walkDir(full, rel);
           out.push(...nested);
         } else {
           const ext = path.extname(ent.name).toLowerCase();
           if (ALLOWED_EXT.has(ext)) {
-            out.push({ name: ent.name, full });
+            out.push({ name: ent.name, full, rel });
           }
         }
       }
@@ -239,9 +255,15 @@ export class ModuleStore {
           const files = await this.walkDir(base);
           for (const f of files) {
             const key = normKey(f.name);
-            // primeiro root na lista vence em duplicado
             if (!this.fileIndex.has(key)) {
-              this.fileIndex.set(key, { full: f.full, name: f.name });
+              this.fileIndex.set(key, f);
+            }
+            const relKey = normKey(f.rel);
+            if (!this.fileIndex.has(relKey)) {
+              this.fileIndex.set(relKey, f);
+            }
+            if (!this.uniqueFiles.has(f.full)) {
+              this.uniqueFiles.set(f.full, f);
               totalIndexed++;
             }
           }

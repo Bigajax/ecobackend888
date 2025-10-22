@@ -19,6 +19,7 @@ import { requestLogger } from "./middlewares/logger";
 import { normalizeQuery } from "./middlewares/queryNormalizer";
 import { ModuleCatalog } from "../../domains/prompts/ModuleCatalog";
 import { ensureGuestIdentity } from "./guestIdentity";
+import { getEcoPromptStatus } from "../../services/promptContext/identityModules";
 
 import promptRoutes, { askEcoRoutes } from "../../routes/promptRoutes";
 import profileRoutes from "../../routes/perfilEmocionalRoutes";
@@ -139,9 +140,36 @@ export function createApp(): Express {
   app.get("/healthz", (_req, res) =>
     res.status(200).json({ status: "ok", timestamp: new Date().toISOString() })
   );
-  app.get("/api/health", (_req, res) =>
-    res.status(200).json({ ok: true, service: "eco-backend", ts: new Date().toISOString() })
-  );
+  app.get("/api/health", (_req, res) => {
+    const stats = ModuleCatalog.stats();
+    const promptStatus = getEcoPromptStatus();
+    const roots = stats.roots;
+
+    if (promptStatus.state === "ready") {
+      return res.status(200).json({
+        ok: true,
+        prompts: "ready",
+        modulesIndexed: stats.indexedCount,
+        roots,
+        checkedAt: promptStatus.checkedAt,
+      });
+    }
+
+    const errorPayload: Record<string, unknown> = {
+      ok: false,
+      reason: "ECO_PROMPT_NOT_LOADED",
+      prompts: promptStatus.state,
+      modulesIndexed: stats.indexedCount,
+      roots,
+      checkedAt: promptStatus.checkedAt,
+    };
+
+    if (promptStatus.state === "error" && promptStatus.details) {
+      errorPayload.details = promptStatus.details;
+    }
+
+    return res.status(503).json(errorPayload);
+  });
   app.get("/readyz", (_req, res) => {
     if (!isSupabaseConfigured()) {
       return res.status(503).json({ status: "degraded", reason: "no-admin-config" });
