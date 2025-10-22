@@ -107,6 +107,7 @@ export function createApp(): Express {
 
   // 1) CORS global antes de qualquer rota
   app.use(corsMiddleware);
+  app.options("/api/*", (_req, res) => res.status(204).end());
   app.use(corsResponseInjector);
   app.options("*", corsMiddleware);
 
