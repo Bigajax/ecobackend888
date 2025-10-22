@@ -243,11 +243,25 @@ export interface StartEcoStreamParams {
   onError?: (error: Error) => void;
   signal?: AbortSignal;
   endpoint?: string;
+  streamId?: string;
+  headers?: Record<string, string | undefined>;
 }
 
 export interface EcoStreamHandle {
   close: () => void;
   finished: Promise<void>;
+}
+
+const activeStreamState: {
+  controller: AbortController | null;
+} = {
+  controller: null,
+};
+
+function createAbortError(reason: string): Error {
+  const error = new Error(reason);
+  error.name = "AbortError";
+  return error;
 }
 
 export function startEcoStream({
@@ -257,8 +271,19 @@ export function startEcoStream({
   onError,
   signal,
   endpoint = "/ask-eco",
+  streamId,
+  headers,
 }: StartEcoStreamParams): EcoStreamHandle {
   const controller = new AbortController();
+
+  if (activeStreamState.controller && activeStreamState.controller !== controller) {
+    try {
+      activeStreamState.controller.abort(createAbortError("superseded_stream"));
+    } catch {
+      /* ignore abort propagation failures */
+    }
+  }
+  activeStreamState.controller = controller;
 
   if (signal) {
     if (signal.aborted) {
@@ -274,20 +299,40 @@ export function startEcoStream({
     }
   }
 
+  const finalizeActiveStream = () => {
+    if (activeStreamState.controller === controller) {
+      activeStreamState.controller = null;
+    }
+  };
+
   const finished = (async () => {
     try {
       const guestId = getGuestIdHeader();
       const sessionId = getSessionIdHeader();
+      const requestHeaders: Record<string, string> = {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+        ...(guestId ? { "X-Eco-Guest-Id": guestId } : {}),
+        ...(sessionId ? { "X-Eco-Session-Id": sessionId } : {}),
+      };
+
+      if (streamId && streamId.trim()) {
+        requestHeaders["X-Stream-Id"] = streamId.trim();
+      }
+
+      if (headers) {
+        for (const [key, value] of Object.entries(headers)) {
+          if (typeof value === "string" && value.trim()) {
+            requestHeaders[key] = value;
+          }
+        }
+      }
+
       const response = await fetch(endpoint, {
         method: "POST",
         mode: "cors",
         credentials: "omit",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-          ...(guestId ? { "X-Eco-Guest-Id": guestId } : {}),
-          ...(sessionId ? { "X-Eco-Session-Id": sessionId } : {}),
-        },
+        headers: requestHeaders,
         body: JSON.stringify(body),
         signal: controller.signal,
       });
@@ -364,10 +409,13 @@ export function startEcoStream({
       onError?.(err);
       throw err;
     }
-  })();
+  })().finally(finalizeActiveStream);
 
   return {
-    close: () => controller.abort(),
+    close: () => {
+      finalizeActiveStream();
+      controller.abort(createAbortError("client_closed"));
+    },
     finished,
   };
 }
