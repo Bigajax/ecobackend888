@@ -393,6 +393,11 @@ function resolveGuestId(
   return undefined;
 }
 
+askEcoRouter.head("/", (req: Request, res: Response) => {
+  applyCorsResponseHeaders(req, res);
+  res.status(200).end();
+});
+
 /** POST /api/ask-eco — stream SSE (ou JSON se cliente não pedir SSE) */
 askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) => {
   applyCorsResponseHeaders(req, res);

@@ -103,6 +103,7 @@ export const CORS_ALLOW_METHODS = [
   "PATCH",
   "DELETE",
   "OPTIONS",
+  "HEAD",
 ] as const;
 
 export const CORS_EXPOSE_HEADERS = ["content-type", "x-request-id"] as const;

@@ -75,7 +75,7 @@ test("OPTIONS /api/ask-eco responde 204 com allowlist padrão", async () => {
     );
     assert.equal(
       response.headers.get("access-control-allow-methods"),
-      "GET,POST,PUT,PATCH,DELETE,OPTIONS",
+      "GET,POST,PUT,PATCH,DELETE,OPTIONS,HEAD",
       "deve aplicar a lista padrão de métodos",
     );
     assert.equal(
