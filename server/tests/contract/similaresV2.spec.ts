@@ -37,6 +37,12 @@ function createSupabaseStub() {
       ],
       error: null,
     })),
+    auth: {
+      getUser: jest.fn(async (_token: string) => ({
+        data: { user: { id: usuarioId } },
+        error: null,
+      })),
+    },
   };
 }
 
@@ -89,7 +95,7 @@ describe("/api/memorias/similares_v2 contract", () => {
     );
   });
 
-  it("rejects legacy alias", async () => {
+  it("returns similares_v2 results via alias", async () => {
     const app = await createApp();
     const agent = request(app);
 
@@ -97,9 +103,62 @@ describe("/api/memorias/similares_v2 contract", () => {
       .get("/api/similares_v2")
       .set("X-Eco-Guest-Id", guestId)
       .set("X-Eco-Session-Id", sessionId)
-      .query({ usuario_id: usuarioId, texto: "hello" });
+      .query({
+        usuario_id: usuarioId,
+        texto: "hello world",
+        k: 5,
+        threshold: 0.25,
+      });
 
-    expect(response.status).toBe(404);
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
+    expect(response.body.similares).toHaveLength(1);
+    expect(response.body.similares[0]).toMatchObject({
+      id: "mem-1",
+      resumo_eco: "Contexto 1",
+      tags: ["tag-1"],
+      created_at: "2024-01-01T00:00:00Z",
+      similarity: 0.91,
+      distancia: 0.08999999999999997,
+    });
+    expect(prepareQueryEmbeddingMock).toHaveBeenCalledWith({ texto: "hello world" });
+    expect(supabaseStub.rpc).toHaveBeenCalledWith(
+      "buscar_memorias_semelhantes_v2_safe",
+      expect.arrayContaining([
+        expect.any(Array),
+        usuarioId,
+        expect.any(Number),
+        expect.any(Number),
+        expect.any(Number),
+      ])
+    );
+  });
+
+  it("supports POST alias for similares_v2", async () => {
+    const app = await createApp();
+    const agent = request(app);
+
+    const response = await agent
+      .post("/api/similares_v2")
+      .set("X-Eco-Guest-Id", guestId)
+      .set("X-Eco-Session-Id", sessionId)
+      .set("Authorization", "Bearer valid-token")
+      .send({ texto: "hello world", limite: 3, threshold: 0.25 });
+
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
+    expect(response.body.similares).toHaveLength(1);
+    expect(response.body.similares[0]).toMatchObject({
+      id: "mem-1",
+      resumo_eco: "Contexto 1",
+      tags: ["tag-1"],
+      created_at: "2024-01-01T00:00:00Z",
+      similarity: 0.91,
+      distancia: 0.08999999999999997,
+    });
+    expect(prepareQueryEmbeddingMock).toHaveBeenCalledWith({ texto: "hello world" });
+    expect(supabaseStub.rpc).toHaveBeenCalled();
+    expect(supabaseStub.auth.getUser).toHaveBeenCalledWith("valid-token");
   });
 
   it("requires texto e usuario_id", async () => {

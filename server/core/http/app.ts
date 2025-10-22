@@ -31,11 +31,14 @@ import signalRoutes from "../../routes/signalRoutes";
 import moduleUsageRoutes from "../../routes/moduleUsageRoutes";
 import banditRoutes from "../../routes/banditRoutes";
 import policyRoutes from "../../routes/policyRoutes";
-import memoryRoutes from "../../domains/memory/routes";
+import memoryRoutes, {
+  memoryController,
+} from "../../domains/memory/routes";
 import { log } from "../../services/promptContext/logger";
 import { isSupabaseConfigured } from "../../lib/supabaseAdmin";
 import { guestSessionMiddleware } from "./middlewares/guestSession";
 import guestRoutes from "../../routes/guestRoutes";
+import requireAdmin from "../../mw/requireAdmin";
 
 declare module "express-serve-static-core" {
   interface Request {
@@ -152,6 +155,8 @@ export function createApp(): Express {
   app.use("/api", promptRoutes);
   app.use("/api/memorias", memoryRoutes);
   app.use("/api/memories", memoryRoutes);
+  app.get("/api/similares_v2", requireAdmin, memoryController.findSimilarV2);
+  app.post("/api/similares_v2", requireAdmin, memoryController.findSimilar);
   app.use("/api/perfil-emocional", profileRoutes);
   app.use("/api/perfil_emocional", profileRoutes);
   app.use("/api/v1/perfil-emocional", profileRoutes);

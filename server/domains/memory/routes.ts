@@ -5,14 +5,14 @@ import { createMemoryController } from "./controller";
 const router = Router();
 
 router.use(requireAdmin);
-const controller = createMemoryController();
+export const memoryController = createMemoryController();
 
-router.post("/registrar", controller.registerMemory);
-router.get("/", controller.listMemories);
-router.post("/similares", controller.findSimilar);
+router.post("/registrar", memoryController.registerMemory);
+router.get("/", memoryController.listMemories);
+router.post("/similares", memoryController.findSimilar);
 
-router.get("/similares_v2", controller.findSimilarV2);
-router.post("/similares_v2", controller.findSimilar);
-router.post("/similar_v2", controller.findSimilar);
+router.get("/similares_v2", memoryController.findSimilarV2);
+router.post("/similares_v2", memoryController.findSimilar);
+router.post("/similar_v2", memoryController.findSimilar);
 
 export default router;
