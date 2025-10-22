@@ -572,13 +572,14 @@ function logSelectorPipeline(decision: EcoDecisionResult, contextSource?: string
 }
 
 export async function getEcoResponse(
-  params: GetEcoParams & { promptOverride?: string; metaFromBuilder?: any }
+  params: GetEcoParams & { promptOverride?: string; metaFromBuilder?: any; abortSignal?: AbortSignal }
 ): Promise<GetEcoResult>;
 export async function getEcoResponse(
   params: GetEcoParams & {
     promptOverride?: string;
     metaFromBuilder?: any;
     stream: EcoStreamHandler;
+    abortSignal?: AbortSignal;
   }
 ): Promise<EcoStreamingResult>;
 
@@ -604,10 +605,12 @@ export async function getEcoResponse({
   activationTracer,
   isGuest = false,
   guestId = null,
+  abortSignal,
 }: GetEcoParams & {
   promptOverride?: string;
   metaFromBuilder?: any;
   stream?: EcoStreamHandler;
+  abortSignal?: AbortSignal;
 }): Promise<GetEcoResult | EcoStreamingResult> {
   const needsSupabase = !isGuest && !!accessToken;
   const missingEnvs: string[] = [];
@@ -638,6 +641,11 @@ export async function getEcoResponse({
     const timings: EcoLatencyMarks = {};
     let ecoDecision: EcoDecisionResult;
     let retrieveDecision: RetrieveDecision;
+
+    if (abortSignal?.aborted) {
+      const reason = abortSignal.reason ?? new Error("aborted");
+      throw (reason instanceof Error ? reason : new Error(String(reason)));
+    }
 
     // Supabase somente quando NÃO for guest e houver token
     const supabase = !isGuest && accessToken ? supabaseWithBearer(accessToken) : null;
@@ -943,6 +951,7 @@ export async function getEcoResponse({
         continuity: context.continuity,
         basePrompt: systemPrompt,
         basePromptHash,
+        abortSignal,
       });
 
       const originalFinalize = streamingResult.finalize;

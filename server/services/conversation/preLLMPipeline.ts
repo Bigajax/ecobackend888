@@ -112,14 +112,8 @@ async function emitImmediateStream({
 
   const timings: EcoLatencyMarks = {};
   await streamHandler.onEvent({ type: "control", name: "prompt_ready", timings });
-  const tokens = Array.from(finalText);
-  const first = tokens.shift() ?? "";
-  if (first) {
-    await streamHandler.onEvent({ type: "first_token", delta: first });
-  }
-  const rest = tokens.join("");
-  if (rest) {
-    await streamHandler.onEvent({ type: "chunk", delta: rest, index: 0 });
+  if (finalText) {
+    await streamHandler.onEvent({ type: "chunk", delta: finalText, index: 0 });
   }
   await streamHandler.onEvent({
     type: "control",

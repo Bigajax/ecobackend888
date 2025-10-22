@@ -1,69 +1,24 @@
-# Streaming Duplication – Backend Checklist
+# Resumo da causa
 
-## Root Cause Summary
-- SSE handler emite um único fluxo por requisição; duplicações surgem quando o cliente reconecta sem enviar `Last-Event-ID`, forçando nova sessão enquanto a anterior ainda processa.
-- Sem `req.on('close')` + `AbortController`, o backend mantém o stream original ativo e ele continua emitindo deltas mesmo após o cliente sumir.
-- Proxies/CDNs podem reenfileirar blocos se o stream não usar `no-transform` + `chunked`, resultando em pacotes agrupados ou atrasados.
-- Compressão ou buffering intermediário (Render/Vercel) introduzem latência e podem soltar vários chunks juntos, parecendo duplicação.
+- Streams SSE permaneciam ativos após a desconexão do cliente, permitindo múltiplos produtores em paralelo com o mesmo conteúdo quando reconexões ocorriam rapidamente.【F:server/routes/promptRoutes.ts†L430-L488】【F:server/routes/promptRoutes.ts†L1205-L1243】
+- O backend reemitia o primeiro trecho tanto como `first_token` quanto como `chunk`, fazendo o mesmo texto chegar duas vezes ao consumidor.【F:server/services/conversation/streamingOrchestrator.ts†L407-L446】
+- Eventos de texto não carregavam identificadores estáveis, impossibilitando deduplicação por `(interaction_id, index)` no front-end.【F:server/routes/promptRoutes.ts†L1088-L1113】
 
-## Checklist de Headers SSE
-```js
-res.setHeader('Content-Type', 'text/event-stream');
-res.setHeader('Cache-Control', 'no-cache, no-transform');
-res.setHeader('Connection', 'keep-alive');
-res.setHeader('Transfer-Encoding', 'chunked');
-res.flushHeaders?.(); // indispensável quando há compression/proxy
-```
+# O novo contrato de evento
 
-## Garantias de Unicidade
-- Gere `interaction_id` por requisição (UUID ou hash do payload) e incremente `index` a cada delta.
-- Escreva sempre com `event: chunk` seguido de `data:` serializado contendo ambos os campos.
-- Exemplo:
+- Todo delta textual é enviado apenas como `event: chunk` com `data: {"interaction_id","index","delta"}`; o primeiro chunk usa `index = 0` e nenhum outro evento replica o mesmo texto.【F:server/routes/promptRoutes.ts†L1088-L1113】
+- O controlador injeta o `interaction_id` gerado para a requisição (ou recuperado da orquestração) antes de qualquer emissão e o reutiliza em todos os chunks.【F:server/routes/promptRoutes.ts†L872-L917】【F:server/routes/promptRoutes.ts†L921-L928】
+- Headers de SSE forçam entrega sem buffering: `Content-Type: text/event-stream`, `Cache-Control: no-cache, no-transform`, `Transfer-Encoding: chunked`, `X-Accel-Buffering: no` e `flushHeaders()` imediato.【F:server/utils/sse.ts†L37-L63】【F:server/utils/sse.ts†L94-L129】
 
-```
-event: chunk
-data: {"interaction_id":"b6f2c76e-3ba6-4d4c-9c3b-4cc89b6da3f1","index":12,"delta":"..."}
-```
+# Como abort é propagado
 
-## Proposed Fix / Hardening
-```js
-app.post('/api/ask-eco', (req, res) => {
-  res.setHeader('Content-Type', 'text/event-stream');
-  res.setHeader('Cache-Control', 'no-cache, no-transform');
-  res.setHeader('Connection', 'keep-alive');
-  res.flushHeaders?.();
+- Cada stream cria um `AbortController`; `req.on('close')` e qualquer reconexão com o mesmo `streamId`/sessão invocam `abort()`, encerrando o produtor anterior antes de abrir o novo.【F:server/routes/promptRoutes.ts†L406-L488】
+- O `abortSignal` é repassado até o orquestrador e ao cliente Claude/OpenRouter, que interrompe imediatamente a leitura do stream assim que o sinal é cancelado.【F:server/services/ConversationOrchestrator.ts†L630-L705】【F:server/services/conversation/streamingOrchestrator.ts†L360-L415】【F:server/core/ClaudeAdapter.ts†L205-L344】
+- Logs e telemetria registram o motivo (`client_closed`, `superseded_stream`, etc.), e a limpeza remove a sessão ativa do mapa para impedir emissores órfãos.【F:server/routes/promptRoutes.ts†L928-L1009】【F:server/routes/promptRoutes.ts†L1115-L1187】
 
-  const interaction_id = crypto.randomUUID();
-  const ctrl = new AbortController();
-  req.on('close', () => ctrl.abort());
+# Testes manuais
 
-  let idx = 0;
-  const send = (payload) => {
-    res.write('event: chunk\n');
-    res.write(`data: ${JSON.stringify(payload)}\n\n`);
-  };
-
-  streamLLM({
-    signal: ctrl.signal,
-    onDelta: (delta) => send({ interaction_id, index: idx++, delta }),
-    onPing: () => res.write('event: ping\n\n'),
-    onDone: () => {
-      res.write('event: done\n\n');
-      res.end();
-    },
-    onError: (err) => {
-      res.write('event: error\n');
-      res.write(`data: ${JSON.stringify({ interaction_id, message: err.message })}\n\n`);
-      res.end();
-    }
-  });
-});
-```
-
-## Verificações de Ambiente/Proxy
-- Confirmar que o rewrite Vercel → Render mantém `Cache-Control: no-transform` e não aplica compressão.
-- Verificar se Render não acrescenta buffering ou gzip no endpoint `/api/ask-eco` (usar `curl -N` e `--no-buffer`).
-- Garantir suporte a conexões persistentes (HTTP/1.1) e que `Transfer-Encoding: chunked` apareça na resposta.
-
-## Observações Extra
-- Logs de "All object keys must match" (Supabase) e outros erros de memória são incidentes independentes; não interferem na duplicação de deltas.
+1. **Fluxo básico**: `curl -N -H "Accept: text/event-stream" -H "Content-Type: application/json" -d '{"texto":"oi","usuario_id":"<uuid>"}' https://<host>/api/ask-eco` → verificar sequência `event: chunk` com índices `0,1,2…` e JSON contendo `interaction_id` único.【F:server/routes/promptRoutes.ts†L1088-L1113】
+2. **Reconexão simultânea**: iniciar dois `curl` com o mesmo payload; o segundo deve continuar emitindo enquanto o primeiro é encerrado com `superseded_stream` nos logs.【F:server/routes/promptRoutes.ts†L430-L488】【F:server/routes/promptRoutes.ts†L1215-L1243】
+3. **Abort manual**: cancelar (`CTRL+C`) o `curl`; o servidor deve registrar `sse_client_closed` e nenhum chunk extra após o encerramento.【F:server/routes/promptRoutes.ts†L1001-L1018】【F:server/routes/promptRoutes.ts†L1215-L1243】
+4. **Headers do proxy**: `curl -I https://<host>/api/ask-eco` → confirmar ausência de `Content-Encoding`, presença de `text/event-stream`, `no-cache, no-transform`, `Transfer-Encoding: chunked` e `X-Accel-Buffering: no`.【F:server/utils/sse.ts†L37-L63】
