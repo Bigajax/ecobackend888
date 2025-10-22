@@ -15,11 +15,19 @@ jest.mock("../../services/supabaseClient", () => ({
 function createAnalyticsStub() {
   const passiveSignals: any[] = [];
   let insertError: any = null;
+  let selectError: any = null;
+  const interactions = new Set<string>();
 
   return {
     passiveSignals,
     setInsertError(error: any) {
       insertError = error;
+    },
+    setSelectError(error: any) {
+      selectError = error;
+    },
+    ensureInteraction(id: string) {
+      interactions.add(id);
     },
     client: {
       from: (table: string) => {
@@ -34,6 +42,28 @@ function createAnalyticsStub() {
                 return { error: null };
               },
             };
+          case "eco_interactions": {
+            let queriedId: string | null = null;
+            const query = {
+              select: () => query,
+              eq: (_column: string, value: string) => {
+                queriedId = value;
+                return query;
+              },
+              maybeSingle: async () => {
+                if (selectError) {
+                  return { data: null, error: selectError };
+                }
+
+                if (queriedId && interactions.has(queriedId)) {
+                  return { data: { id: queriedId }, error: null };
+                }
+
+                return { data: null, error: null };
+              },
+            };
+            return query;
+          }
           default:
             return {
               insert: async () => ({ error: null }),
@@ -70,6 +100,8 @@ describe("/api/signal contract", () => {
       meta: { percent: 100 },
     };
 
+    analyticsStub.ensureInteraction(payload.interaction_id);
+
     const response = await agent
       .post("/api/signal")
       .set("X-Eco-Guest-Id", guestId)
@@ -90,31 +122,49 @@ describe("/api/signal contract", () => {
     expect(typeof inserted.meta.ts).toBe("string");
   });
 
-  it("gracefully handles missing interaction id", async () => {
+  it("rejects requests without interaction id", async () => {
     const app = await createApp();
     const agent = request(app);
 
     const response = await agent.post("/api/signal").send({ name: "view" });
 
-    expect(response.status).toBe(204);
+    expect(response.status).toBe(400);
+    expect(response.body).toEqual({ error: "missing_interaction_id" });
     expect(analyticsStub.passiveSignals).toHaveLength(0);
   });
 
-  it("logs and still returns 204 when persistence fails", async () => {
+  it("returns 404 when the interaction is unknown", async () => {
     const app = await createApp();
     const agent = request(app);
-
-    const error = { message: "boom", code: "500" };
-    analyticsStub.setInsertError(error);
-
-    const consoleSpy = jest.spyOn(console, "error").mockImplementation(() => {});
 
     const response = await agent.post("/api/signal").send({
       name: "view",
       interaction_id: "123e4567-e89b-42d3-a456-426614174000",
     });
 
-    expect(response.status).toBe(204);
+    expect(response.status).toBe(404);
+    expect(response.body).toEqual({ error: "interaction_not_found" });
+    expect(analyticsStub.passiveSignals).toHaveLength(0);
+  });
+
+  it("logs and returns 500 when persistence fails", async () => {
+    const app = await createApp();
+    const agent = request(app);
+
+    const error = { message: "boom", code: "500" };
+    analyticsStub.setInsertError(error);
+    const interactionId = "123e4567-e89b-42d3-a456-426614174000";
+    analyticsStub.ensureInteraction(interactionId);
+
+    const consoleSpy = jest.spyOn(console, "error").mockImplementation(() => {});
+
+    const response = await agent.post("/api/signal").send({
+      name: "view",
+      interaction_id: interactionId,
+    });
+
+    expect(response.status).toBe(500);
+    expect(response.body).toEqual({ error: "signal_persist_failed" });
     expect(consoleSpy).toHaveBeenCalled();
     consoleSpy.mockRestore();
   });
