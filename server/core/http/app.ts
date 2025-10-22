@@ -113,7 +113,14 @@ export function createApp(): Express {
   app.options("*", corsMiddleware);
 
   // 2) Parsers (não executam em OPTIONS)
-  app.use(express.json({ limit: "1mb" }));
+  const standardJsonParser = express.json({ limit: "1mb" });
+  const signalJsonParser = express.json({ limit: "32kb" });
+  app.use((req, res, next) => {
+    if (req.path.startsWith("/api/signal")) {
+      return signalJsonParser(req, res, next);
+    }
+    return standardJsonParser(req, res, next);
+  });
   app.use(express.urlencoded({ extended: true }));
 
   // 3) Identidade guest (gera/propaga X-Eco-Guest-Id / cookie e X-Eco-Session-Id)

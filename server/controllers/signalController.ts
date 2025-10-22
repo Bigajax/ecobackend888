@@ -5,174 +5,135 @@ import { applyCorsResponseHeaders } from "../middleware/cors";
 
 const logger = log.withContext("signal-controller");
 
-const LIFECYCLE_SIGNALS = new Set(["first_token", "prompt_ready", "done"]);
-const STRICT_INTERACTION_SIGNALS = new Set(["view", "time_on_message", "tts_play"]);
+type SignalBody = Record<string, unknown>;
 
-function isValidUuid(value: unknown): value is string {
-  if (typeof value !== "string") return false;
+type NormalizedSignal = {
+  type: string;
+  name: string;
+  interaction_id?: string;
+  response_id?: string;
+  user_id?: string;
+  guest_id?: string;
+  meta?: Record<string, unknown>;
+  ts: string;
+};
+
+function normalizeString(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
   const trimmed = value.trim();
-  if (!trimmed) return false;
-  return /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/.test(trimmed);
+  return trimmed ? trimmed : undefined;
 }
 
-function normalizeSignal(value: unknown): string | null {
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  return trimmed ? trimmed : null;
-}
-
-function sanitizeMeta(value: unknown): Record<string, unknown> {
+function sanitizeMeta(value: unknown): Record<string, unknown> | undefined {
   if (!value || typeof value !== "object") {
-    return {};
+    return undefined;
   }
   try {
     return JSON.parse(JSON.stringify(value));
   } catch {
-    return {};
+    return undefined;
   }
 }
 
-function respondSignalStoreDisabled(res: Response) {
-  return res.status(501).json({ error: { code: "SIGNAL_STORE_DISABLED" } });
-}
+function normalizeBody(body: SignalBody, headers: { guestId?: string; sessionId?: string }): NormalizedSignal {
+  const safeType = normalizeString(body.type) ?? "passive";
+  const fallbackName = normalizeString(body.signal) ?? "unknown";
+  const safeName = normalizeString(body.name) ?? fallbackName;
 
-function respondNoContent(res: Response) {
-  return res.status(204).end();
-}
+  const interactionId =
+    normalizeString(body.interaction_id) ?? normalizeString((body as any).interactionId);
+  const responseId = normalizeString(body.response_id) ?? normalizeString((body as any).responseId);
+  const userId = normalizeString(body.user_id) ?? normalizeString((body as any).userId);
+  const guestId =
+    headers.guestId ?? normalizeString(body.guest_id) ?? normalizeString((body as any).guestId);
+  const ts = normalizeString(body.ts) ?? new Date().toISOString();
+  const meta = sanitizeMeta(body.meta);
 
-function isStorageDisabled(error: { code?: string | null; message: string }) {
-  const code = error.code ?? "";
-  if (code === "42P01" || code === "42703") return true;
-  const message = error.message?.toLowerCase?.() ?? "";
-  return message.includes("does not exist") || message.includes("missing column");
+  const normalized: NormalizedSignal = {
+    type: safeType,
+    name: safeName,
+    ts,
+  };
+
+  if (interactionId) normalized.interaction_id = interactionId;
+  if (responseId) normalized.response_id = responseId;
+  if (userId) normalized.user_id = userId;
+  if (guestId) normalized.guest_id = guestId;
+  if (meta) normalized.meta = meta;
+
+  if (headers.sessionId) {
+    normalized.meta = {
+      ...(normalized.meta ?? {}),
+      session_id_header: headers.sessionId,
+    };
+  }
+
+  if (headers.guestId && (!normalized.meta || !("guest_id_header" in normalized.meta))) {
+    normalized.meta = {
+      ...(normalized.meta ?? {}),
+      guest_id_header: headers.guestId,
+    };
+  }
+
+  return normalized;
 }
 
 export async function registrarSignal(req: Request, res: Response) {
   applyCorsResponseHeaders(req, res);
-  const body = (req.body && typeof req.body === "object" ? req.body : {}) as Record<string, unknown>;
 
-  const rawSignal = normalizeSignal(body.signal ?? null);
-  const rawInteractionId = typeof body.interaction_id === "string" ? body.interaction_id : null;
-  const userOrGuest = normalizeSignal(body.user_or_guest ?? null);
+  const headersGuest = normalizeString(req.get("X-Eco-Guest-Id"));
+  const headersSession = normalizeString(req.get("X-Eco-Session-Id"));
 
-  const guestIdHeader = normalizeSignal(req.get("X-Eco-Guest-Id"));
-  const sessionIdHeader = normalizeSignal(req.get("X-Eco-Session-Id"));
+  const body =
+    req.body && typeof req.body === "object" && !Array.isArray(req.body)
+      ? (req.body as SignalBody)
+      : {};
 
-  const noop = (reason: string) => {
-    logger.warn("signal.ignored", {
-      reason,
-      signal: rawSignal ?? null,
-      has_interaction_id: Boolean(rawInteractionId),
-      user_or_guest: userOrGuest ?? null,
-      guest_id_header: guestIdHeader ?? null,
-      session_id_header: sessionIdHeader ?? null,
-    });
-    return respondNoContent(res);
+  const normalized = normalizeBody(body, { guestId: headersGuest, sessionId: headersSession });
+
+  const supabaseMeta = {
+    ...(normalized.meta ?? {}),
+    type: normalized.type,
+    ts: normalized.ts,
+    ...(normalized.response_id ? { response_id: normalized.response_id } : {}),
+    ...(normalized.user_id ? { user_id: normalized.user_id } : {}),
+    ...(normalized.guest_id ? { guest_id: normalized.guest_id } : {}),
   };
 
-  logger.info({
-    tag: "signal_request",
-    signal: rawSignal ?? null,
-    has_interaction_id: Boolean(rawInteractionId),
-    user_or_guest: userOrGuest ?? null,
-    guest_id: guestIdHeader ?? null,
-    session_id: sessionIdHeader ?? null,
-  });
+  try {
+    if (normalized.interaction_id) {
+      const analytics = getAnalyticsClient();
+      const { error } = await analytics.from("eco_passive_signals").insert([
+        {
+          interaction_id: normalized.interaction_id,
+          signal: normalized.name,
+          meta: supabaseMeta,
+        },
+      ]);
 
-  if (!rawSignal) {
-    return noop("missing_signal");
-  }
-
-  const signalKey = rawSignal.toLowerCase();
-
-  if (!rawInteractionId) {
-    if (LIFECYCLE_SIGNALS.has(signalKey)) {
-      logger.debug("signal.lifecycle_missing_interaction", {
-        signal: rawSignal,
-        guest_id: guestIdHeader ?? null,
-      });
-      return respondNoContent(res);
-    }
-    if (STRICT_INTERACTION_SIGNALS.has(signalKey)) {
+      if (error) {
+        throw error;
+      }
+    } else {
       logger.warn("signal.missing_interaction_id", {
-        signal: rawSignal,
-        guest_id: guestIdHeader ?? null,
+        name: normalized.name,
+        type: normalized.type,
       });
-      return res.status(400).json({ error: "missing_interaction_id" });
     }
-    return noop("missing_interaction_id");
-  }
-
-  if (!isValidUuid(rawInteractionId)) {
-    logger.warn("signal.invalid_interaction_id", {
-      signal: rawSignal,
-      interaction_id: rawInteractionId,
+  } catch (err) {
+    console.error("[signal] fail", { err, body: normalized });
+    const errorMessage =
+      err instanceof Error
+        ? err.message
+        : err && typeof err === "object" && "message" in err
+        ? String((err as { message?: unknown }).message)
+        : "unknown_error";
+    logger.error("signal.persist_failed", {
+      error: errorMessage,
+      name: normalized.name,
+      type: normalized.type,
     });
-    return noop("invalid_interaction_id");
+  } finally {
+    res.status(204).end();
   }
-
-  const interactionId = (rawInteractionId as string).trim();
-  const meta = {
-    ...sanitizeMeta(body.meta),
-    ...(userOrGuest ? { user_or_guest: userOrGuest } : {}),
-    ...(guestIdHeader ? { guest_id_header: guestIdHeader } : {}),
-    ...(sessionIdHeader ? { session_id_header: sessionIdHeader } : {}),
-  };
-
-  const analytics = getAnalyticsClient();
-  if (!analytics) {
-    logger.warn("signal.store_unavailable", { reason: "analytics_client_missing" });
-    return respondSignalStoreDisabled(res);
-  }
-
-  const payload = {
-    interaction_id: interactionId,
-    signal: rawSignal,
-    meta,
-  };
-
-  const { error } = await analytics.from("eco_passive_signals").insert([payload]);
-
-  if (!error) {
-    logger.info("signal.persisted", {
-      signal: rawSignal,
-      status: "created",
-      degraded: false,
-      table: "eco_passive_signals",
-      interaction_id: interactionId,
-    });
-    return respondNoContent(res);
-  }
-
-  if (isStorageDisabled(error)) {
-    logger.warn("signal.store_disabled", {
-      signal: rawSignal,
-      interaction_id: interactionId,
-      message: error.message,
-      code: error.code ?? null,
-    });
-    return respondSignalStoreDisabled(res);
-  }
-
-  if (error.code === "23503") {
-    logger.error("signal.persist.fk_violation", {
-      signal: rawSignal,
-      interaction_id: interactionId,
-      message: error.message,
-      table: "eco_passive_signals",
-      payload,
-    });
-    return res.status(404).json({ error: { code: "INTERACTION_NOT_FOUND" } });
-  }
-
-  logger.error("signal.persist.error", {
-    signal: rawSignal,
-    interaction_id: interactionId,
-    message: error.message,
-    code: error.code ?? null,
-    table: "eco_passive_signals",
-    payload,
-  });
-
-  return res.status(500).json({ error: { code: "INTERNAL_ERROR" } });
 }
