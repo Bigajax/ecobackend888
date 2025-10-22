@@ -27,6 +27,7 @@ import voiceFullRoutes from "../../routes/voiceFullRoutes";
 import openrouterRoutes from "../../routes/openrouterRoutes";
 import relatorioRoutes from "../../routes/relatorioEmocionalRoutes";
 import feedbackRoutes from "../../routes/feedbackRoutes";
+import mensagemRoutes from "../../routes/mensagemRoutes";
 import signalRoutes from "../../routes/signalRoutes";
 import moduleUsageRoutes from "../../routes/moduleUsageRoutes";
 import banditRoutes from "../../routes/banditRoutes";
