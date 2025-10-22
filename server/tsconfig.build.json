@@ -25,7 +25,8 @@
     "./services/**/*.ts",
     "./types/**/*.ts",
     "./types/**/*.d.ts",
-    "./utils/**/*.ts"
+    "./utils/**/*.ts",
+    "./assets/**/*"
   ],
   "exclude": [
     "node_modules",

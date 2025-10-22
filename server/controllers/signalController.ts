@@ -91,6 +91,53 @@ export async function registrarSignal(req: Request, res: Response) {
 
   const normalized = normalizeBody(body, { guestId: headersGuest, sessionId: headersSession });
 
+  if (!normalized.interaction_id) {
+    logger.warn("signal.missing_interaction_id", {
+      name: normalized.name,
+      type: normalized.type,
+    });
+    return res.status(400).json({ error: "missing_interaction_id" });
+  }
+
+  let analyticsClient;
+  try {
+    analyticsClient = getAnalyticsClient();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    logger.error("signal.analytics_unavailable", { message });
+    return res.status(503).json({ error: "analytics_unavailable" });
+  }
+
+  try {
+    const { data, error } = await analyticsClient
+      .from("eco_interactions")
+      .select("id")
+      .eq("id", normalized.interaction_id)
+      .maybeSingle();
+
+    if (error) {
+      logger.error("signal.interaction_lookup_failed", {
+        interaction_id: normalized.interaction_id,
+        message: error.message,
+        code: error.code ?? null,
+      });
+      return res.status(500).json({ error: "interaction_lookup_failed" });
+    }
+
+    if (!data || typeof data.id !== "string") {
+      logger.warn("signal.interaction_not_found", {
+        interaction_id: normalized.interaction_id,
+      });
+      return res.status(404).json({ error: "interaction_not_found" });
+    }
+  } catch (error) {
+    logger.error("signal.interaction_lookup_unexpected", {
+      interaction_id: normalized.interaction_id,
+      message: error instanceof Error ? error.message : String(error),
+    });
+    return res.status(500).json({ error: "interaction_lookup_unexpected" });
+  }
+
   const supabaseMeta = {
     ...(normalized.meta ?? {}),
     type: normalized.type,
@@ -101,24 +148,16 @@ export async function registrarSignal(req: Request, res: Response) {
   };
 
   try {
-    if (normalized.interaction_id) {
-      const analytics = getAnalyticsClient();
-      const { error } = await analytics.from("eco_passive_signals").insert([
-        {
-          interaction_id: normalized.interaction_id,
-          signal: normalized.name,
-          meta: supabaseMeta,
-        },
-      ]);
+    const { error } = await analyticsClient.from("eco_passive_signals").insert([
+      {
+        interaction_id: normalized.interaction_id,
+        signal: normalized.name,
+        meta: supabaseMeta,
+      },
+    ]);
 
-      if (error) {
-        throw error;
-      }
-    } else {
-      logger.warn("signal.missing_interaction_id", {
-        name: normalized.name,
-        type: normalized.type,
-      });
+    if (error) {
+      throw error;
     }
   } catch (err) {
     console.error("[signal] fail", { err, body: normalized });
@@ -132,8 +171,10 @@ export async function registrarSignal(req: Request, res: Response) {
       error: errorMessage,
       name: normalized.name,
       type: normalized.type,
+      interaction_id: normalized.interaction_id,
     });
-  } finally {
-    res.status(204).end();
+    return res.status(500).json({ error: "signal_persist_failed" });
   }
+
+  return res.status(204).end();
 }
