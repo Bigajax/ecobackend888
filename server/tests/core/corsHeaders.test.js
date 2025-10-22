@@ -26,7 +26,7 @@ test("OPTIONS /api/ask-eco responds with 204 and CORS headers", async () => {
     assert.equal(response.headers["access-control-allow-credentials"], "true");
     assert.equal(
       response.headers["access-control-allow-methods"],
-      "GET,POST,PUT,PATCH,DELETE,OPTIONS"
+      "GET,POST,PUT,PATCH,DELETE,OPTIONS,HEAD"
     );
     assert.equal(
       response.headers["access-control-allow-headers"],

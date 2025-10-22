@@ -36,10 +36,14 @@ const loadRouterWithStubs = async (modulePath: string, stubs: StubMap) => {
   });
 };
 
-const getRouteHandler = (router: any, path: string) => {
-  const layer = router.stack.find((entry: any) => entry.route?.path === path);
+const getRouteHandler = (router: any, path: string, method = "post") => {
+  const normalizedMethod = method.toLowerCase();
+  const layer = router.stack.find(
+    (entry: any) => entry.route?.path === path && entry.route?.methods?.[normalizedMethod]
+  );
   if (!layer) throw new Error(`Route ${path} not found`);
-  const handler = layer.route.stack[0]?.handle;
+  const handler = layer.route.stack.find((stackEntry: any) => stackEntry.method === normalizedMethod)
+    ?.handle;
   if (!handler) throw new Error(`Handler for route ${path} not found`);
   return handler;
 };
@@ -366,4 +370,40 @@ test("StreamSession heartbeats use comments and close with done event", async ()
     global.setInterval = originalSetInterval;
     global.clearInterval = originalClearInterval;
   }
+});
+
+test("HEAD /api/ask-eco responds 200 with CORS headers", async () => {
+  const router = await loadRouterWithStubs("../../routes/promptRoutes", {
+    "../services/promptContext/logger": {
+      log: {
+        info: () => {},
+        warn: () => {},
+        error: () => {},
+        debug: () => {},
+      },
+    },
+  });
+
+  const handler = getRouteHandler(router, "/ask-eco", "head");
+
+  const req = new MockRequest({}, { origin: "https://ecofrontend888.vercel.app" });
+  req.method = "HEAD";
+
+  const res = new MockResponse();
+
+  await handler(req as any, res as any);
+
+  assert.equal(res.statusCode, 200, "HEAD should respond 200");
+  assert.equal(
+    res.headers.get("access-control-allow-origin"),
+    "https://ecofrontend888.vercel.app",
+    "should echo allowed origin",
+  );
+  const allowMethods = res.headers.get("access-control-allow-methods");
+  assert.equal(
+    allowMethods,
+    "GET,POST,PUT,PATCH,DELETE,OPTIONS,HEAD",
+    "should include HEAD in allowed methods",
+  );
+  assert.equal(res.ended, true, "response should end");
 });
