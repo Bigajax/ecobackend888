@@ -29,11 +29,13 @@ import registrarModulosFilosoficos from "./services/registrarModulosFilosoficos"
 import { log } from "./services/promptContext/logger";
 import { startBanditRewardSyncScheduler } from "./services/banditRewardsSync";
 import { analyticsClientMode } from "./services/supabaseClient";
+import { ensureEcoIdentityPromptAvailability } from "./services/promptContext/identityModules";
 
 const app = createApp();
 
 async function start() {
   await configureModuleStore();
+  await ensureEcoIdentityPromptAvailability();
   startBanditRewardSyncScheduler();
 
   const PORT = Number(process.env.PORT || 3001);
@@ -46,6 +48,7 @@ async function start() {
       NODE_ENV: process.env.NODE_ENV ?? "(unset)",
       analyticsClientMode,
     });
+    console.info("[boot] paths", { cwd: process.cwd(), dirname: __dirname });
 
     try {
       if (process.env.REGISTRAR_HEURISTICAS === "true") {

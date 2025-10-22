@@ -2,6 +2,7 @@ import * as path from "path";
 import { promises as fs } from "fs";
 import { ModuleStore } from "./ModuleStore";
 import { log } from "./logger";
+import { createHttpError, isHttpError } from "../../utils/http";
 
 export type IdentityModule = { name: string; text: string };
 
@@ -15,6 +16,8 @@ const ORDERED_FILES = [
   "eco_memory_logic.txt",
   "eco_intro_inicial.txt",
 ];
+
+const REQUIRED_FILES = [...ORDERED_FILES];
 
 const PROMPT_DIR_CANDIDATES = [
   path.resolve(__dirname, "../assets", PROMPT_SUBPATH),
@@ -80,6 +83,24 @@ async function readPromptContent(file: string): Promise<string | null> {
 let cachedModules: IdentityModule[] | null = null;
 let pendingLoad: Promise<IdentityModule[]> | null = null;
 
+let manifestLogged = false;
+
+function logManifestOnce(modules: IdentityModule[]) {
+  if (manifestLogged) return;
+  manifestLogged = true;
+  const manifest = modules.map((module) => ({
+    name: module.name,
+    bytes: Buffer.byteLength(module.text, "utf8"),
+  }));
+  console.info("[eco-prompts] loaded", {
+    files: manifest,
+  });
+}
+
+function buildPromptLoadError(extra: Record<string, unknown> = {}) {
+  return createHttpError(500, "ECO_PROMPT_NOT_LOADED", "ECO prompt not loaded", extra);
+}
+
 async function loadIdentityModulesInternal(): Promise<IdentityModule[]> {
   await ModuleStore.bootstrap();
 
@@ -93,11 +114,15 @@ async function loadIdentityModulesInternal(): Promise<IdentityModule[]> {
   }
 
   if (seen.size === 0) {
-    return [];
+    throw buildPromptLoadError({
+      reason: "PROMPT_DIR_EMPTY",
+      searched: PROMPT_DIR_CANDIDATES,
+    });
   }
 
   const ordered = sortByExplicitOrder(Array.from(seen));
   const modules: IdentityModule[] = [];
+  const missingRequired = new Set<string>();
 
   for (const file of ordered) {
     const content = await readPromptContent(file);
@@ -105,8 +130,26 @@ async function loadIdentityModulesInternal(): Promise<IdentityModule[]> {
       modules.push({ name: file, text: content.trim() });
     } else {
       log.warn("[identityModules] prompt file missing or empty", { file });
+      if (REQUIRED_FILES.includes(file)) {
+        missingRequired.add(file);
+      }
     }
   }
+
+  for (const required of REQUIRED_FILES) {
+    if (!modules.some((module) => module.name === required)) {
+      missingRequired.add(required);
+    }
+  }
+
+  if (modules.length === 0 || missingRequired.size > 0) {
+    throw buildPromptLoadError({
+      missing: Array.from(missingRequired),
+      available: modules.map((module) => module.name),
+    });
+  }
+
+  logManifestOnce(modules);
 
   return modules;
 }
@@ -121,4 +164,17 @@ export async function loadEcoIdentityModules(): Promise<IdentityModule[]> {
     });
   }
   return pendingLoad;
+}
+
+export async function ensureEcoIdentityPromptAvailability(): Promise<void> {
+  try {
+    await loadEcoIdentityModules();
+  } catch (error) {
+    const payload = isHttpError(error) ? error.body : undefined;
+    console.error("[eco-prompts] failed to load", {
+      message: error instanceof Error ? error.message : String(error),
+      details: payload ?? null,
+    });
+    process.exit(1);
+  }
 }
