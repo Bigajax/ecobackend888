@@ -81,20 +81,28 @@ export async function createInteraction(seed: InteractionSeed): Promise<string |
 
   try {
     const analytics = getAnalyticsClient();
+    const normalizedMessageId =
+      typeof seed.messageId === "string" && seed.messageId.trim().length
+        ? seed.messageId.trim()
+        : null;
+
     const { data, error } = await analytics
       .from("eco_interactions")
-      .insert([
-        {
-          user_id: seed.userId ?? null,
-          session_id: seed.sessionId ?? null,
-          message_id: seed.messageId ?? null,
-          prompt_hash: seed.promptHash ?? null,
-          module_combo: null,
-          tokens_in: null,
-          tokens_out: null,
-          latency_ms: null,
-        },
-      ])
+      .upsert(
+        [
+          {
+            user_id: seed.userId ?? null,
+            session_id: seed.sessionId ?? null,
+            message_id: normalizedMessageId,
+            prompt_hash: seed.promptHash ?? null,
+            module_combo: null,
+            tokens_in: null,
+            tokens_out: null,
+            latency_ms: null,
+          },
+        ],
+        { onConflict: "message_id", ignoreDuplicates: true }
+      )
       .select("id")
       .maybeSingle();
 
@@ -115,8 +123,39 @@ export async function createInteraction(seed: InteractionSeed): Promise<string |
 
     const interactionId = (data as { id?: string } | null)?.id ?? null;
     if (!interactionId) {
-      logger.warn("interaction.create_missing_id");
-      return null;
+      if (!normalizedMessageId) {
+        logger.warn("interaction.create_missing_id");
+        return null;
+      }
+
+      const { data: existing, error: lookupError } = await analytics
+        .from("eco_interactions")
+        .select("id")
+        .eq("message_id", normalizedMessageId)
+        .maybeSingle();
+
+      if (lookupError) {
+        logger.warn("interaction.lookup_failed", {
+          message: lookupError.message,
+          code: lookupError.code ?? null,
+          table: "eco_interactions",
+        });
+        return null;
+      }
+
+      const reusedId = (existing as { id?: string } | null)?.id ?? null;
+      if (!reusedId) {
+        logger.warn("interaction.lookup_missing_id", {
+          table: "eco_interactions",
+        });
+        return null;
+      }
+
+      logger.info("interaction.reused_existing", {
+        table: "eco_interactions",
+        interaction_id: reusedId,
+      });
+      return reusedId;
     }
 
     logger.info("interaction.insert_success", {

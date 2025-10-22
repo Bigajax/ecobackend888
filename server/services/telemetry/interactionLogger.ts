@@ -29,10 +29,14 @@ export async function logInteraction({
 }): Promise<string | null> {
   try {
     const nowIso = new Date().toISOString();
+    const normalizedMessageId =
+      typeof interaction.messageId === "string" && interaction.messageId.trim().length
+        ? interaction.messageId.trim()
+        : null;
     const payload = {
       user_id: interaction.userId ?? null,
       session_id: interaction.sessionId ?? null,
-      message_id: interaction.messageId ?? null,
+      message_id: normalizedMessageId,
       prompt_hash: interaction.promptHash ?? null,
       module_combo:
         Array.isArray(interaction.moduleCombo) && interaction.moduleCombo.length
@@ -54,7 +58,7 @@ export async function logInteraction({
 
     const { data, error } = await analytics
       .from("eco_interactions")
-      .insert([payload])
+      .upsert([payload], { onConflict: "message_id", ignoreDuplicates: true })
       .select("id")
       .maybeSingle();
 
@@ -69,7 +73,38 @@ export async function logInteraction({
 
     const interactionId = (data as { id?: string } | null)?.id ?? null;
     if (!interactionId) {
-      return null;
+      if (!normalizedMessageId) {
+        return null;
+      }
+
+      const { data: existing, error: lookupError } = await analytics
+        .from("eco_interactions")
+        .select("id")
+        .eq("message_id", normalizedMessageId)
+        .maybeSingle();
+
+      if (lookupError) {
+        log.warn("[interactionLogger] lookup_failed", {
+          message: lookupError.message,
+          code: lookupError.code ?? null,
+          payload: { message_id: normalizedMessageId },
+        });
+        return null;
+      }
+
+      const reusedId = (existing as { id?: string } | null)?.id ?? null;
+      if (!reusedId) {
+        log.warn("[interactionLogger] lookup_missing_id", {
+          payload: { message_id: normalizedMessageId },
+        });
+        return null;
+      }
+
+      log.info("[interactionLogger] reused_existing", {
+        tabela: "eco_interactions",
+        interaction_id: reusedId,
+      });
+      return reusedId;
     }
 
     log.info("[interactionLogger] insert_success", {
