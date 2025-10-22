@@ -750,7 +750,7 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
     (params as any).abortSignal = abortSignal;
 
     const pendingSignals: Array<{ signal: string; meta: Record<string, unknown> }> = [];
-    let resolvedInteractionId = fallbackInteractionId;
+    let resolvedInteractionId: string = fallbackInteractionId;
     let interactionIdReady = false;
 
     const updateActiveStreamInteractionId = (interactionId: string) => {

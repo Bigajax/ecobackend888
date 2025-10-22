@@ -471,7 +471,7 @@ export async function executeStreamingLLM({
         await emitStream({ type: "error", error });
       },
     },
-    { signal: abortSignal }
+    { externalSignal: abortSignal }
   ).catch((error: any) => {
     const err = error instanceof Error ? error : new Error(String(error));
     streamFailure = err;
