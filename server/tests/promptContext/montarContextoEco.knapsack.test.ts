@@ -7,31 +7,31 @@ import { computeEcoDecision } from "../../services/conversation/ecoDecisionHub";
 import { qualityAnalyticsStore } from "../../services/analytics/analyticsStore";
 
 const inlineModules: Record<string, string> = {
-  "DEVELOPER_PROMPT.txt": "DP".repeat(20),
+  "developer_prompt.txt": "DP".repeat(20),
   "IDENTIDADE.txt": "ID".repeat(200),
-  "IDENTIDADE_MINI.txt": "IM".repeat(40),
+  "identidade_mini.txt": "IM".repeat(40),
   "MODULACAO_TOM_REGISTRO.txt": "MT".repeat(40),
   "LINGUAGEM_NATURAL.txt": "LN".repeat(40),
   "ENCERRAMENTO_SENSIVEL.txt": "ES".repeat(30),
   "DETECÇÃOCRISE.txt": "DC".repeat(30),
   "PEDIDOPRÁTICO.txt": "PP".repeat(30),
-  "ESCALA_ABERTURA_1a3.txt": "EA".repeat(40),
+  "escala_abertura_1a3.txt": "EA".repeat(40),
   "ESCALA_INTENSIDADE_0a10.txt": "EI".repeat(40),
-  "METODO_VIVA_ENXUTO.txt": "MV".repeat(50),
-  "BLOCO_TECNICO_MEMORIA.txt": "BT".repeat(40),
-  "USOMEMÓRIAS.txt": "UM".repeat(40),
+  "metodo_viva_enxuto.txt": "MV".repeat(50),
+  "bloco_tecnico_memoria.txt": "BT".repeat(40),
+  "usomemorias.txt": "UM".repeat(40),
   "PRINCIPIOS_CHAVE.txt": "PC".repeat(60),
   "ANTISALDO_MIN.txt": "AM".repeat(30),
-  "ECO_ESTRUTURA_DE_RESPOSTA.txt": "EE".repeat(60),
-  "NV1_CORE.txt": "NV".repeat(30),
+  "eco_estrutura_de_resposta.txt": "EE".repeat(60),
+  "nv1_core.txt": "NV".repeat(30),
 };
 
 const MVS_EXPECTED = [
-  "IDENTIDADE_MINI.txt",
-  "ECO_ESTRUTURA_DE_RESPOSTA.txt",
-  "USOMEMÓRIAS.txt",
-  "BLOCO_TECNICO_MEMORIA.txt",
-  "METODO_VIVA_ENXUTO.txt",
+  "identidade_mini.txt",
+  "eco_estrutura_de_resposta.txt",
+  "usomemorias.txt",
+  "bloco_tecnico_memoria.txt",
+  "metodo_viva_enxuto.txt",
 ];
 
 test("ContextBuilder mantém MVS e respeita orçamento aditivo", async () => {

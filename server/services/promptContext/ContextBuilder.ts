@@ -30,7 +30,7 @@ import {
   MEMORY_POLICY_EXPLICIT,
 } from "./promptIdentity";
 
-// ⬇️ prioridade absoluta (inclui DEVELOPER_PROMPT=0)
+// ⬇️ prioridade absoluta (inclui developer_prompt=0)
 import { ordemAbsoluta } from "./matrizPromptBaseV2";
 import { qualityAnalyticsStore } from "../analytics/analyticsStore";
 import { solveKnapsack } from "../orchestrator/knapsack";
@@ -534,7 +534,7 @@ function buildDecisionSignals(
 }
 
 /* ---------- helpers de ordenação absoluta ---------- */
-const ABS_FIRST = "DEVELOPER_PROMPT.txt";
+const ABS_FIRST = "developer_prompt.txt";
 const byAbsoluteOrder = (a: string, b: string) =>
   (ordemAbsoluta[a] ?? (a === ABS_FIRST ? 0 : 999)) -
   (ordemAbsoluta[b] ?? (b === ABS_FIRST ? 0 : 999));
@@ -550,11 +550,11 @@ const ensureDeveloperPromptFirst = (list: string[]) => {
 };
 
 const MINIMAL_VITAL_SET = [
-  "IDENTIDADE_MINI.txt",
-  "ECO_ESTRUTURA_DE_RESPOSTA.txt",
-  "USOMEMÓRIAS.txt",
-  "BLOCO_TECNICO_MEMORIA.txt",
-  "METODO_VIVA_ENXUTO.txt",
+  "identidade_mini.txt",
+  "eco_estrutura_de_resposta.txt",
+  "usomemorias.txt",
+  "bloco_tecnico_memoria.txt",
+  "metodo_viva_enxuto.txt",
 ];
 
 const KNAPSACK_BUDGET_ENV = "ECO_KNAPSACK_BUDGET_TOKENS";
@@ -901,7 +901,7 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
   }
   const intentAndFlagModules = toUnique([...intentModules, ...flagFooters]);
 
-  // Ordem: seleção base -> +intents/footers -> força DEVELOPER_PROMPT primeiro
+  // Ordem: seleção base -> +intents/footers -> força developer_prompt primeiro
   const modulesRawBase = ensureDeveloperPromptFirst(
     toUnique([...toUnique(baseSelection.raw), ...intentAndFlagModules])
   );
@@ -1405,7 +1405,7 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
       ordered,
       orderedAfterBudget: budgetResult.used,
       incluiDeveloperPrompt,
-      incluiEscala: ordered.includes("ESCALA_ABERTURA_1a3.txt"),
+      incluiEscala: ordered.includes("escala_abertura_1a3.txt"),
       addByIntent: inferIntentModules(texto),
     });
     log.debug("[ContextBuilder] tokens & orçamento", {

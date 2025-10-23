@@ -26,12 +26,12 @@ function makeDec(overrides: Partial<DecSnapshot> = {}): DecSnapshot {
 }
 
 test("applyModuleMetadata respeita abertura", async () => {
-  const baseOrder = ["NV1_CORE.txt", "ENCERRAMENTO_SENSIVEL.txt"];
+  const baseOrder = ["nv1_core.txt", "ENCERRAMENTO_SENSIVEL.txt"];
   const candidates = await ModuleCatalog.load(baseOrder);
 
   const decNv1 = makeDec({ openness: 1, intensity: 3, vivaSteps: ["V", "A"] });
   const resultNv1 = Selector.applyModuleMetadata({ dec: decNv1, baseOrder, candidates });
-  assert.ok(resultNv1.regular.some((module) => module.name === "NV1_CORE.txt"));
+  assert.ok(resultNv1.regular.some((module) => module.name === "nv1_core.txt"));
   assert.ok(!resultNv1.footers.some((module) => module.name === "ENCERRAMENTO_SENSIVEL.txt"));
 
   const decNv3 = makeDec({
@@ -46,7 +46,7 @@ test("applyModuleMetadata respeita abertura", async () => {
 });
 
 test("inclui BLOCO_TECNICO_MEMORIA quando intensidade alta e hasTechBlock", async () => {
-  const baseOrder = ["BLOCO_TECNICO_MEMORIA.txt"];
+  const baseOrder = ["bloco_tecnico_memoria.txt"];
   const candidates = await ModuleCatalog.load(baseOrder);
 
   const decLow = makeDec({ intensity: 6, hasTechBlock: false, openness: 2 });
@@ -61,7 +61,7 @@ test("inclui BLOCO_TECNICO_MEMORIA quando intensidade alta e hasTechBlock", asyn
     isVulnerable: true,
   });
   const resultHigh = Selector.applyModuleMetadata({ dec: decHigh, baseOrder, candidates });
-  assert.ok(resultHigh.footers.some((module) => module.name === "BLOCO_TECNICO_MEMORIA.txt"));
+  assert.ok(resultHigh.footers.some((module) => module.name === "bloco_tecnico_memoria.txt"));
 });
 
 test("flags de crise ativam DETECÇÃOCRISE", async () => {
@@ -80,7 +80,7 @@ test("flags de crise ativam DETECÇÃOCRISE", async () => {
 });
 
 test("placeholders {{DEC.*}} são interpolados", async () => {
-  const baseOrder = ["METODO_VIVA_ENXUTO.txt"];
+  const baseOrder = ["metodo_viva_enxuto.txt"];
   const candidates = await ModuleCatalog.load(baseOrder);
 
   const dec = makeDec({

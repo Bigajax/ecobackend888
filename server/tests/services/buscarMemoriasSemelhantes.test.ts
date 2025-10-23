@@ -45,14 +45,14 @@ test("buscarMemoriasSemelhantes normalizes provided embeddings", async () => {
   });
 
   assert.equal(calls.length, 1, "deveria chamar a RPC apenas uma vez");
-  assert.equal(calls[0].fn, "buscar_memorias_semelhantes_v2_safe");
-  const rpcArgs = calls[0].params as any[];
-  assert.ok(Array.isArray(rpcArgs), "payload deve ser posicional");
-  const embedding = rpcArgs[0] as number[];
-  assert.equal(rpcArgs[1], "user-1");
-  assert.equal(rpcArgs[2], 5);
-  assert.equal(rpcArgs[3], 0.72);
-  assert.equal(rpcArgs[4], 365);
+  assert.equal(calls[0].fn, "buscar_memorias_semelhantes_v2");
+  const rpcArgs = calls[0].params as Record<string, unknown>;
+  assert.equal(rpcArgs.match_count, 5);
+  assert.equal(rpcArgs.match_threshold, 0.72);
+  assert.equal(rpcArgs.days_back, 365);
+  assert.equal(rpcArgs.user_id_input, "user-1");
+  const embedding = rpcArgs.query_embedding as number[];
+  assert.ok(Array.isArray(embedding), "payload deve conter query_embedding");
   assert.ok(Math.abs(Math.hypot(...embedding) - 1) < 1e-9, "embedding deve ter norma 1");
   assert.ok(Math.abs(embedding[0] - 0.6) < 1e-12);
   assert.ok(Math.abs(embedding[1] - 0.8) < 1e-12);

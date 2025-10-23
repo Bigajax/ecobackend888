@@ -25,12 +25,12 @@ type PlanBudgetInput = {
   safetyMarginTokens?: number;
   /**
    * Módulos fixos que devem ser considerados primeiro.
-   * Ex.: ["DEVELOPER_PROMPT.txt"]
+   * Ex.: ["developer_prompt.txt"]
    */
   pinned?: string[];
   /**
    * Pesos absolutos de ordenação: menor = maior prioridade.
-   * Ex.: { "DEVELOPER_PROMPT.txt": 0, "PRINCIPIOS_CHAVE.txt": 3 }
+   * Ex.: { "developer_prompt.txt": 0, "PRINCIPIOS_CHAVE.txt": 3 }
    */
   orderWeights?: Record<string, number>;
 };

@@ -25,7 +25,7 @@
     },
     "estrutura_resposta": {
       "reward_key": "clarity_engagement",
-      "baseline": "ECO_ESTRUTURA_DE_RESPOSTA.txt",
+      "baseline": "eco_estrutura_de_resposta.txt",
       "enabled": true
     },
     "vulnerabilidade": {
@@ -358,7 +358,7 @@
       "enabled": true
     },
     {
-      "id": "ECO_ESTRUTURA_DE_RESPOSTA.txt",
+      "id": "eco_estrutura_de_resposta.txt",
       "family": "estrutura_resposta",
       "role": "instruction",
       "size": "M",
@@ -370,7 +370,7 @@
       "excludes": [],
       "depends_on": [],
       "reward_key": "clarity_engagement",
-      "path_hint": "modulos_core/ECO_ESTRUTURA_DE_RESPOSTA.txt",
+      "path_hint": "modulos_core/eco_estrutura_de_resposta.txt",
       "enabled": true
     },
     {

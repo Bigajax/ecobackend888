@@ -90,6 +90,13 @@ function normalizeBody(body: SignalBody, headers: { guestId?: string; sessionId?
 export async function registrarSignal(req: Request, res: Response) {
   applyCorsResponseHeaders(req, res);
 
+  const headerInteractionId = normalizeString(req.get("X-Eco-Interaction-Id"));
+  if (!headerInteractionId) {
+    logger.warn("signal.missing_interaction_header", {});
+    return res.status(400).json({ error: "missing_interaction_id_header" });
+  }
+  logger.info("signal.interaction_header", { interaction_id: headerInteractionId });
+
   const headersGuest = normalizeString(req.get("X-Eco-Guest-Id"));
   const headersSession = normalizeString(req.get("X-Eco-Session-Id"));
 
@@ -99,6 +106,14 @@ export async function registrarSignal(req: Request, res: Response) {
       : {};
 
   const normalized = normalizeBody(body, { guestId: headersGuest, sessionId: headersSession });
+
+  if (normalized.interaction_id && normalized.interaction_id !== headerInteractionId) {
+    logger.warn("signal.interaction_header_body_mismatch", {
+      header_interaction_id: headerInteractionId,
+      body_interaction_id: normalized.interaction_id,
+    });
+  }
+  normalized.interaction_id = headerInteractionId;
 
   if (!normalized.interaction_id) {
     logger.warn("signal.missing_interaction_id", {

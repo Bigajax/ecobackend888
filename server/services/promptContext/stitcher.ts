@@ -6,7 +6,7 @@ export function applyReductions(
 ): ModuleFragment[] {
   // Identidade agora é injetada centralmente pelo ContextBuilder/FastLane.
   // Removemos quaisquer módulos de identidade para evitar duplicação.
-  const DROP = new Set(["IDENTIDADE.txt", "IDENTIDADE_MINI.txt"]);
+  const DROP = new Set(["IDENTIDADE.txt", "identidade_mini.txt"]);
   return mods.filter((m) => !DROP.has(m.name));
 }
 
@@ -15,8 +15,8 @@ export function stitchModules(mods: ModuleFragment[], nivel: 1 | 2 | 3): string 
 }
 
 function stitchNV1(mods: ModuleFragment[]): string {
-  // Sem IDENTIDADE_MINI.txt — já vem do system prompt mini
-  const prio = ["NV1_CORE.txt", "ANTISALDO_MIN.txt"];
+  // Sem identidade_mini.txt — já vem do system prompt mini
+  const prio = ["nv1_core.txt", "ANTISALDO_MIN.txt"];
   const sorted = [
     ...mods
       .filter((m) => prio.includes(m.name))
