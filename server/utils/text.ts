@@ -102,6 +102,13 @@ export const limparResposta = (t: string) => {
     // remove blocos de código JSON e genéricos
     .replace(/```json[\s\S]*?```/gi, "")
     .replace(/```[\s\S]*?```/gi, "")
+    // converte blocos HTML em separadores legíveis antes de remover tags
+    .replace(/<(?:br|hr)\s*\/?\s*>/gi, "\n")
+    .replace(/<\/?(?:p|div|section|article|header|footer|address|blockquote|h[1-6]|ul|ol)>/gi, "\n\n")
+    .replace(/<li[^>]*>/gi, "\n- ")
+    .replace(/<\/li>/gi, "")
+    .replace(/<\/?tr[^>]*>/gi, "\n")
+    .replace(/<\/?(?:td|th)[^>]*>/gi, " ")
     // remove HTML
     .replace(/<[^>]*>/g, "")
     // remove títulos ###...###
@@ -109,6 +116,8 @@ export const limparResposta = (t: string) => {
     // normaliza quebras
     .replace(/\r\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
+    // normaliza espaços consecutivos
+    .replace(/[ \t]{2,}/g, " ")
     .trim();
 
   return removeTechBlockJson(sanitized).trim();
