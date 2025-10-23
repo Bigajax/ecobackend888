@@ -233,10 +233,9 @@ export class StreamSession {
     this.clearTimeoutGuard();
     if (this.respondAsStream) {
       try {
-        this.res.write(`event: done\ndata: ok\n\n`);
         this.res.flush?.();
       } catch {
-        // ignore failures writing the closing frame
+        // ignore failures flushing the closing frame
       }
       this.res.end();
     }

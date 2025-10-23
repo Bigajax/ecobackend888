@@ -188,9 +188,9 @@ test("/ask-eco delega prompt ao orquestrador e propaga eventos de prompt_ready",
   assert.equal(orchestratorParams.promptOverride, undefined);
   assert.equal(orchestratorParams.mems, undefined);
 
-  const promptReady = res.events.find((payload) => payload.type === "prompt_ready");
+  const promptReady = res.events.find((payload) => payload.name === "prompt_ready");
   assert.ok(promptReady, "espera prompt_ready vindo do orquestrador");
-  const chunk = res.events.find((payload) => payload.type === "chunk");
+  const chunk = res.events.find((payload) => typeof payload.delta === "string");
   assert.equal(chunk?.delta, "eco resposta");
 });
 

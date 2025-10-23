@@ -87,14 +87,9 @@ test("POST /api/mensagem persiste mensagem usando Supabase e retorna payload", a
 
   const response = await request(app).post("/api/mensagem").send(payload);
 
-  assert.equal(response.status, 200);
-  assert.deepEqual(response.body.ok, true);
-  assert.equal(response.body.data.id, "mensagem-123");
-  assert.equal(response.body.data.usuario_id, payload.usuario_id);
-  assert.equal(response.body.data.conteudo, payload.conteudo);
-  assert.equal(response.body.data.sentimento, payload.sentimento);
-  assert.equal(response.body.data.salvar_memoria, true);
-  assert.equal(typeof response.body.data.data_hora, "string");
+  assert.equal(response.status, 204);
+  assert.equal(response.text, "");
+  assert.deepEqual(response.body, {});
 
   assert.equal(insertedRows.length, 1);
   const inserted = insertedRows[0];

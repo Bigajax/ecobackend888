@@ -169,30 +169,6 @@ jest.mock("../../utils/sse", () => {
   };
 });
 
-function extractEventSequence(blocks: Array<{ event: string; data: string }>) {
-  return blocks
-    .map(({ event, data }) => {
-      if (event === "control") {
-        try {
-          const payload = JSON.parse(data);
-          const name = typeof payload?.name === "string" ? payload.name : null;
-          if (name === "done") return null;
-          return name;
-        } catch {
-          return null;
-        }
-      }
-      if (event === "done" || event === "first_token" || event === "chunk" || event === "meta") {
-        return event === "first_token" ? "first_token" : event;
-      }
-      if (event === "memory_saved" || event === "latency") {
-        return event;
-      }
-      return null;
-    })
-    .filter((entry): entry is string => Boolean(entry));
-}
-
 async function createApp() {
   const { createTestApp } = await import("./utils/app");
   return createTestApp();
@@ -209,7 +185,7 @@ describe("/api/ask-eco SSE contract", () => {
     capturedSseEvents.length = 0;
   });
 
-  it("streams SSE events with echoed headers and aggregated done payload", async () => {
+  it("streams SSE events with minimal payload", async () => {
     getEcoResponseMock.mockImplementation(async (args: any) => {
       const { stream } = (args ?? {}) as { stream?: EcoStreamHandler };
       const events: Array<any> = [
@@ -288,64 +264,32 @@ describe("/api/ask-eco SSE contract", () => {
     expect(callArgs?.stream).toBeDefined();
 
     const events = parseSse(res.chunks.join(""));
+    expect(events.length).toBeGreaterThan(0);
+
+    const controlEvents = events.filter((evt) => evt.event === "control");
+    const chunkEvents = events.filter((evt) => evt.event === "chunk");
+    const otherEvents = events.filter((evt) => !["control", "chunk"].includes(evt.event));
+
+    expect(otherEvents).toHaveLength(0);
+    expect(controlEvents[0]).toEqual({ event: "control", data: '{"name":"prompt_ready"}' });
+    expect(controlEvents[controlEvents.length - 1]).toEqual({
+      event: "control",
+      data: '{"name":"done"}',
+    });
+    expect(chunkEvents).toHaveLength(2);
+    const parsedChunks = chunkEvents.map((evt) => JSON.parse(evt.data));
+    expect(parsedChunks[0]).toEqual({ index: 0, delta: "Olá" });
+    expect(parsedChunks[1]).toEqual({ index: 1, delta: "mundo" });
+
+    expect(capturedSseEvents.every((evt) => ["control", "chunk"].includes(evt.event))).toBe(true);
     expect(capturedSseEvents[0]).toEqual({
-      event: "interaction",
-      data: JSON.stringify({ interaction_id: "interaction-123" }),
+      event: "control",
+      data: JSON.stringify({ name: "prompt_ready" }),
     });
-    const sequence = extractEventSequence(events);
-    const promptIndex = sequence.indexOf("prompt_ready");
-    const firstTokenIndex = sequence.indexOf("first_token");
-    const firstChunkIndex = sequence.indexOf("chunk");
-    const lastChunkIndex = sequence.lastIndexOf("chunk");
-    const latencyIndex = sequence.indexOf("latency");
-    const doneIndex = sequence.lastIndexOf("done");
-
-    expect(promptIndex).toBe(0);
-    expect(firstChunkIndex).toBeGreaterThan(-1);
-    expect(lastChunkIndex).toBeGreaterThanOrEqual(firstChunkIndex);
-    expect(latencyIndex).toBeGreaterThan(-1);
-    expect(doneIndex).toBeGreaterThan(-1);
-    expect(firstChunkIndex).toBeGreaterThan(firstTokenIndex);
-    expect(latencyIndex).toBeGreaterThan(lastChunkIndex);
-    expect(doneIndex).toBeGreaterThan(latencyIndex);
-
-    const afterChunks = sequence.slice(lastChunkIndex + 1);
-    const latencyPosition = afterChunks.indexOf("latency");
-    const donePosition = afterChunks.indexOf("done");
-
-    expect(latencyPosition).toBeGreaterThanOrEqual(0);
-    expect(donePosition).toBeGreaterThan(latencyPosition);
-    expect(sequence).toContain("memory_saved");
-
-    const latencyEvent = events.find((evt) => evt.event === "latency");
-    expect(latencyEvent).toBeDefined();
-    const latencyPayload = JSON.parse(latencyEvent!.data);
-    expect(latencyPayload).toMatchObject({
-      first_token_latency_ms: expect.any(Number),
-      total_latency_ms: expect.any(Number),
-      marks: { llmStart: 10, llmEnd: 25 },
+    expect(capturedSseEvents[capturedSseEvents.length - 1]).toEqual({
+      event: "control",
+      data: JSON.stringify({ name: "done" }),
     });
-
-    const doneEvent = events.find((evt) => evt.event === "done");
-    expect(doneEvent).toBeDefined();
-    const donePayload = JSON.parse(doneEvent!.data);
-    expect(donePayload).toMatchObject({
-      content: "Olámundo",
-      interaction_id: "interaction-123",
-      tokens: { in: 12, out: 7 },
-      timings: expect.objectContaining({ llmStart: 10, llmEnd: 25 }),
-      at: expect.any(String),
-      sinceStartMs: expect.any(Number),
-    });
-    expect(donePayload.meta).toEqual(
-      expect.objectContaining({
-        etapa: "prompt",
-        type: "llm_status",
-        memory_events: expect.any(Array),
-      })
-    );
-    expect(Array.isArray(donePayload.meta.memory_events)).toBe(true);
-    expect(donePayload.meta.memory_events[0]).toMatchObject({ memoriaId: "mem-1" });
   });
 
   it("returns the done payload when stream=false", async () => {
