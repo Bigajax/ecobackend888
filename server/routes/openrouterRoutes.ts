@@ -273,38 +273,27 @@ router.post("/ask-eco", async (req: GuestAwareRequest, res: Response) => {
       const timings = cachedPayload.timings ?? streamSession.latestTimings;
       streamSession.markLatestTimings(timings);
       streamSession.emitLatency("prompt_ready", promptReadyAt, timings);
-      streamSession.dispatchEvent({
-        type: "prompt_ready",
-        at: promptReadyAt,
-        sinceStartMs: promptReadyAt - t0,
-        timings,
-      });
-      streamSession.dispatchEvent({ type: "first_token" });
       const firstChunkAt = now();
       streamSession.emitLatency("ttfb", firstChunkAt, timings);
-      streamSession.aggregatedText = cachedPayload.raw;
-      streamSession.chunkReceived = true;
-      streamSession.lastChunkIndex = 0;
-      streamSession.dispatchEvent({ type: "chunk", delta: cachedPayload.raw, index: 0, cache: true });
+      const sanitizedCacheText = cachedPayload.raw
+        .replace(/\r/g, " ")
+        .replace(/\n+/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+      if (sanitizedCacheText) {
+        streamSession.aggregatedText = sanitizedCacheText;
+        streamSession.chunkReceived = true;
+        streamSession.lastChunkIndex = 0;
+        streamSession.dispatchEvent({ index: 0, text: sanitizedCacheText });
+      } else {
+        streamSession.aggregatedText = "";
+        streamSession.chunkReceived = false;
+        streamSession.lastChunkIndex = -1;
+      }
       const doneAt = now();
       streamSession.emitLatency("ttlc", doneAt, timings);
-      const doneMetaBase =
-        cachedPayload.meta ?? {
-          ...(cachedPayload.usage ? { usage: cachedPayload.usage } : {}),
-          ...(cachedPayload.modelo ? { modelo: cachedPayload.modelo } : {}),
-          length: cachedPayload.raw.length,
-        };
-      const donePayload: Record<string, unknown> = {
-        type: "done",
-        meta: { ...doneMetaBase, cache: true },
-        at: doneAt,
-        sinceStartMs: doneAt - t0,
-        timings,
-      };
-      if (debugRequested) {
-        donePayload.trace = activationTracer.snapshot();
-      }
-      streamSession.dispatchEvent(donePayload);
+      const doneIndex = streamSession.lastChunkIndex + 1;
+      streamSession.dispatchEvent({ index: doneIndex, done: true });
       streamSession.end();
       return;
     }
@@ -358,17 +347,8 @@ router.post("/ask-eco", async (req: GuestAwareRequest, res: Response) => {
       const fallbackMeta = resposta?.usage ? { usage: resposta.usage } : {};
       streamSession.cacheCandidateMeta = fallbackMeta;
       streamSession.cacheCandidateTimings = streamSession.latestTimings;
-      const donePayload: Record<string, unknown> = {
-        type: "done",
-        meta: fallbackMeta,
-        at,
-        sinceStartMs: at - t0,
-        timings: streamSession.latestTimings,
-      };
-      if (debugRequested) {
-        donePayload.trace = activationTracer.snapshot();
-      }
-      streamSession.dispatchEvent(donePayload);
+      const doneIndex = streamSession.lastChunkIndex + 1;
+      streamSession.dispatchEvent({ index: doneIndex, done: true });
       streamSession.clearTimeoutGuard();
       streamSession.end();
     }
