@@ -3,6 +3,8 @@ export {
   now, sleep, mapRoleForOpenAI, limparResposta, formatarTextoEco, ensureEnvs
 } from "./text";
 
+export { smartJoin } from "./streamJoin";
+
 export {
   LOG_LEVEL, MAX_PROMPT_TOKENS, NIVEL1_BUDGET, HARD_CAP_EXTRAS,
   TIMEOUT_FUZZY_MS, TIMEOUT_EMB_MS, TIMEOUT_MEM_MS, TIMEOUT_ENC_MS,
