@@ -6,6 +6,7 @@ import {
   type EcoLatencyTimings,
   type EcoLatencyStage,
 } from "./ecoStream";
+import { smartJoin } from "../utils/streamJoin";
 import { postSignal } from "./signals";
 
 const LAST_INTERACTION_STORAGE_KEY = "eco.last_interaction_id";
@@ -166,7 +167,7 @@ export function streamConversation({
           lastChunkIndex += 1;
         }
         callbacks.onEvent?.(event);
-        aggregated += event.delta;
+        aggregated = smartJoin(aggregated, event.delta);
         // LATENCY: repassa o texto parcial para atualizar o UI em tempo real.
         callbacks.onText?.(aggregated);
         return;

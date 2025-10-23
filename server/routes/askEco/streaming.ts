@@ -6,7 +6,7 @@ import type {
   EcoStreamHandler,
 } from "../../services/ConversationOrchestrator";
 import { log } from "../../services/promptContext/logger";
-import { now } from "../../utils";
+import { now, smartJoin } from "../../utils";
 export const HEARTBEAT_INTERVAL_MS = 25_000;
 export const STREAM_TIMEOUT_GUARD_MS = 5_000;
 export const STREAM_TIMEOUT_MESSAGE =
@@ -355,7 +355,7 @@ export class StreamSession {
       const at = now();
       this.emitLatency("ttfb", at, this.latestTimings);
     }
-    this.aggregatedText += content;
+    this.aggregatedText = smartJoin(this.aggregatedText, content);
     this.chunkReceived = true;
     this.lastChunkIndex = resolvedIndex;
     this.clearTimeoutGuard();
