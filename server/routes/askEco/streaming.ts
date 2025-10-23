@@ -251,9 +251,10 @@ export class StreamSession {
     if (!this.respondAsStream || this.sseStarted) return;
     this.sseStarted = true;
     this.res.status(200);
-    this.res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
-    this.res.setHeader("Cache-Control", "no-cache, no-transform");
+    this.res.setHeader("Content-Type", "text/event-stream");
+    this.res.setHeader("Cache-Control", "no-cache");
     this.res.setHeader("Connection", "keep-alive");
+    this.res.setHeader("X-Accel-Buffering", "no");
     this.res.flushHeaders?.();
     this.res.flush?.();
     this.ensureHeartbeat();
