@@ -12,7 +12,9 @@ export function smartJoin(accumulated: string, incoming: string): string {
     lastWord.length > 0 &&
     firstWord.length > 0 &&
     !/[.!?,;:]$/.test(lastWord) &&
-    !/^[A-ZÁÀÂÃÉÈÊÍÌÎÓÒÔÕÚÙÛ]/.test(firstWord);
+    !/^[A-ZÁÀÂÃÉÈÊÍÌÎÓÒÔÕÚÙÛ]/.test(firstWord) &&
+    !/\s$/.test(accumulated) &&
+    !/^\s/.test(incoming);
 
   if (isFragment) {
     return accTrimmed + incoming;
