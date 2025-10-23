@@ -84,14 +84,14 @@ describe("/api/memorias/similares_v2 contract", () => {
     });
     expect(prepareQueryEmbeddingMock).toHaveBeenCalledWith({ texto: "hello world" });
     expect(supabaseStub.rpc).toHaveBeenCalledWith(
-      "buscar_memorias_semelhantes_v2_safe",
-      expect.arrayContaining([
-        expect.any(Array),
-        usuarioId,
-        expect.any(Number),
-        expect.any(Number),
-        expect.any(Number),
-      ])
+      "buscar_memorias_semelhantes_v2",
+      expect.objectContaining({
+        query_embedding: expect.any(Array),
+        user_id_input: usuarioId,
+        match_count: expect.any(Number),
+        match_threshold: expect.any(Number),
+        days_back: expect.any(Number),
+      })
     );
   });
 
@@ -123,14 +123,14 @@ describe("/api/memorias/similares_v2 contract", () => {
     });
     expect(prepareQueryEmbeddingMock).toHaveBeenCalledWith({ texto: "hello world" });
     expect(supabaseStub.rpc).toHaveBeenCalledWith(
-      "buscar_memorias_semelhantes_v2_safe",
-      expect.arrayContaining([
-        expect.any(Array),
-        usuarioId,
-        expect.any(Number),
-        expect.any(Number),
-        expect.any(Number),
-      ])
+      "buscar_memorias_semelhantes_v2",
+      expect.objectContaining({
+        query_embedding: expect.any(Array),
+        user_id_input: usuarioId,
+        match_count: expect.any(Number),
+        match_threshold: expect.any(Number),
+        days_back: expect.any(Number),
+      })
     );
   });
 

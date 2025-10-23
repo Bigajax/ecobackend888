@@ -80,6 +80,15 @@ function isMemoriaSimilar(value: MemoriaSimilar | null): value is MemoriaSimilar
   return value !== null;
 }
 
+const SHORT_GREETING_REGEX = /^(oi|olá|ola)[\s\p{P}]*$/iu;
+
+function isShortGreeting(texto: string): boolean {
+  if (typeof texto !== "string") return false;
+  const normalized = texto.normalize("NFC").trim();
+  if (!normalized) return false;
+  return SHORT_GREETING_REGEX.test(normalized);
+}
+
 export type BuscarMemsOpts = {
   texto?: string;                 // usado se não houver userEmbedding
   userEmbedding?: number[];       // se vier, não recalcula (normaliza!)
@@ -136,7 +145,8 @@ export async function buscarMemoriasSemelhantes(
     }
 
     // Guarda: se não veio embedding e o texto é muito curto, evita custo
-    if (!userEmbedding && (!texto || texto.trim().length < 6)) return [];
+    const isGreeting = isShortGreeting(texto ?? "");
+    if (!userEmbedding && (!texto || (texto.trim().length < 6 && !isGreeting))) return [];
 
     // ---------------------------
     // Gera OU reaproveita o embedding (e normaliza)
@@ -154,6 +164,8 @@ export async function buscarMemoriasSemelhantes(
       supabaseClient: sb,
       currentMemoryId,
       userIdUsedForInsert: userId,
+      primaryThreshold: isGreeting ? 0.25 : undefined,
+      fallbackThreshold: isGreeting ? 0.15 : undefined,
     };
 
     const { rows } = await buscarSemelhantesDirect(params);

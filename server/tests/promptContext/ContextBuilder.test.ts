@@ -5,10 +5,10 @@ import montarContextoEco from "../../services/promptContext/ContextBuilder";
 import { ModuleStore } from "../../services/promptContext/ModuleStore";
 
 const inlineModules: Record<string, string> = {
-  "NV1_CORE.txt": "Conteúdo NV1 core",
-  "IDENTIDADE_MINI.txt": "Conteúdo identidade mini",
+  "nv1_core.txt": "Conteúdo NV1 core",
+  "identidade_mini.txt": "Conteúdo identidade mini",
   "ANTISALDO_MIN.txt": "Conteúdo antissaldo mínimo",
-  "ESCALA_ABERTURA_1a3.txt": "Conteúdo escala de abertura",
+  "escala_abertura_1a3.txt": "Conteúdo escala de abertura",
 };
 
 ModuleStore.configure([]);

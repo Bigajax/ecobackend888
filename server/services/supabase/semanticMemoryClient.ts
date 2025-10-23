@@ -19,6 +19,8 @@ export interface BuscarMemoriasSemelhantesParams {
   supabaseClient?: SupabaseClient;
   userIdUsedForInsert?: string | null;
   authUid?: string | null;
+  primaryThreshold?: number;
+  fallbackThreshold?: number;
 }
 
 export interface BuscarMemoriasSemelhantesResult {
@@ -27,8 +29,8 @@ export interface BuscarMemoriasSemelhantesResult {
 }
 
 const MATCH_COUNT = 5;
-const PRIMARY_THRESHOLD = 0.72;
-const FALLBACK_THRESHOLD = 0.65;
+const DEFAULT_PRIMARY_THRESHOLD = 0.72;
+const DEFAULT_FALLBACK_THRESHOLD = 0.65;
 const DAYS_BACK = 365;
 const SELF_MIN_AGE_MS = 2 * 60 * 1000;
 
@@ -98,9 +100,20 @@ export async function buscarMemoriasSemelhantesV2({
   supabaseClient,
   userIdUsedForInsert,
   authUid,
+  primaryThreshold,
+  fallbackThreshold,
 }: BuscarMemoriasSemelhantesParams): Promise<BuscarMemoriasSemelhantesResult> {
+  const resolvedPrimaryThreshold =
+    typeof primaryThreshold === "number" && Number.isFinite(primaryThreshold)
+      ? primaryThreshold
+      : DEFAULT_PRIMARY_THRESHOLD;
+  const resolvedFallbackThreshold =
+    typeof fallbackThreshold === "number" && Number.isFinite(fallbackThreshold)
+      ? fallbackThreshold
+      : DEFAULT_FALLBACK_THRESHOLD;
+
   if (!Array.isArray(queryEmbedding) || queryEmbedding.length === 0) {
-    return { rows: [], thresholdUsed: PRIMARY_THRESHOLD };
+    return { rows: [], thresholdUsed: resolvedPrimaryThreshold };
   }
 
   const normalizedUserId = normalizeId(userId);
@@ -128,8 +141,8 @@ export async function buscarMemoriasSemelhantesV2({
   };
 
   if (!normalizedUserId) {
-    logSummary(0, { threshold: PRIMARY_THRESHOLD, skipped: true, latency: 0 });
-    return { rows: [], thresholdUsed: PRIMARY_THRESHOLD };
+    logSummary(0, { threshold: resolvedPrimaryThreshold, skipped: true, latency: 0 });
+    return { rows: [], thresholdUsed: resolvedPrimaryThreshold };
   }
 
   if (normalizedInsertId && normalizedInsertId !== normalizedUserId) {
@@ -139,8 +152,8 @@ export async function buscarMemoriasSemelhantesV2({
       user_id_do_insert: normalizedInsertId,
     };
     console.warn("[semantic_memory] identity_mismatch", mismatchPayload);
-    logSummary(0, { threshold: PRIMARY_THRESHOLD, skipped: true, latency: 0 });
-    return { rows: [], thresholdUsed: PRIMARY_THRESHOLD };
+    logSummary(0, { threshold: resolvedPrimaryThreshold, skipped: true, latency: 0 });
+    return { rows: [], thresholdUsed: resolvedPrimaryThreshold };
   }
 
   const client = supabaseClient ?? getSupabaseAdmin();
@@ -148,25 +161,25 @@ export async function buscarMemoriasSemelhantesV2({
     if (isDebugEnabled()) {
       console.warn("[semantic_memory] supabase_client_unavailable", { userId });
     }
-    logSummary(0, { threshold: PRIMARY_THRESHOLD, skipped: true, latency: 0 });
-    return { rows: [], thresholdUsed: PRIMARY_THRESHOLD };
+    logSummary(0, { threshold: resolvedPrimaryThreshold, skipped: true, latency: 0 });
+    return { rows: [], thresholdUsed: resolvedPrimaryThreshold };
   }
 
-  const functionName = "buscar_memorias_semelhantes_v2_safe";
+  const functionName = "buscar_memorias_semelhantes_v2";
   const callRpc = async (threshold: number) => {
     const start = Date.now();
     try {
-      const payload = [
-        queryEmbedding,
-        normalizedUserId,
-        MATCH_COUNT,
-        threshold,
-        DAYS_BACK,
-      ] as const;
-      const { data, error } = await client.rpc(
-        functionName,
-        payload as unknown as Record<string, unknown>
-      );
+      const payload = {
+        query_embedding: queryEmbedding,
+        user_id_input: normalizedUserId,
+        match_count: MATCH_COUNT,
+        match_threshold: threshold,
+        days_back: DAYS_BACK,
+      } as const;
+      if (isDebugEnabled()) {
+        console.debug("[semantic_memory] rpc_call", { functionName, payload });
+      }
+      const { data, error } = await client.rpc(functionName, payload as Record<string, unknown>);
       const latency = Date.now() - start;
       if (error) {
         if (isDebugEnabled()) {
@@ -196,20 +209,20 @@ export async function buscarMemoriasSemelhantesV2({
     }
   };
 
-  let thresholdUsed = PRIMARY_THRESHOLD;
-  const primaryResult = await callRpc(PRIMARY_THRESHOLD);
+  let thresholdUsed = resolvedPrimaryThreshold;
+  const primaryResult = await callRpc(resolvedPrimaryThreshold);
   let rpcResult = primaryResult;
   let fallbackResult: typeof primaryResult | null = null;
 
   if (!primaryResult.error && primaryResult.rows.length === 0) {
-    thresholdUsed = FALLBACK_THRESHOLD;
-    fallbackResult = await callRpc(FALLBACK_THRESHOLD);
+    thresholdUsed = resolvedFallbackThreshold;
+    fallbackResult = await callRpc(resolvedFallbackThreshold);
     rpcResult = fallbackResult;
   }
 
   const totalLatency =
     (primaryResult.latency ?? 0) +
-    (thresholdUsed === FALLBACK_THRESHOLD ? fallbackResult?.latency ?? 0 : 0);
+    (thresholdUsed === resolvedFallbackThreshold ? fallbackResult?.latency ?? 0 : 0);
 
   if (rpcResult.error) {
     logSummary(0, { threshold: thresholdUsed, latency: totalLatency });

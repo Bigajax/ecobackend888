@@ -28,7 +28,7 @@ export type BudgetInput = {
   /**
    * **NOVO**: Módulos fixos que devem ser considerados primeiro.
    * São deduplicados e movidos para o início antes do planejamento.
-   * Ex.: ["DEVELOPER_PROMPT.txt"]
+   * Ex.: ["developer_prompt.txt"]
    */
   pinned?: string[];
 

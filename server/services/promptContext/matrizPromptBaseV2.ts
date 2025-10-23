@@ -6,7 +6,7 @@ const matrizPromptBaseV2: MatrizPromptBaseV2 = {
   baseModules: {
     core: [
       // Prelúdio (ordem 0): missão, restrições, amplitude e confidencialidade
-      "DEVELOPER_PROMPT.txt",
+      "developer_prompt.txt",
 
       // Identidade e demais núcleos
       "IDENTIDADE.txt",
@@ -18,11 +18,11 @@ const matrizPromptBaseV2: MatrizPromptBaseV2 = {
     ],
     emotional: [],
     advanced: [
-      "ESCALA_ABERTURA_1a3.txt",
+      "escala_abertura_1a3.txt",
       "ESCALA_INTENSIDADE_0a10.txt",
-      "METODO_VIVA_ENXUTO.txt",
-      "BLOCO_TECNICO_MEMORIA.txt",
-      "USOMEMÓRIAS.txt",     // com acento, conforme filesystem
+      "metodo_viva_enxuto.txt",
+      "bloco_tecnico_memoria.txt",
+      "usomemorias.txt",     // normalizado (ASCII)
     ],
   },
 
@@ -30,10 +30,10 @@ const matrizPromptBaseV2: MatrizPromptBaseV2 = {
   byNivelV2: (({
     1: {
       specific: [
-        "NV1_CORE.txt",
-        "IDENTIDADE_MINI.txt",
+        "nv1_core.txt",
+        "identidade_mini.txt",
         "ANTISALDO_MIN.txt",
-        "ESCALA_ABERTURA_1a3.txt",
+        "escala_abertura_1a3.txt",
       ],
       inherits: [],
     },
@@ -43,9 +43,9 @@ const matrizPromptBaseV2: MatrizPromptBaseV2 = {
 
   /* ============== compat legado (limpo) ============== */
   alwaysInclude: [
-    "DEVELOPER_PROMPT.txt",
+    "developer_prompt.txt",
     "PRINCIPIOS_CHAVE.txt",
-    "ECO_ESTRUTURA_DE_RESPOSTA.txt", // ✅ agora incluído
+    "eco_estrutura_de_resposta.txt", // ✅ agora incluído
   ],
   byNivel: { 1: ["ENCERRAMENTO_SENSIVEL.txt"], 2: [], 3: [] },
 
@@ -58,12 +58,12 @@ const matrizPromptBaseV2: MatrizPromptBaseV2 = {
   /* ============== regras semânticas (condições) ============== */
   condicoesEspeciais: ({
     // Prelúdio
-    "DEVELOPER_PROMPT.txt": {
+    "developer_prompt.txt": {
       descricao: "Prelúdio de missão, restrições, amplitude e confidencialidade (ordem 0).",
       regra: "nivel>=1",
     },
 
-    "ESCALA_ABERTURA_1a3.txt": {
+    "escala_abertura_1a3.txt": {
       descricao: "Mapa de abertura 1–3 para calibrar tom/ritmo",
       regra: "nivel>=1",
     },
@@ -73,18 +73,18 @@ const matrizPromptBaseV2: MatrizPromptBaseV2 = {
     },
 
     // Estrutura contemplativa (tua versão)
-    "ECO_ESTRUTURA_DE_RESPOSTA.txt": {
+    "eco_estrutura_de_resposta.txt": {
       descricao: "Arquitetura de presença filosófica (espelho, exploração, paradoxo, presença).",
       regra: "nivel>=1",
     },
 
     /* ===== Método VIVA — controlado pelo hub (DEC.vivaSteps) ===== */
-    "METODO_VIVA_ENXUTO.txt": {
+    "metodo_viva_enxuto.txt": {
       descricao: "Aplicar VIVA conforme DEC.vivaSteps; evitar quando pedido_pratico.",
       regra: "nivel>=1 && !pedido_pratico",
     },
 
-    "BLOCO_TECNICO_MEMORIA.txt": {
+    "bloco_tecnico_memoria.txt": {
       descricao: "Gerar bloco técnico quando DEC.hasTechBlock=true",
       regra: "hasTechBlock==true",
     },
@@ -105,7 +105,7 @@ const matrizPromptBaseV2: MatrizPromptBaseV2 = {
       regra: "pedido_pratico && nivel>=1",
     },
 
-    "USOMEMÓRIAS.txt": {
+    "usomemorias.txt": {
       descricao: "Continuidade: citar suavemente memórias quando fizer sentido",
       regra: "nivel>=1",
     },
@@ -207,31 +207,31 @@ const matrizPromptBaseV2: MatrizPromptBaseV2 = {
   limites: {
     prioridade: [
       // Precedência absoluta
-      "DEVELOPER_PROMPT.txt",
+      "developer_prompt.txt",
 
       // Segurança
       "DETECÇÃOCRISE.txt",
 
       // NV1
-      "NV1_CORE.txt",
-      "IDENTIDADE_MINI.txt",
+      "nv1_core.txt",
+      "identidade_mini.txt",
       "ANTISALDO_MIN.txt",
 
       // Pedido prático
       "PEDIDOPRÁTICO.txt",
 
       // Mapas
-      "ESCALA_ABERTURA_1a3.txt",
+      "escala_abertura_1a3.txt",
       "ESCALA_INTENSIDADE_0a10.txt",
 
       // Memórias
-      "USOMEMÓRIAS.txt",
+      "usomemorias.txt",
       "eco_memoria_revisitar_passado.txt",
 
       // Core
       "PRINCIPIOS_CHAVE.txt",
       "IDENTIDADE.txt",
-      "ECO_ESTRUTURA_DE_RESPOSTA.txt", // ✅ entra no core agora
+      "eco_estrutura_de_resposta.txt", // ✅ entra no core agora
       "MODULACAO_TOM_REGISTRO.txt",
       "LINGUAGEM_NATURAL.txt",
       "ENCERRAMENTO_SENSIVEL.txt",
@@ -261,8 +261,8 @@ const matrizPromptBaseV2: MatrizPromptBaseV2 = {
       "heuristica_ilusao_compreensao.txt",
 
       // Intervenções / Técnico
-      "METODO_VIVA_ENXUTO.txt",
-      "BLOCO_TECNICO_MEMORIA.txt",
+      "metodo_viva_enxuto.txt",
+      "bloco_tecnico_memoria.txt",
     ],
   },
 };
@@ -273,7 +273,7 @@ const matrizPromptBaseV2: MatrizPromptBaseV2 = {
  *   items.sort((a,b) => (ordemAbsoluta[a] ?? 999) - (ordemAbsoluta[b] ?? 999))
  */
 export const ordemAbsoluta: Record<string, number> = {
-  "DEVELOPER_PROMPT.txt": 0,
+  "developer_prompt.txt": 0,
   "IDENTIDADE.txt": 2,
   "PRINCIPIOS_CHAVE.txt": 3,
   "ANTISALDO_MIN.txt": 5,

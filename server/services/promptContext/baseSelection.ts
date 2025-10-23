@@ -50,8 +50,8 @@ export function selecionarModulosBase({
   if (nivel === 1) {
     const minis =
       matrizPromptBaseV2.byNivelV2[1]?.specific?.slice?.() ?? [
-        "NV1_CORE.txt",
-        "IDENTIDADE_MINI.txt",
+        "nv1_core.txt",
+        "identidade_mini.txt",
         "ANTISALDO_MIN.txt",
       ];
 
@@ -163,7 +163,7 @@ function ordenarPorPrioridade(
   const priority = Array.isArray(priorityFromMatrix) ? priorityFromMatrix.slice() : [];
 
   if (nivel === 1) {
-    ["NV1_CORE.txt", "IDENTIDADE_MINI.txt", "ANTISALDO_MIN.txt"].forEach((m) => {
+    ["nv1_core.txt", "identidade_mini.txt", "ANTISALDO_MIN.txt"].forEach((m) => {
       if (!priority.includes(m)) priority.unshift(m);
     });
   }
