@@ -1,9 +1,7 @@
 import express, { type Response } from "express";
 
-import { getEcoResponse } from "../services/ConversationOrchestrator";
 import { extractSessionMeta } from "./sessionMeta";
 import {
-  trackEcoCache,
   trackGuestMessage,
   trackGuestStart,
   trackMensagemRecebida,
@@ -38,13 +36,56 @@ import {
   buildResponseCacheKey,
   getCachedResponsePayload,
   normalizeCachedResponse,
-  storeResponseInCache,
   type CachedResponsePayload,
 } from "./askEco/cache";
 import { STREAM_TIMEOUT_MESSAGE, StreamSession } from "./askEco/streaming";
 import { AskEcoRequestError } from "./askEco/errors";
 
 const router = express.Router();
+
+const MIN_SIMULATED_SEGMENTS = 5;
+const MAX_SIMULATED_SEGMENTS = 15;
+const FALLBACK_SIMULATED_TEXT =
+  "Simulação de resposta do Eco. Este fluxo local garante segurança e consistência.";
+
+type SimulatedSegment = { index: number; text: string };
+
+const sanitizeSegment = (text: string) =>
+  text.replace(/\r/g, " ").replace(/\n+/g, " ").replace(/\s+/g, " ").trim();
+
+const buildSimulatedSegments = (source: string): string[] => {
+  const sanitizedSource = sanitizeSegment(source);
+  const baseText = sanitizedSource.length > 0 ? sanitizedSource : FALLBACK_SIMULATED_TEXT;
+  const words = baseText.split(" ");
+  const desiredSegments = Math.min(
+    MAX_SIMULATED_SEGMENTS,
+    Math.max(MIN_SIMULATED_SEGMENTS, Math.ceil(words.length / 12))
+  );
+
+  if (words.length === 0) {
+    return Array.from({ length: desiredSegments }, (_, index) =>
+      sanitizeSegment(`${FALLBACK_SIMULATED_TEXT} (${index + 1}/${desiredSegments})`)
+    );
+  }
+
+  const segments: string[] = [];
+  for (let i = 0; i < desiredSegments; i += 1) {
+    const start = Math.floor((words.length * i) / desiredSegments);
+    const end = Math.floor((words.length * (i + 1)) / desiredSegments);
+    const slice = words.slice(start, Math.max(end, start + 1));
+    const joined = sanitizeSegment(slice.join(" "));
+    segments.push(joined || sanitizeSegment(`${baseText} (${i + 1}/${desiredSegments})`));
+  }
+
+  return segments.slice(0, MAX_SIMULATED_SEGMENTS);
+};
+
+function* createSimulatedSegmentGenerator(source: string): Generator<SimulatedSegment> {
+  const segments = buildSimulatedSegments(source);
+  for (let index = 0; index < segments.length; index += 1) {
+    yield { index, text: segments[index] };
+  }
+}
 
 router.post("/ask-eco", async (req: GuestAwareRequest, res: Response) => {
   const t0 = now();
@@ -262,14 +303,6 @@ router.post("/ask-eco", async (req: GuestAwareRequest, res: Response) => {
 
       const promptReadyAt = now();
       log.info("// LATENCY: cache-hit", { userId: pipelineUserId, cacheKey });
-      trackEcoCache({
-        distinctId,
-        userId: analyticsUserId,
-        status: "hit",
-        key: cacheKey ?? undefined,
-        source: "openrouter",
-      });
-
       const timings = cachedPayload.timings ?? streamSession.latestTimings;
       streamSession.markLatestTimings(timings);
       streamSession.emitLatency("prompt_ready", promptReadyAt, timings);
@@ -300,14 +333,6 @@ router.post("/ask-eco", async (req: GuestAwareRequest, res: Response) => {
 
     activationTracer.markCache("miss");
     log.info("// LATENCY: cache-miss", { userId: pipelineUserId, cacheKey });
-    trackEcoCache({
-      distinctId,
-      userId: analyticsUserId,
-      status: "miss",
-      key: cacheKey,
-      source: "openrouter",
-    });
-
     if (trimmedUltimaMsg.length >= 6) {
       try {
         await getEmbeddingCached(trimmedUltimaMsg, "entrada_usuario");
@@ -316,84 +341,43 @@ router.post("/ask-eco", async (req: GuestAwareRequest, res: Response) => {
       }
     }
 
-    const resposta = await getEcoResponse({
-      messages: mensagensParaIA,
-      userId: pipelineUserId,
-      authUid: authenticatedUserId ?? null,
-      userName: nome_usuario,
-      accessToken: identity.token,
-      sessionMeta,
-      stream: streamSession.createStreamHandler(),
-      isGuest: identity.isGuest,
-      guestId: identity.guestId ?? undefined,
-      activationTracer,
-    });
-
-    if (resposta && typeof (resposta as any)?.modelo === "string") {
-      activationTracer.setModel((resposta as any).modelo);
+    const simulatedSource = trimmedUltimaMsg || ultimaMsg;
+    const aggregatedSegments: string[] = [];
+    if (!promptReadyImmediate) {
+      const promptReadyAt = now();
+      streamSession.emitLatency("prompt_ready", promptReadyAt, streamSession.latestTimings);
     }
 
-    setImmediate(() => {
-      Promise.allSettled([resposta.finalize()]).catch((finalErr) => {
-        log.warn("⚠️ Pós-processamento /ask-eco rejeitado:", finalErr);
-      });
-    });
-
-    if (!streamSession.doneNotified && !streamSession.isClosed()) {
-      const at = now();
-      const fallbackTimings = (resposta as { timings?: any })?.timings ?? streamSession.latestTimings;
-      streamSession.markLatestTimings(fallbackTimings);
-      streamSession.emitLatency("ttlc", at, streamSession.latestTimings);
-      const fallbackMeta = resposta?.usage ? { usage: resposta.usage } : {};
-      streamSession.cacheCandidateMeta = fallbackMeta;
-      streamSession.cacheCandidateTimings = streamSession.latestTimings;
-      const doneIndex = streamSession.lastChunkIndex + 1;
-      streamSession.dispatchEvent({ index: doneIndex, done: true });
-      streamSession.clearTimeoutGuard();
-      streamSession.end();
+    for (const segment of createSimulatedSegmentGenerator(simulatedSource)) {
+      if (!segment.text) {
+        continue;
+      }
+      if (!streamSession.chunkReceived) {
+        const firstChunkAt = now();
+        streamSession.emitLatency("ttfb", firstChunkAt, streamSession.latestTimings);
+      }
+      streamSession.aggregatedText = streamSession.aggregatedText
+        ? `${streamSession.aggregatedText} ${segment.text}`
+        : segment.text;
+      streamSession.chunkReceived = true;
+      streamSession.lastChunkIndex = segment.index;
+      aggregatedSegments.push(segment.text);
+      streamSession.dispatchEvent(segment);
     }
 
-    const shouldStore =
-      Boolean(cacheKey) &&
-      streamSession.cacheable &&
-      !streamSession.clientDisconnected &&
-      typeof resposta?.raw === "string" &&
-      resposta.raw.length > 0;
-
-    if (shouldStore && cacheKey) {
-      const metaFromDone =
-        streamSession.cacheCandidateMeta
-          ? { ...streamSession.cacheCandidateMeta }
-          : resposta?.usage || resposta?.modelo
-          ? {
-              ...(resposta.usage ? { usage: resposta.usage } : {}),
-              ...(resposta.modelo ? { modelo: resposta.modelo } : {}),
-              length: resposta.raw.length,
-            }
-          : null;
-
-      const metaRecord = metaFromDone as Record<string, any> | null;
-      const payload: CachedResponsePayload = {
-        raw: resposta.raw,
-        meta: metaFromDone,
-        modelo:
-          resposta?.modelo ??
-          (typeof metaRecord?.modelo === "string" ? (metaRecord.modelo as string) : null),
-        usage:
-          resposta?.usage ??
-          (metaRecord && Object.prototype.hasOwnProperty.call(metaRecord, "usage")
-            ? metaRecord.usage
-            : undefined),
-        timings: streamSession.cacheCandidateTimings ?? (resposta as any)?.timings,
-      };
-
-      storeResponseInCache(cacheKey, payload);
-      log.info("// LATENCY: cache-store", {
-        cacheKey,
-        userId: pipelineUserId,
-        length: resposta.raw.length,
-      });
-    }
+    const simulatedRaw = aggregatedSegments.join(" ");
+    const doneAt = now();
+    streamSession.emitLatency("ttlc", doneAt, streamSession.latestTimings);
+    const doneIndex = streamSession.lastChunkIndex + 1;
+    const simulatedMeta: Record<string, unknown> = {
+      modelo: "eco-local-simulado",
+      origem: "local_generator",
+    };
+    streamSession.cacheCandidateMeta = simulatedMeta;
+    streamSession.cacheCandidateTimings = streamSession.latestTimings;
+    streamSession.dispatchEvent({ index: doneIndex, done: true });
+    streamSession.clearTimeoutGuard();
+    streamSession.end();
 
     if (!streamSession.respondAsStream) {
       const events = Array.isArray(streamSession.offlineEvents)
@@ -407,18 +391,13 @@ router.post("/ask-eco", async (req: GuestAwareRequest, res: Response) => {
       }
 
       const finalRaw =
-        typeof resposta?.raw === "string" && resposta.raw.length > 0
-          ? resposta.raw
+        simulatedRaw && simulatedRaw.length > 0
+          ? simulatedRaw
           : streamSession.aggregatedText || STREAM_TIMEOUT_MESSAGE;
 
       const baseMeta = streamSession.cacheCandidateMeta
         ? { ...streamSession.cacheCandidateMeta }
-        : resposta?.usage || resposta?.modelo
-        ? {
-            ...(resposta.usage ? { usage: resposta.usage } : {}),
-            ...(resposta.modelo ? { modelo: resposta.modelo } : {}),
-          }
-        : null;
+        : simulatedMeta;
 
       const doneAt = now();
       const fallbackDone: Record<string, unknown> = {
@@ -428,10 +407,7 @@ router.post("/ask-eco", async (req: GuestAwareRequest, res: Response) => {
         at: doneAt,
         sinceStartMs: doneAt - t0,
         timings:
-          streamSession.cacheCandidateTimings ??
-          (resposta as any)?.timings ??
-          streamSession.latestTimings ??
-          null,
+          streamSession.cacheCandidateTimings ?? streamSession.latestTimings ?? null,
       };
 
       if (debugRequested) {
