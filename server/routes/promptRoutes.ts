@@ -1294,11 +1294,6 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
       idleTimeoutMs,
     });
 
-    const interactionEventPayload: Record<string, unknown> = {
-      interaction_id: resolvedInteractionId,
-    };
-    sse.send("interaction", interactionEventPayload);
-
     const recordFirstTokenTelemetry = (chunkBytes: number) => {
       if (state.firstTokenTelemetrySent) return;
       state.firstTokenTelemetrySent = true;
@@ -1314,21 +1309,16 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
 
     function sendMeta(obj: Record<string, unknown>) {
       state.metaPayload = { ...state.metaPayload, ...obj };
-      sse.send("meta", obj);
     }
 
     function sendMemorySaved(obj: Record<string, unknown>) {
       state.memoryEvents.push(obj);
-      sse.send("memory_saved", obj);
     }
 
-    function sendLatency(payload: Record<string, unknown>) {
-      sse.send("latency", payload);
-    }
+    function sendLatency(_payload: Record<string, unknown>) {}
 
     function sendErrorEvent(payload: Record<string, unknown>) {
       log.error("[ask-eco] sse_error", { ...payload });
-      sse.send("error", payload);
     }
 
     function sendDone(reason?: string | null) {
@@ -1410,15 +1400,7 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
         timestamp: finishedAt,
       });
 
-      sse.send("done", donePayload);
-
-      sse.sendControl("done", {
-        reason: finishReason,
-        totalChunks: state.chunksCount,
-        bytes: state.bytesCount,
-        durationMs: totalLatency,
-        summary: donePayload,
-      });
+      sse.sendControl("done");
 
       log.info("[ask-eco] stream_finalize", {
         origin: origin ?? null,
@@ -1427,6 +1409,7 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
         stream_aborted: abortSignal.aborted,
         final_chunk_sent: state.sawChunk,
         finishReason,
+        summary: donePayload,
       });
 
       finalizeClientMessageReservation(finishReason);
@@ -1502,7 +1485,6 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
       }
 
       const chunkPayload = {
-        interaction_id: resolvedInteractionId,
         index: chunkIndex,
         delta: finalText,
       };
@@ -1512,10 +1494,6 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
       state.contentPieces.push(finalText);
     }
 
-    const promptReadyMeta: Record<string, unknown> = { stream: true };
-    if (resolvedInteractionId) {
-      promptReadyMeta.interaction_id = resolvedInteractionId;
-    }
     abortListener = () => {
       if (state.done) {
         if (abortListener) {
@@ -1551,7 +1529,7 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
       sendDone(finishReason || "aborted");
     };
     abortSignal.addEventListener("abort", abortListener);
-    sse.sendControl("prompt_ready", promptReadyMeta);
+    sse.sendControl("prompt_ready");
     enqueuePassiveSignal("prompt_ready", 1, {
       stream: true,
       origin: origin ?? null,

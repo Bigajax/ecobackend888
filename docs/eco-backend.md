@@ -8,8 +8,8 @@
 ## 2. Routes & Contracts
 | Route (backend)      | Method | Description                                | SSE | Expected Status | Stream Close |
 |----------------------|--------|--------------------------------------------|-----|-----------------|--------------|
-| `/api/ask-eco`       | POST   | Primary conversation; token streaming      | ✅  | 200             | `event: done` + `data: ok` |
-| `/api/mensagem`      | POST   | Message registration/synchronization       | ❌  | 200/204         | — |
+| `/api/ask-eco`       | POST   | Primary conversation; token streaming      | ✅  | 200             | `event: control` + `{"name":"done"}` |
+| `/api/mensagem`      | POST   | Message registration/synchronization       | ❌  | 204             | — |
 | `/api/similares_v2`  | GET    | Retrieve semantically similar memories     | ❌  | 200             | — |
 | `/api/feedback`      | POST   | Explicit feedback (like/dislike + reason)  | ❌  | 204             | — |
 | `/api/signal`        | POST   | Passive analytics signals                  | ❌  | 204             | — |
@@ -28,15 +28,12 @@
   - Optional heartbeat: `:\n\n` every 20–30 seconds
 
 ## 4. SSE Contract (Required)
-- Emit chunks via `data: <text>\n\n`.
-- Standard termination:
-  ```text
-  event: done
-  data: ok
-  
-  ```
-  followed by `res.end()`.
-- Alternate termination accepted by the frontend: `data: [DONE]` (legacy compatibility).
+- Emit only the following events in order:
+  1. `event: control` with `data: {"name":"prompt_ready"}` once the stream is ready.
+  2. `event: chunk` entries carrying `data: {"index":<number>,"delta":"<text>"}` for each token slice.
+  3. `event: control` with `data: {"name":"done"}` when the stream completes.
+- Do **not** emit auxiliary events (`interaction`, `meta`, `latency`, etc.) or plain `data: ok` payloads.
+- Maintain heartbeat comments `:\n\n` if needed for keep-alive.
 
 ## 5. OPTIONS & Methods
 - Provide a generic handler:
@@ -61,14 +58,14 @@
   - `5xx` internal failures
 
 ## 7. Logging & Diagnostics
-- Log SSE start/end and whether `event: done` was emitted.
+- Log SSE start/end and when `control:done` is emitted.
 - Diagnostic endpoint (if available): `/api/diag/last?response_id=...` for HUD visibility.
 - Include `interaction_id` in log entries.
 
 ## 8. Compliance Checklist
 - [ ] All routes in Section 2 exist with the same names.
 - [ ] `/api/ask-eco` sends `Content-Type: text/event-stream` and calls `flushHeaders()`.
-- [ ] Stream terminates with `event: done` + `data: ok` + blank line.
+- [ ] Stream terminates with `event: control` + `data: {"name":"done"}` + blank line.
 - [ ] `OPTIONS /api/*` returns `204`.
 - [ ] `/api/feedback` and `/api/signal` return `204`.
 - [ ] Methods (GET vs POST) are correct.
@@ -77,11 +74,16 @@
 ```text
 :heartbeat
 
-data: Olá!
+event: control
+data: {"name":"prompt_ready"}
 
-data: Como posso ajudar?
+event: chunk
+data: {"index":0,"delta":"Olá!"}
 
-event: done
-data: ok
+event: chunk
+data: {"index":1,"delta":"Como posso ajudar?"}
+
+event: control
+data: {"name":"done"}
 
 ```

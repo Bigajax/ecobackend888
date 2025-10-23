@@ -235,10 +235,15 @@ test("guest flow completes ask-eco, signal and feedback", async () => {
 
   assert.equal(askRes.statusCode, 200, "ask-eco should respond 200");
   const ssePayload = askRes.chunks.join("");
-  const match = ssePayload.match(/interaction_id\"\s*:\s*\"([0-9a-f-]+)\"/i);
-  assert.ok(match, "response should include interaction_id");
-  const receivedInteractionId = match![1];
-  assert.equal(receivedInteractionId, interactionId);
+  assert.ok(
+    ssePayload.includes('event: control\ndata: {"name":"prompt_ready"}'),
+    "SSE should announce prompt_ready",
+  );
+  assert.ok(
+    ssePayload.includes('event: control\ndata: {"name":"done"}'),
+    "SSE should finish with done control event",
+  );
+  assert.ok(!ssePayload.includes("data: ok"), "SSE payload should avoid ok bodies");
 
   const { registrarSignal } = await withPatchedModules(baseStubs, () => {
     const resolved = require.resolve("../../controllers/signalController");

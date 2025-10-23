@@ -129,15 +129,7 @@ export function createSSE(
     if (ended) return;
     clearHeartbeat();
     clearIdle();
-    let writable = isWritable(res);
-    if (writable) {
-      try {
-        res.write(`event: done\ndata: ok\n\n`);
-        (res as any).flush?.();
-      } catch {
-        writable = false;
-      }
-    }
+    const writable = isWritable(res);
     ended = true;
     if (writable && isWritable(res)) {
       try {

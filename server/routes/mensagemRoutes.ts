@@ -48,9 +48,9 @@ router.post("/", async (req: Request, res: Response) => {
       payload.salvar_memoria = body.salvar_memoria;
     }
 
-    const registro = await registrarMensagem(supabase, payload);
+    await registrarMensagem(supabase, payload);
 
-    return res.status(200).json({ ok: true, data: registro });
+    return res.status(204).end();
   } catch (error) {
     const message = error instanceof Error ? error.message : "Erro ao registrar mensagem.";
     return res.status(500).json({ ok: false, error: { message } });

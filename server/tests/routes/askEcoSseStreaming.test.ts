@@ -256,42 +256,48 @@ test("SSE streaming emits tokens, done and disables compression", async () => {
 
   const output = res.chunks.join("");
   assert.ok(res.chunks.length > 0, "should emit at least one SSE chunk");
-  const interactionChunk = res.chunks[0]?.replace(/\n/g, "\\n");
-  assert.equal(
-    interactionChunk,
-    `event: interaction\\ndata: {"interaction_id":"${TEST_INTERACTION_ID}"}\\n\\n`,
-    "first SSE event should share interaction_id"
-  );
-  const finalChunk = res.chunks[res.chunks.length - 1]?.replace(/\n/g, "\\n");
-  assert.equal(
-    finalChunk,
-    "event: done\\ndata: ok\\n\\n",
-    "should append explicit done event before closing"
+  const events = output
+    .split("\n\n")
+    .filter(Boolean)
+    .map((chunk) => {
+      const lines = chunk.split("\n");
+      const eventLine = lines.find((line) => line.startsWith("event: ")) ?? "";
+      const dataLine = lines.find((line) => line.startsWith("data: ")) ?? "";
+      const event = eventLine.replace("event: ", "");
+      const rawData = dataLine.replace("data: ", "");
+      const data = rawData ? JSON.parse(rawData) : null;
+      return { event, data };
+    });
+
+  assert.deepEqual(
+    events[0],
+    { event: "control", data: { name: "prompt_ready" } },
+    "first SSE event should announce prompt_ready"
   );
   assert.ok(!output.includes("event: ping"), "should no longer emit ping events");
   assert.ok(!output.includes(":keepalive"), "heartbeat comment should omit legacy keepalive tag");
-  const chunkCount = (output.match(/event: chunk/g) ?? []).length;
-  assert.ok(chunkCount >= 2, "should emit streamed chunk events");
+  const chunkEvents = events.filter((evt) => evt.event === "chunk");
+  assert.equal(chunkEvents.length, 2, "should emit streamed chunk events");
+  assert.deepEqual(
+    chunkEvents[0].data,
+    { index: 0, delta: "primeiro" },
+    "first chunk should include index 0 and text"
+  );
+  assert.deepEqual(
+    chunkEvents[1].data,
+    { index: 1, delta: "segundo" },
+    "second chunk should include index 1 and text"
+  );
   assert.ok(!output.includes("__prompt_ready__"), "should not emit synthetic prompt_ready token");
-  assert.ok(/event: control/.test(output), "should emit control events");
-  assert.match(
-    output,
-    /event: chunk\ndata: {"interaction_id":"[^"]+","index":0,"delta":"primeiro"}/,
-    "should emit chunk event for first delta with index 0"
+  const controlEvents = events.filter((evt) => evt.event === "control");
+  assert.deepEqual(
+    controlEvents[controlEvents.length - 1],
+    { event: "control", data: { name: "done" } },
+    "stream should finalize with control:done"
   );
-  assert.match(
-    output,
-    /event: chunk\ndata: {"interaction_id":"[^"]+","index":1,"delta":"segundo"}/,
-    "should emit chunk event for subsequent deltas with incrementing index"
-  );
-  assert.ok(
-    /event: control\ndata: {"name":"done"/.test(output),
-    "should emit control:done event"
-  );
-  assert.ok(
-    /"totalChunks":2/.test(output),
-    "done payload should include totalChunks"
-  );
+  const otherEvents = events.filter((evt) => !["control", "chunk"].includes(evt.event));
+  assert.equal(otherEvents.length, 0, "should not emit auxiliary SSE event types");
+  assert.ok(!output.includes("data: ok"), "should avoid plain ok payloads");
 });
 
 test("SSE streaming triggers timeout fallback when orchestrator stalls", async () => {
@@ -343,26 +349,47 @@ test("SSE streaming triggers timeout fallback when orchestrator stalls", async (
     const output = res.chunks.join("");
     assert.match(
       output,
-      /type":"first_token_latency_ms"/,
-      "fallback should record first token latency"
-    );
-    assert.match(
-      output,
       new RegExp(STREAM_TIMEOUT_MESSAGE.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")),
       "fallback chunk should contain timeout message"
     );
-    const firstEvent = res.chunks[0]?.replace(/\n/g, "\\n");
-    assert.equal(
-      firstEvent,
-      `event: interaction\\ndata: {"interaction_id":"${TEST_INTERACTION_ID}"}\\n\\n`,
-      "interaction event should be emitted before timeout handling"
+
+    const events = output
+      .split("\n\n")
+      .filter(Boolean)
+      .map((chunk) => {
+        const lines = chunk.split("\n");
+        const eventLine = lines.find((line) => line.startsWith("event: ")) ?? "";
+        const dataLine = lines.find((line) => line.startsWith("data: ")) ?? "";
+        const event = eventLine.replace("event: ", "");
+        const rawData = dataLine.replace("data: ", "");
+        const data = rawData ? JSON.parse(rawData) : null;
+        return { event, data };
+      });
+
+    assert.deepEqual(
+      events[0],
+      { event: "control", data: { name: "prompt_ready" } },
+      "should announce prompt_ready before timeout fallback"
     );
-    assert.match(output, /event: control/, "fallback should emit control events");
-    assert.match(
-      output,
-      /event: control\ndata: {"name":"done"/,
-      "fallback should complete stream with control:done"
+
+    const timeoutChunk = events.find((evt) => evt.event === "chunk");
+    assert.ok(timeoutChunk, "fallback should emit chunk event");
+    assert.deepEqual(
+      timeoutChunk?.data,
+      { index: 0, delta: STREAM_TIMEOUT_MESSAGE },
+      "fallback chunk should use minimal schema"
     );
+
+    const finalControl = events[events.length - 1];
+    assert.deepEqual(
+      finalControl,
+      { event: "control", data: { name: "done" } },
+      "fallback should finish with control:done"
+    );
+
+    const otherEvents = events.filter((evt) => !["control", "chunk"].includes(evt.event));
+    assert.equal(otherEvents.length, 0, "fallback should avoid auxiliary SSE events");
+    assert.ok(!output.includes("data: ok"), "fallback stream should avoid ok payloads");
   } finally {
     if (previousTimeout === undefined) {
       delete process.env.ECO_SSE_TIMEOUT_MS;
@@ -425,11 +452,16 @@ test("StreamSession heartbeats use comments and close with done event", async ()
       "heartbeat callback should write SSE comment"
     );
 
+    const chunksBeforeEnd = res.chunks.length;
     session.end();
     assert.equal(
-      res.chunks[res.chunks.length - 1],
-      "event: done\ndata: ok\n\n",
-      "StreamSession should append explicit done event on end"
+      res.chunks.length,
+      chunksBeforeEnd,
+      "StreamSession end should not append extra SSE frames"
+    );
+    assert.ok(
+      !res.chunks.some((chunk) => chunk.includes("data: ok")),
+      "StreamSession should avoid sending ok payloads on end"
     );
 
     const chunksAfterEnd = res.chunks.length;
@@ -636,7 +668,10 @@ test("starting a new stream on the same stream id aborts the previous run", asyn
   assert.equal(secondRes.statusCode, 200, "new stream should succeed");
   assert.ok(infoCalls.some((entry) => entry[0] === "[ask-eco] sse_stream_replaced"));
   assert.equal(firstRes.ended, true, "previous response should end after abort");
-  assert.equal(firstRes.chunks[firstRes.chunks.length - 1], "event: done\ndata: ok\n\n");
+  assert.equal(
+    firstRes.chunks[firstRes.chunks.length - 1],
+    'event: control\ndata: {"name":"done"}\n\n'
+  );
   assert.ok(firstAbortReason instanceof Error || typeof firstAbortReason === "string");
 });
 
@@ -695,10 +730,39 @@ test("three sequential streams emit independent chunk sequences", async () => {
     await handler(req as any, res as any);
 
     const output = res.chunks.join("");
-    assert.ok(output.includes(`event: chunk\ndata: {"interaction_id":"${createdInteractions[i]}`));
-    assert.ok(output.includes('"index":0')); // primeira bolha nasce no índice 0
-    assert.ok(output.includes(`"delta":"${texts[i]}"`));
-    assert.ok(output.includes('event: done'));
+    const events = output
+      .split("\n\n")
+      .filter(Boolean)
+      .map((chunk) => {
+        const lines = chunk.split("\n");
+        const eventLine = lines.find((line) => line.startsWith("event: ")) ?? "";
+        const dataLine = lines.find((line) => line.startsWith("data: ")) ?? "";
+        const event = eventLine.replace("event: ", "");
+        const rawData = dataLine.replace("data: ", "");
+        const data = rawData ? JSON.parse(rawData) : null;
+        return { event, data };
+      });
+
+    assert.deepEqual(
+      events[0],
+      { event: "control", data: { name: "prompt_ready" } },
+      "stream should announce prompt_ready before chunks",
+    );
+
+    const chunkEvent = events.find((evt) => evt.event === "chunk");
+    assert.ok(chunkEvent, "stream should emit chunk event");
+    assert.deepEqual(
+      chunkEvent?.data,
+      { index: 0, delta: texts[i] },
+      "chunk event should include index and text without interaction metadata",
+    );
+
+    const finalEvent = events[events.length - 1];
+    assert.deepEqual(finalEvent, { event: "control", data: { name: "done" } });
+
+    const otherEvents = events.filter((evt) => !["control", "chunk"].includes(evt.event));
+    assert.equal(otherEvents.length, 0, "stream should not emit auxiliary SSE events");
+    assert.ok(!output.includes("data: ok"), "stream should avoid ok payloads");
   }
 
   assert.equal(createdInteractions.length, texts.length, "should create one interaction per message");
