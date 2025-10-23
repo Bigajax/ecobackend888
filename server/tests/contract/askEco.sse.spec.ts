@@ -151,8 +151,8 @@ jest.mock("../../utils/sse", () => {
 
       return {
         send: (event: string, data: unknown) => recordEvent(event, data),
-        sendControl: (name: string, meta?: Record<string, unknown>) =>
-          recordEvent("control", { name, ...(meta ?? {}) }),
+        sendControl: (name: "prompt_ready" | "done") =>
+          recordEvent("control", { name }),
         end: () => {
           if (!res.writableEnded) {
             res.end();

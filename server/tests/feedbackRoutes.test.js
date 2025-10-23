@@ -74,9 +74,11 @@ class AnalyticsStub {
 
     if (table === "bandit_rewards") {
       return {
-        upsert: async (rows, options) => {
+        upsert: (rows, options) => {
           this.banditUpserts.push({ table, rows, options });
-          return { data: null, error: this.config.banditError ?? null };
+          return {
+            select: async () => ({ data: rows, error: this.config.banditError ?? null }),
+          };
         },
       };
     }
@@ -106,6 +108,8 @@ test("POST /api/feedback infere braço e aplica recompensa", async () => {
     .send({ interaction_id: "00000000-0000-0000-0000-000000000111", vote: "up" });
 
   assert.equal(response.status, 204);
+  assert.equal(response.text ?? "", "");
+  assert.deepEqual(response.body ?? {}, {});
   assert.equal(analytics.feedbackInserts.length, 1);
   assert.equal(analytics.banditUpserts.length, 1);
   assert.equal(analytics.rpcCalls.length, 1);
@@ -117,7 +121,7 @@ test("POST /api/feedback infere braço e aplica recompensa", async () => {
     arm: "arm-inferido",
     recompensa: 1,
   });
-  assert.deepEqual(upsert.options, { onConflict: "response_id,arm" });
+  assert.deepEqual(upsert.options, { onConflict: "response_id,arm", ignoreDuplicates: true });
 
   assert.deepEqual(analytics.rpcCalls[0], {
     name: "update_bandit_arm",
@@ -141,6 +145,8 @@ test("POST /api/feedback aceita response_id sem interaction_id", async () => {
     .send({ response_id: "00000000-0000-0000-0000-000000000222", vote: "down", arm: "arm-x", pillar: "geral" });
 
   assert.equal(response.status, 204);
+  assert.equal(response.text ?? "", "");
+  assert.deepEqual(response.body ?? {}, {});
   assert.equal(analytics.feedbackInserts.length, 0);
   assert.equal(analytics.banditUpserts.length, 1);
   assert.equal(analytics.rpcCalls.length, 1);
@@ -168,7 +174,7 @@ test("POST /api/feedback falha com payload inválido", async () => {
   const response = await request(app).post("/api/feedback").send({});
 
   assert.equal(response.status, 400);
-  assert.equal(response.body.error, "missing vote");
+  assert.equal(response.body?.message, "missing vote");
   assert.equal(analytics.banditUpserts.length, 0);
   assert.equal(analytics.rpcCalls.length, 0);
 });

@@ -64,12 +64,11 @@ export interface CreateSSEOptions {
   onIdle?: () => void;
 }
 
+export type SseControlName = "prompt_ready" | "done";
+
 export interface SSEConnection {
   send: (event: string, data: unknown) => void;
-  sendControl: (
-    name: "prompt_ready" | "done" | string,
-    meta?: Record<string, unknown>
-  ) => void;
+  sendControl: (name: SseControlName) => void;
   end: () => void;
 }
 
@@ -195,12 +194,8 @@ export function createSSE(
     scheduleIdle();
   };
 
-  const sendControl = (
-    name: "prompt_ready" | "done" | string,
-    data?: Record<string, unknown>
-  ) => {
-    const payload = { name, ...(data ?? {}) };
-    send("control", payload);
+  const sendControl = (name: SseControlName) => {
+    send("control", { name });
   };
 
   if (heartbeatMs > 0) {
