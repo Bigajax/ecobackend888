@@ -19,11 +19,12 @@ async function safeFetch(input: RequestInfo, init: RequestInit): Promise<Respons
 
 export async function postSignal(signal: string, payload: SignalPayload): Promise<void> {
   if (!signal) return;
+  const interactionId = payload.interaction_id?.trim() || null;
   const body: Record<string, unknown> = {
     signal,
   };
-  if (payload.interaction_id) {
-    body.interaction_id = payload.interaction_id;
+  if (interactionId) {
+    body.interaction_id = interactionId;
   }
   if (typeof payload.value === "number") {
     body.value = payload.value;
@@ -43,6 +44,7 @@ export async function postSignal(signal: string, payload: SignalPayload): Promis
       "Content-Type": "application/json",
       ...(guestId ? { "X-Eco-Guest-Id": guestId } : {}),
       ...(sessionId ? { "X-Eco-Session-Id": sessionId } : {}),
+      ...(interactionId ? { "X-Eco-Interaction-Id": interactionId } : {}),
     },
     body: JSON.stringify(body),
     credentials: "include",
