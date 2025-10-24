@@ -7,12 +7,15 @@ import {
 declare module "express-serve-static-core" {
   interface Request {
     admin?: ReturnType<typeof ensureSupabaseConfigured>;
+    supabase?: ReturnType<typeof ensureSupabaseConfigured>;
   }
 }
 
 export function requireAdmin(req: Request, res: Response, next: NextFunction) {
   try {
-    req.admin = ensureSupabaseConfigured();
+    const client = ensureSupabaseConfigured();
+    req.admin = client;
+    req.supabase = client;
     return next();
   } catch (err) {
     if (err instanceof SupabaseConfigError) {
