@@ -1083,12 +1083,23 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
   const regularModules = selection.regular.map(applyContinuityText);
   const footerModules = selection.footers.map(applyContinuityText);
 
-  const modulesWithTokens = [...regularModules, ...footerModules].map((module) => ({
-    name: module.name,
-    text: module.text,
-    tokens: ModuleCatalog.tokenCountOf(module.name, module.text),
-    meta: module.meta,
-  }));
+  const modulesWithTokens = [...regularModules, ...footerModules].map((module) => {
+    const moduleWithBytes = module as typeof module & { bytes?: number };
+
+    const base = {
+      name: module.name,
+      text: module.text,
+      tokens: ModuleCatalog.tokenCountOf(module.name, module.text),
+      meta: module.meta,
+      hadContent: Boolean(module.text && module.text.length > 0),
+    };
+
+    if (typeof moduleWithBytes.bytes === "number") {
+      return { ...base, bytes: moduleWithBytes.bytes };
+    }
+
+    return base;
+  });
 
   const debugMap = selection.debug;
 
