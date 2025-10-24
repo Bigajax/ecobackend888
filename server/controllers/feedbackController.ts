@@ -13,6 +13,7 @@ type FeedbackPayload = {
   reason?: string | null;
   pillar?: string | null;
   arm?: string | null;
+  message_id?: string | null;
 };
 
 function normalizeText(value: string | null | undefined): string | null {
@@ -21,9 +22,17 @@ function normalizeText(value: string | null | undefined): string | null {
   return trimmed ? trimmed : null;
 }
 
+const voteMap: Record<string, FeedbackVote> = {
+  up: "up",
+  down: "down",
+  like: "up",
+  dislike: "down",
+};
+
 export async function registrarFeedback(req: Request, res: Response) {
   const body = (req.body ?? {}) as FeedbackPayload;
-  const vote = body.vote === "up" || body.vote === "down" ? body.vote : null;
+  const voteInput = typeof body.vote === "string" ? body.vote.trim().toLowerCase() : "";
+  const vote = voteMap[voteInput] ?? null;
 
   if (!vote) {
     logger.warn("feedback.invalid_payload", { reason: "missing_vote" });
@@ -31,18 +40,45 @@ export async function registrarFeedback(req: Request, res: Response) {
   }
 
   const interactionId = normalizeText(body.interaction_id);
-  const responseId = normalizeText(body.response_id) ?? interactionId;
 
-  if (!responseId) {
-    logger.warn("feedback.invalid_payload", { reason: "missing_response_id" });
-    return res
-      .status(400)
-      .json({ message: "missing response_id/interaction_id", status: 400 });
+  if (!interactionId) {
+    logger.warn("feedback_missing_interaction", { reason: "missing_interaction_id" });
+    return res.status(400).json({ message: "missing_interaction_id", status: 400 });
   }
 
   const analytics = getAnalyticsClient();
   const guestIdHeader = normalizeText(req.get("X-Eco-Guest-Id") ?? null);
-  const reward = vote === "up" ? 1 : 0;
+  const reward = vote === "up" ? 1 : -1;
+
+  const {
+    data: interaction,
+    error: interactionError,
+  } = await analytics
+    .from("eco_interactions")
+    .select("id, message_id, prompt_hash, user_id, session_id")
+    .eq("id", interactionId)
+    .maybeSingle();
+
+  if (interactionError) {
+    logger.error("feedback.interaction_lookup_failed", {
+      interaction_id: interactionId,
+      message: interactionError.message,
+      code: interactionError.code ?? null,
+      details: interactionError.details ?? null,
+    });
+    return res.status(500).json({ message: "interaction_lookup_failed", status: 500 });
+  }
+
+  if (!interaction) {
+    logger.warn("feedback.interaction_not_found", { interaction_id: interactionId });
+    return res.status(404).json({ message: "interaction_not_found", status: 404 });
+  }
+
+  const responseId =
+    normalizeText(body.response_id) ??
+    normalizeText(body.message_id) ??
+    normalizeText(interaction.message_id) ??
+    interactionId;
 
   let armKey = normalizeText(body.arm);
   const pillar = normalizeText(body.pillar) ?? "default";
@@ -74,53 +110,57 @@ export async function registrarFeedback(req: Request, res: Response) {
     armKey = "baseline";
   }
 
-  if (interactionId) {
-    const feedbackMeta: Record<string, unknown> = { pillar, arm: armKey };
-    const reason = normalizeText(body.reason);
+  const reason = normalizeText(body.reason);
+  const timestamp = new Date().toISOString();
+  const promptHash = normalizeText(interaction.prompt_hash as string | null | undefined);
+  const userId = normalizeText((interaction.user_id as string | null | undefined) ?? null);
+  const sessionId = normalizeText((interaction.session_id as string | null | undefined) ?? null);
 
-    const feedbackPayload = {
-      interaction_id: interactionId,
-      vote,
-      reason: reason ? [reason] : null,
-      source: "api", // mantém origem previsível para analytics
-      user_id: null,
-      session_id: null,
-      meta: feedbackMeta,
-    };
+  const feedbackPayload = {
+    interaction_id: interactionId,
+    message_id: responseId,
+    vote,
+    reason: reason ?? null,
+    arm: armKey,
+    pillar,
+    prompt_hash: promptHash,
+    user_id: userId,
+    session_id: sessionId,
+    timestamp,
+  };
 
-    const { error: feedbackError } = await analytics.from("eco_feedback").insert([feedbackPayload]);
+  const { error: feedbackError } = await analytics.from("eco_feedback").insert([feedbackPayload]);
 
-    if (feedbackError) {
-      const code = feedbackError.code ?? null;
-      if (code === "23503") {
-        logger.warn("feedback.persist_unknown_interaction", {
-          interaction_id: interactionId,
-          response_id: responseId,
-          guest_id: guestIdHeader ?? null,
-          message: feedbackError.message,
-        });
-        return res.status(400).json({ message: "unknown_interaction", status: 400 });
-      }
-      logger.error("feedback.persist_failed", {
-        interaction_id: interactionId,
-        message: feedbackError.message,
-        code,
-        details: feedbackError.details ?? null,
-        table: "eco_feedback",
-        payload: feedbackPayload,
-        guest_id: guestIdHeader ?? null,
-      });
-      return res.status(500).json({ message: "feedback_store_failed", status: 500 });
-    } else {
-      logger.info("feedback.persist_success", {
-        table: "eco_feedback",
+  if (feedbackError) {
+    const code = feedbackError.code ?? null;
+    if (code === "23503") {
+      logger.warn("feedback.persist_unknown_interaction", {
         interaction_id: interactionId,
         response_id: responseId,
-        vote,
         guest_id: guestIdHeader ?? null,
+        message: feedbackError.message,
       });
+      return res.status(404).json({ message: "interaction_not_found", status: 404 });
     }
+    logger.error("feedback.persist_failed", {
+      interaction_id: interactionId,
+      message: feedbackError.message,
+      code,
+      details: feedbackError.details ?? null,
+      table: "eco_feedback",
+      payload: feedbackPayload,
+      guest_id: guestIdHeader ?? null,
+    });
+    return res.status(500).json({ message: "feedback_store_failed", status: 500 });
   }
+
+  logger.info("feedback.persist_success", {
+    table: "eco_feedback",
+    interaction_id: interactionId,
+    response_id: responseId,
+    vote,
+    guest_id: guestIdHeader ?? null,
+  });
 
   const rewardPayload = {
     response_id: responseId,
@@ -131,10 +171,7 @@ export async function registrarFeedback(req: Request, res: Response) {
 
   const { data: rewardRows, error: rewardError } = await analytics
     .from("bandit_rewards")
-    .upsert([rewardPayload], {
-      onConflict: "response_id,arm",
-      ignoreDuplicates: true,
-    })
+    .insert([rewardPayload])
     .select("response_id,arm");
 
   const rewardInserted = Array.isArray(rewardRows) && rewardRows.length > 0;
@@ -167,10 +204,13 @@ export async function registrarFeedback(req: Request, res: Response) {
   }
 
   if (rewardInserted) {
-    const { error: rpcError } = await analytics.rpc("update_bandit_arm", {
+    const rpcPayload = {
+      arm_id: armKey,
+      reward,
       p_arm_key: armKey,
       p_reward: reward,
-    });
+    };
+    const { error: rpcError } = await analytics.rpc("update_bandit_arm", rpcPayload);
 
     if (rpcError) {
       logger.error("feedback.bandit_arm_update_failed", {
@@ -179,7 +219,7 @@ export async function registrarFeedback(req: Request, res: Response) {
         code: rpcError.code ?? null,
         details: rpcError.details ?? null,
         table: "eco_bandit_arms",
-        payload: { arm: armKey, reward },
+        payload: rpcPayload,
       });
       return res.status(500).json({ message: "bandit_arm_update_failed", status: 500 });
     } else {
