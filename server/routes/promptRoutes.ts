@@ -1407,6 +1407,7 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
       });
 
       sse.sendControl("done");
+      sse.send("done", { done: true });
 
       log.info("[ask-eco] stream_finalize", {
         origin: origin ?? null,
@@ -1492,7 +1493,7 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
 
       const chunkPayload = {
         index: chunkIndex,
-        delta: finalText,
+        text: finalText,
       };
       sse.send("chunk", chunkPayload);
 

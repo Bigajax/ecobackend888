@@ -8,10 +8,10 @@ sequência abaixo:
 2. **first_token**: primeiro trecho de texto retornado pelo orquestrador. Além
    do evento específico, é emitida uma entrada de `meta` com a latência do
    primeiro token e o evento genérico `token`.
-3. **chunk**: eventos subsequentes entregam os demais deltas de texto no formato
-   `{ delta, index }`, além do espelhamento pelo evento `token`.
-4. **done**: sinaliza o encerramento da resposta através de `control` com os
-   contadores finais e encerra a conexão SSE de forma idempotente.
+3. **chunk**: eventos subsequentes entregam os demais trechos de texto no formato
+   `{ index, text }`, além do espelhamento pelo evento `token`.
+4. **done**: emite um evento `done` com `{ done: true }` e um `control` final com os
+   contadores agregados, encerrando a conexão SSE de forma idempotente.
 
 ## Ciclo de vida
 

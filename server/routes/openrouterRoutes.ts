@@ -308,16 +308,13 @@ router.post("/ask-eco", async (req: GuestAwareRequest, res: Response) => {
       streamSession.emitLatency("prompt_ready", promptReadyAt, timings);
       const firstChunkAt = now();
       streamSession.emitLatency("ttfb", firstChunkAt, timings);
-      const sanitizedCacheText = cachedPayload.raw
-        .replace(/\r/g, " ")
-        .replace(/\n+/g, " ")
-        .replace(/\s+/g, " ")
-        .trim();
-      if (sanitizedCacheText) {
-        streamSession.aggregatedText = sanitizedCacheText;
+      const cacheText =
+        typeof cachedPayload.raw === "string" ? cachedPayload.raw : "";
+      if (cacheText.length > 0) {
+        streamSession.aggregatedText = cacheText;
         streamSession.chunkReceived = true;
         streamSession.lastChunkIndex = 0;
-        streamSession.dispatchEvent({ index: 0, text: sanitizedCacheText });
+        streamSession.dispatchEvent({ index: 0, text: cacheText });
       } else {
         streamSession.aggregatedText = "";
         streamSession.chunkReceived = false;
@@ -325,8 +322,7 @@ router.post("/ask-eco", async (req: GuestAwareRequest, res: Response) => {
       }
       const doneAt = now();
       streamSession.emitLatency("ttlc", doneAt, timings);
-      const doneIndex = streamSession.lastChunkIndex + 1;
-      streamSession.dispatchEvent({ index: doneIndex, done: true });
+      streamSession.dispatchEvent({ done: true });
       streamSession.end();
       return;
     }
@@ -368,14 +364,13 @@ router.post("/ask-eco", async (req: GuestAwareRequest, res: Response) => {
     const simulatedRaw = aggregatedSegments.join(" ");
     const doneAt = now();
     streamSession.emitLatency("ttlc", doneAt, streamSession.latestTimings);
-    const doneIndex = streamSession.lastChunkIndex + 1;
     const simulatedMeta: Record<string, unknown> = {
       modelo: "eco-local-simulado",
       origem: "local_generator",
     };
     streamSession.cacheCandidateMeta = simulatedMeta;
     streamSession.cacheCandidateTimings = streamSession.latestTimings;
-    streamSession.dispatchEvent({ index: doneIndex, done: true });
+    streamSession.dispatchEvent({ done: true });
     streamSession.clearTimeoutGuard();
     streamSession.end();
 
@@ -383,7 +378,7 @@ router.post("/ask-eco", async (req: GuestAwareRequest, res: Response) => {
       const events = Array.isArray(streamSession.offlineEvents)
         ? (streamSession.offlineEvents as Array<Record<string, unknown>>)
         : [];
-      const doneEvent = [...events].reverse().find((entry) => entry?.type === "done");
+      const doneEvent = [...events].reverse().find((entry) => entry && entry.done === true);
 
       if (doneEvent && typeof doneEvent === "object") {
         res.status(200).json(doneEvent);

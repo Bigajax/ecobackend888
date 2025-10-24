@@ -30,7 +30,7 @@
 ## 4. SSE Contract (Required)
 - Emit only the following events in order:
   1. `event: control` with `data: {"name":"prompt_ready"}` once the stream is ready.
-  2. `event: chunk` entries carrying `data: {"index":<number>,"delta":"<text>"}` for each token slice.
+  2. `event: chunk` entries carrying `data: {"index":<number>,"text":"<conteúdo>"}` for each token slice.
   3. `event: control` with `data: {"name":"done"}` when the stream completes.
 - Do **not** emit auxiliary events (`interaction`, `meta`, `latency`, etc.) or plain `data: ok` payloads.
 - Maintain heartbeat comments `:\n\n` if needed for keep-alive.
@@ -78,10 +78,10 @@ event: control
 data: {"name":"prompt_ready"}
 
 event: chunk
-data: {"index":0,"delta":"Olá!"}
+data: {"index":0,"text":"Olá!"}
 
 event: chunk
-data: {"index":1,"delta":"Como posso ajudar?"}
+data: {"index":1,"text":"Como posso ajudar?"}
 
 event: control
 data: {"name":"done"}

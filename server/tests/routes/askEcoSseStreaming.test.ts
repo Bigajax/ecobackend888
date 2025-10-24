@@ -284,12 +284,12 @@ test("SSE streaming emits tokens, done and disables compression", async () => {
   assert.equal(chunkEvents.length, 2, "should emit streamed chunk events");
   assert.deepEqual(
     chunkEvents[0].data,
-    { index: 0, delta: "primeiro" },
+    { index: 0, text: "primeiro" },
     "first chunk should include index 0 and text"
   );
   assert.deepEqual(
     chunkEvents[1].data,
-    { index: 1, delta: "segundo" },
+    { index: 1, text: "segundo" },
     "second chunk should include index 1 and text"
   );
   assert.ok(!output.includes("__prompt_ready__"), "should not emit synthetic prompt_ready token");
@@ -299,7 +299,9 @@ test("SSE streaming emits tokens, done and disables compression", async () => {
     { event: "control", data: { name: "done" } },
     "stream should finalize with control:done"
   );
-  const otherEvents = events.filter((evt) => !["control", "chunk"].includes(evt.event));
+  const finalEvent = events[events.length - 1];
+  assert.deepEqual(finalEvent, { event: "done", data: { done: true } }, "stream should end with done payload");
+  const otherEvents = events.filter((evt) => !["control", "chunk", "done"].includes(evt.event));
   assert.equal(otherEvents.length, 0, "should not emit auxiliary SSE event types");
   assert.ok(!output.includes("data: ok"), "should avoid plain ok payloads");
 });
@@ -381,20 +383,23 @@ test("SSE streaming triggers timeout fallback when orchestrator stalls", async (
 
     const timeoutChunk = events.find((evt) => evt.event === "chunk");
     assert.ok(timeoutChunk, "fallback should emit chunk event");
-    assert.deepEqual(
-      timeoutChunk?.data,
-      { index: 0, delta: STREAM_TIMEOUT_MESSAGE },
-      "fallback chunk should use minimal schema"
-    );
+      assert.deepEqual(
+        timeoutChunk?.data,
+        { index: 0, text: STREAM_TIMEOUT_MESSAGE },
+        "fallback chunk should use minimal schema"
+      );
 
-    const finalControl = events[events.length - 1];
-    assert.deepEqual(
-      finalControl,
-      { event: "control", data: { name: "done" } },
-      "fallback should finish with control:done"
-    );
+      const finalControl = [...events].reverse().find((entry) => entry.event === "control");
+      assert.deepEqual(
+        finalControl,
+        { event: "control", data: { name: "done" } },
+        "fallback should finish with control:done"
+      );
 
-    const otherEvents = events.filter((evt) => !["control", "chunk"].includes(evt.event));
+      const finalEvent = events[events.length - 1];
+      assert.deepEqual(finalEvent, { event: "done", data: { done: true } }, "fallback should end with done payload");
+
+      const otherEvents = events.filter((evt) => !["control", "chunk", "done"].includes(evt.event));
     assert.equal(otherEvents.length, 0, "fallback should avoid auxiliary SSE events");
     assert.ok(!output.includes("data: ok"), "fallback stream should avoid ok payloads");
   } finally {
@@ -764,16 +769,19 @@ test("three sequential streams emit independent chunk sequences", async () => {
 
     const chunkEvent = events.find((evt) => evt.event === "chunk");
     assert.ok(chunkEvent, "stream should emit chunk event");
-    assert.deepEqual(
-      chunkEvent?.data,
-      { index: 0, delta: texts[i] },
-      "chunk event should include index and text without interaction metadata",
-    );
+      assert.deepEqual(
+        chunkEvent?.data,
+        { index: 0, text: texts[i] },
+        "chunk event should include index and text without interaction metadata",
+      );
 
-    const finalEvent = events[events.length - 1];
-    assert.deepEqual(finalEvent, { event: "control", data: { name: "done" } });
+      const finalControl = [...events].reverse().find((entry) => entry.event === "control");
+      assert.deepEqual(finalControl, { event: "control", data: { name: "done" } });
 
-    const otherEvents = events.filter((evt) => !["control", "chunk"].includes(evt.event));
+      const finalEvent = events[events.length - 1];
+      assert.deepEqual(finalEvent, { event: "done", data: { done: true } });
+
+      const otherEvents = events.filter((evt) => !["control", "chunk", "done"].includes(evt.event));
     assert.equal(otherEvents.length, 0, "stream should not emit auxiliary SSE events");
     assert.ok(!output.includes("data: ok"), "stream should avoid ok payloads");
   }

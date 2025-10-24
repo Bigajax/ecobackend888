@@ -156,11 +156,13 @@ test("cache hit rewrites legacy payload before streaming", async () => {
     .map((line) => line.replace(/^data: /, "").trim())
     .map((line) => JSON.parse(line));
 
-  const chunkPayload = ssePayloads.find((payload) => payload.type === "chunk");
+  const chunkPayload = ssePayloads.find(
+    (payload) => typeof payload?.index === "number" && typeof payload?.text === "string"
+  );
   assert.ok(chunkPayload, "chunk payload should exist");
-  const delta = String((chunkPayload as any).delta);
-  const match = delta.match(/```json\s*([\s\S]+?)```/);
-  assert.ok(match, "chunk delta should contain a json code block");
+  const text = String((chunkPayload as any).text);
+  const match = text.match(/```json\s*([\s\S]+?)```/);
+  assert.ok(match, "chunk text should contain a json code block");
   assert.doesNotThrow(() => JSON.parse(match![1].trim()));
 
   const recachedRaw = RESPONSE_CACHE.get(cacheKey);

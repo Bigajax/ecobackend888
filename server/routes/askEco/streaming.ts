@@ -23,7 +23,7 @@ export type StreamSessionOptions = {
   debugRequested: boolean;
 };
 
-type StreamMessage = { index: number; text: string } | { index: number; done: true };
+type StreamMessage = { index: number; text: string } | { done: true };
 
 export class StreamSession {
   readonly respondAsStream: boolean;
@@ -107,8 +107,7 @@ export class StreamSession {
     this.handleChunk(STREAM_TIMEOUT_MESSAGE);
     const at = now();
     this.emitLatency("ttlc", at, this.latestTimings);
-    const doneIndex = this.lastChunkIndex + 1;
-    this.dispatchEvent({ index: doneIndex, done: true });
+    this.dispatchEvent({ done: true });
     this.end();
   }
 
@@ -119,8 +118,7 @@ export class StreamSession {
     }
     const at = now();
     this.emitLatency("ttlc", at, this.latestTimings);
-    const doneIndex = this.lastChunkIndex + 1;
-    this.dispatchEvent({ index: doneIndex, done: true });
+    this.dispatchEvent({ done: true });
     this.clearTimeoutGuard();
     this.end();
   }
@@ -211,17 +209,15 @@ export class StreamSession {
       }
       const at = now();
       this.emitLatency("ttlc", at, this.latestTimings);
-      const doneIndex = this.lastChunkIndex + 1;
-      this.dispatchEvent({ index: doneIndex, done: true });
+      this.dispatchEvent({ done: true });
       this.clearTimeoutGuard();
       this.end();
     }
   }
 
   private handleChunk(content: string, index?: number) {
-    if (!content) return;
-    const sanitized = this.sanitizeText(content);
-    if (!sanitized) return;
+    if (typeof content !== "string") return;
+    if (content.length === 0) return;
     const resolvedIndex = this.lastChunkIndex + 1;
     const hasExplicitIndex = typeof index === "number" && Number.isFinite(index);
     if (hasExplicitIndex && index !== resolvedIndex) {
@@ -236,15 +232,11 @@ export class StreamSession {
       const at = now();
       this.emitLatency("ttfb", at, this.latestTimings);
     }
-    this.aggregatedText = smartJoin(this.aggregatedText, sanitized);
+    this.aggregatedText = smartJoin(this.aggregatedText, content);
     this.chunkReceived = true;
     this.lastChunkIndex = resolvedIndex;
     this.clearTimeoutGuard();
-    this.dispatchEvent({ index: resolvedIndex, text: sanitized });
-  }
-
-  private sanitizeText(text: string) {
-    return text.replace(/\r/g, " ").replace(/\n+/g, " ").replace(/\s+/g, " ").trim();
+    this.dispatchEvent({ index: resolvedIndex, text: content });
   }
 
   private startSse() {
