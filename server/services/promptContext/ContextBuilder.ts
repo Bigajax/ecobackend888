@@ -1048,10 +1048,17 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
 
   // 🔢 carrega candidatos respeitando a ordem absoluta
   const candidates = await ModuleCatalog.load(ordered);
+  const usableCandidates = candidates.filter((candidate) => {
+    if (candidate.hadContent) {
+      return true;
+    }
+    log.debug("module_missing", { requested: candidate.name, reason: "empty_content" });
+    return false;
+  });
   const selection = Selector.applyModuleMetadata({
     dec: DEC,
     baseOrder: ordered,
-    candidates,
+    candidates: usableCandidates,
   });
 
   const applyContinuityText = (module: (typeof selection.regular)[number]) => {

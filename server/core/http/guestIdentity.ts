@@ -6,6 +6,12 @@ import { log } from "../../services/promptContext/logger";
 const COOKIE_NAME = "guest_id";
 export const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+const GUEST_ID_REQUIRED_PATHS: RegExp[] = [
+  /^\/api\/ask-eco(?:\/|$)/i,
+  /^\/api\/signal(?:\/|$)/i,
+  /^\/api\/health(?:\/|$)/i,
+];
+
 function stripGuestPrefix(value: string): string {
   if (/^guest_/i.test(value)) {
     return value.replace(/^guest_/i, "");
@@ -118,10 +124,25 @@ export function ensureGuestIdentity(req: Request, res: Response, next: NextFunct
   const headerCandidate = getHeaderValue(req.headers["x-eco-guest-id"]);
   const cookieCandidate = readGuestIdFromCookies(req);
 
+  const requiresGuestId = GUEST_ID_REQUIRED_PATHS.some((pattern) => pattern.test(req.path));
+
   let guestId =
     normalizeGuestIdentifier(headerCandidate) ?? normalizeGuestIdentifier(cookieCandidate);
 
   if (!guestId) {
+    if (requiresGuestId) {
+      if (headerCandidate || cookieCandidate) {
+        log.warn("[guestIdentity] invalid guest identifier", {
+          header: headerCandidate ?? null,
+          fromCookie: Boolean(cookieCandidate),
+          path: req.path,
+        });
+      } else {
+        log.warn("[guestIdentity] missing guest identifier", { path: req.path });
+      }
+      return res.status(400).json({ error: "missing_guest_id", message: "Informe X-Eco-Guest-Id" });
+    }
+
     if (headerCandidate || cookieCandidate) {
       log.warn("[guestIdentity] invalid guest identifier", {
         header: headerCandidate ?? null,

@@ -20,6 +20,7 @@ import { normalizeQuery } from "./middlewares/queryNormalizer";
 import { ModuleCatalog } from "../../domains/prompts/ModuleCatalog";
 import { ensureGuestIdentity } from "./guestIdentity";
 import { getEcoPromptStatus } from "../../services/promptContext/identityModules";
+import ModuleStore from "../../services/promptContext/ModuleStore";
 
 import promptRoutes from "../../routes/promptRoutes";
 import profileRoutes from "../../routes/perfilEmocionalRoutes";
@@ -185,6 +186,27 @@ export function createApp(): Express {
       built: stats.built,
       sample: ModuleCatalog.listIndexed(50),
     });
+  });
+  app.get("/api/debug/modules/:id(*)", async (req, res) => {
+    const rawId = typeof req.params.id === "string" ? req.params.id : "";
+    const normalized = rawId.trim();
+    if (!normalized) {
+      return res.status(400).json({ error: "missing_module_id" });
+    }
+    try {
+      const content = await ModuleStore.read(normalized);
+      if (!content) {
+        return res.status(404).json({ error: "module_not_found" });
+      }
+      return res.status(200).json({
+        bytes: Buffer.byteLength(content, "utf8"),
+        first80: content.slice(0, 80),
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      log.warn("[debug.modules] read_failed", { id: normalized, message });
+      return res.status(500).json({ error: "module_debug_failed" });
+    }
   });
 
   // 7) Rotas (prefixo /api) — /api/ask-eco (SSE) vive em promptRoutes
