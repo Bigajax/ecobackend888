@@ -9,6 +9,11 @@ import type { EcoStreamHandler, EcoStreamEvent } from "../services/conversation/
 import { createHttpError, isHttpError } from "../utils/http";
 import { getSupabaseAdmin } from "../lib/supabaseAdmin";
 import { createSSE, prepareSseHeaders } from "../utils/sse";
+import { smartJoin as smartStreamJoin } from "../utils/streamJoin";
+import {
+  rememberInteractionGuest,
+  updateInteractionGuest,
+} from "../services/conversation/interactionIdentityStore";
 import { applyCorsResponseHeaders, isAllowedOrigin } from "../middleware/cors";
 import { normalizeGuestIdentifier } from "../core/http/guestIdentity";
 import { createInteraction } from "../services/conversation/interactionAnalytics";
@@ -87,6 +92,22 @@ function buildDonePayload(options: {
 
 const router = Router();
 const askEcoRouter = Router();
+
+function buildSummaryFromChunks(pieces: string[]): string {
+  if (!Array.isArray(pieces) || pieces.length === 0) {
+    return "";
+  }
+  const summary = pieces.reduce<string>((acc, piece) => {
+    if (!acc) return piece;
+    return smartStreamJoin(acc, piece);
+  }, "");
+  if (!summary) {
+    return "";
+  }
+  let normalized = summary.replace(/[ \t]*\n[ \t]*/g, "\n");
+  normalized = normalized.replace(/([a-zá-ú])([A-ZÁ-Ú])/g, "$1 $2");
+  return normalized;
+}
 
 const activeClientMessageLocks = new Map<string, true>();
 
@@ -1133,15 +1154,17 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
       if (!trimmed) return;
       if (interactionIdReady) {
         if (resolvedInteractionId !== trimmed) {
-        log.warn("[ask-eco] interaction_id_mismatch", {
-          current: resolvedInteractionId,
-          incoming: trimmed,
-        });
+          log.warn("[ask-eco] interaction_id_mismatch", {
+            current: resolvedInteractionId,
+            incoming: trimmed,
+          });
         }
+        updateInteractionGuest(trimmed, guestIdResolved ?? null);
         return;
       }
       resolvedInteractionId = trimmed;
       interactionIdReady = true;
+      rememberInteractionGuest(trimmed, guestIdResolved ?? null);
       updateActiveStreamInteractionId(trimmed);
       const interactionKey = buildActiveInteractionKey("interaction", trimmed);
       if (!registerActiveInteractionKey(interactionKey)) {
@@ -1391,8 +1414,9 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
         sendLatency(latencyPayload);
       }
 
+      const summaryText = buildSummaryFromChunks(state.contentPieces);
       const donePayload = buildDonePayload({
-        content: state.contentPieces.join("").trim() || null,
+        content: summaryText.length ? summaryText : null,
         interactionId:
           resolvedInteractionId ??
           (typeof streamMeta?.meta === "object"
@@ -1537,6 +1561,10 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
     };
     abortSignal.addEventListener("abort", abortListener);
     sse.sendControl("prompt_ready", { interaction_id: resolvedInteractionId });
+    sse.send("control", {
+      type: "interaction",
+      interaction_id: resolvedInteractionId,
+    });
     enqueuePassiveSignal("prompt_ready", 1, {
       stream: true,
       origin: origin ?? null,

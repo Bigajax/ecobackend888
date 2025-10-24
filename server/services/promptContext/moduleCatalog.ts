@@ -18,6 +18,7 @@ export type ModuleCandidate = {
   text: string;
   tokens: number;
   meta: ModuleFrontMatter;
+  hadContent: boolean;
 };
 
 type ParsedModule = { body: string; meta: ModuleFrontMatter };
@@ -205,6 +206,7 @@ export class ModuleCatalog {
       resolvedNames.map(async (resolvedRealName, i) => {
         const requested = uniqueNames[i]; // para debug
         const raw = await this.require(resolvedRealName, requested);
+        const hadContent = typeof raw === "string" && raw.trim().length > 0;
         const parsed = parsedCache.get(resolvedRealName) ?? parseFrontMatter(raw);
         parsedCache.set(resolvedRealName, parsed);
 
@@ -218,6 +220,7 @@ export class ModuleCatalog {
           text: parsed.body,
           tokens,
           meta: parsed.meta,
+          hadContent,
         } as ModuleCandidate;
       })
     );

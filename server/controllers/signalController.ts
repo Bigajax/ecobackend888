@@ -3,6 +3,10 @@ import { getAnalyticsClient } from "../services/supabaseClient";
 import { log } from "../services/promptContext/logger";
 import { applyCorsResponseHeaders } from "../middleware/cors";
 import { normalizeGuestIdentifier } from "../core/http/guestIdentity";
+import {
+  getInteractionGuest,
+  updateInteractionGuest,
+} from "../services/conversation/interactionIdentityStore";
 
 const logger = log.withContext("signal-controller");
 
@@ -90,14 +94,17 @@ function normalizeBody(body: SignalBody, headers: { guestId?: string; sessionId?
 export async function registrarSignal(req: Request, res: Response) {
   applyCorsResponseHeaders(req, res);
 
-  const headerInteractionId = normalizeString(req.get("X-Eco-Interaction-Id"));
-  if (!headerInteractionId) {
-    logger.warn("signal.missing_interaction_header", {});
-    return res.status(400).json({ error: "missing_interaction_id_header" });
+  const headerGuestRaw = req.get("X-Eco-Guest-Id");
+  const headersGuest = normalizeGuestIdValue(headerGuestRaw);
+  if (!headersGuest) {
+    logger.warn("signal.missing_guest_header", {
+      provided: typeof headerGuestRaw === "string" ? headerGuestRaw : null,
+    });
+    return res
+      .status(400)
+      .json({ error: "missing_guest_id", message: "Informe X-Eco-Guest-Id" });
   }
-  logger.info("signal.interaction_header", { interaction_id: headerInteractionId });
 
-  const headersGuest = normalizeString(req.get("X-Eco-Guest-Id"));
   const headersSession = normalizeString(req.get("X-Eco-Session-Id"));
 
   const body =
@@ -105,23 +112,57 @@ export async function registrarSignal(req: Request, res: Response) {
       ? (req.body as SignalBody)
       : {};
 
-  const normalized = normalizeBody(body, { guestId: headersGuest, sessionId: headersSession });
+  const headerInteractionId = normalizeString(req.get("X-Eco-Interaction-Id"));
+  const bodyInteractionId =
+    normalizeString(body.interaction_id) ?? normalizeString((body as any).interactionId);
 
-  if (normalized.interaction_id && normalized.interaction_id !== headerInteractionId) {
-    logger.warn("signal.interaction_header_body_mismatch", {
-      header_interaction_id: headerInteractionId,
-      body_interaction_id: normalized.interaction_id,
-    });
+  if (!headerInteractionId && !bodyInteractionId) {
+    logger.warn("signal.missing_interaction_id", {});
+    return res.status(400).json({ error: "missing_interaction_id" });
   }
-  normalized.interaction_id = headerInteractionId;
 
-  if (!normalized.interaction_id) {
-    logger.warn("signal.missing_interaction_id", {
-      name: normalized.name,
-      type: normalized.type,
+  const interactionId = headerInteractionId ?? bodyInteractionId;
+  if (!interactionId) {
+    logger.warn("signal.interaction_unresolved", {
+      header: headerInteractionId ?? null,
+      body: bodyInteractionId ?? null,
     });
     return res.status(400).json({ error: "missing_interaction_id" });
   }
+
+  if (headerInteractionId && bodyInteractionId && headerInteractionId !== bodyInteractionId) {
+    logger.warn("signal.interaction_header_body_mismatch", {
+      header_interaction_id: headerInteractionId,
+      body_interaction_id: bodyInteractionId,
+    });
+  }
+
+  logger.info("signal.interaction_resolved", { interaction_id: interactionId });
+
+  const normalized = normalizeBody(body, { guestId: headersGuest, sessionId: headersSession });
+  normalized.interaction_id = interactionId;
+
+  const registeredGuest = getInteractionGuest(interactionId);
+  logger.info("signal.guest_received", {
+    interaction_id: interactionId,
+    guest_id: headersGuest,
+    registered_guest_id: registeredGuest ?? null,
+  });
+
+  if (registeredGuest === undefined) {
+    return res.status(404).json({ error: "interaction_not_found" });
+  }
+
+  if (registeredGuest && registeredGuest !== headersGuest) {
+    logger.warn("signal.guest_mismatch", {
+      interaction_id: interactionId,
+      expected: registeredGuest,
+      received: headersGuest,
+    });
+    return res.status(409).json({ error: "guest_mismatch" });
+  }
+
+  updateInteractionGuest(interactionId, registeredGuest ?? headersGuest);
 
   let analyticsClient;
   try {
