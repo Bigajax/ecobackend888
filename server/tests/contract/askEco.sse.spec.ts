@@ -270,31 +270,32 @@ describe("/api/ask-eco SSE contract", () => {
 
     const controlEvents = events.filter((evt) => evt.event === "control");
     const chunkEvents = events.filter((evt) => evt.event === "chunk");
-    const otherEvents = events.filter((evt) => !["control", "chunk"].includes(evt.event));
+      const otherEvents = events.filter((evt) => !["control", "chunk", "done"].includes(evt.event));
 
-    expect(otherEvents).toHaveLength(0);
+      expect(otherEvents).toHaveLength(0);
     expect(controlEvents[0]).toEqual({
       event: "control",
       data: '{"name":"prompt_ready","interaction_id":"interaction-123"}',
     });
-    expect(controlEvents[controlEvents.length - 1]).toEqual({
-      event: "control",
-      data: '{"name":"done"}',
-    });
+      expect(controlEvents[controlEvents.length - 1]).toEqual({
+        event: "control",
+        data: '{"name":"done"}',
+      });
+      expect(events[events.length - 1]).toEqual({ event: "done", data: '{"done":true}' });
     expect(chunkEvents).toHaveLength(2);
     const parsedChunks = chunkEvents.map((evt) => JSON.parse(evt.data));
-    expect(parsedChunks[0]).toEqual({ index: 0, delta: "Olá" });
-    expect(parsedChunks[1]).toEqual({ index: 1, delta: "mundo" });
+      expect(parsedChunks[0]).toEqual({ index: 0, text: "Olá" });
+      expect(parsedChunks[1]).toEqual({ index: 1, text: "mundo" });
 
-    expect(capturedSseEvents.every((evt) => ["control", "chunk"].includes(evt.event))).toBe(true);
+      expect(capturedSseEvents.every((evt) => ["control", "chunk", "done"].includes(evt.event))).toBe(true);
     expect(capturedSseEvents[0]).toEqual({
       event: "control",
       data: JSON.stringify({ name: "prompt_ready", interaction_id: "interaction-123" }),
     });
-    expect(capturedSseEvents[capturedSseEvents.length - 1]).toEqual({
-      event: "control",
-      data: JSON.stringify({ name: "done" }),
-    });
+      expect(capturedSseEvents[capturedSseEvents.length - 1]).toEqual({
+        event: "done",
+        data: JSON.stringify({ done: true }),
+      });
   });
 
   it("returns the done payload when stream=false", async () => {

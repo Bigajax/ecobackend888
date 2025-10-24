@@ -190,8 +190,8 @@ test("/ask-eco delega prompt ao orquestrador e propaga eventos de prompt_ready",
 
   const promptReady = res.events.find((payload) => payload.name === "prompt_ready");
   assert.ok(promptReady, "espera prompt_ready vindo do orquestrador");
-  const chunk = res.events.find((payload) => typeof payload.delta === "string");
-  assert.equal(chunk?.delta, "eco resposta");
+    const chunk = res.events.find((payload) => typeof payload.text === "string");
+    assert.equal(chunk?.text, "eco resposta");
 });
 
 test("/ask-eco aceita modo convidado sem token e marca métricas", async () => {

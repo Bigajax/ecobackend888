@@ -106,7 +106,10 @@ export function normalizeServerEvent(event: EcoServerEvent, rawEventName?: strin
     case "first_token":
       return [{ type: "first_token" }];
     case "chunk":
-      return asChunkEvent((event as any).delta ?? (event as any).content, (event as any).index);
+      return asChunkEvent(
+        (event as any).delta ?? (event as any).text ?? (event as any).content,
+        (event as any).index
+      );
     case "meta": {
       const data =
         (event as any).data && typeof (event as any).data === "object"
@@ -232,6 +235,12 @@ export function normalizeServerEvent(event: EcoServerEvent, rawEventName?: strin
           ? (payloadAny.meta as Record<string, unknown>)
           : undefined;
       return [{ type: "memory_saved", saved: true, meta }];
+    }
+    if (fallback === "done") {
+      if (payloadAny && typeof payloadAny === "object" && payloadAny.done === true) {
+        return [{ type: "done" }];
+      }
+      return [{ type: "done" }];
     }
   }
 

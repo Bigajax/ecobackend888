@@ -6,7 +6,7 @@
 
 # O novo contrato de evento
 
-- Todo delta textual é enviado apenas como `event: chunk` com `data: {"interaction_id","index","delta"}`; o primeiro chunk usa `index = 0` e nenhum outro evento replica o mesmo texto.【F:server/routes/promptRoutes.ts†L1088-L1113】
+- Todo texto parcial é enviado apenas como `event: chunk` com `data: {"interaction_id","index","text"}`; o primeiro chunk usa `index = 0` e nenhum outro evento replica o mesmo conteúdo.【F:server/routes/promptRoutes.ts†L1088-L1113】
 - O controlador injeta o `interaction_id` gerado para a requisição (ou recuperado da orquestração) antes de qualquer emissão e o reutiliza em todos os chunks.【F:server/routes/promptRoutes.ts†L872-L917】【F:server/routes/promptRoutes.ts†L921-L928】
 - Headers de SSE forçam entrega sem buffering: `Content-Type: text/event-stream`, `Cache-Control: no-cache, no-transform`, `Transfer-Encoding: chunked`, `X-Accel-Buffering: no` e `flushHeaders()` imediato.【F:server/utils/sse.ts†L37-L63】【F:server/utils/sse.ts†L94-L129】
 

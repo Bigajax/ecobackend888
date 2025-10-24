@@ -29,14 +29,14 @@ Any change to these headers (name, casing, mirroring behaviour) is a breaking ch
 
   1. `control` – `{ "name": "prompt_ready", "stream": true }`
   2. `meta?` – orchestrator metadata (`{ etapa, ... }`)
-  3. `first_token` – `{ "delta": "…" }`
+  3. `first_token` – `{ "text": "…" }`
   4. `meta` – `{ "type": "first_token_latency_ms", "value": <number> }`
-  5. `chunk` – `{ "delta": "…", "index": <number> }` (repeats for every fragment)
+  5. `chunk` – `{ "text": "…", "index": <number> }` (repeats for every fragment)
   6. `token` – `{ "text": "…" }` (legacy helper, can be ignored by FE)
   7. `memory_saved?` – `{ "memoriaId", "primeiraMemoriaSignificativa", "intensidade" }`
   8. `meta` – `{ "type": "llm_status", "chunks", "bytes", … }`
   9. `latency` – `{ "first_token_latency_ms", "total_latency_ms", "marks": { … } }`
-  10. `done` – full summary payload (see below)
+  10. `done` – `{ "done": true }`
   11. `control` – `{ "name": "done", "summary": { … } }`
 
 * **`done` payload schema**:
