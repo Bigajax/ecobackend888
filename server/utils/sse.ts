@@ -44,8 +44,8 @@ export function prepareSseHeaders(
     "Access-Control-Allow-Credentials",
     allowCredentials ? "true" : "false"
   );
-  res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
-  res.setHeader("Cache-Control", "no-cache, no-transform");
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
   res.setHeader("Connection", "keep-alive");
   res.setHeader("X-Accel-Buffering", "no");
   res.setHeader("Transfer-Encoding", "chunked");
@@ -68,7 +68,7 @@ export type SseControlName = "prompt_ready" | "done";
 
 export interface SSEConnection {
   send: (event: string, data: unknown) => void;
-  sendControl: (name: SseControlName) => void;
+  sendControl: (name: SseControlName, payload?: Record<string, unknown>) => void;
   end: () => void;
 }
 
@@ -89,10 +89,10 @@ export function createSSE(
   res.status(200);
 
   if (!res.hasHeader("Content-Type")) {
-    res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+    res.setHeader("Content-Type", "text/event-stream");
   }
   if (!res.hasHeader("Cache-Control")) {
-    res.setHeader("Cache-Control", "no-cache, no-transform");
+    res.setHeader("Cache-Control", "no-cache");
   }
   if (!res.hasHeader("Connection")) {
     res.setHeader("Connection", "keep-alive");
@@ -194,8 +194,9 @@ export function createSSE(
     scheduleIdle();
   };
 
-  const sendControl = (name: SseControlName) => {
-    send("control", { name });
+  const sendControl = (name: SseControlName, payload?: Record<string, unknown>) => {
+    const data = payload && typeof payload === "object" ? { name, ...payload } : { name };
+    send("control", data);
   };
 
   if (heartbeatMs > 0) {

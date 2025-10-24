@@ -151,8 +151,10 @@ jest.mock("../../utils/sse", () => {
 
       return {
         send: (event: string, data: unknown) => recordEvent(event, data),
-        sendControl: (name: "prompt_ready" | "done") =>
-          recordEvent("control", { name }),
+        sendControl: (
+          name: "prompt_ready" | "done",
+          payload?: Record<string, unknown>,
+        ) => recordEvent("control", { name, ...(payload ?? {}) }),
         end: () => {
           if (!res.writableEnded) {
             res.end();
@@ -271,7 +273,10 @@ describe("/api/ask-eco SSE contract", () => {
     const otherEvents = events.filter((evt) => !["control", "chunk"].includes(evt.event));
 
     expect(otherEvents).toHaveLength(0);
-    expect(controlEvents[0]).toEqual({ event: "control", data: '{"name":"prompt_ready"}' });
+    expect(controlEvents[0]).toEqual({
+      event: "control",
+      data: '{"name":"prompt_ready","interaction_id":"interaction-123"}',
+    });
     expect(controlEvents[controlEvents.length - 1]).toEqual({
       event: "control",
       data: '{"name":"done"}',
@@ -284,7 +289,7 @@ describe("/api/ask-eco SSE contract", () => {
     expect(capturedSseEvents.every((evt) => ["control", "chunk"].includes(evt.event))).toBe(true);
     expect(capturedSseEvents[0]).toEqual({
       event: "control",
-      data: JSON.stringify({ name: "prompt_ready" }),
+      data: JSON.stringify({ name: "prompt_ready", interaction_id: "interaction-123" }),
     });
     expect(capturedSseEvents[capturedSseEvents.length - 1]).toEqual({
       event: "control",

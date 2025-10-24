@@ -236,7 +236,9 @@ test("guest flow completes ask-eco, signal and feedback", async () => {
   assert.equal(askRes.statusCode, 200, "ask-eco should respond 200");
   const ssePayload = askRes.chunks.join("");
   assert.ok(
-    ssePayload.includes('event: control\ndata: {"name":"prompt_ready"}'),
+    ssePayload.includes(
+      `event: control\ndata: {"name":"prompt_ready","interaction_id":"${interactionId}"}`,
+    ),
     "SSE should announce prompt_ready",
   );
   assert.ok(

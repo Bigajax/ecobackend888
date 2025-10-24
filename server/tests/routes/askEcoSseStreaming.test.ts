@@ -246,11 +246,16 @@ test("SSE streaming emits tokens, done and disables compression", async () => {
   await handler(req as any, res as any);
 
   assert.equal(res.statusCode, 200);
-  assert.equal(res.headers.get("content-type"), "text/event-stream; charset=utf-8");
+  assert.equal(res.headers.get("content-type"), "text/event-stream");
   assert.equal(res.headers.get("content-encoding"), "identity");
   assert.equal(res.headers.get("x-no-compression"), "1");
-  assert.equal(res.headers.get("cache-control"), "no-cache, no-transform");
+  assert.equal(res.headers.get("cache-control"), "no-cache");
   assert.equal(res.headers.get("connection"), "keep-alive");
+  assert.equal(
+    res.headers.get("x-eco-interaction-id"),
+    TEST_INTERACTION_ID,
+    "should expose interaction id in headers"
+  );
   assert.equal(res.ended, true, "stream should close after done event");
   assert.ok(res.flushed, "safeWrite should flush chunks for SSE");
 
@@ -269,11 +274,10 @@ test("SSE streaming emits tokens, done and disables compression", async () => {
       return { event, data };
     });
 
-  assert.deepEqual(
-    events[0],
-    { event: "control", data: { name: "prompt_ready" } },
-    "first SSE event should announce prompt_ready"
-  );
+  assert.deepEqual(events[0], {
+    event: "control",
+    data: { name: "prompt_ready", interaction_id: TEST_INTERACTION_ID },
+  });
   assert.ok(!output.includes("event: ping"), "should no longer emit ping events");
   assert.ok(!output.includes(":keepalive"), "heartbeat comment should omit legacy keepalive tag");
   const chunkEvents = events.filter((evt) => evt.event === "chunk");
@@ -368,7 +372,10 @@ test("SSE streaming triggers timeout fallback when orchestrator stalls", async (
 
     assert.deepEqual(
       events[0],
-      { event: "control", data: { name: "prompt_ready" } },
+      {
+        event: "control",
+        data: { name: "prompt_ready", interaction_id: TEST_INTERACTION_ID },
+      },
       "should announce prompt_ready before timeout fallback"
     );
 
@@ -745,7 +752,13 @@ test("three sequential streams emit independent chunk sequences", async () => {
 
     assert.deepEqual(
       events[0],
-      { event: "control", data: { name: "prompt_ready" } },
+      {
+        event: "control",
+        data: {
+          name: "prompt_ready",
+          interaction_id: createdInteractions[i],
+        },
+      },
       "stream should announce prompt_ready before chunks",
     );
 

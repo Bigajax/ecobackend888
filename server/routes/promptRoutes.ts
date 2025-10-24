@@ -21,7 +21,8 @@ function sanitizeOutput(input?: string): string {
     .replace(/```(?:json)?[\s\S]*?```/gi, "")
     // remove possível payload JSON final
     .replace(/\{[\s\S]*?\}\s*$/g, "")
-    .trim();
+    // remove caracteres de controle perigosos, preservando espaços comuns
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, "");
 }
 
 type DonePayload = {
@@ -934,6 +935,7 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
     prepareSseHeaders(res, {
       origin: allowedOrigin && origin ? origin : undefined,
       allowCredentials: false,
+      flush: false,
     });
 
     console.info("[ask-eco] start", {
@@ -1283,6 +1285,10 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
       captureInteractionId(resolvedInteractionId);
     }
 
+    if (typeof resolvedInteractionId === "string" && resolvedInteractionId && !res.headersSent) {
+      res.setHeader("X-Eco-Interaction-Id", resolvedInteractionId);
+    }
+
     const sse = createSSE(res, req, {
       heartbeatMs: 25_000,
       idleMs: idleTimeoutMs,
@@ -1464,8 +1470,8 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
     function sendChunk(piece: string) {
       if (!piece || typeof piece !== "string") return;
       const cleaned = sanitizeOutput(piece);
-      const finalText = cleaned || piece.trim();
-      if (!finalText) return;
+      const finalText = cleaned;
+      if (finalText.length === 0) return;
       if (finalText.trim().toLowerCase() === "ok") {
         return;
       }
@@ -1529,7 +1535,7 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
       sendDone(finishReason || "aborted");
     };
     abortSignal.addEventListener("abort", abortListener);
-    sse.sendControl("prompt_ready");
+    sse.sendControl("prompt_ready", { interaction_id: resolvedInteractionId });
     enqueuePassiveSignal("prompt_ready", 1, {
       stream: true,
       origin: origin ?? null,
