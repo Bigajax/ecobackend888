@@ -610,7 +610,7 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
     log.warn("[ask-eco] payload_invalid", { reason: "body_not_object" });
     return res
       .status(400)
-      .json({ ok: false, error: "payload inválido: texto, usuario_id obrigatórios" });
+      .json({ ok: false, error: "payload inválido: texto e usuario_id são obrigatórios" });
   }
 
   const body = rawBody as Record<string, any>;
@@ -635,7 +635,7 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
     });
     return res
       .status(400)
-      .json({ ok: false, error: "payload inválido: texto, usuario_id obrigatórios" });
+      .json({ ok: false, error: "payload inválido: texto e usuario_id são obrigatórios" });
   }
 
   body.texto = textoRaw;

@@ -94,6 +94,9 @@ export const CORS_ALLOW_HEADERS = [
   "x-requested-with",
   "x-client-id",
   "x-trace-id",
+  "x-eco-guest-id",
+  "x-eco-session-id",
+  "x-stream-id",
 ] as const;
 
 export const CORS_ALLOW_METHODS = [
@@ -148,9 +151,9 @@ export function applyCorsResponseHeaders(req: Request, res: Response) {
     res.removeHeader("Access-Control-Allow-Origin");
   }
 
-  res.setHeader("Access-Control-Allow-Credentials", "true");
+  res.setHeader("Access-Control-Allow-Credentials", "false");
   res.setHeader("Access-Control-Allow-Headers", CORS_ALLOW_HEADERS.join(", "));
-  res.setHeader("Access-Control-Allow-Methods", CORS_ALLOW_METHODS.join(","));
+  res.setHeader("Access-Control-Allow-Methods", CORS_ALLOW_METHODS.join(", "));
   res.setHeader("Access-Control-Expose-Headers", CORS_EXPOSE_HEADERS.join(", "));
   res.setHeader("Access-Control-Max-Age", "600");
 }

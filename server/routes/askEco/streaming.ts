@@ -23,11 +23,16 @@ export type StreamSessionOptions = {
   debugRequested: boolean;
 };
 
-type StreamMessage = { index: number; text: string } | { done: true };
+type StreamEvent =
+  | { type: "message"; index: number; text: string }
+  | { type: "done" }
+  | { type: "error"; message: string };
+
+type StreamEndReason = "done" | "timeout" | "abort" | "error";
 
 export class StreamSession {
   readonly respondAsStream: boolean;
-  readonly offlineEvents: StreamMessage[] = [];
+  readonly offlineEvents: StreamEvent[] = [];
   aggregatedText = "";
   chunkReceived = false;
   lastChunkIndex = -1;
@@ -49,6 +54,9 @@ export class StreamSession {
   private timeoutGuard: NodeJS.Timeout | null = null;
   private timeoutGuardHandler: (() => void) | null = null;
   private firstChunkLogged = false;
+  private nextEventId = 0;
+  private endReason: StreamEndReason | null = null;
+  private sseLoggedStart = false;
 
   constructor(options: StreamSessionOptions) {
     this.req = options.req;
@@ -60,6 +68,8 @@ export class StreamSession {
     this.req.on("close", () => {
       if (!this.streamClosed) {
         this.clientDisconnected = true;
+        this.endReason = this.endReason ?? "abort";
+        this.logSseLifecycle("abort", { reason: "client_closed" });
       }
       this.streamClosed = true;
       this.stopHeartbeat();
@@ -82,15 +92,78 @@ export class StreamSession {
     }
   }
 
-  dispatchEvent(payload: StreamMessage) {
+  dispatchEvent(event: StreamEvent, logExtras: Record<string, unknown> = {}) {
     if (this.streamClosed) return;
+
     if (!this.respondAsStream) {
-      this.offlineEvents.push(payload);
+      this.offlineEvents.push(event);
+      this.logSseEvent(event, null, logExtras);
       return;
     }
+
     this.startSse();
-    this.res.write(`data: ${JSON.stringify(payload)}\n\n`);
+    const eventId = this.writeSseEvent(event);
+    this.logSseEvent(event, eventId, logExtras);
+  }
+
+  private getLogContext(): Record<string, unknown> {
+    const headerGuest = this.req.get("X-Eco-Guest-Id")?.trim();
+    const requestGuest = typeof this.req.guestId === "string" ? this.req.guestId.trim() : undefined;
+    const sessionGuest =
+      typeof (this.req as any)?.guest?.id === "string" ? ((this.req as any).guest.id as string) : undefined;
+    const guestId = requestGuest || headerGuest || sessionGuest || null;
+    const streamIdHeader = this.req.get("X-Stream-Id")?.trim();
+
+    return {
+      guestId,
+      streamId: streamIdHeader || null,
+      path: this.req.originalUrl,
+    };
+  }
+
+  private logSseLifecycle(
+    stage: "start" | "chunk" | "done" | "error" | "abort",
+    details: Record<string, unknown> = {}
+  ) {
+    const payload = { ...this.getLogContext(), ...details };
+    if (stage === "start") {
+      log.info("[ask-eco] sse_start", payload);
+    } else if (stage === "chunk") {
+      log.info("[ask-eco] sse_chunk", payload);
+    } else if (stage === "done") {
+      log.info("[ask-eco] sse_done", payload);
+    } else if (stage === "error") {
+      log.error("[ask-eco] sse_error", payload);
+    } else if (stage === "abort") {
+      log.warn("[ask-eco] sse_abort", payload);
+    }
+  }
+
+  private logSseEvent(event: StreamEvent, eventId: number | null, extras: Record<string, unknown>) {
+    const base = eventId != null ? { eventId } : {};
+    if (event.type === "message") {
+      this.logSseLifecycle("chunk", { ...base, ...extras, index: event.index });
+    } else if (event.type === "done") {
+      this.logSseLifecycle("done", { ...base, ...extras });
+    } else if (event.type === "error") {
+      this.logSseLifecycle("error", { ...base, ...extras, message: event.message });
+    }
+  }
+
+  private writeSseEvent(event: StreamEvent): number {
+    const eventId = this.nextEventId++;
+    const name = event.type === "message" ? "message" : event.type;
+    const data =
+      event.type === "message"
+        ? { index: event.index, text: event.text }
+        : event.type === "done"
+        ? { done: true }
+        : { error: event.message };
+    const payload = `id: ${eventId}\nevent: ${name}\ndata: ${JSON.stringify(data)}\n\n`;
+    this.res.write(payload);
     this.res.flush?.();
+    (this.res as any).__sseNextId = this.nextEventId;
+    return eventId;
   }
 
   emitLatency(stage: LatencyStage, at: number, timings?: EcoLatencyMarks) {
@@ -107,20 +180,17 @@ export class StreamSession {
     this.handleChunk(STREAM_TIMEOUT_MESSAGE);
     const at = now();
     this.emitLatency("ttlc", at, this.latestTimings);
-    this.dispatchEvent({ done: true });
-    this.end();
+    this.dispatchEvent({ type: "done" }, { reason: "timeout" });
+    this.end("timeout");
   }
 
   sendErrorAndEnd(message: string) {
     this.activationTracer.addError("stream", message);
-    if (message) {
-      this.handleChunk(message);
-    }
     const at = now();
     this.emitLatency("ttlc", at, this.latestTimings);
-    this.dispatchEvent({ done: true });
+    this.dispatchEvent({ type: "error", message }, { reason: "error" });
     this.clearTimeoutGuard();
-    this.end();
+    this.end("error");
   }
 
   clearTimeoutGuard() {
@@ -130,9 +200,13 @@ export class StreamSession {
     }
   }
 
-  end() {
-    if (this.streamClosed) return;
+  end(reason: StreamEndReason = "done") {
+    if (this.streamClosed) {
+      this.endReason = this.endReason ?? reason;
+      return;
+    }
     this.streamClosed = true;
+    this.endReason = reason;
     this.stopHeartbeat();
     this.clearTimeoutGuard();
     if (this.respondAsStream) {
@@ -209,9 +283,9 @@ export class StreamSession {
       }
       const at = now();
       this.emitLatency("ttlc", at, this.latestTimings);
-      this.dispatchEvent({ done: true });
+      this.dispatchEvent({ type: "done" });
       this.clearTimeoutGuard();
-      this.end();
+      this.end("done");
     }
   }
 
@@ -236,7 +310,7 @@ export class StreamSession {
     this.chunkReceived = true;
     this.lastChunkIndex = resolvedIndex;
     this.clearTimeoutGuard();
-    this.dispatchEvent({ index: resolvedIndex, text: content });
+    this.dispatchEvent({ type: "message", index: resolvedIndex, text: content });
   }
 
   private startSse() {
@@ -249,6 +323,10 @@ export class StreamSession {
     this.res.setHeader("X-Accel-Buffering", "no");
     this.res.flushHeaders?.();
     this.res.flush?.();
+    if (!this.sseLoggedStart) {
+      this.sseLoggedStart = true;
+      this.logSseLifecycle("start");
+    }
     this.ensureHeartbeat();
     this.ensureTimeoutGuard();
   }
