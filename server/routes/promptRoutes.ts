@@ -447,8 +447,12 @@ function extractEventText(event: unknown): string | undefined {
 
   for (const candidate of candidates) {
     if (!candidate) continue;
-    if (typeof candidate === "string" && candidate.trim()) {
-      return candidate.trim();
+    if (typeof candidate === "string") {
+      const normalized = candidate.replace(/\r\n/g, "\n");
+      if (normalized.length > 0) {
+        return normalized;
+      }
+      continue;
     }
     const extracted = extractTextLoose(candidate);
     if (extracted) {
@@ -456,7 +460,10 @@ function extractEventText(event: unknown): string | undefined {
     }
   }
 
-  return typeof event === "string" ? event : extractTextLoose(event);
+  if (typeof event === "string") {
+    return event.replace(/\r\n/g, "\n");
+  }
+  return extractTextLoose(event);
 }
 
 function getGuestIdFromCookies(req: Request): string | undefined {
@@ -1278,35 +1285,12 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
     const idleTimeoutMs =
       Number.isFinite(streamTimeoutMs) && streamTimeoutMs > 0 ? streamTimeoutMs : 120_000;
 
-    let initialInteractionId: string | null = null;
-    try {
-      const resolvedUserIdForInteraction =
-        !isGuestRequest && typeof (params as any).userId === "string"
-          ? ((params as any).userId as string).trim()
-          : null;
-      const normalizedSessionId =
-        typeof sessionId === "string" && sessionId.trim() ? sessionId.trim() : null;
-      initialInteractionId = await createInteraction({
-        userId:
-          resolvedUserIdForInteraction && resolvedUserIdForInteraction.length
-            ? resolvedUserIdForInteraction
-            : null,
-        sessionId: normalizedSessionId,
-        messageId: lastMessageId,
-        promptHash: null,
-      });
-    } catch (error) {
-      log.warn("[ask-eco] interaction_create_failed", {
-        message: error instanceof Error ? error.message : String(error),
-      });
-    }
-
-    if (initialInteractionId && typeof initialInteractionId === "string") {
-      captureInteractionId(initialInteractionId);
-      (params as any).interactionId = resolvedInteractionId;
-    } else {
-      captureInteractionId(resolvedInteractionId);
-    }
+    const resolvedUserIdForInteraction =
+      !isGuestRequest && typeof (params as any).userId === "string"
+        ? ((params as any).userId as string).trim()
+        : null;
+    const normalizedSessionId =
+      typeof sessionId === "string" && sessionId.trim() ? sessionId.trim() : null;
 
     if (typeof resolvedInteractionId === "string" && resolvedInteractionId && !res.headersSent) {
       res.setHeader("X-Eco-Interaction-Id", resolvedInteractionId);
@@ -1317,6 +1301,44 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
       idleMs: idleTimeoutMs,
       onIdle: handleStreamTimeout,
     });
+
+    let interactionBootstrapPromise: Promise<void> = Promise.resolve();
+
+    const bootstrapInteraction = async () => {
+      try {
+        const interactionId = await createInteraction({
+          userId:
+            resolvedUserIdForInteraction && resolvedUserIdForInteraction.length
+              ? resolvedUserIdForInteraction
+              : null,
+          sessionId: normalizedSessionId,
+          messageId: lastMessageId,
+          promptHash: null,
+        });
+
+        if (interactionId && typeof interactionId === "string") {
+          const previousInteractionId = resolvedInteractionId;
+          captureInteractionId(interactionId);
+          (params as any).interactionId = interactionId;
+          if (!state.done && interactionId !== previousInteractionId) {
+            sse.send("control", {
+              type: "interaction",
+              interaction_id: interactionId,
+              source: "analytics",
+            });
+          }
+          return;
+        }
+      } catch (error) {
+        log.warn("[ask-eco] interaction_create_failed", {
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+
+      if (!interactionIdReady) {
+        captureInteractionId(resolvedInteractionId);
+      }
+    };
 
     log.info("[ask-eco] stream_start", {
       origin: origin ?? null,
@@ -1355,132 +1377,158 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
       state.finishReason = reason ?? state.finishReason ?? "unknown";
       state.done = true;
 
-      const firstTokenLatency = state.firstTokenAt ? state.firstTokenAt - state.t0 : null;
-      const finishedAt = state.lastChunkAt || Date.now();
-      const totalLatency = finishedAt - state.t0;
-
-      sendMeta({
-        type: "llm_status",
-        firstTokenLatencyMs: firstTokenLatency,
-        chunks: state.chunksCount,
-        bytes: state.bytesCount,
-      });
-
-      const finishReason = state.finishReason || "unknown";
-      if (state.sawChunk) {
-        log.info("[ask-eco] sse_done", {
-          finishReason,
-          sawChunk: state.sawChunk,
-          chunks: state.chunksCount,
-          bytes: state.bytesCount,
-        });
-      } else {
-        log.debug("[ask-eco] sse_done_no_chunk", {
-          finishReason,
-          clientClosed: state.clientClosed,
-        });
-      }
-
-      const streamMeta = state.streamResult && typeof state.streamResult === "object"
-        ? (state.streamResult as Record<string, unknown>)
-        : null;
-
-      updateUsageTokens(streamMeta);
-      updateUsageTokens(streamMeta?.meta);
-      mergeLatencyMarks(streamMeta?.timings as Record<string, unknown> | undefined);
-
-      const aggregatedMeta = (() => {
-        const combined: Record<string, unknown> = { ...state.metaPayload };
-        if (streamMeta?.meta && typeof streamMeta.meta === "object") {
-          Object.assign(combined, streamMeta.meta as Record<string, unknown>);
+      const finalizeStream = async () => {
+        try {
+          await interactionBootstrapPromise.catch(() => undefined);
+        } finally {
+          if (!interactionIdReady) {
+            captureInteractionId(resolvedInteractionId);
+          }
         }
-        if (state.memoryEvents.length) {
-          combined.memory_events = state.memoryEvents;
+
+        const firstTokenLatency = state.firstTokenAt ? state.firstTokenAt - state.t0 : null;
+        const finishedAt = state.lastChunkAt || Date.now();
+        const totalLatency = finishedAt - state.t0;
+
+        try {
+          sendMeta({
+            type: "llm_status",
+            firstTokenLatencyMs: firstTokenLatency,
+            chunks: state.chunksCount,
+            bytes: state.bytesCount,
+          });
+
+          const finishReason = state.finishReason || "unknown";
+          if (state.sawChunk) {
+            log.info("[ask-eco] sse_done", {
+              finishReason,
+              sawChunk: state.sawChunk,
+              chunks: state.chunksCount,
+              bytes: state.bytesCount,
+            });
+          } else {
+            log.debug("[ask-eco] sse_done_no_chunk", {
+              finishReason,
+              clientClosed: state.clientClosed,
+            });
+          }
+
+          const streamMeta = state.streamResult && typeof state.streamResult === "object"
+            ? (state.streamResult as Record<string, unknown>)
+            : null;
+
+          updateUsageTokens(streamMeta);
+          updateUsageTokens(streamMeta?.meta);
+          mergeLatencyMarks(streamMeta?.timings as Record<string, unknown> | undefined);
+
+          const aggregatedMeta = (() => {
+            const combined: Record<string, unknown> = { ...state.metaPayload };
+            if (streamMeta?.meta && typeof streamMeta.meta === "object") {
+              Object.assign(combined, streamMeta.meta as Record<string, unknown>);
+            }
+            if (state.memoryEvents.length) {
+              combined.memory_events = state.memoryEvents;
+            }
+            return Object.keys(combined).length ? combined : null;
+          })();
+
+          if (streamMeta?.timings && typeof streamMeta.timings === "object") {
+            mergeLatencyMarks(streamMeta.timings as Record<string, unknown>);
+          }
+
+          const latencyPayload = compactMeta({
+            first_token_latency_ms: firstTokenLatency ?? undefined,
+            total_latency_ms: totalLatency,
+            marks: Object.keys(state.latencyMarks).length ? state.latencyMarks : undefined,
+          });
+
+          if (Object.keys(latencyPayload).length) {
+            sendLatency(latencyPayload);
+          }
+
+          const summaryText = buildSummaryFromChunks(state.contentPieces);
+          const resolvedInteractionForPayload =
+            resolvedInteractionId ??
+            (typeof streamMeta?.meta === "object"
+              ? ((streamMeta.meta as Record<string, unknown>).interaction_id as string | undefined) ?? null
+              : null);
+
+          const donePayload = buildDonePayload({
+            content: summaryText.length ? summaryText : null,
+            interactionId: resolvedInteractionForPayload,
+            tokens: state.usageTokens,
+            meta: aggregatedMeta ?? null,
+            timings: Object.keys(state.latencyMarks).length ? state.latencyMarks : null,
+            firstTokenLatency,
+            totalLatency,
+            timestamp: finishedAt,
+          });
+
+          const usagePayload = {
+            input_tokens: state.usageTokens.in,
+            output_tokens: state.usageTokens.out,
+          };
+
+          sse.sendControl("done");
+          sse.send("done", {
+            done: true,
+            ...donePayload,
+            usage: usagePayload,
+            client_message_id: clientMessageId ?? null,
+          });
+
+          log.info("[ask-eco] stream_finalize", {
+            origin: origin ?? null,
+            interaction_id: resolvedInteractionId ?? null,
+            clientMessageId: clientMessageId ?? null,
+            stream_aborted: abortSignal.aborted,
+            final_chunk_sent: state.sawChunk,
+            finishReason,
+            summary: donePayload,
+          });
+
+          finalizeClientMessageReservation(finishReason);
+
+          log.info("[ask-eco] stream_end", {
+            finishReason,
+            chunks: state.chunksCount,
+            bytes: state.bytesCount,
+            clientClosed: state.clientClosed,
+            origin: origin ?? null,
+          });
+
+          const endPayload: Record<string, unknown> = {};
+          if (finishReason) {
+            endPayload.finishReason = finishReason;
+          }
+          consoleStreamEnd(Object.keys(endPayload).length ? endPayload : undefined);
+
+          const doneValue = finishReason === "error" || finishReason === "timeout" ? 0 : 1;
+          enqueuePassiveSignal(
+            "done",
+            doneValue,
+            compactMeta({
+              finish_reason: finishReason,
+              chunks: state.chunksCount,
+              bytes: state.bytesCount,
+              first_token_latency_ms: firstTokenLatency ?? undefined,
+              total_latency_ms: totalLatency,
+              model: state.model ?? undefined,
+              saw_chunk: state.sawChunk,
+            })
+          );
+        } finally {
+          if (abortListener) {
+            abortSignal.removeEventListener("abort", abortListener);
+            abortListener = null;
+          }
+          releaseActiveStream();
+
+          sse.end();
         }
-        return Object.keys(combined).length ? combined : null;
-      })();
+      };
 
-      if (streamMeta?.timings && typeof streamMeta.timings === "object") {
-        mergeLatencyMarks(streamMeta.timings as Record<string, unknown>);
-      }
-
-      const latencyPayload = compactMeta({
-        first_token_latency_ms: firstTokenLatency ?? undefined,
-        total_latency_ms: totalLatency,
-        marks: Object.keys(state.latencyMarks).length ? state.latencyMarks : undefined,
-      });
-
-      if (Object.keys(latencyPayload).length) {
-        sendLatency(latencyPayload);
-      }
-
-      const summaryText = buildSummaryFromChunks(state.contentPieces);
-      const donePayload = buildDonePayload({
-        content: summaryText.length ? summaryText : null,
-        interactionId:
-          resolvedInteractionId ??
-          (typeof streamMeta?.meta === "object"
-            ? ((streamMeta.meta as Record<string, unknown>).interaction_id as string | undefined) ?? null
-            : null),
-        tokens: state.usageTokens,
-        meta: aggregatedMeta ?? null,
-        timings: Object.keys(state.latencyMarks).length ? state.latencyMarks : null,
-        firstTokenLatency,
-        totalLatency,
-        timestamp: finishedAt,
-      });
-
-      sse.sendControl("done");
-      sse.send("done", { done: true });
-
-      log.info("[ask-eco] stream_finalize", {
-        origin: origin ?? null,
-        interaction_id: resolvedInteractionId ?? null,
-        clientMessageId: clientMessageId ?? null,
-        stream_aborted: abortSignal.aborted,
-        final_chunk_sent: state.sawChunk,
-        finishReason,
-        summary: donePayload,
-      });
-
-      finalizeClientMessageReservation(finishReason);
-
-      log.info("[ask-eco] stream_end", {
-        finishReason,
-        chunks: state.chunksCount,
-        bytes: state.bytesCount,
-        clientClosed: state.clientClosed,
-        origin: origin ?? null,
-      });
-
-      const endPayload: Record<string, unknown> = {};
-      if (finishReason) {
-        endPayload.finishReason = finishReason;
-      }
-      consoleStreamEnd(Object.keys(endPayload).length ? endPayload : undefined);
-
-      const doneValue = finishReason === "error" || finishReason === "timeout" ? 0 : 1;
-      enqueuePassiveSignal(
-        "done",
-        doneValue,
-        compactMeta({
-          finish_reason: finishReason,
-          chunks: state.chunksCount,
-          bytes: state.bytesCount,
-          first_token_latency_ms: firstTokenLatency ?? undefined,
-          total_latency_ms: totalLatency,
-          model: state.model ?? undefined,
-          saw_chunk: state.sawChunk,
-        })
-      );
-
-      if (abortListener) {
-        abortSignal.removeEventListener("abort", abortListener);
-        abortListener = null;
-      }
-      releaseActiveStream();
-
-      sse.end();
+      void finalizeStream();
     }
 
     function handleStreamTimeout() {
@@ -1569,6 +1617,8 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
       stream: true,
       origin: origin ?? null,
     });
+
+    interactionBootstrapPromise = bootstrapInteraction();
 
     req.on("close", () => {
       if (state.clientClosed) return;
