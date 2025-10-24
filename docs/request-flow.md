@@ -1,19 +1,17 @@
 # Memory Request Flow
 
-This document traces the end-to-end flow for a client request that stores a memory via `POST /api/memorias/registrar`, covering
-how the Express server, middleware stack, controller, and Supabase integrations cooperate to persist data in the database.
+This document traces the end-to-end flow for a client request that stores a memory via `POST /api/memorias/registrar`, covering how the Express server, middleware stack, controller, domain service, and Supabase integrations cooperate to persist data in the database.
 
 ## Components involved
 
 - **Client** – Any HTTP caller (web app, mobile app) that sends authenticated JSON payloads.
-- **Express app** – Created via `createApp()` and responsible for global middleware and route registration.
-- **Global middleware** – CORS handling, body parsers, guest identity, rate limiting, guest session enrichment, logging, and query normalization.
-- **Memory router** – Mounts `/registrar` and applies the `requireAdmin` middleware before the controller.
-- **`requireAdmin` middleware** – Ensures a Supabase service-role client is available for downstream handlers.
-- **Memory controller** – Authenticates the user, constructs a user-scoped Supabase client, and invokes the database RPC.
-- **Supabase clients** – The admin client validates the JWT and a bearer-scoped client executes the RPC.
-- **Supabase Edge Function / RPC** – `registrar_memoria` encapsulates persistence logic in the database.
-- **Database** – Stores the memory row and returns the persisted representation.
+- **Express app** – Created via `createApp()` and responsible for CORS setup, parsers, guest identity, rate limiting, guest session logging, query normalization, and router registration.【F:server/core/http/app.ts†L105-L270】
+- **Memory router** – Mounts `/registrar` under `/api/memorias`, injects the Supabase admin client with `requireAdmin`, and wires controller handlers.【F:server/domains/memory/routes.ts†L1-L18】【F:server/mw/requireAdmin.ts†L1-L28】
+- **Memory controller** – Validates the caller via `supabase.auth.getUser`, parses the request body, and orchestrates the domain service to persist data.【F:server/domains/memory/controller.ts†L78-L239】
+- **Memory service** – Normalizes payload fields, computes embeddings/tags, chooses the destination table, and delegates persistence to the repository.【F:server/domains/memory/service.ts†L62-L137】
+- **Supabase memory repository** – Uses the admin client to insert into `memories`/`referencias_temporarias`, query existing rows, and surface Supabase errors with context.【F:server/adapters/supabaseMemoryRepository.ts†L47-L205】
+- **Supabase admin client** – Lazily instantiated service-role client shared across middleware and repository calls.【F:server/lib/supabaseAdmin.ts†L12-L62】
+- **Database** – Stores the memory row and returns the persisted representation through Supabase SQL endpoints.
 
 ## High-level sequence
 
@@ -21,31 +19,31 @@ how the Express server, middleware stack, controller, and Supabase integrations 
 sequenceDiagram
     participant Client
     participant Express as Express App
-    participant CORS as CORS/Body Parsers
-    participant Guest as Guest Identity & Rate Limit
-    participant Session as Guest Session & Logger
-    participant Router as Memory Router
+    participant Middleware as CORS + Guest Stack
+    participant Router as /api/memorias Router
     participant AdminMW as requireAdmin
-    participant Controller as registrarMemoriaHandler
+    participant Controller as MemoryController
+    participant Service as MemoryService
+    participant Repo as SupabaseMemoryRepository
     participant AdminSB as Supabase Admin Client
-    participant UserSB as Supabase Bearer Client
     participant Database as Supabase DB
 
     Client->>Express: POST /api/memorias/registrar (JSON + Bearer JWT)
-    Express->>CORS: Run CORS + OPTIONS short-circuit
-    CORS->>Guest: Parse body, resolve guest identity, rate limit
-    Guest->>Session: Attach guest session, log request, normalize query
-    Session->>Router: Route under /api/memorias
-    Router->>AdminMW: requireAdmin obtains admin Supabase client
-    AdminMW->>Controller: registrarMemoriaHandler(req, res)
+    Express->>Middleware: CORS, parsers, guest identity, rate limit
+    Middleware->>Router: Session logging + query normalization
+    Router->>AdminMW: Inject admin Supabase client
+    AdminMW->>Controller: registerMemory(req, res)
     Controller->>AdminSB: auth.getUser(jwt)
     AdminSB-->>Controller: Authenticated user id
-    Controller->>UserSB: supabaseWithBearer(jwt)
-    Controller->>UserSB: rpc("registrar_memoria", payload)
-    UserSB->>Database: Execute stored procedure
-    Database-->>UserSB: Persisted row (with flags/derived fields)
-    UserSB-->>Controller: RPC result
-    Controller-->>Client: HTTP 200 + JSON body
+    Controller->>Service: registerMemory(userId, payload)
+    Service->>Repo: save(table, normalized payload)
+    Repo->>AdminSB: from(table).insert(...).single()
+    AdminSB->>Database: Persist row
+    Database-->>AdminSB: Stored record
+    AdminSB-->>Repo: Insert result
+    Repo-->>Service: Memory row
+    Service-->>Controller: table + data
+    Controller-->>Client: 201 Created + JSON body
 ```
 
 ## Middleware pipeline overview
@@ -62,40 +60,34 @@ flowchart TD
     H --> I[/api router switch]
     I --> J[memoryRoutes /registrar]
     J --> K[requireAdmin middleware]
-    K --> L[registrarMemoriaHandler]
-    L --> M[supabase.auth.getUser(token)]
-    M --> N[supabaseWithBearer(token)]
-    N --> O[RPC registrar_memoria]
+    K --> L[MemoryController.registerMemory]
+    L --> M[MemoryService.registerMemory]
+    M --> N[SupabaseMemoryRepository.save]
+    N --> O[Supabase admin client insert]
     O --> P[Supabase database persistence]
-    P --> Q[Controller formats response]
+    P --> Q[Controller returns payload]
     Q --> R[HTTP response to client]
 ```
 
 ## Detailed flow description
 
-1. **Client request.** A front end issues a `POST /api/memorias/registrar` request containing the memory payload and a `Bearer`
-   token in the `Authorization` header.
-2. **Express entry.** `createApp()` receives the request and immediately runs the CORS middleware, which can terminate OPTIONS
-   preflight requests and applies the configured CORS headers.
-3. **Body parsing.** Express JSON and URL-encoded parsers deserialize the request body (skipped for OPTIONS requests).
-4. **Guest identity and rate limiting.** `ensureGuestIdentity` ensures every call carries a guest identifier, followed by a
-   token/IP-based rate limiter that throttles abusive usage while skipping excluded paths.
-5. **Session enrichment and logging.** The guest session middleware loads session metadata, `requestLogger` records request
-   diagnostics, and `normalizeQuery` coerces query parameters into normalized shapes.
-6. **Router dispatch.** After shared middleware, Express forwards the request to the `/api/memorias` router that defines
-   memory-related endpoints.
-7. **Admin client injection.** `requireAdmin` ensures Supabase admin credentials exist, attaching the service-role client to the
-   request and short-circuiting with a 500 error when configuration is missing.
-8. **Controller authentication.** `registrarMemoriaHandler` validates the `Authorization` header, extracts the JWT, and
-   authenticates the token via `supabase.auth.getUser` using the admin client.
-9. **Payload validation.** The controller checks required fields (e.g., numeric `intensidade`) before proceeding.
-10. **Bearer-scoped Supabase client.** With the validated JWT, `supabaseWithBearer` instantiates a Supabase client that
-    forwards the bearer token in all requests.
-11. **RPC execution.** The controller calls `rpc("registrar_memoria", ...)` with the sanitized payload, delegating domain rules
-    and persistence to the database layer.
-12. **Database persistence.** Supabase executes the `registrar_memoria` stored procedure, inserting or updating rows and
-    returning the resulting record, including derived flags such as `primeira`.
-13. **Response shaping.** The controller normalizes the RPC response, maps fields into the public memory schema, and returns an
-    HTTP 200 JSON payload indicating whether the memory was the user's first significant entry.
-14. **Error handling.** Any errors along the path result in early HTTP responses: authentication errors return 401, validation
-    issues return 400, configuration problems return 500, and uncaught errors bubble to the global error handler.
+1. **Client request.** A front end issues a `POST /api/memorias/registrar` request containing the memory payload and a `Bearer` token in the `Authorization` header.
+2. **Express entry.** `createApp()` receives the request and immediately runs the CORS middleware (including OPTIONS short-circuit), JSON/urlencoded parsers, guest identity propagation, rate limiting, guest session enrichment, logging, and query normalization before handing control to the router tree.【F:server/core/http/app.ts†L105-L198】
+3. **Router dispatch.** The `/api/memorias` router attaches `requireAdmin`, guaranteeing that Supabase configuration exists before the controller executes; misconfiguration yields a 500 response with diagnostic details.【F:server/domains/memory/routes.ts†L5-L16】【F:server/mw/requireAdmin.ts†L13-L27】
+4. **Controller authentication.** `MemoryController.registerMemory` extracts the bearer token, calls `supabase.auth.getUser`, and rejects unauthenticated requests with HTTP 401.【F:server/domains/memory/controller.ts†L95-L177】
+5. **Domain preparation.** The controller forwards the validated user id and request body to `MemoryService.registerMemory`, which clamps intensity, derives auto-tags/embeddings, computes the Eco summary, decides between `memories` and `referencias_temporarias`, and builds the insert payload.【F:server/domains/memory/service.ts†L62-L123】
+6. **Persistence.** `MemoryService` invokes the `SupabaseMemoryRepository.save` method, which performs an `insert(...).select().single()` call via the admin client and bubbles structured Supabase errors when present.【F:server/domains/memory/service.ts†L121-L124】【F:server/adapters/supabaseMemoryRepository.ts†L47-L133】
+7. **Database write.** Supabase persists the row and returns the inserted record, which flows back through the repository and service to the controller. The controller returns `201 Created` with the table name and stored data.【F:server/adapters/supabaseMemoryRepository.ts†L47-L67】【F:server/domains/memory/controller.ts†L151-L170】
+8. **Error handling.** Any Supabase configuration issue, auth failure, validation error, or repository exception results in early responses (500/401/400) or logs for operational visibility.【F:server/mw/requireAdmin.ts†L13-L27】【F:server/domains/memory/controller.ts†L145-L176】【F:server/adapters/supabaseMemoryRepository.ts†L108-L187】
+
+## Supabase data shaping
+
+Before the insert is executed, the service normalizes tags, derives embeddings, and composes the Eco summary string written into the database. This step centralizes domain-specific transformations so that controllers remain thin:
+
+- `normalizeTags` accepts either string or array input and ensures an array of trimmed tags.【F:server/domains/memory/service.ts†L34-L41】
+- Tags are auto-generated via `gerarTagsAutomaticasViaIA` if the caller omits them, and embeddings are produced/normalized with `embedTextoCompleto` and `unitNorm` for both semantic and emotional vectors.【F:server/domains/memory/service.ts†L71-L119】
+- The resulting payload mirrors the Supabase table schema and keeps nullability consistent for optional fields (e.g., `mensagem_id`, `analise_resumo`).【F:server/domains/memory/service.ts†L97-L119】
+
+## Repository read path (overview)
+
+While this document focuses on the write flow, the same repository exposes a `list` method that selects curated columns, applies tag filters, and normalizes heterogeneous Supabase payload types (string vs. array intensity/tags) before returning rows to the controller. That ensures the API consistently delivers typed objects regardless of how data is stored or retrieved.【F:server/adapters/supabaseMemoryRepository.ts†L69-L205】【F:server/domains/memory/service.ts†L126-L136】【F:server/domains/memory/controller.ts†L179-L239】
