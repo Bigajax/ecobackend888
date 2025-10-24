@@ -138,6 +138,10 @@ export function createApp(): Express {
 
   // 6) Healthchecks e debug
   app.get("/", (_req, res) => res.status(200).send("OK"));
+  app.get("/health", (_req, res) => {
+    res.type("text/plain; charset=utf-8");
+    res.status(200).send("ok");
+  });
   app.get("/healthz", (_req, res) =>
     res.status(200).json({ status: "ok", timestamp: new Date().toISOString() })
   );

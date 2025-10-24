@@ -314,7 +314,7 @@ router.post("/ask-eco", async (req: GuestAwareRequest, res: Response) => {
         streamSession.aggregatedText = cacheText;
         streamSession.chunkReceived = true;
         streamSession.lastChunkIndex = 0;
-        streamSession.dispatchEvent({ index: 0, text: cacheText });
+        streamSession.dispatchEvent({ type: "message", index: 0, text: cacheText });
       } else {
         streamSession.aggregatedText = "";
         streamSession.chunkReceived = false;
@@ -322,7 +322,7 @@ router.post("/ask-eco", async (req: GuestAwareRequest, res: Response) => {
       }
       const doneAt = now();
       streamSession.emitLatency("ttlc", doneAt, timings);
-      streamSession.dispatchEvent({ done: true });
+      streamSession.dispatchEvent({ type: "done" });
       streamSession.end();
       return;
     }
@@ -358,7 +358,7 @@ router.post("/ask-eco", async (req: GuestAwareRequest, res: Response) => {
       streamSession.chunkReceived = true;
       streamSession.lastChunkIndex = segment.index;
       aggregatedSegments.push(segment.text);
-      streamSession.dispatchEvent(segment);
+      streamSession.dispatchEvent({ type: "message", index: segment.index, text: segment.text });
     }
 
     const simulatedRaw = aggregatedSegments.join(" ");
@@ -370,18 +370,18 @@ router.post("/ask-eco", async (req: GuestAwareRequest, res: Response) => {
     };
     streamSession.cacheCandidateMeta = simulatedMeta;
     streamSession.cacheCandidateTimings = streamSession.latestTimings;
-    streamSession.dispatchEvent({ done: true });
+    streamSession.dispatchEvent({ type: "done" });
     streamSession.clearTimeoutGuard();
     streamSession.end();
 
     if (!streamSession.respondAsStream) {
       const events = Array.isArray(streamSession.offlineEvents)
-        ? (streamSession.offlineEvents as Array<Record<string, unknown>>)
+        ? streamSession.offlineEvents
         : [];
-      const doneEvent = [...events].reverse().find((entry) => entry && entry.done === true);
+      const doneEvent = [...events].reverse().find((entry) => entry.type === "done");
 
-      if (doneEvent && typeof doneEvent === "object") {
-        res.status(200).json(doneEvent);
+      if (doneEvent) {
+        res.status(200).json({ done: true });
         return;
       }
 
@@ -422,10 +422,16 @@ router.post("/ask-eco", async (req: GuestAwareRequest, res: Response) => {
     const message = err?.message || "Erro interno ao processar a requisição.";
     if ((res as any).headersSent) {
       try {
-        (res as any).write?.(`data: ${JSON.stringify({ type: "error", message })}\n\n`);
-        (res as any).write?.(
-          `data: ${JSON.stringify({ type: "done", meta: { fallback: true, reason: "error" } })}\n\n`
-        );
+        const anyRes = res as any;
+        const nextId = typeof anyRes.__sseNextId === "number" ? anyRes.__sseNextId : 0;
+        const errorFrame =
+          `id: ${nextId}\n` + `event: error\n` + `data: ${JSON.stringify({ error: message })}\n\n`;
+        anyRes.__sseNextId = nextId + 1;
+        const doneFrame =
+          `id: ${anyRes.__sseNextId}\n` + `event: done\n` + `data: {"done":true}\n\n`;
+        anyRes.__sseNextId += 1;
+        anyRes.write?.(errorFrame);
+        anyRes.write?.(doneFrame);
       } catch {}
       try {
         (res as any).end?.();
