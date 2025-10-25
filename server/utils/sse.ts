@@ -76,6 +76,7 @@ export interface SSEConnection {
   send: (event: string, data: unknown) => number | void;
   sendControl: (name: SseControlName, payload?: Record<string, unknown>) => number | void;
   sendComment: (comment: string) => void;
+  write: (data: unknown) => number | void;
   end: () => void;
 }
 
@@ -105,6 +106,8 @@ export function createSSE(
     if (typeof heartbeatMs === "number") return heartbeatMs;
     return 25000;
   })();
+
+  const HEARTBEAT_INTERVAL_MS = 15000;
 
   res.status(200);
 
@@ -140,7 +143,7 @@ export function createSSE(
 
   const clearHeartbeat = () => {
     if (heartbeatRef) {
-      clearTimeout(heartbeatRef);
+      clearInterval(heartbeatRef as NodeJS.Timeout);
       heartbeatRef = null;
     }
   };
@@ -210,15 +213,16 @@ export function createSSE(
       return;
     }
     clearHeartbeat();
-    heartbeatRef = setTimeout(() => {
-      heartbeatRef = null;
-      const timestamp = new Date().toISOString();
-      if (!write(`event: ping\ndata: ${timestamp}\n\n`)) {
+    heartbeatRef = setInterval(() => {
+      if (ended) {
+        clearHeartbeat();
+        return;
+      }
+      if (!write(`:ping\n\n`)) {
         return;
       }
       scheduleIdle();
-      scheduleHeartbeat();
-    }, resolvedPingMs);
+    }, HEARTBEAT_INTERVAL_MS) as TimeoutRef;
   };
 
   const send = (event: string, data: unknown): number | void => {
@@ -246,6 +250,19 @@ export function createSSE(
       return;
     }
     scheduleIdle();
+  };
+
+  const writeData = (data: unknown): number | void => {
+    if (ended) return;
+    const payload = typeof data === "string" ? data : JSON.stringify(data);
+    const chunk = `data: ${payload}\n\n`;
+    const ok = write(chunk);
+    if (!ok) {
+      return;
+    }
+    scheduleHeartbeat();
+    scheduleIdle();
+    return Buffer.byteLength(chunk);
   };
 
   if (resolvedPingMs > 0) {
@@ -276,6 +293,7 @@ export function createSSE(
     send,
     sendControl,
     sendComment,
+    write: writeData,
     end,
   };
 }

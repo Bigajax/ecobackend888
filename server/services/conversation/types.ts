@@ -44,8 +44,16 @@ export type EcoStreamEvent =
   | { type: "chunk"; delta: string; index: number; content?: string }
   | { type: "error"; error: Error };
 
+export interface EcoStreamChunkPayload {
+  index?: number;
+  text?: string;
+  done?: boolean;
+  meta?: Record<string, unknown>;
+}
+
 export interface EcoStreamHandler {
   onEvent: (event: EcoStreamEvent) => void | Promise<void>;
+  onChunk?: (payload: EcoStreamChunkPayload) => void | Promise<void>;
 }
 
 export interface EcoStreamingResult {
