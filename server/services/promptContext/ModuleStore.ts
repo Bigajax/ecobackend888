@@ -53,6 +53,27 @@ async function filterExistingDirs(paths: string[]): Promise<string[]> {
   return out;
 }
 
+async function firstExisting(paths: string[]): Promise<string | null> {
+  for (const candidate of paths) {
+    try {
+      const st = await fs.stat(candidate);
+      if (st.isDirectory()) return candidate;
+    } catch {
+      // ignore
+    }
+  }
+  return null;
+}
+
+async function directoryExists(dir: string): Promise<boolean> {
+  try {
+    const st = await fs.stat(dir);
+    return st.isDirectory();
+  } catch {
+    return false;
+  }
+}
+
 /** Tenta resolver roots a partir da env ou de candidatos padrão. */
 async function resolveDefaultRoots(): Promise<string[]> {
   // 1) Via env CSV (prioridade)
@@ -72,18 +93,53 @@ async function resolveDefaultRoots(): Promise<string[]> {
 
   // 2) Candidatos padrão (produção e dev)
   // __dirname = dist/services/promptContext (neste módulo)
-  const candidates = [
-    path.resolve(__dirname, "../assets"),        // dist/services/assets
-    path.resolve(__dirname, "../../assets"),     // dist/assets
-    path.resolve(process.cwd(), "dist/assets"),  // dist/assets (fallback)
-    path.resolve(process.cwd(), "assets"),       // assets (dev)
-  ];
+  const runningFromDist = __dirname.split(path.sep).includes("dist");
 
-  const existing = await filterExistingDirs(candidates);
-  if (existing.length && isDebug()) {
-    log.debug("[ModuleStore] Using default roots", { roots: existing });
+  const distCandidates = [
+    path.resolve(process.cwd(), "dist/assets"),
+    path.resolve(process.cwd(), "server/dist/assets"),
+  ];
+  if (runningFromDist) {
+    distCandidates.push(path.resolve(__dirname, "../assets"));
+    distCandidates.push(path.resolve(__dirname, "../../assets"));
   }
-  return existing;
+
+  const workspaceCandidates = [
+    path.resolve(process.cwd(), "server/assets"),
+  ];
+  if (!runningFromDist) {
+    workspaceCandidates.push(path.resolve(__dirname, "../assets"));
+    workspaceCandidates.push(path.resolve(__dirname, "../../assets"));
+  }
+
+  const distRoot = await firstExisting(distCandidates);
+  const workspaceRoot = await firstExisting(workspaceCandidates);
+
+  if (await directoryExists(path.resolve(process.cwd(), "assets"))) {
+    log.warn("[ModuleStore] legacy_assets_detected", {
+      legacyRoot: path.resolve(process.cwd(), "assets"),
+    });
+  }
+
+  if (distRoot && workspaceRoot) {
+    log.warn("[ModuleStore] multiple_asset_roots", {
+      using: distRoot,
+      ignored: workspaceRoot,
+    });
+  }
+
+  if (distRoot) {
+    if (isDebug()) log.debug("[ModuleStore] Using packaged assets", { root: distRoot });
+    return [distRoot];
+  }
+
+  if (workspaceRoot) {
+    if (isDebug()) log.debug("[ModuleStore] Using workspace assets", { root: workspaceRoot });
+    return [workspaceRoot];
+  }
+
+  if (isDebug()) log.debug("[ModuleStore] No asset roots resolved", { distCandidates, workspaceCandidates });
+  return [];
 }
 
 /** ----------------------------- Classe ----------------------------- */

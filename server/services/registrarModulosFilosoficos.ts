@@ -6,7 +6,7 @@ import { embedTextoCompleto } from "../adapters/embeddingService";
 import { clearResponseCache } from "./CacheService";
 
 // Caminho correto da pasta
-const pastaModulos = path.join(process.cwd(), "assets/modulos_filosoficos");
+const pastaModulos = path.join(__dirname, "../assets/modulos_filosoficos");
 
 // Normaliza retorno do embedding (pode vir array ou JSON string)
 function toNumberArray(v: unknown): number[] {

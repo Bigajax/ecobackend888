@@ -11,6 +11,12 @@
     "typeRoots": ["./types", "./node_modules/@types"],
     "types": ["node", "jest"]
   },
-  "include": ["types/**/*.d.ts", "server/**/*.ts", "src/**/*.ts", "tests/**/*.ts"],
+  "include": [
+    "types/**/*.d.ts",
+    "server/**/*.ts",
+    "server/assets/config/**/*.ts",
+    "src/**/*.ts",
+    "tests/**/*.ts"
+  ],
   "exclude": ["server/tests/**/*.ts", "tests/**/*.ts"]
 }
