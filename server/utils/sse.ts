@@ -45,31 +45,37 @@ export function prepareSseHeaders(
     allowCredentials ? "true" : "false"
   );
   res.removeHeader("Content-Length");
+  res.removeHeader("Content-Encoding");
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache, no-transform");
   res.setHeader("Connection", "keep-alive");
   res.setHeader("X-Accel-Buffering", "no");
   res.setHeader("Transfer-Encoding", "chunked");
+  res.setHeader("X-No-Compression", "1");
+  res.setHeader("Content-Encoding", "identity");
 
   if (flush) {
     (res as any).flushHeaders?.();
   }
 }
 
-export type IntervalRef = ReturnType<typeof setInterval>;
 export type TimeoutRef = ReturnType<typeof setTimeout>;
 
 export interface CreateSSEOptions {
   heartbeatMs?: number;
+  pingIntervalMs?: number;
   idleMs?: number;
   onIdle?: () => void;
+  onConnectionClose?: (info: { source: string; error?: unknown }) => void;
+  commentOnOpen?: string | null;
 }
 
-export type SseControlName = "prompt_ready" | "done";
+export type SseControlName = "prompt_ready" | "done" | "guard_fallback_trigger";
 
 export interface SSEConnection {
-  send: (event: string, data: unknown) => void;
-  sendControl: (name: SseControlName, payload?: Record<string, unknown>) => void;
+  send: (event: string, data: unknown) => number | void;
+  sendControl: (name: SseControlName, payload?: Record<string, unknown>) => number | void;
+  sendComment: (comment: string) => void;
   end: () => void;
 }
 
@@ -85,7 +91,20 @@ export function createSSE(
   req: Request,
   opts: CreateSSEOptions = {}
 ): SSEConnection {
-  const { heartbeatMs = 25000, idleMs, onIdle } = opts;
+  const {
+    heartbeatMs,
+    pingIntervalMs,
+    idleMs,
+    onIdle,
+    onConnectionClose,
+    commentOnOpen = "ok",
+  } = opts;
+
+  const resolvedPingMs = (() => {
+    if (typeof pingIntervalMs === "number") return pingIntervalMs;
+    if (typeof heartbeatMs === "number") return heartbeatMs;
+    return 25000;
+  })();
 
   res.status(200);
 
@@ -107,6 +126,11 @@ export function createSSE(
   if (res.hasHeader("Content-Length")) {
     res.removeHeader("Content-Length");
   }
+  if (res.hasHeader("Content-Encoding")) {
+    res.removeHeader("Content-Encoding");
+  }
+  res.setHeader("Content-Encoding", "identity");
+  res.setHeader("X-No-Compression", "1");
 
   (res as any).flushHeaders?.();
 
@@ -144,7 +168,8 @@ export function createSSE(
   };
 
   const scheduleIdle = () => {
-    if (!idleMs || idleMs <= 0) {
+    if (ended || !idleMs || idleMs <= 0) {
+      clearIdle();
       return;
     }
     clearIdle();
@@ -163,58 +188,94 @@ export function createSSE(
     }, idleMs);
   };
 
-  const write = (chunk: string) => {
-    if (ended) return;
+  const write = (chunk: string): boolean => {
+    if (ended) return false;
     if (!isWritable(res)) {
       end();
-      return;
+      return false;
     }
     try {
       res.write(chunk);
       (res as any).flush?.();
-    } catch {
-      end();
+      return true;
+    } catch (error) {
+      handleClose("res.write", error);
+      return false;
     }
   };
 
   const scheduleHeartbeat = () => {
-    if (ended || heartbeatMs <= 0) {
+    if (ended || resolvedPingMs <= 0) {
       clearHeartbeat();
       return;
     }
     clearHeartbeat();
     heartbeatRef = setTimeout(() => {
       heartbeatRef = null;
-      write(`:\n\n`);
+      const timestamp = new Date().toISOString();
+      if (!write(`event: ping\ndata: ${timestamp}\n\n`)) {
+        return;
+      }
+      scheduleIdle();
       scheduleHeartbeat();
-    }, heartbeatMs);
+    }, resolvedPingMs);
   };
 
-  const send = (event: string, data: unknown) => {
+  const send = (event: string, data: unknown): number | void => {
     if (ended) return;
     const payload = typeof data === "string" ? data : JSON.stringify(data);
-    write(`event: ${event}\ndata: ${payload}\n\n`);
+    const chunk = `event: ${event}\ndata: ${payload}\n\n`;
+    const ok = write(chunk);
+    if (!ok) {
+      return;
+    }
     scheduleHeartbeat();
     scheduleIdle();
+    return Buffer.byteLength(chunk);
   };
 
   const sendControl = (name: SseControlName, payload?: Record<string, unknown>) => {
     const data = payload && typeof payload === "object" ? { name, ...payload } : { name };
-    send("control", data);
+    return send("control", data);
   };
 
-  if (heartbeatMs > 0) {
+  const sendComment = (comment: string) => {
+    if (ended) return;
+    const ok = write(`:${comment}\n\n`);
+    if (!ok) {
+      return;
+    }
+    scheduleIdle();
+  };
+
+  if (resolvedPingMs > 0) {
     scheduleHeartbeat();
   }
 
   scheduleIdle();
 
-  req.on("close", end);
-  req.on("aborted", end);
+  if (commentOnOpen) {
+    sendComment(commentOnOpen);
+  }
+
+  const handleClose = (source: string, error?: unknown) => {
+    if (!ended) {
+      onConnectionClose?.({ source, error });
+      end();
+      return;
+    }
+    onConnectionClose?.({ source, error });
+  };
+
+  req.on("close", () => handleClose("req.close"));
+  req.on("aborted", () => handleClose("req.aborted"));
+  (res as any).on?.("close", () => handleClose("res.close"));
+  (res as any).on?.("error", (error: unknown) => handleClose("res.error", error));
 
   return {
     send,
     sendControl,
+    sendComment,
     end,
   };
 }

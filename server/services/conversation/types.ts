@@ -11,9 +11,10 @@ export interface EcoLatencyMarks {
 export type EcoStreamEvent =
   | {
       type: "control";
-      name: "prompt_ready" | "first_token" | "reconnect";
+      name: "prompt_ready" | "first_token" | "reconnect" | "guard_fallback_trigger";
       attempt?: number;
       timings?: EcoLatencyMarks;
+      meta?: Record<string, unknown>;
     }
   | {
       type: "control";

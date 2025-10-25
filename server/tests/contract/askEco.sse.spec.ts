@@ -127,11 +127,23 @@ function parseSse(raw: string) {
     .map((block) => {
       const lines = block.split("\n");
       const eventLine = lines.find((line) => line.startsWith("event:"));
+      if (!eventLine) {
+        return null;
+      }
       const dataLines = lines.filter((line) => line.startsWith("data:"));
-      const eventName = eventLine ? eventLine.replace(/^event:\s*/, "").trim() : "message";
-      const data = dataLines.map((line) => line.replace(/^data:\s*/, "")).join("\n");
+      const eventName = eventLine.replace(/^event:\s*/, "").trim();
+      const payload = dataLines.map((line) => line.replace(/^data:\s*/, "")).join("\n");
+      let data: unknown = null;
+      if (payload) {
+        try {
+          data = JSON.parse(payload);
+        } catch {
+          data = payload;
+        }
+      }
       return { event: eventName, data };
-    });
+    })
+    .filter((entry): entry is { event: string; data: unknown } => entry !== null && entry.event !== "ping");
 }
 
 jest.mock("../../utils/sse", () => {
@@ -141,7 +153,7 @@ jest.mock("../../utils/sse", () => {
   return {
     __esModule: true,
     ...actual,
-    createSSE: (res: any, _req: any) => {
+    createSSE: (res: any, _req: any, opts: any = {}) => {
       const recordEvent = (event: string, data: unknown) => {
         const payload = typeof data === "string" ? data : JSON.stringify(data);
         events.push({ event, data: payload });
@@ -149,13 +161,23 @@ jest.mock("../../utils/sse", () => {
         res.write(`data: ${payload}\n\n`);
       };
 
+      if (typeof opts?.commentOnOpen === "string") {
+        res.write(`:${opts.commentOnOpen}\n\n`);
+      }
+
       return {
         send: (event: string, data: unknown) => recordEvent(event, data),
         sendControl: (
-          name: "prompt_ready" | "done",
+          name: "prompt_ready" | "done" | "guard_fallback_trigger",
           payload?: Record<string, unknown>,
         ) => recordEvent("control", { name, ...(payload ?? {}) }),
+        sendComment: (comment: string) => {
+          res.write(`:${comment}\n\n`);
+        },
         end: () => {
+          if (typeof opts?.onConnectionClose === "function") {
+            opts.onConnectionClose({ source: "mock.end" });
+          }
           if (!res.writableEnded) {
             res.end();
           }
@@ -270,32 +292,42 @@ describe("/api/ask-eco SSE contract", () => {
 
     const controlEvents = events.filter((evt) => evt.event === "control");
     const chunkEvents = events.filter((evt) => evt.event === "chunk");
-      const otherEvents = events.filter((evt) => !["control", "chunk", "done"].includes(evt.event));
+    const otherEvents = events.filter((evt) => !["control", "chunk", "done", "ping"].includes(evt.event));
 
-      expect(otherEvents).toHaveLength(0);
-    expect(controlEvents[0]).toEqual({
+    expect(otherEvents).toHaveLength(0);
+    expect(controlEvents[0]).toMatchObject({
       event: "control",
-      data: '{"name":"prompt_ready","interaction_id":"interaction-123"}',
+      data: expect.objectContaining({
+        name: "prompt_ready",
+        interaction_id: "interaction-123",
+      }),
     });
-      expect(controlEvents[controlEvents.length - 1]).toEqual({
-        event: "control",
-        data: '{"name":"done"}',
-      });
-      expect(events[events.length - 1]).toEqual({ event: "done", data: '{"done":true}' });
+    expect(typeof (controlEvents[0].data as any).sinceStartMs).toBe("number");
+    expect(controlEvents[controlEvents.length - 1]).toMatchObject({
+      event: "control",
+      data: expect.objectContaining({ name: "done", finishReason: "stop" }),
+    });
+    expect(events[events.length - 1]).toMatchObject({
+      event: "done",
+      data: expect.objectContaining({ done: true }),
+    });
     expect(chunkEvents).toHaveLength(2);
-    const parsedChunks = chunkEvents.map((evt) => JSON.parse(evt.data));
-      expect(parsedChunks[0]).toEqual({ index: 0, text: "Olá" });
-      expect(parsedChunks[1]).toEqual({ index: 1, text: "mundo" });
+    expect(chunkEvents[0].data).toEqual({ index: 0, text: "Olá" });
+    expect(chunkEvents[1].data).toEqual({ index: 1, text: "mundo" });
 
-      expect(capturedSseEvents.every((evt) => ["control", "chunk", "done"].includes(evt.event))).toBe(true);
+    expect(capturedSseEvents.every((evt) => ["control", "chunk", "done"].includes(evt.event))).toBe(true);
     expect(capturedSseEvents[0]).toEqual({
       event: "control",
       data: JSON.stringify({ name: "prompt_ready", interaction_id: "interaction-123" }),
     });
-      expect(capturedSseEvents[capturedSseEvents.length - 1]).toEqual({
-        event: "done",
-        data: JSON.stringify({ done: true }),
-      });
+    const capturedControlDone = capturedSseEvents.filter((evt) => evt.event === "control").at(-1);
+    expect(capturedControlDone).toEqual({
+      event: "control",
+      data: JSON.stringify({ name: "done", finishReason: "stop" }),
+    });
+    const finalCaptured = capturedSseEvents[capturedSseEvents.length - 1];
+    expect(finalCaptured.event).toBe("done");
+    expect(JSON.parse(finalCaptured.data).done).toBe(true);
   });
 
   it("returns the done payload when stream=false", async () => {
