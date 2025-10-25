@@ -3,6 +3,9 @@ import fs from "fs";
 import { ModuleCatalog } from "../domains/prompts/ModuleCatalog";
 import { log } from "../services/promptContext/logger";
 
+let bootPromise: Promise<void> | null = null;
+let booted = false;
+
 function resolveFirstExisting(candidates: string[]): string | null {
   for (const candidate of candidates) {
     const resolved = path.resolve(candidate);
@@ -35,7 +38,7 @@ function uniqueRoots(entries: Array<string | null | undefined>): string[] {
  * - Suporta override por env ECO_MODULES_DIR (lista separada por vírgula).
  * - Procura em prod: dist/assets (pacote) e em dev: server/assets (workspace).
  */
-export async function configureModuleStore() {
+async function runConfigureModuleStore() {
   const cwd = process.cwd();
 
   const envRoots = (process.env.ECO_MODULES_DIR || "")
@@ -126,6 +129,24 @@ export async function configureModuleStore() {
       roots,
     });
   }
+  booted = true;
+}
+
+export async function configureModuleStore() {
+  if (booted) {
+    return;
+  }
+  if (!bootPromise) {
+    bootPromise = runConfigureModuleStore()
+      .catch((error) => {
+        booted = false;
+        throw error;
+      })
+      .finally(() => {
+        bootPromise = null;
+      });
+  }
+  return bootPromise;
 }
 
 /** Alias conveniente */
