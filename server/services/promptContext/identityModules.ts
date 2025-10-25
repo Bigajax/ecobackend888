@@ -17,20 +17,32 @@ const DEFAULT_REQUIRED_PROMPTS = [
   `${PROMPT_SUBPATH}/POLICY_MEMORIA.txt`,
 ];
 
+const RUNNING_FROM_DIST = __dirname.split(path.sep).includes("dist");
+
 const PROMPT_DIR_CANDIDATES = dedupePaths([
   path.resolve(process.cwd(), "dist/assets", PROMPT_SUBPATH),
-  path.resolve(__dirname, "../../assets", PROMPT_SUBPATH),
-  path.resolve(__dirname, "../assets", PROMPT_SUBPATH),
-  path.resolve(process.cwd(), "server/assets", PROMPT_SUBPATH),
-  path.resolve(process.cwd(), "assets", PROMPT_SUBPATH),
+  path.resolve(process.cwd(), "server/dist/assets", PROMPT_SUBPATH),
+  ...(RUNNING_FROM_DIST ? [path.resolve(__dirname, "../../assets", PROMPT_SUBPATH)] : []),
+  ...(!RUNNING_FROM_DIST
+    ? [
+        path.resolve(__dirname, "../assets", PROMPT_SUBPATH),
+        path.resolve(__dirname, "../../assets", PROMPT_SUBPATH),
+        path.resolve(process.cwd(), "server/assets", PROMPT_SUBPATH),
+      ]
+    : []),
 ]);
 
 const MANIFEST_CANDIDATES = dedupePaths([
   path.resolve(process.cwd(), "dist/assets", "MANIFEST.json"),
-  path.resolve(__dirname, "../../assets", "MANIFEST.json"),
-  path.resolve(__dirname, "../assets", "MANIFEST.json"),
-  path.resolve(process.cwd(), "server/assets", "MANIFEST.json"),
-  path.resolve(process.cwd(), "assets", "MANIFEST.json"),
+  path.resolve(process.cwd(), "server/dist/assets", "MANIFEST.json"),
+  ...(RUNNING_FROM_DIST ? [path.resolve(__dirname, "../../assets", "MANIFEST.json")] : []),
+  ...(!RUNNING_FROM_DIST
+    ? [
+        path.resolve(__dirname, "../assets", "MANIFEST.json"),
+        path.resolve(__dirname, "../../assets", "MANIFEST.json"),
+        path.resolve(process.cwd(), "server/assets", "MANIFEST.json"),
+      ]
+    : []),
 ]);
 
 type PromptStatus =

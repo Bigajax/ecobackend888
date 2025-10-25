@@ -257,10 +257,10 @@ class ModuleManifestRegistry {
     const cwd = process.cwd();
     const candidates: Array<string | undefined> = [
       override,
-      path.resolve(__dirname, "../assets/modules.manifest.json"),
-      path.resolve(__dirname, "../../assets/modules.manifest.json"),
-      path.resolve(cwd, "server/assets/modules.manifest.json"),
       path.resolve(cwd, "dist/assets/modules.manifest.json"),
+      path.resolve(cwd, "server/dist/assets/modules.manifest.json"),
+      path.resolve(__dirname, "../assets/modules.manifest.json"),
+      path.resolve(cwd, "server/assets/modules.manifest.json"),
     ];
     const normalized = candidates.filter((candidate): candidate is string => Boolean(candidate));
     return Array.from(new Set(normalized));

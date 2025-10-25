@@ -33,7 +33,7 @@ function uniqueRoots(entries: Array<string | null | undefined>): string[] {
 /**
  * Define as roots de módulos (txt/md) e constrói o índice.
  * - Suporta override por env ECO_MODULES_DIR (lista separada por vírgula).
- * - Procura em prod: dist/assets (pacote) e em dev: assets/ (workspace).
+ * - Procura em prod: dist/assets (pacote) e em dev: server/assets (workspace).
  */
 export async function configureModuleStore() {
   const cwd = process.cwd();
@@ -50,20 +50,33 @@ export async function configureModuleStore() {
     path.join(cwd, "dist", "assets"),
     path.join(cwd, "server", "dist", "assets"),
     path.resolve(__dirname, "../assets"),
-    path.resolve(__dirname, "../dist", "assets"),
     path.resolve(__dirname, "../../dist", "assets"),
   ]);
 
   const workspaceRoot = resolveFirstExisting([
-    path.join(cwd, "assets"),
     path.join(cwd, "server", "assets"),
-    path.resolve(__dirname, "../../assets"),
-    path.resolve(__dirname, "../..", "assets"),
+    path.resolve(__dirname, "../assets"),
   ]);
+
+  const legacyRoot = resolveFirstExisting([
+    path.join(cwd, "assets"),
+    path.resolve(__dirname, "../../assets"),
+  ]);
+
+  if (legacyRoot) {
+    log.warn("[ModuleStore.bootstrap] legacy_assets_detected", { legacyRoot });
+  }
+
+  if (packagedRoot && workspaceRoot) {
+    log.warn("[ModuleStore.bootstrap] multiple_asset_roots", {
+      using: packagedRoot,
+      ignored: workspaceRoot,
+    });
+  }
 
   const roots = envRoots.length
     ? uniqueRoots(envRoots)
-    : uniqueRoots([packagedRoot, workspaceRoot]);
+    : uniqueRoots(packagedRoot ? [packagedRoot] : workspaceRoot ? [workspaceRoot] : []);
 
   ModuleCatalog.configure(roots);
   await ModuleCatalog.buildFileIndexOnce();

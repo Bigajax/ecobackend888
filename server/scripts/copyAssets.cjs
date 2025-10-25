@@ -21,6 +21,11 @@ async function main() {
   const sourceDir = path.join(projectRoot, "assets");
   const targetDir = path.join(projectRoot, "dist", "assets");
 
+  const legacyDir = path.resolve(projectRoot, "..", "assets");
+  if (await fs.pathExists(legacyDir)) {
+    console.warn("[copy:assets] legacy_root_ignored", { legacyDir });
+  }
+
   const exists = await fs.pathExists(sourceDir);
   if (!exists) {
     console.warn("[copy:assets] source_missing", { sourceDir });
@@ -30,7 +35,11 @@ async function main() {
   try {
     await fs.ensureDir(path.dirname(targetDir));
     await fs.rm(targetDir, { force: true, recursive: true });
-    await fs.copy(sourceDir, targetDir, { overwrite: true, errorOnExist: false });
+    await fs.copy(sourceDir, targetDir, {
+      overwrite: true,
+      errorOnExist: false,
+      filter: (src) => !src.endsWith(".ts"),
+    });
 
     const filesCopied = await countFiles(targetDir);
     console.info("[copy:assets] completed", {

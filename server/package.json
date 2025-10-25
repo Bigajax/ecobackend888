@@ -9,8 +9,9 @@
   },
   "scripts": {
     "dev": "nodemon",
-    "build": "tsc -p tsconfig.build.json && npm run copy:assets",
+    "build": "npm run copy:assets && tsc -p tsconfig.build.json && npm run verify:assets",
     "copy:assets": "node ./scripts/copyAssets.cjs",
+    "verify:assets": "node ./scripts/verifyAssetsBuild.cjs",
     "start": "node dist/server.js"
   },
   "dependencies": {
