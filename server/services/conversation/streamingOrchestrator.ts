@@ -8,6 +8,7 @@ import {
   EcoStreamingResult,
   EcoLatencyMarks,
   EcoStreamEvent,
+  EcoStreamChunkPayload,
 } from "./types";
 import { buildStreamingMetaPayload, buildFinalizedStreamText } from "./responseMetadata";
 import { salvarMemoriaViaRPC } from "./memoryPersistence";
@@ -129,6 +130,11 @@ export async function executeStreamingLLM({
     return `${normalized.slice(0, 57)}...`;
   };
 
+  const chunkDispatcher =
+    streamHandler && typeof streamHandler.onChunk === "function"
+      ? streamHandler.onChunk.bind(streamHandler)
+      : null;
+
   const emitStream = async (event: EcoStreamEvent) => {
     const payloadForLog: Record<string, unknown> = { type: event.type };
     if (event.type === "chunk") {
@@ -143,6 +149,15 @@ export async function executeStreamingLLM({
     }
 
     log.info("[StreamingLLM] emit_event", payloadForLog);
+
+    if (event.type === "chunk" && chunkDispatcher) {
+      const payloadText =
+        typeof event.content === "string" && event.content.length
+          ? event.content
+          : event.delta;
+      await chunkDispatcher({ index: event.index, text: payloadText });
+    }
+
     await streamHandler.onEvent(event);
   };
 
@@ -155,6 +170,33 @@ export async function executeStreamingLLM({
   let streamFailure: Error | null = null;
   let ignoreStreamEvents = false;
   let fallbackResult: EcoStreamingResult | null = null;
+
+  const onChunk = async (payload: EcoStreamChunkPayload) => {
+    if (chunkDispatcher) {
+      await chunkDispatcher(payload);
+      return;
+    }
+    const text = typeof payload.text === "string" ? payload.text : "";
+    if (text) {
+      const resolvedIndex =
+        typeof payload.index === "number" && Number.isFinite(payload.index)
+          ? payload.index
+          : chunkIndex;
+      await streamHandler.onEvent({
+        type: "chunk",
+        delta: text,
+        index: resolvedIndex,
+        content: text,
+      } as EcoStreamEvent);
+    }
+    if (payload.done) {
+      await streamHandler.onEvent({
+        type: "control",
+        name: "done",
+        meta: payload.meta as any,
+      } as EcoStreamEvent);
+    }
+  };
 
   let resolveRawForBloco!: (value: string) => void;
   let rejectRawForBloco!: (reason?: unknown) => void;
@@ -319,80 +361,87 @@ export async function executeStreamingLLM({
       return fallbackResult;
     }
 
-    ignoreStreamEvents = true;
-    await emitStream({
-      type: "control",
-      name: "guard_fallback_trigger",
-      meta: {
-        from: principalModel,
-        to: "fallback_full",
-        reason: "stream_guard",
-      },
-    });
-    log.info("[StreamingLLM] guard_fallback_trigger", { guardMs: STREAM_GUARD_MS });
+    await onChunk({ index: 0, text: "Processando...", meta: { fallback: true } });
 
-    const fallbackTimings: EcoLatencyMarks = { ...timings };
+    try {
+      ignoreStreamEvents = true;
+      await emitStream({
+        type: "control",
+        name: "guard_fallback_trigger",
+        meta: {
+          from: principalModel,
+          to: "fallback_full",
+          reason: "stream_guard",
+        },
+      });
+      log.info("[StreamingLLM] guard_fallback_trigger", { guardMs: STREAM_GUARD_MS });
 
-    const fullResult = await executeFullLLM({
-      prompt,
-      maxTokens,
-      principalModel,
-      ultimaMsg,
-      basePrompt,
-      basePromptHash: resolvedPromptHash,
-      userName,
-      decision,
-      ecoDecision,
-      userId,
-      supabase,
-      lastMessageId,
-      sessionMeta,
-      timings: fallbackTimings,
-      thread,
-      isGuest,
-      guestId,
-      interactionId: analyticsInteractionId ?? undefined,
-      calHints,
-      memsSemelhantes,
-      contextFlags,
-      contextMeta,
-      continuity,
-    });
+      const fallbackTimings: EcoLatencyMarks = { ...timings };
 
-    const text = buildFinalizedStreamText(fullResult);
-    Object.assign(timings, fallbackTimings);
-    resolveRawForBloco(text);
-    streamedChunks.length = 0;
-    streamedChunks.push(text);
+      const fullResult = await executeFullLLM({
+        prompt,
+        maxTokens,
+        principalModel,
+        ultimaMsg,
+        basePrompt,
+        basePromptHash: resolvedPromptHash,
+        userName,
+        decision,
+        ecoDecision,
+        userId,
+        supabase,
+        lastMessageId,
+        sessionMeta,
+        timings: fallbackTimings,
+        thread,
+        isGuest,
+        guestId,
+        interactionId: analyticsInteractionId ?? undefined,
+        calHints,
+        memsSemelhantes,
+        contextFlags,
+        contextMeta,
+        continuity,
+      });
 
-    if (!firstTokenSent) {
-      firstTokenSent = true;
-    }
-    const currentIndex = chunkIndex;
-    chunkIndex += 1;
-    await emitStream({ type: "chunk", delta: text, index: currentIndex });
+      const text = buildFinalizedStreamText(fullResult);
+      Object.assign(timings, fallbackTimings);
+      resolveRawForBloco(text);
+      streamedChunks.length = 0;
+      streamedChunks.push(text);
 
-    const doneSnapshot = { ...fallbackTimings };
-    fallbackResult = {
-      raw: text,
-      modelo: "fallback_full",
-      usage: undefined,
-      finalize: async () => fullResult,
-      timings: doneSnapshot,
-    };
+      if (!firstTokenSent) {
+        firstTokenSent = true;
+      }
+      const currentIndex = chunkIndex;
+      chunkIndex += 1;
+      await emitStream({ type: "chunk", delta: text, index: currentIndex });
 
-    await emitStream({
-      type: "control",
-      name: "done",
-      meta: {
-        finishReason: "fallback_full",
-        length: text.length,
+      const doneSnapshot = { ...fallbackTimings };
+      fallbackResult = {
+        raw: text,
         modelo: "fallback_full",
-      },
-      timings: doneSnapshot,
-    });
+        usage: undefined,
+        finalize: async () => fullResult,
+        timings: doneSnapshot,
+      };
 
-    return fallbackResult;
+      await emitStream({
+        type: "control",
+        name: "done",
+        meta: {
+          finishReason: "fallback_full",
+          length: text.length,
+          modelo: "fallback_full",
+        },
+        timings: doneSnapshot,
+      });
+
+      return fallbackResult;
+    } catch (error) {
+      await onChunk({ done: true, meta: { error: "fallback_failed" } });
+      throw error;
+    }
   };
 
   let streamGuardTimer: NodeJS.Timeout | null = null;
