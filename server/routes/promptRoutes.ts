@@ -1373,6 +1373,9 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
       doneAt: 0,
     };
 
+    let doneSent = false;
+    let sseConnection: ReturnType<typeof createSSE> | null = null;
+
     const classifyClose = (source: string | null | undefined):
       | "client_closed"
       | "proxy_closed"
