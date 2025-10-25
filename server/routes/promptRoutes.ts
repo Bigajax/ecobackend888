@@ -91,6 +91,7 @@ function buildDonePayload(options: {
 
 const router = Router();
 const askEcoRouter = Router();
+const logger = log;
 
 function buildSummaryFromChunks(pieces: string[]): string {
   if (!Array.isArray(pieces) || pieces.length === 0) {
@@ -1586,15 +1587,24 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
     }
 
     const sse = createSSE(res, req, {
-      pingIntervalMs,
+      pingIntervalMs: 15000,
       idleMs: idleTimeoutMs,
       onIdle: handleStreamTimeout,
       onConnectionClose: handleConnectionClosed,
-      commentOnOpen: "ok",
+      commentOnOpen: "stream-started",
     });
 
     sseConnection = sse;
-    sse.write({ index: 0, text: "", meta: { status: "connected" } });
+
+    res.write(
+      "data: " +
+        JSON.stringify({ index: 0, text: "", meta: { status: "connected" } }) +
+        "\n\n"
+    );
+    if ((res as any).flush) {
+      (res as any).flush();
+    }
+    logger.info("[ask-eco] immediate_frame_sent", { timestamp: Date.now() });
 
     let interactionBootstrapPromise: Promise<void> = Promise.resolve();
 
