@@ -1018,6 +1018,9 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
     }
 
     // SSE mode
+    res.socket?.setTimeout(300000);
+    res.socket?.setKeepAlive(true, 30000);
+    prepareSseHeaders(res);
     res.status(200);
     disableCompressionForSse(res);
     const normalizedOrigin = allowedOrigin && origin ? origin : undefined;
@@ -1344,6 +1347,7 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
       endLogged: false,
       contentPieces: [] as string[],
       metaPayload: {} as Record<string, unknown>,
+      doneMeta: {} as Record<string, unknown>,
       memoryEvents: [] as Array<Record<string, unknown>>,
       usageTokens: { in: null as number | null, out: null as number | null },
       latencyMarks: {} as Record<string, unknown>,
@@ -1358,6 +1362,9 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
       serverAbortReason: null as string | null,
       doneAt: 0,
     };
+
+    let doneSent = false;
+    let sseConnection: ReturnType<typeof createSSE> | null = null;
 
     const classifyClose = (source: string | null | undefined):
       | "client_closed"
@@ -1489,6 +1496,21 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
       }
       if (!state.done && !abortSignal.aborted) {
         if (classification === "client_closed") {
+          if (!doneSent && sseConnection) {
+            const usageMeta = {
+              input_tokens: state.usageTokens.in,
+              output_tokens: state.usageTokens.out,
+            };
+            const finalMeta = {
+              ...state.doneMeta,
+              finishReason: "client_disconnect",
+              usage: usageMeta,
+            };
+            sseConnection.write({ index: state.chunksCount, done: true, meta: finalMeta });
+            state.doneMeta = finalMeta;
+            state.finishReason = state.finishReason || "client_disconnect";
+            doneSent = true;
+          }
           abortController.abort(new Error("client_closed"));
         } else if (classification === "proxy_closed") {
           abortController.abort(new Error("proxy_closed"));
@@ -1561,6 +1583,9 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
       commentOnOpen: "ok",
     });
 
+    sseConnection = sse;
+    sse.write({ index: 0, text: "", meta: { status: "connected" } });
+
     let interactionBootstrapPromise: Promise<void> = Promise.resolve();
 
     const bootstrapInteraction = async () => {
@@ -1611,6 +1636,7 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
     };
 
     let abortListener: (() => void) | null = null;
+    let heartbeat: NodeJS.Timeout | null = null;
 
     function sendMeta(obj: Record<string, unknown>) {
       state.metaPayload = { ...state.metaPayload, ...obj };
@@ -1640,6 +1666,10 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
       if (state.done) return;
       clearFirstTokenWatchdog();
       state.done = true;
+      if (heartbeat) {
+        clearInterval(heartbeat);
+        heartbeat = null;
+      }
       const nowTs = Date.now();
       if (!state.lastChunkAt) {
         state.lastChunkAt = nowTs;
@@ -1752,13 +1782,22 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
             output_tokens: state.usageTokens.out,
           };
 
-          sse.sendControl("done", { finishReason: resolvedFinishReason });
-          sse.send("done", {
-            done: true,
-            ...donePayload,
+          const baseMeta = Object.keys(state.doneMeta).length ? { ...state.doneMeta } : {};
+          const finalMeta = {
+            ...baseMeta,
+            finishReason: resolvedFinishReason,
             usage: usagePayload,
-            client_message_id: clientMessageId ?? null,
-          });
+          };
+          state.doneMeta = finalMeta;
+
+          if (!doneSent) {
+            sse.write({
+              index: state.chunksCount,
+              done: true,
+              meta: finalMeta,
+            });
+            doneSent = true;
+          }
 
           log.info("[ask-eco] stream_finalize", {
             origin: origin ?? null,
@@ -1821,6 +1860,7 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
           releaseActiveStream();
 
           sse.end();
+          sseConnection = null;
         }
       };
 
@@ -1845,9 +1885,9 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
       sendDone("idle_timeout");
     }
 
-    function sendChunk(piece: string) {
-      if (!piece || typeof piece !== "string") return;
-      const cleaned = sanitizeOutput(piece);
+    function sendChunk(input: { text: string; index?: number; meta?: Record<string, unknown> }) {
+      if (!input || typeof input.text !== "string") return;
+      const cleaned = sanitizeOutput(input.text);
       const finalText = cleaned;
       if (finalText.length === 0) return;
       if (finalText.trim().toLowerCase() === "ok") {
@@ -1855,7 +1895,11 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
       }
 
       state.sawChunk = true;
-      const chunkIndex = state.chunksCount;
+      const providedIndex =
+        typeof input.index === "number" && Number.isFinite(input.index)
+          ? Number(input.index)
+          : null;
+      const chunkIndex = providedIndex ?? state.chunksCount;
       const chunkBytes = Buffer.byteLength(finalText, "utf8");
       const totalBytes = state.bytesCount + chunkBytes;
       const now = Date.now();
@@ -1870,13 +1914,16 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
         recordFirstTokenTelemetry(chunkBytes);
       }
 
-      const chunkPayload = {
+      const chunkPayload: { index: number; text: string; meta?: Record<string, unknown> } = {
         index: chunkIndex,
         text: finalText,
       };
-      sse.send("chunk", chunkPayload);
+      if (input.meta && typeof input.meta === "object" && Object.keys(input.meta).length) {
+        chunkPayload.meta = input.meta;
+      }
+      sse.write(chunkPayload);
 
-      state.chunksCount = chunkIndex + 1;
+      state.chunksCount = Math.max(state.chunksCount, chunkIndex + 1);
       state.bytesCount = totalBytes;
       state.contentPieces.push(finalText);
 
@@ -1889,6 +1936,25 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
       });
     }
 
+    heartbeat = setInterval(() => {
+      if (res.writableEnded) {
+        if (heartbeat) {
+          clearInterval(heartbeat);
+          heartbeat = null;
+        }
+        return;
+      }
+      try {
+        res.write(":heartbeat\n\n");
+        (res as any).flush?.();
+      } catch {
+        if (heartbeat) {
+          clearInterval(heartbeat);
+          heartbeat = null;
+        }
+      }
+    }, 15000);
+
     abortListener = () => {
       if (state.done) {
         if (abortListener) {
@@ -1899,6 +1965,10 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
         return;
       }
       clearFirstTokenWatchdog();
+      if (heartbeat) {
+        clearInterval(heartbeat);
+        heartbeat = null;
+      }
       const reasonValue = abortSignal.reason;
       let finishReason = (() => {
         if (typeof reasonValue === "string" && reasonValue.trim()) {
@@ -1945,6 +2015,8 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
     abortSignal.addEventListener("abort", abortListener);
 
     interactionBootstrapPromise = bootstrapInteraction();
+
+    const streamHasChunkHandler = true;
 
     const forwardEvent = (rawEvt: EcoStreamEvent | any) => {
       if (state.done || state.clientClosed) return;
@@ -2025,18 +2097,25 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
           return;
         }
         case "first_token": {
+          if (streamHasChunkHandler) {
+            return;
+          }
           const text = extractEventText(evt);
           if (typeof text === "string" && text && state.chunksCount === 0) {
-            sendChunk(text);
+            sendChunk({ text });
           }
           return;
         }
         case "chunk":
+          if (streamHasChunkHandler) {
+            return;
+          }
+        // fallthrough
         case "delta":
         case "token": {
           const text = extractEventText(evt);
           if (typeof text === "string" && text) {
-            sendChunk(text);
+            sendChunk({ text });
           }
           return;
         }
@@ -2071,7 +2150,7 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
         default: {
           const text = extractEventText(evt);
           if (typeof text === "string" && text) {
-            sendChunk(text);
+            sendChunk({ text });
           }
           return;
         }
@@ -2079,7 +2158,60 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
     };
 
     try {
-      const stream: EcoStreamHandler = { onEvent: (event) => forwardEvent(event) };
+      const stream: EcoStreamHandler = {
+        onEvent: (event) => forwardEvent(event),
+        onChunk: async (payload) => {
+          if (!payload) return;
+          const metaValue =
+            payload.meta && typeof payload.meta === "object"
+              ? (payload.meta as Record<string, unknown>)
+              : undefined;
+
+          if (payload.done) {
+            if (metaValue) {
+              state.doneMeta = { ...state.doneMeta, ...metaValue };
+              if (!state.finishReason) {
+                const finishFromMeta = (() => {
+                  if (typeof (metaValue as any).finishReason === "string") {
+                    return (metaValue as any).finishReason as string;
+                  }
+                  if (typeof (metaValue as any).reason === "string") {
+                    return (metaValue as any).reason as string;
+                  }
+                  if (typeof (metaValue as any).error === "string") {
+                    return (metaValue as any).error as string;
+                  }
+                  return undefined;
+                })();
+                if (finishFromMeta) {
+                  state.finishReason = finishFromMeta;
+                }
+              }
+            }
+            return;
+          }
+
+          if (typeof payload.text === "string" && payload.text) {
+            sendChunk({
+              text: payload.text,
+              index: payload.index,
+              meta: metaValue,
+            });
+            return;
+          }
+
+          if (metaValue) {
+            sse.write({
+              index:
+                typeof payload.index === "number" && Number.isFinite(payload.index)
+                  ? Number(payload.index)
+                  : state.chunksCount,
+              text: "",
+              meta: metaValue,
+            });
+          }
+        },
+      };
       const result = await getEcoResponse({ ...params, stream } as any);
 
       if (result && typeof result === "object") {
@@ -2103,7 +2235,7 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
         if (!state.sawChunk) {
           const textOut = sanitizeOutput(extractTextLoose(result) ?? "");
           if (textOut) {
-            sendChunk(textOut);
+            sendChunk({ text: textOut });
           }
           sendDone(textOut ? "fallback_no_stream" : "fallback_empty");
         } else {
@@ -2150,7 +2282,12 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
           abortListener = null;
         }
         releaseActiveStream();
+        if (heartbeat) {
+          clearInterval(heartbeat);
+          heartbeat = null;
+        }
         sse.end();
+        sseConnection = null;
       }
     }
   } catch (error) {
