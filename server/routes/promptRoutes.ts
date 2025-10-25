@@ -2315,10 +2315,10 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
         });
         if (sseConnection) {
           if (!doneSent) {
-            sseConnection.write({ done: true, meta: { error: "validation_error" } });
+            (sseConnection as any).write({ done: true, meta: { error: "validation_error" } });
             doneSent = true;
           }
-          sseConnection.end();
+          (sseConnection as any).end();
           sseConnection = null;
         }
         return;
@@ -2335,10 +2335,10 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
       });
       if (sseConnection) {
         if (!doneSent) {
-          sseConnection.write({ done: true, meta: { error: "validation_error" } });
+          (sseConnection as any).write({ done: true, meta: { error: "validation_error" } });
           doneSent = true;
         }
-        sseConnection.end();
+        (sseConnection as any).end();
         sseConnection = null;
       }
       return;
