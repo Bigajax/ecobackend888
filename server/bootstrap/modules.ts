@@ -83,11 +83,38 @@ export async function configureModuleStore() {
 
   const stats = ModuleCatalog.stats();
 
+  let sampleEntries: Array<{ file: string; hadContent: boolean; bytes: number }> = [];
+  if (stats.indexedCount > 0) {
+    const names = ModuleCatalog.listIndexed(5);
+    for (const file of names) {
+      try {
+        const content = await ModuleCatalog.read(file);
+        const text = typeof content === "string" ? content : "";
+        sampleEntries.push({
+          file,
+          hadContent: text.length > 0,
+          bytes: text.length > 0 ? Buffer.byteLength(text, "utf8") : 0,
+        });
+      } catch {
+        sampleEntries.push({ file, hadContent: false, bytes: 0 });
+      }
+    }
+  }
+
   log.info("[ModuleStore.bootstrap] module_roots_ready", {
     roots,
     filesIndexed: stats.indexedCount,
     envOverride: envRoots.length > 0,
+    sample: sampleEntries.map((entry) => entry.file),
   });
+
+  if (sampleEntries.length) {
+    log.info("[ModuleStore.bootstrap] module_sample", {
+      filesIndexed: stats.indexedCount,
+      entries: sampleEntries,
+      hadContent: sampleEntries.some((entry) => entry.hadContent),
+    });
+  }
 
   if (roots.length === 0) {
     log.warn(
@@ -95,7 +122,7 @@ export async function configureModuleStore() {
         "Verifique seu processo de build ou configure ECO_MODULES_DIR."
     );
   } else if (stats.indexedCount <= 0) {
-    log.warn("[ModuleStore.bootstrap] module_index_empty", {
+    log.error("[ModuleStore.bootstrap] module_index_empty", {
       roots,
     });
   }

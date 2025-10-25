@@ -44,6 +44,26 @@ const getRouteHandler = (router: any, path: string) => {
   return handler;
 };
 
+const parseSsePayloads = (raw: string) =>
+  raw
+    .split("\n\n")
+    .map((block) => block.trim())
+    .filter(Boolean)
+    .map((block) => {
+      const data = block
+        .split("\n")
+        .filter((line) => line.startsWith("data:"))
+        .map((line) => line.replace(/^data:\s*/, ""))
+        .join("");
+      if (!data) return null;
+      try {
+        return JSON.parse(data);
+      } catch {
+        return null;
+      }
+    })
+    .filter((payload): payload is Record<string, unknown> => payload !== null);
+
 const createAnalyticsStub = (operations: AnalyticsOperation[]) => {
   const makeQuery = (table: string) => ({
     insert: async (rows: unknown) => {
@@ -235,17 +255,22 @@ test("guest flow completes ask-eco, signal and feedback", async () => {
 
   assert.equal(askRes.statusCode, 200, "ask-eco should respond 200");
   const ssePayload = askRes.chunks.join("");
+  const payloads = parseSsePayloads(ssePayload);
+  assert.ok(payloads.length >= 2, "SSE should include chunks and done payload");
+  payloads.forEach((payload) => {
+    assert.ok(!Object.prototype.hasOwnProperty.call(payload, "type"));
+    assert.ok(!Object.prototype.hasOwnProperty.call(payload, "name"));
+  });
+  const chunkPayloads = payloads.filter((payload) => (payload as any).done !== true) as any[];
+  assert.ok(chunkPayloads.length >= 1, "SSE should include at least one text chunk");
   assert.ok(
-    ssePayload.includes(
-      `event: control\ndata: {"name":"prompt_ready","interaction_id":"${interactionId}"}`,
-    ),
-    "SSE should announce prompt_ready",
+    chunkPayloads.some((payload) => typeof payload.text === "string" && payload.text.length > 0),
+    "Chunk payload should include text",
   );
-  assert.ok(
-    ssePayload.includes('event: control\ndata: {"name":"done"}'),
-    "SSE should finish with done control event",
-  );
-  assert.ok(!ssePayload.includes("data: ok"), "SSE payload should avoid ok bodies");
+  const donePayload = payloads.find((payload) => (payload as any).done === true) as any;
+  assert.ok(donePayload, "SSE should finish with done payload");
+  assert.equal(donePayload!.index, chunkPayloads.length, "done index should follow chunks");
+  assert.ok(!payloads.some((payload) => typeof payload.text === "string" && payload.text.trim().toLowerCase() === "ok"));
 
   const { registrarSignal } = await withPatchedModules(baseStubs, () => {
     const resolved = require.resolve("../../controllers/signalController");

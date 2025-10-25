@@ -47,7 +47,7 @@ export function prepareSseHeaders(
   res.removeHeader("Content-Length");
   res.removeHeader("Content-Encoding");
   res.setHeader("Content-Type", "text/event-stream");
-  res.setHeader("Cache-Control", "no-cache, no-transform");
+  res.setHeader("Cache-Control", "no-cache");
   res.setHeader("Connection", "keep-alive");
   res.setHeader("X-Accel-Buffering", "no");
   res.setHeader("Transfer-Encoding", "chunked");
@@ -115,7 +115,7 @@ export function createSSE(
     res.setHeader("Content-Type", "text/event-stream");
   }
   if (!res.hasHeader("Cache-Control")) {
-    res.setHeader("Cache-Control", "no-cache, no-transform");
+    res.setHeader("Cache-Control", "no-cache");
   }
   if (!res.hasHeader("Connection")) {
     res.setHeader("Connection", "keep-alive");
