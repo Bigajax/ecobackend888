@@ -647,6 +647,8 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
   })();
   const wantsStreamByFlag = typeof streamParam === "string" && /^(1|true|yes)$/i.test(streamParam.trim());
   const wantsStream = wantsStreamByFlag || accept.includes("text/event-stream");
+  const isEventStreamRequest = typeof req.headers.accept === "string" &&
+    req.headers.accept.includes("text/event-stream");
   const originHeader = typeof req.headers.origin === "string" ? req.headers.origin : undefined;
   const allowedOrigin = isAllowedOrigin(originHeader);
   const origin = originHeader || undefined;
@@ -811,6 +813,8 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
 
   let clientMessageKey: string | null = null;
   let clientMessageReserved = false;
+  let doneSent = false;
+  let sseConnection: ReturnType<typeof createSSE> | null = null;
 
   const guestIdResolved = resolveGuestId(
     typeof guestId === "string" ? guestId : undefined,
@@ -1020,7 +1024,6 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
     // SSE mode
     res.socket?.setTimeout(300000);
     res.socket?.setKeepAlive(true, 30000);
-    prepareSseHeaders(res);
     res.status(200);
     disableCompressionForSse(res);
     const normalizedOrigin = allowedOrigin && origin ? origin : undefined;
@@ -1153,6 +1156,13 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
           clientMessageReserved = false;
         }
         releaseActiveInteractionKeys();
+        if (res.headersSent) {
+          log.error("[ask-eco] headers already sent, cannot send JSON", {
+            stage: "active_interaction_conflict",
+            isEventStreamRequest,
+          });
+          return;
+        }
         return res.status(409).json({
           ok: false,
           code: "STREAM_ALREADY_ACTIVE",
@@ -2297,10 +2307,42 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
       clientMessageReserved = false;
     }
     if (isHttpError(error)) {
+      if (res.headersSent) {
+        log.error("[ask-eco] headers already sent, cannot send JSON", {
+          stage: "http_error_catch",
+          status: error.status,
+          isEventStreamRequest,
+        });
+        if (sseConnection) {
+          if (!doneSent) {
+            sseConnection.write({ done: true, meta: { error: "validation_error" } });
+            doneSent = true;
+          }
+          sseConnection.end();
+          sseConnection = null;
+        }
+        return;
+      }
       return res.status(error.status).json(error.body);
     }
     const traceId = randomUUID();
     log.error("[ask-eco] validation_unexpected", { trace_id: traceId, message: (error as Error)?.message });
+    if (res.headersSent) {
+      log.error("[ask-eco] headers already sent, cannot send JSON", {
+        stage: "unexpected_error_catch",
+        traceId,
+        isEventStreamRequest,
+      });
+      if (sseConnection) {
+        if (!doneSent) {
+          sseConnection.write({ done: true, meta: { error: "validation_error" } });
+          doneSent = true;
+        }
+        sseConnection.end();
+        sseConnection = null;
+      }
+      return;
+    }
     return res.status(500).json({ code: "INTERNAL_ERROR", trace_id: traceId });
   } finally {
     finalizeClientMessageLock();
