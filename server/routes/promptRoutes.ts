@@ -29,6 +29,9 @@ function sanitizeOutput(input?: string): string {
     .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, "");
 }
 
+const GUARD_FALLBACK_TEXT =
+  "Senti uma oscilação do meu lado, mas continuo aqui com você. Podemos tentar novamente em instantes?";
+
 type DonePayload = {
   content: string | null;
   interaction_id: string | null;
@@ -91,8 +94,6 @@ function buildDonePayload(options: {
 
 const router = Router();
 const askEcoRouter = Router();
-const logger = log;
-
 function buildSummaryFromChunks(pieces: string[]): string {
   if (!Array.isArray(pieces) || pieces.length === 0) {
     return "";
@@ -1372,6 +1373,8 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
       closeErrorMessage: null as string | null,
       serverAbortReason: null as string | null,
       doneAt: 0,
+      guardFallbackSent: false,
+      guardFallbackReason: null as string | null,
     };
 
     let doneSent = false;
@@ -1587,24 +1590,14 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
     }
 
     const sse = createSSE(res, req, {
-      pingIntervalMs: 15000,
+      pingIntervalMs: 0,
       idleMs: idleTimeoutMs,
       onIdle: handleStreamTimeout,
       onConnectionClose: handleConnectionClosed,
-      commentOnOpen: "stream-started",
+      commentOnOpen: null,
     });
 
     sseConnection = sse;
-
-    res.write(
-      "data: " +
-        JSON.stringify({ index: 0, text: "", meta: { status: "connected" } }) +
-        "\n\n"
-    );
-    if ((res as any).flush) {
-      (res as any).flush();
-    }
-    logger.info("[ask-eco] immediate_frame_sent", { timestamp: Date.now() });
 
     let interactionBootstrapPromise: Promise<void> = Promise.resolve();
 
@@ -1624,13 +1617,6 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
           const previousInteractionId = resolvedInteractionId;
           captureInteractionId(interactionId);
           (params as any).interactionId = interactionId;
-          if (!state.done && interactionId !== previousInteractionId) {
-            sse.send("control", {
-              type: "interaction",
-              interaction_id: interactionId,
-              source: "analytics",
-            });
-          }
           return;
         }
       } catch (error) {
@@ -1682,6 +1668,21 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
       log.error("[ask-eco] sse_error", { ...payload, reason });
     }
 
+    const ensureGuardFallback = (reason: string) => {
+      if (state.sawChunk || state.guardFallbackSent) {
+        return;
+      }
+      state.guardFallbackSent = true;
+      state.guardFallbackReason = reason;
+      log.warn("[ask-eco] guard_fallback_emit", {
+        origin: origin ?? null,
+        clientMessageId: clientMessageId ?? null,
+        interactionId: resolvedInteractionId ?? null,
+        reason,
+      });
+      sendChunk({ text: GUARD_FALLBACK_TEXT });
+    };
+
     function sendDone(reason?: string | null) {
       if (state.done) return;
       clearFirstTokenWatchdog();
@@ -1702,6 +1703,17 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
         finishReason = "first_token_timeout";
       }
       state.finishReason = finishReason ?? "unknown";
+
+      ensureGuardFallback(state.finishReason || "unknown");
+
+      if (!state.sawChunk) {
+        log.error("[ask-eco] guard_fallback_missing_chunk", {
+          origin: origin ?? null,
+          clientMessageId: clientMessageId ?? null,
+          interactionId: resolvedInteractionId ?? null,
+          finishReason: state.finishReason,
+        });
+      }
 
       const finalizeStream = async () => {
         try {
@@ -1739,6 +1751,8 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
             sawChunk: state.sawChunk,
             chunks: state.chunksCount,
             bytes: state.bytesCount,
+            totalBytes: state.bytesCount,
+            guardFallback: state.guardFallbackSent,
             origin: origin ?? null,
             clientMessageId: clientMessageId ?? null,
             firstTokenLatencyMs: firstTokenLatency,
@@ -1814,7 +1828,6 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
             sse.write({
               index: state.chunksCount,
               done: true,
-              meta: finalMeta,
             });
             doneSent = true;
           }
@@ -1827,6 +1840,7 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
             final_chunk_sent: state.sawChunk,
             finishReason: resolvedFinishReason,
             summary: donePayload,
+            guardFallback: state.guardFallbackSent,
           });
 
           finalizeClientMessageReservation(resolvedFinishReason);
@@ -1835,6 +1849,8 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
             finishReason: resolvedFinishReason,
             chunks: state.chunksCount,
             bytes: state.bytesCount,
+            totalBytes: state.bytesCount,
+            guardFallback: state.guardFallbackSent,
             clientClosed: state.clientClosed,
             clientClosedStack: state.clientClosedStack ?? undefined,
             closeClassification: state.closeClassification,
@@ -1934,14 +1950,14 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
         recordFirstTokenTelemetry(chunkBytes);
       }
 
-      const chunkPayload: { index: number; text: string; meta?: Record<string, unknown> } = {
+      if (input.meta && typeof input.meta === "object" && Object.keys(input.meta).length) {
+        sendMeta(input.meta);
+      }
+
+      sse.write({
         index: chunkIndex,
         text: finalText,
-      };
-      if (input.meta && typeof input.meta === "object" && Object.keys(input.meta).length) {
-        chunkPayload.meta = input.meta;
-      }
-      sse.write(chunkPayload);
+      });
 
       state.chunksCount = Math.max(state.chunksCount, chunkIndex + 1);
       state.bytesCount = totalBytes;
@@ -1955,25 +1971,6 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
         origin: origin ?? null,
       });
     }
-
-    heartbeat = setInterval(() => {
-      if (res.writableEnded) {
-        if (heartbeat) {
-          clearInterval(heartbeat);
-          heartbeat = null;
-        }
-        return;
-      }
-      try {
-        res.write(":heartbeat\n\n");
-        (res as any).flush?.();
-      } catch {
-        if (heartbeat) {
-          clearInterval(heartbeat);
-          heartbeat = null;
-        }
-      }
-    }, 15000);
 
     abortListener = () => {
       if (state.done) {
@@ -2065,15 +2062,6 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
             const nowTs = Date.now();
             state.promptReadyAt = nowTs;
             state.lastEventAt = nowTs;
-            sse.sendControl("prompt_ready", {
-              interaction_id: resolvedInteractionId,
-              sinceStartMs: nowTs - state.t0,
-            });
-            sse.send("control", {
-              type: "interaction",
-              interaction_id: resolvedInteractionId,
-              source: "stream",
-            });
             enqueuePassiveSignal("prompt_ready", 1, {
               stream: true,
               origin: origin ?? null,
@@ -2090,16 +2078,17 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
           if (name === "guard_fallback_trigger") {
             const nowTs = Date.now();
             state.lastEventAt = nowTs;
-            const payload: Record<string, unknown> = { name: "guard_fallback_trigger" };
-            if (meta) {
-              payload.meta = meta;
-            }
-            sse.send("control", payload);
+            const reasonFromMeta =
+              typeof (meta as any)?.reason === "string"
+                ? ((meta as any).reason as string)
+                : "guard_fallback_trigger";
+            ensureGuardFallback(reasonFromMeta);
             log.warn("[ask-eco] guard_fallback_trigger", {
               origin: origin ?? null,
               clientMessageId: clientMessageId ?? null,
               interactionId: resolvedInteractionId ?? null,
               meta: meta ?? null,
+              fallbackEmitted: state.guardFallbackSent,
             });
             return;
           }
@@ -2221,14 +2210,7 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
           }
 
           if (metaValue) {
-            sse.write({
-              index:
-                typeof payload.index === "number" && Number.isFinite(payload.index)
-                  ? Number(payload.index)
-                  : state.chunksCount,
-              text: "",
-              meta: metaValue,
-            });
+            sendMeta(metaValue);
           }
         },
       };

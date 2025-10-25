@@ -77,6 +77,51 @@ const getRouteHandler = (router: any, path: string, method = "post") => {
   return handler;
 };
 
+type ContractEvent =
+  | { kind: "chunk"; payload: { index: number; text: string } }
+  | { kind: "done"; payload: { index: number; done: true } };
+
+const parseSsePayloads = (raw: string): Array<Record<string, any>> => {
+  return raw
+    .split("\n\n")
+    .map((block) => block.trim())
+    .filter(Boolean)
+    .map((block) => {
+      const data = block
+        .split("\n")
+        .filter((line) => line.startsWith("data:"))
+        .map((line) => line.replace(/^data:\s*/, ""))
+        .join("");
+      if (!data) {
+        return null;
+      }
+      try {
+        return JSON.parse(data);
+      } catch {
+        return null;
+      }
+    })
+    .filter((payload): payload is Record<string, any> => payload !== null);
+};
+
+const toContractEvents = (raw: string): ContractEvent[] => {
+  return parseSsePayloads(raw).map((payload) => {
+    if (payload && typeof payload === "object" && payload.done === true) {
+      return {
+        kind: "done",
+        payload: { index: Number(payload.index ?? 0), done: true },
+      } satisfies ContractEvent;
+    }
+    return {
+      kind: "chunk",
+      payload: {
+        index: Number(payload.index ?? 0),
+        text: String(payload.text ?? ""),
+      },
+    } satisfies ContractEvent;
+  });
+};
+
 const DEFAULT_USUARIO_ID = "c5c5b1af-5f6c-4e5f-8cb4-7a6d12345678";
 const TEST_GUEST_ID = "0c9c8b7a-6d5e-4f3a-8123-b4567890abcd";
 const TIMEOUT_GUEST_ID = "22222222-2222-4222-8222-222222222222";
@@ -257,65 +302,39 @@ test("SSE streaming emits tokens, done and disables compression", async () => {
 
   const output = res.chunks.join("");
   assert.ok(res.chunks.length > 0, "should emit at least one SSE chunk");
-  const events = output
-    .split("\n\n")
-    .map((chunk) => chunk.trim())
-    .filter(Boolean)
-    .map((chunk) => {
-      const lines = chunk.split("\n");
-      const eventLine = lines.find((line) => line.startsWith("event: "));
-      if (!eventLine) {
-        return null;
-      }
-      const dataLines = lines.filter((line) => line.startsWith("data: "));
-      const event = eventLine.replace("event: ", "").trim();
-      const rawData = dataLines
-        .map((line) => line.replace("data: ", ""))
-        .join("\n");
-      let data: unknown = null;
-      if (rawData) {
-        try {
-          data = JSON.parse(rawData);
-        } catch {
-          data = rawData;
-        }
-      }
-      return { event, data };
-    })
-    .filter((entry): entry is { event: string; data: unknown } => entry !== null);
+  assert.ok(!output.includes("event:"), "should not include explicit event fields");
 
-  const promptReady = events.find(
-    (evt) => evt.event === "control" && typeof (evt.data as any)?.name === "string" && (evt.data as any).name === "prompt_ready"
-  );
-  assert.ok(promptReady, "should emit control:prompt_ready event");
-  assert.equal((promptReady!.data as any).interaction_id, TEST_INTERACTION_ID);
-  assert.equal(typeof (promptReady!.data as any).sinceStartMs, "number");
+  const payloads = parseSsePayloads(output);
+  assert.ok(payloads.length >= 2, "should emit chunks and a done payload");
+  for (const payload of payloads) {
+    assert.ok(!Object.prototype.hasOwnProperty.call(payload, "type"));
+    assert.ok(!Object.prototype.hasOwnProperty.call(payload, "delta"));
+    assert.ok(!Object.prototype.hasOwnProperty.call(payload, "name"));
+  }
 
-  const pingEvents = events.filter((evt) => evt.event === "ping");
-  assert.ok(pingEvents.length >= 1, "should emit keep-alive ping events");
-  const chunkEvents = events.filter((evt) => evt.event === "chunk");
+  const contractEvents = toContractEvents(output);
+  const chunkEvents = contractEvents.filter((evt) => evt.kind === "chunk");
   assert.equal(chunkEvents.length, 2, "should emit streamed chunk events");
   assert.deepEqual(
-    chunkEvents[0].data,
+    chunkEvents[0].payload,
     { index: 0, text: "primeiro" },
     "first chunk should include index 0 and text"
   );
   assert.deepEqual(
-    chunkEvents[1].data,
+    chunkEvents[1].payload,
     { index: 1, text: "segundo" },
     "second chunk should include index 1 and text"
   );
-  assert.ok(!output.includes("__prompt_ready__"), "should not emit synthetic prompt_ready token");
-  const controlEvents = events.filter((evt) => evt.event === "control");
-  const finalControl = controlEvents[controlEvents.length - 1];
-  assert.equal(finalControl.data?.name, "done");
-  assert.equal(finalControl.data?.finishReason, "stop");
-  const finalEvent = events[events.length - 1];
-  assert.equal(finalEvent.event, "done");
-  assert.equal((finalEvent.data as any).done, true, "stream should end with done payload");
-  const otherEvents = events.filter((evt) => !["control", "chunk", "done", "ping"].includes(evt.event));
-  assert.equal(otherEvents.length, 0, "should not emit auxiliary SSE event types");
-  assert.ok(!output.includes("data: ok"), "should avoid plain ok payloads");
+
+  const doneEvent = contractEvents.find((evt) => evt.kind === "done");
+  assert.ok(doneEvent, "should emit final done payload");
+  assert.equal(doneEvent!.payload.index, chunkEvents.length, "done index should match chunk count");
+  assert.equal(doneEvent!.payload.done, true);
+
+  assert.ok(
+    !payloads.some((entry) => typeof entry.text === "string" && entry.text.trim().toLowerCase() === "ok"),
+    "should avoid plain ok payloads"
+  );
 });
 
 test("SSE streaming triggers timeout fallback when orchestrator stalls", async () => {
@@ -366,52 +385,27 @@ test("SSE streaming triggers timeout fallback when orchestrator stalls", async (
 
     const output = res.chunks.join("");
 
-    const events = output
-      .split("\n\n")
-      .map((chunk) => chunk.trim())
-      .filter(Boolean)
-      .map((chunk) => {
-        const lines = chunk.split("\n");
-        const eventLine = lines.find((line) => line.startsWith("event: "));
-        if (!eventLine) {
-          return null;
-        }
-        const dataLines = lines.filter((line) => line.startsWith("data: "));
-        const event = eventLine.replace("event: ", "").trim();
-        const rawData = dataLines
-          .map((line) => line.replace("data: ", ""))
-          .join("\n");
-        let data: unknown = null;
-        if (rawData) {
-          try {
-            data = JSON.parse(rawData);
-          } catch {
-            data = rawData;
-          }
-        }
-        return { event, data };
-      })
-      .filter((entry): entry is { event: string; data: unknown } => entry !== null);
+    assert.ok(!output.includes("event:"), "should not include explicit event fields");
 
-    const promptReady = events.find(
-      (evt) => evt.event === "control" && typeof (evt.data as any)?.name === "string" && (evt.data as any).name === "prompt_ready",
+    const payloads = parseSsePayloads(output);
+    const contractEvents = toContractEvents(output);
+    const chunkEvents = contractEvents.filter((evt) => evt.kind === "chunk");
+    assert.ok(chunkEvents.length >= 1, "idle timeout guard should emit at least one chunk");
+    assert.ok(
+      chunkEvents.every((evt) => typeof evt.payload.text === "string" && evt.payload.text.length > 0),
+      "chunks should include non-empty text",
     );
-    assert.ok(promptReady, "should announce prompt_ready before idle timeout");
 
-    const chunkEvents = events.filter((evt) => evt.event === "chunk");
-    assert.equal(chunkEvents.length, 0, "idle timeout should not emit chunk events");
+    const doneEvent = contractEvents.find((evt) => evt.kind === "done");
+    assert.ok(doneEvent, "stream should end with done payload");
+    assert.equal(doneEvent!.payload.index, chunkEvents.length);
+    assert.equal(doneEvent!.payload.done, true);
 
-    const finalControl = [...events].reverse().find((entry) => entry.event === "control");
-    assert.equal(finalControl?.data?.name, "done");
-    assert.equal(finalControl?.data?.finishReason, "idle_timeout");
-
-    const finalEvent = events[events.length - 1];
-    assert.equal(finalEvent.event, "done");
-    assert.equal((finalEvent.data as any).done, true);
-
-    const otherEvents = events.filter((evt) => !["control", "chunk", "done", "ping"].includes(evt.event));
-    assert.equal(otherEvents.length, 0, "idle timeout stream should avoid auxiliary SSE events");
-    assert.ok(!output.includes("data: ok"), "idle timeout stream should avoid ok payloads");
+    for (const payload of payloads) {
+      assert.ok(!Object.prototype.hasOwnProperty.call(payload, "type"));
+      assert.ok(!Object.prototype.hasOwnProperty.call(payload, "delta"));
+      assert.ok(!Object.prototype.hasOwnProperty.call(payload, "name"));
+    }
 
   } finally {
     if (previousTimeout === undefined) {
@@ -691,10 +685,10 @@ test("starting a new stream on the same stream id aborts the previous run", asyn
   assert.equal(secondRes.statusCode, 200, "new stream should succeed");
   assert.ok(infoCalls.some((entry) => entry[0] === "[ask-eco] sse_stream_replaced"));
   assert.equal(firstRes.ended, true, "previous response should end after abort");
-  assert.equal(
-    firstRes.chunks[firstRes.chunks.length - 1],
-    'event: control\ndata: {"name":"done"}\n\n'
-  );
+  const firstOutput = firstRes.chunks.join("");
+  const firstEvents = toContractEvents(firstOutput);
+  const lastEvent = firstEvents[firstEvents.length - 1];
+  assert.ok(lastEvent?.kind === "done", "aborted stream should finish with done payload");
   assert.ok(firstAbortReason instanceof Error || typeof firstAbortReason === "string");
 });
 
@@ -753,48 +747,31 @@ test("three sequential streams emit independent chunk sequences", async () => {
     await handler(req as any, res as any);
 
     const output = res.chunks.join("");
-    const events = output
-      .split("\n\n")
-      .filter(Boolean)
-      .map((chunk) => {
-        const lines = chunk.split("\n");
-        const eventLine = lines.find((line) => line.startsWith("event: ")) ?? "";
-        const dataLine = lines.find((line) => line.startsWith("data: ")) ?? "";
-        const event = eventLine.replace("event: ", "");
-        const rawData = dataLine.replace("data: ", "");
-        const data = rawData ? JSON.parse(rawData) : null;
-        return { event, data };
-      });
+    assert.ok(!output.includes("event:"), "should not include explicit event fields");
 
+    const payloads = parseSsePayloads(output);
+    const contractEvents = toContractEvents(output);
+    const chunkEvents = contractEvents.filter((evt) => evt.kind === "chunk");
+    assert.equal(chunkEvents.length, 1, "stream should emit exactly one chunk event");
+    const chunkEvent = chunkEvents[0];
     assert.deepEqual(
-      events[0],
-      {
-        event: "control",
-        data: {
-          name: "prompt_ready",
-          interaction_id: createdInteractions[i],
-        },
-      },
-      "stream should announce prompt_ready before chunks",
+      chunkEvent?.payload,
+      { index: 0, text: texts[i] },
+      "chunk event should include index and text without interaction metadata",
     );
 
-    const chunkEvent = events.find((evt) => evt.event === "chunk");
-    assert.ok(chunkEvent, "stream should emit chunk event");
-      assert.deepEqual(
-        chunkEvent?.data,
-        { index: 0, text: texts[i] },
-        "chunk event should include index and text without interaction metadata",
-      );
+    const doneEvent = contractEvents.find((evt) => evt.kind === "done");
+    assert.ok(doneEvent, "stream should end with done payload");
+    assert.equal(doneEvent!.payload.index, chunkEvents.length);
+    assert.equal(doneEvent!.payload.done, true);
 
-      const finalControl = [...events].reverse().find((entry) => entry.event === "control");
-      assert.deepEqual(finalControl, { event: "control", data: { name: "done" } });
+    for (const payload of payloads) {
+      assert.ok(!Object.prototype.hasOwnProperty.call(payload, "type"));
+      assert.ok(!Object.prototype.hasOwnProperty.call(payload, "delta"));
+      assert.ok(!Object.prototype.hasOwnProperty.call(payload, "name"));
+    }
 
-      const finalEvent = events[events.length - 1];
-      assert.deepEqual(finalEvent, { event: "done", data: { done: true } });
-
-      const otherEvents = events.filter((evt) => !["control", "chunk", "done"].includes(evt.event));
-    assert.equal(otherEvents.length, 0, "stream should not emit auxiliary SSE events");
-    assert.ok(!output.includes("data: ok"), "stream should avoid ok payloads");
+    assert.ok(!payloads.some((entry) => typeof entry.text === "string" && entry.text.trim().toLowerCase() === "ok"));
   }
 
   assert.equal(createdInteractions.length, texts.length, "should create one interaction per message");

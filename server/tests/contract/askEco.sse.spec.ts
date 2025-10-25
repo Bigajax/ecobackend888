@@ -17,7 +17,7 @@ jest.mock("../../services/conversation/interactionAnalytics", () => ({
   createInteraction: (...args: unknown[]) => createInteractionMock(...args),
 }));
 
-const capturedSseEvents: Array<{ event: string; data: string }> = [];
+const capturedSseEvents: string[] = [];
 const DEFAULT_USUARIO_ID = "a1b2c3d4-e5f6-4a7b-9c8d-ef0123456789";
 
 class MockRequest extends EventEmitter {
@@ -126,38 +126,33 @@ function parseSse(raw: string) {
     .filter(Boolean)
     .map((block) => {
       const lines = block.split("\n");
-      const eventLine = lines.find((line) => line.startsWith("event:"));
-      if (!eventLine) {
+      const data = lines
+        .filter((line) => line.startsWith("data:"))
+        .map((line) => line.replace(/^data:\s*/, ""))
+        .join("");
+      if (!data) {
         return null;
       }
-      const dataLines = lines.filter((line) => line.startsWith("data:"));
-      const eventName = eventLine.replace(/^event:\s*/, "").trim();
-      const payload = dataLines.map((line) => line.replace(/^data:\s*/, "")).join("\n");
-      let data: unknown = null;
-      if (payload) {
-        try {
-          data = JSON.parse(payload);
-        } catch {
-          data = payload;
-        }
+      try {
+        return JSON.parse(data);
+      } catch {
+        return null;
       }
-      return { event: eventName, data };
     })
-    .filter((entry): entry is { event: string; data: unknown } => entry !== null && entry.event !== "ping");
+    .filter((entry): entry is Record<string, unknown> => entry !== null);
 }
 
 jest.mock("../../utils/sse", () => {
   const actual = jest.requireActual("../../utils/sse");
-  const events: Array<{ event: string; data: string }> = capturedSseEvents;
+  const events: string[] = capturedSseEvents;
 
   return {
     __esModule: true,
     ...actual,
     createSSE: (res: any, _req: any, opts: any = {}) => {
-      const recordEvent = (event: string, data: unknown) => {
+      const recordData = (data: unknown) => {
         const payload = typeof data === "string" ? data : JSON.stringify(data);
-        events.push({ event, data: payload });
-        res.write(`event: ${event}\n`);
+        events.push(payload);
         res.write(`data: ${payload}\n\n`);
       };
 
@@ -166,14 +161,15 @@ jest.mock("../../utils/sse", () => {
       }
 
       return {
-        send: (event: string, data: unknown) => recordEvent(event, data),
+        send: (_event: string, data: unknown) => recordData(data),
         sendControl: (
           name: "prompt_ready" | "done" | "guard_fallback_trigger",
           payload?: Record<string, unknown>,
-        ) => recordEvent("control", { name, ...(payload ?? {}) }),
+        ) => recordData({ name, ...(payload ?? {}) }),
         sendComment: (comment: string) => {
           res.write(`:${comment}\n\n`);
         },
+        write: (data: unknown) => recordData(data),
         end: () => {
           if (typeof opts?.onConnectionClose === "function") {
             opts.onConnectionClose({ source: "mock.end" });
@@ -287,47 +283,39 @@ describe("/api/ask-eco SSE contract", () => {
     const callArgs = getEcoResponseMock.mock.calls[0]?.[0] as { stream?: EcoStreamHandler };
     expect(callArgs?.stream).toBeDefined();
 
-    const events = parseSse(res.chunks.join(""));
-    expect(events.length).toBeGreaterThan(0);
+    const payloads = parseSse(res.chunks.join(""));
+    expect(payloads.length).toBeGreaterThan(0);
 
-    const controlEvents = events.filter((evt) => evt.event === "control");
-    const chunkEvents = events.filter((evt) => evt.event === "chunk");
-    const otherEvents = events.filter((evt) => !["control", "chunk", "done", "ping"].includes(evt.event));
+    payloads.forEach((payload) => {
+      expect(payload).not.toHaveProperty("type");
+      expect(payload).not.toHaveProperty("name");
+      expect(payload).not.toHaveProperty("delta");
+    });
 
-    expect(otherEvents).toHaveLength(0);
-    expect(controlEvents[0]).toMatchObject({
-      event: "control",
-      data: expect.objectContaining({
-        name: "prompt_ready",
-        interaction_id: "interaction-123",
-      }),
-    });
-    expect(typeof (controlEvents[0].data as any).sinceStartMs).toBe("number");
-    expect(controlEvents[controlEvents.length - 1]).toMatchObject({
-      event: "control",
-      data: expect.objectContaining({ name: "done", finishReason: "stop" }),
-    });
-    expect(events[events.length - 1]).toMatchObject({
-      event: "done",
-      data: expect.objectContaining({ done: true }),
-    });
+    const contractEvents = payloads.map((payload) =>
+      payload && (payload as any).done === true
+        ? { kind: "done", payload }
+        : { kind: "chunk", payload }
+    );
+    const chunkEvents = contractEvents.filter((evt) => evt.kind === "chunk");
+    const doneEvent = contractEvents.find((evt) => evt.kind === "done");
+
     expect(chunkEvents).toHaveLength(2);
-    expect(chunkEvents[0].data).toEqual({ index: 0, text: "Olá" });
-    expect(chunkEvents[1].data).toEqual({ index: 1, text: "mundo" });
+    expect(chunkEvents[0].payload).toEqual({ index: 0, text: "Olá" });
+    expect(chunkEvents[1].payload).toEqual({ index: 1, text: " mundo" });
+    expect(doneEvent).toBeDefined();
+    expect(doneEvent!.payload).toEqual({ index: 2, done: true });
 
-    expect(capturedSseEvents.every((evt) => ["control", "chunk", "done"].includes(evt.event))).toBe(true);
-    expect(capturedSseEvents[0]).toEqual({
-      event: "control",
-      data: JSON.stringify({ name: "prompt_ready", interaction_id: "interaction-123" }),
-    });
-    const capturedControlDone = capturedSseEvents.filter((evt) => evt.event === "control").at(-1);
-    expect(capturedControlDone).toEqual({
-      event: "control",
-      data: JSON.stringify({ name: "done", finishReason: "stop" }),
-    });
-    const finalCaptured = capturedSseEvents[capturedSseEvents.length - 1];
-    expect(finalCaptured.event).toBe("done");
-    expect(JSON.parse(finalCaptured.data).done).toBe(true);
+    expect(
+      capturedSseEvents.map((entry) => JSON.parse(entry)).every(
+        (payload: any) =>
+          typeof payload === "object" &&
+          payload !== null &&
+          (payload.done === true || (typeof payload.text === "string" && typeof payload.index === "number"))
+      )
+    ).toBe(true);
+    const finalCaptured = JSON.parse(capturedSseEvents[capturedSseEvents.length - 1]);
+    expect(finalCaptured).toEqual({ index: 2, done: true });
   });
 
   it("returns the done payload when stream=false", async () => {
