@@ -653,6 +653,12 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
   const streamIdHeader = req.headers["x-stream-id"];
   const streamId = typeof streamIdHeader === "string" ? streamIdHeader : undefined;
 
+  let resolvedInteractionId: string | null = null;
+  let interactionIdReady = false;
+  const idleTimeoutMs = streamIdleTimeoutMs;
+  const pingIntervalMs = streamPingIntervalMs;
+  const firstTokenTimeoutMs = firstTokenWatchdogMs;
+
   if (wantsStream && !allowedOrigin) {
     log.warn("[ask-eco] origin_blocked", { origin: origin ?? null });
     return res.status(403).end();
@@ -1066,8 +1072,8 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
       },
       pid: process.pid,
       idleTimeoutMs,
-      pingIntervalMs: streamPingIntervalMs,
-      firstTokenTimeoutMs: firstTokenWatchdogMs,
+      pingIntervalMs,
+      firstTokenTimeoutMs,
       responseHeaders: headerSnapshot,
     });
 
@@ -1171,8 +1177,7 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
     );
 
     const pendingSignals: Array<{ signal: string; meta: Record<string, unknown> }> = [];
-    let resolvedInteractionId: string = fallbackInteractionId;
-    let interactionIdReady = false;
+    resolvedInteractionId = fallbackInteractionId;
 
     const finalizeClientMessageReservation = (finishReason?: string | null) => {
       if (!clientMessageReserved || !clientMessageKey) {
@@ -1249,9 +1254,11 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
 
     const flushPendingSignals = () => {
       if (!interactionIdReady || !pendingSignals.length) return;
+      const interactionId = resolvedInteractionId;
+      if (!interactionId) return;
       const queued = pendingSignals.splice(0, pendingSignals.length);
       for (const item of queued) {
-        sendSignalRow(resolvedInteractionId, item.signal, item.meta);
+        sendSignalRow(interactionId, item.signal, item.meta);
       }
     };
 
@@ -1309,7 +1316,9 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
       }
 
       if (interactionIdReady) {
-        sendSignalRow(resolvedInteractionId, signal, serializedMeta);
+        const interactionId = resolvedInteractionId;
+        if (!interactionId) return;
+        sendSignalRow(interactionId, signal, serializedMeta);
         return;
       }
 
@@ -1533,8 +1542,6 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
       state.latencyMarks = { ...state.latencyMarks, ...marks };
     };
 
-    const idleTimeoutMs = streamIdleTimeoutMs;
-
     const resolvedUserIdForInteraction =
       !isGuestRequest && typeof (params as any).userId === "string"
         ? ((params as any).userId as string).trim()
@@ -1547,7 +1554,7 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
     }
 
     const sse = createSSE(res, req, {
-      pingIntervalMs: streamPingIntervalMs,
+      pingIntervalMs,
       idleMs: idleTimeoutMs,
       onIdle: handleStreamTimeout,
       onConnectionClose: handleConnectionClosed,
