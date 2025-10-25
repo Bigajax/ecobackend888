@@ -960,9 +960,10 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
     // SSE mode
     res.status(200);
     disableCompressionForSse(res);
+    const normalizedOrigin = allowedOrigin && origin ? origin : undefined;
     prepareSseHeaders(res, {
-      origin: allowedOrigin && origin ? origin : undefined,
-      allowCredentials: false,
+      origin: normalizedOrigin,
+      allowCredentials: Boolean(normalizedOrigin),
       flush: false,
     });
 
@@ -1369,7 +1370,17 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
     function sendLatency(_payload: Record<string, unknown>) {}
 
     function sendErrorEvent(payload: Record<string, unknown>) {
-      log.error("[ask-eco] sse_error", { ...payload });
+      const message =
+        typeof payload.message === "string" && payload.message.trim()
+          ? payload.message.trim()
+          : undefined;
+      const reason =
+        typeof payload.reason === "string" && payload.reason.trim()
+          ? payload.reason.trim()
+          : typeof payload.code === "string" && payload.code.trim()
+          ? payload.code.trim()
+          : message ?? "unknown_error";
+      log.error("[ask-eco] sse_error", { ...payload, reason });
     }
 
     function sendDone(reason?: string | null) {
@@ -1535,7 +1546,7 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
       if (state.done || state.clientClosed || state.sawChunk) {
         return;
       }
-      log.warn("[ask-eco] sse_timeout", { timeoutMs: idleTimeoutMs });
+      log.warn("[ask-eco] sse_timeout", { timeoutMs: idleTimeoutMs, reason: "provider_timeout" });
       sendChunk(STREAM_TIMEOUT_MESSAGE);
       sendDone("timeout");
     }
@@ -1561,6 +1572,14 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
         state.firstTokenAt = now;
         sendMeta({ type: "first_token_latency_ms", value: state.firstTokenAt - state.t0 });
         recordFirstTokenTelemetry(chunkBytes);
+      }
+
+      if (chunkIndex === 0) {
+        log.info("[ask-eco] emit_event", {
+          index: chunkIndex,
+          bytes: chunkBytes,
+          origin: origin ?? null,
+        });
       }
 
       const chunkPayload = {

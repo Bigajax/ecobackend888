@@ -109,7 +109,11 @@ export const CORS_ALLOW_METHODS = [
   "HEAD",
 ] as const;
 
-export const CORS_EXPOSE_HEADERS = ["content-type", "x-request-id"] as const;
+export const CORS_EXPOSE_HEADERS = [
+  "content-type",
+  "x-request-id",
+  "x-eco-interaction-id",
+] as const;
 
 type CorsLocals = {
   corsAllowed?: boolean;
@@ -151,7 +155,7 @@ export function applyCorsResponseHeaders(req: Request, res: Response) {
     res.removeHeader("Access-Control-Allow-Origin");
   }
 
-  res.setHeader("Access-Control-Allow-Credentials", "false");
+  res.setHeader("Access-Control-Allow-Credentials", allowed && normalized ? "true" : "false");
   res.setHeader("Access-Control-Allow-Headers", CORS_ALLOW_HEADERS.join(", "));
   res.setHeader("Access-Control-Allow-Methods", CORS_ALLOW_METHODS.join(", "));
   res.setHeader("Access-Control-Expose-Headers", CORS_EXPOSE_HEADERS.join(", "));
