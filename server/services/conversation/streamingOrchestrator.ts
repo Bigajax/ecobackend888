@@ -320,6 +320,15 @@ export async function executeStreamingLLM({
     }
 
     ignoreStreamEvents = true;
+    await emitStream({
+      type: "control",
+      name: "guard_fallback_trigger",
+      meta: {
+        from: principalModel,
+        to: "fallback_full",
+        reason: "stream_guard",
+      },
+    });
     log.info("[StreamingLLM] guard_fallback_trigger", { guardMs: STREAM_GUARD_MS });
 
     const fallbackTimings: EcoLatencyMarks = { ...timings };

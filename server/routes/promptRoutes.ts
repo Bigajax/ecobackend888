@@ -3,7 +3,6 @@ import { randomUUID } from "node:crypto";
 import { Router, type Request, type Response, type NextFunction } from "express";
 import { getPromptEcoPreview } from "../controllers/promptController";
 import { getEcoResponse } from "../services/ConversationOrchestrator";
-import { STREAM_TIMEOUT_MESSAGE } from "./askEco/streaming";
 import { log } from "../services/promptContext/logger";
 import type { EcoStreamHandler, EcoStreamEvent } from "../services/conversation/types";
 import { createHttpError, isHttpError } from "../utils/http";
@@ -257,16 +256,59 @@ export { askEcoRouter as askEcoRoutes };
 const REQUIRE_GUEST_ID =
   String(process.env.ECO_REQUIRE_GUEST_ID ?? "false").toLowerCase() === "true";
 
-const DEFAULT_STREAM_TIMEOUT_MS = 45_000;
-const streamTimeoutMs = (() => {
+const DEFAULT_IDLE_TIMEOUT_MS = 55_000;
+const MIN_IDLE_TIMEOUT_MS = 45_000;
+const MAX_IDLE_TIMEOUT_MS = 60_000;
+const rawIdleTimeout = (() => {
   const raw = process.env.ECO_SSE_TIMEOUT_MS;
-  if (!raw) return DEFAULT_STREAM_TIMEOUT_MS;
+  if (!raw) return DEFAULT_IDLE_TIMEOUT_MS;
   const parsed = Number(raw);
   if (!Number.isFinite(parsed) || parsed <= 0) {
-    return DEFAULT_STREAM_TIMEOUT_MS;
+    return DEFAULT_IDLE_TIMEOUT_MS;
   }
   return parsed;
 })();
+
+const IS_TEST_ENV = String(process.env.NODE_ENV).toLowerCase() === "test";
+const streamIdleTimeoutMs = IS_TEST_ENV
+  ? rawIdleTimeout
+  : Math.min(Math.max(rawIdleTimeout, MIN_IDLE_TIMEOUT_MS), MAX_IDLE_TIMEOUT_MS);
+
+const DEFAULT_FIRST_TOKEN_TIMEOUT_MS = 35_000;
+const MIN_FIRST_TOKEN_TIMEOUT_MS = 30_000;
+const MAX_FIRST_TOKEN_TIMEOUT_MS = 45_000;
+const firstTokenTimeoutMs = (() => {
+  const raw = process.env.ECO_FIRST_TOKEN_TIMEOUT_MS;
+  if (!raw) return DEFAULT_FIRST_TOKEN_TIMEOUT_MS;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return DEFAULT_FIRST_TOKEN_TIMEOUT_MS;
+  }
+  return parsed;
+})();
+
+const firstTokenWatchdogMs = Math.min(
+  Math.max(firstTokenTimeoutMs, MIN_FIRST_TOKEN_TIMEOUT_MS),
+  MAX_FIRST_TOKEN_TIMEOUT_MS
+);
+
+const DEFAULT_PING_INTERVAL_MS = 20_000;
+const MIN_PING_INTERVAL_MS = 15_000;
+const MAX_PING_INTERVAL_MS = 25_000;
+const resolvedPingIntervalMs = (() => {
+  const raw = process.env.ECO_SSE_PING_INTERVAL_MS;
+  if (!raw) return DEFAULT_PING_INTERVAL_MS;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return DEFAULT_PING_INTERVAL_MS;
+  }
+  return parsed;
+})();
+
+const streamPingIntervalMs = Math.min(
+  Math.max(resolvedPingIntervalMs, MIN_PING_INTERVAL_MS),
+  MAX_PING_INTERVAL_MS
+);
 
 type RequestWithIdentity = Request & {
   guestId?: string | null;
@@ -283,6 +325,7 @@ function disableCompressionForSse(response: Response) {
     response.removeHeader("Content-Length");
   }
   response.setHeader("X-No-Compression", "1");
+  response.setHeader("Content-Encoding", "identity");
 }
 
 function ensureVaryIncludes(response: Response, value: string) {
@@ -305,6 +348,17 @@ function ensureVaryIncludes(response: Response, value: string) {
     normalized.push(value);
     response.setHeader("Vary", normalized.join(", "));
   }
+}
+
+function captureShortStack(label: string): string | null {
+  const err = new Error(label);
+  if (!err.stack) return null;
+  return err.stack
+    .split("\n")
+    .slice(1, 6)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .join(" | ") || null;
 }
 
 function extractSessionIdLoose(value: unknown): string | null {
@@ -967,9 +1021,54 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
       flush: false,
     });
 
-    console.info("[ask-eco] start", {
+    const formatHeaderValue = (
+      value: string | number | string[] | boolean | null | undefined
+    ): string | null => {
+      if (Array.isArray(value)) {
+        return value
+          .map((entry) =>
+            typeof entry === "string" || typeof entry === "number"
+              ? String(entry)
+              : ""
+          )
+          .filter(Boolean)
+          .join(", ");
+      }
+      if (typeof value === "number") {
+        return String(value);
+      }
+      if (typeof value === "boolean") {
+        return value ? "true" : "false";
+      }
+      if (typeof value === "string") {
+        return value;
+      }
+      return value ?? null;
+    };
+
+    const headerSnapshot = {
+      "content-type": formatHeaderValue(res.getHeader("Content-Type")),
+      "cache-control": formatHeaderValue(res.getHeader("Cache-Control")),
+      connection: formatHeaderValue(res.getHeader("Connection")),
+      "x-accel-buffering": formatHeaderValue(res.getHeader("X-Accel-Buffering")),
+      "x-no-compression": formatHeaderValue(res.getHeader("X-No-Compression")),
+      "transfer-encoding": formatHeaderValue(res.getHeader("Transfer-Encoding")),
+    };
+
+    log.info("[ask-eco] stream_start", {
       origin: origin ?? null,
       streamId: streamId ?? null,
+      clientMessageId: clientMessageId ?? null,
+      interactionId: resolvedInteractionId ?? null,
+      headers: {
+        accept: typeof req.headers.accept === "string" ? req.headers.accept : undefined,
+        "user-agent": typeof req.headers["user-agent"] === "string" ? req.headers["user-agent"] : undefined,
+      },
+      pid: process.pid,
+      idleTimeoutMs,
+      pingIntervalMs: streamPingIntervalMs,
+      firstTokenTimeoutMs: firstTokenWatchdogMs,
+      responseHeaders: headerSnapshot,
     });
 
     const abortController = new AbortController();
@@ -1019,7 +1118,7 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
       const existing = activeStreamSessions.get(streamContextKey);
       if (existing) {
         try {
-          existing.controller.abort(new Error("superseded_stream"));
+          existing.controller.abort(new Error("replaced_by_new_stream"));
         } catch (error) {
           log.warn("[ask-eco] prior_stream_abort_failed", {
             message: error instanceof Error ? error.message : String(error),
@@ -1222,12 +1321,15 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
       sawChunk: false,
       finishReason: "" as string | undefined,
       clientClosed: false,
+      clientClosedStack: null as string | null,
       firstSent: false,
       t0: Date.now(),
+      promptReadyAt: 0,
       firstTokenAt: 0,
       chunksCount: 0,
       bytesCount: 0,
       lastChunkAt: 0,
+      lastEventAt: Date.now(),
       model: null as string | null,
       firstTokenTelemetrySent: false,
       endLogged: false,
@@ -1237,6 +1339,154 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
       usageTokens: { in: null as number | null, out: null as number | null },
       latencyMarks: {} as Record<string, unknown>,
       streamResult: null as Record<string, unknown> | null,
+      firstTokenWatchdog: null as NodeJS.Timeout | null,
+      firstTokenWatchdogFired: false,
+      connectionClosed: false,
+      closeSource: null as string | null,
+      closeClassification: null as string | null,
+      closeAt: 0,
+      closeErrorMessage: null as string | null,
+      serverAbortReason: null as string | null,
+      doneAt: 0,
+    };
+
+    const classifyClose = (source: string | null | undefined):
+      | "client_closed"
+      | "proxy_closed"
+      | "server_abort"
+      | "unknown" => {
+      if (!source) {
+        return state.serverAbortReason ? "server_abort" : "unknown";
+      }
+      if (source === "req.close" || source === "res.write") {
+        return "client_closed";
+      }
+      if (source === "req.aborted" || source === "res.error") {
+        return "proxy_closed";
+      }
+      if (source === "server.abort") {
+        return "server_abort";
+      }
+      if (source === "res.close") {
+        if (state.serverAbortReason || state.done) {
+          return "server_abort";
+        }
+        return "proxy_closed";
+      }
+      if (state.serverAbortReason) {
+        return "server_abort";
+      }
+      return "unknown";
+    };
+
+    const markConnectionClosed = (
+      source: string,
+      error?: unknown
+    ): "client_closed" | "proxy_closed" | "server_abort" | "unknown" => {
+      if (!state.connectionClosed) {
+        state.connectionClosed = true;
+        state.closeSource = source;
+        state.closeAt = Date.now();
+      }
+
+      if (!state.closeErrorMessage) {
+        if (error instanceof Error && typeof error.message === "string") {
+          const trimmed = error.message.trim();
+          if (trimmed) {
+            state.closeErrorMessage = trimmed;
+          }
+        } else if (typeof error === "string") {
+          const trimmed = error.trim();
+          if (trimmed) {
+            state.closeErrorMessage = trimmed;
+          }
+        }
+      }
+
+      const classification = classifyClose(source);
+      state.closeClassification = classification;
+      if (classification === "client_closed") {
+        state.clientClosed = true;
+        if (!state.clientClosedStack) {
+          state.clientClosedStack = captureShortStack(source);
+        }
+      }
+
+      if (!state.done) {
+        const sincePromptReady =
+          state.promptReadyAt > 0 ? state.closeAt - state.promptReadyAt : null;
+        log.warn("[ask-eco] stream_close_before_done", {
+          source,
+          classification,
+          beforeDone: true,
+          chunksEmitted: state.chunksCount,
+          bytesSent: state.bytesCount,
+          sincePromptReadyMs: sincePromptReady,
+          origin: origin ?? null,
+          clientMessageId: clientMessageId ?? null,
+          stack: classification === "client_closed" ? state.clientClosedStack ?? undefined : undefined,
+          closeError: state.closeErrorMessage ?? undefined,
+          error: error instanceof Error ? error.message : error ? String(error) : undefined,
+        });
+      }
+
+      return classification;
+    };
+
+    const clearFirstTokenWatchdog = () => {
+      if (state.firstTokenWatchdog) {
+        clearTimeout(state.firstTokenWatchdog);
+        state.firstTokenWatchdog = null;
+      }
+    };
+
+    const armFirstTokenWatchdog = () => {
+      clearFirstTokenWatchdog();
+      if (firstTokenWatchdogMs <= 0) {
+        return;
+      }
+      state.firstTokenWatchdog = setTimeout(() => {
+        state.firstTokenWatchdog = null;
+        if (state.done || state.firstTokenWatchdogFired) {
+          return;
+        }
+        state.firstTokenWatchdogFired = true;
+        const nowTs = Date.now();
+        log.warn("[ask-eco] first_token_watchdog_triggered", {
+          timeoutMs: firstTokenWatchdogMs,
+          origin: origin ?? null,
+          clientMessageId: clientMessageId ?? null,
+        });
+        enqueuePassiveSignal("first_token_watchdog", 0, {
+          timeout_ms: firstTokenWatchdogMs,
+        });
+        if (!state.sawChunk && !state.done) {
+          state.finishReason = state.finishReason || "first_token_timeout";
+        }
+        state.lastEventAt = nowTs;
+      }, firstTokenWatchdogMs);
+    };
+
+    const handleConnectionClosed = ({ source, error }: { source: string; error?: unknown }) => {
+      const classification = markConnectionClosed(source, error);
+      if (!state.finishReason) {
+        if (classification === "client_closed") {
+          state.finishReason = "client_closed";
+        } else if (classification === "proxy_closed") {
+          state.finishReason = "proxy_closed";
+        } else if (classification === "server_abort" && state.serverAbortReason) {
+          state.finishReason = state.serverAbortReason;
+        }
+      }
+      if (!state.done && !abortSignal.aborted) {
+        if (classification === "client_closed") {
+          abortController.abort(new Error("client_closed"));
+        } else if (classification === "proxy_closed") {
+          abortController.abort(new Error("proxy_closed"));
+        } else if (classification === "server_abort" && state.serverAbortReason) {
+          abortController.abort(new Error(state.serverAbortReason));
+        }
+      }
     };
 
     const consoleStreamEnd = (payload?: Record<string, unknown>) => {
@@ -1283,8 +1533,7 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
       state.latencyMarks = { ...state.latencyMarks, ...marks };
     };
 
-    const idleTimeoutMs =
-      Number.isFinite(streamTimeoutMs) && streamTimeoutMs > 0 ? streamTimeoutMs : 120_000;
+    const idleTimeoutMs = streamIdleTimeoutMs;
 
     const resolvedUserIdForInteraction =
       !isGuestRequest && typeof (params as any).userId === "string"
@@ -1298,9 +1547,11 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
     }
 
     const sse = createSSE(res, req, {
-      heartbeatMs: 25_000,
+      pingIntervalMs: streamPingIntervalMs,
       idleMs: idleTimeoutMs,
       onIdle: handleStreamTimeout,
+      onConnectionClose: handleConnectionClosed,
+      commentOnOpen: "ok",
     });
 
     let interactionBootstrapPromise: Promise<void> = Promise.resolve();
@@ -1341,11 +1592,6 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
       }
     };
 
-    log.info("[ask-eco] stream_start", {
-      origin: origin ?? null,
-      idleTimeoutMs,
-    });
-
     const recordFirstTokenTelemetry = (chunkBytes: number) => {
       if (state.firstTokenTelemetrySent) return;
       state.firstTokenTelemetrySent = true;
@@ -1385,8 +1631,20 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
 
     function sendDone(reason?: string | null) {
       if (state.done) return;
-      state.finishReason = reason ?? state.finishReason ?? "unknown";
+      clearFirstTokenWatchdog();
       state.done = true;
+      const nowTs = Date.now();
+      if (!state.lastChunkAt) {
+        state.lastChunkAt = nowTs;
+      }
+      state.doneAt = state.lastChunkAt || nowTs;
+      state.lastEventAt = state.doneAt;
+
+      let finishReason = reason ?? state.finishReason;
+      if (!finishReason && state.firstTokenWatchdogFired) {
+        finishReason = "first_token_timeout";
+      }
+      state.finishReason = finishReason ?? "unknown";
 
       const finalizeStream = async () => {
         try {
@@ -1398,8 +1656,16 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
         }
 
         const firstTokenLatency = state.firstTokenAt ? state.firstTokenAt - state.t0 : null;
-        const finishedAt = state.lastChunkAt || Date.now();
+        const finishedAt = state.doneAt || Date.now();
         const totalLatency = finishedAt - state.t0;
+        const sincePromptReady =
+          state.promptReadyAt > 0 ? finishedAt - state.promptReadyAt : null;
+        const beforeDone =
+          state.connectionClosed && state.closeAt > 0 && state.closeAt < state.doneAt;
+        const closeDelayMs =
+          state.closeAt > 0 ? Math.max(0, state.doneAt - state.closeAt) : null;
+        const closeSinceStartMs =
+          state.closeAt > 0 ? Math.max(0, state.closeAt - state.t0) : null;
 
         try {
           sendMeta({
@@ -1409,20 +1675,19 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
             bytes: state.bytesCount,
           });
 
-          const finishReason = state.finishReason || "unknown";
-          if (state.sawChunk) {
-            log.info("[ask-eco] sse_done", {
-              finishReason,
-              sawChunk: state.sawChunk,
-              chunks: state.chunksCount,
-              bytes: state.bytesCount,
-            });
-          } else {
-            log.debug("[ask-eco] sse_done_no_chunk", {
-              finishReason,
-              clientClosed: state.clientClosed,
-            });
-          }
+          const resolvedFinishReason = state.finishReason || "unknown";
+
+          log.info("[ask-eco] stream_done", {
+            finishReason: resolvedFinishReason,
+            sawChunk: state.sawChunk,
+            chunks: state.chunksCount,
+            bytes: state.bytesCount,
+            origin: origin ?? null,
+            clientMessageId: clientMessageId ?? null,
+            firstTokenLatencyMs: firstTokenLatency,
+            totalLatencyMs: totalLatency,
+            sincePromptReadyMs: sincePromptReady,
+          });
 
           const streamMeta = state.streamResult && typeof state.streamResult === "object"
             ? (state.streamResult as Record<string, unknown>)
@@ -1480,7 +1745,7 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
             output_tokens: state.usageTokens.out,
           };
 
-          sse.sendControl("done");
+          sse.sendControl("done", { finishReason: resolvedFinishReason });
           sse.send("done", {
             done: true,
             ...donePayload,
@@ -1494,32 +1759,45 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
             clientMessageId: clientMessageId ?? null,
             stream_aborted: abortSignal.aborted,
             final_chunk_sent: state.sawChunk,
-            finishReason,
+            finishReason: resolvedFinishReason,
             summary: donePayload,
           });
 
-          finalizeClientMessageReservation(finishReason);
+          finalizeClientMessageReservation(resolvedFinishReason);
 
           log.info("[ask-eco] stream_end", {
-            finishReason,
+            finishReason: resolvedFinishReason,
             chunks: state.chunksCount,
             bytes: state.bytesCount,
             clientClosed: state.clientClosed,
+            clientClosedStack: state.clientClosedStack ?? undefined,
+            closeClassification: state.closeClassification,
+            closeSource: state.closeSource ?? undefined,
+            closeError: state.closeErrorMessage ?? undefined,
             origin: origin ?? null,
+            beforeDone,
+            sinceStartMs: totalLatency,
+            sincePromptReadyMs: sincePromptReady,
+            closeSinceStartMs,
+            closeDelayMs: closeDelayMs ?? undefined,
+            serverAbortReason: state.serverAbortReason ?? undefined,
           });
 
           const endPayload: Record<string, unknown> = {};
-          if (finishReason) {
-            endPayload.finishReason = finishReason;
+          if (resolvedFinishReason) {
+            endPayload.finishReason = resolvedFinishReason;
           }
           consoleStreamEnd(Object.keys(endPayload).length ? endPayload : undefined);
 
-          const doneValue = finishReason === "error" || finishReason === "timeout" ? 0 : 1;
+          const doneValue =
+            resolvedFinishReason === "error" || resolvedFinishReason === "timeout"
+              ? 0
+              : 1;
           enqueuePassiveSignal(
             "done",
             doneValue,
             compactMeta({
-              finish_reason: finishReason,
+              finish_reason: resolvedFinishReason,
               chunks: state.chunksCount,
               bytes: state.bytesCount,
               first_token_latency_ms: firstTokenLatency ?? undefined,
@@ -1543,12 +1821,21 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
     }
 
     function handleStreamTimeout() {
-      if (state.done || state.clientClosed || state.sawChunk) {
+      if (state.done) {
         return;
       }
-      log.warn("[ask-eco] sse_timeout", { timeoutMs: idleTimeoutMs, reason: "provider_timeout" });
-      sendChunk(STREAM_TIMEOUT_MESSAGE);
-      sendDone("timeout");
+      clearFirstTokenWatchdog();
+      state.serverAbortReason = "idle_timeout";
+      state.finishReason = state.finishReason || "idle_timeout";
+      log.warn("[ask-eco] stream_idle_timeout", {
+        timeoutMs: idleTimeoutMs,
+        origin: origin ?? null,
+        clientMessageId: clientMessageId ?? null,
+      });
+      enqueuePassiveSignal("idle_timeout", 0, {
+        timeout_ms: idleTimeoutMs,
+      });
+      sendDone("idle_timeout");
     }
 
     function sendChunk(piece: string) {
@@ -1563,23 +1850,17 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
       state.sawChunk = true;
       const chunkIndex = state.chunksCount;
       const chunkBytes = Buffer.byteLength(finalText, "utf8");
-      state.bytesCount += chunkBytes;
+      const totalBytes = state.bytesCount + chunkBytes;
       const now = Date.now();
       state.lastChunkAt = now;
+      state.lastEventAt = now;
 
       if (!state.firstSent) {
         state.firstSent = true;
         state.firstTokenAt = now;
+        clearFirstTokenWatchdog();
         sendMeta({ type: "first_token_latency_ms", value: state.firstTokenAt - state.t0 });
         recordFirstTokenTelemetry(chunkBytes);
-      }
-
-      if (chunkIndex === 0) {
-        log.info("[ask-eco] emit_event", {
-          index: chunkIndex,
-          bytes: chunkBytes,
-          origin: origin ?? null,
-        });
       }
 
       const chunkPayload = {
@@ -1589,7 +1870,16 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
       sse.send("chunk", chunkPayload);
 
       state.chunksCount = chunkIndex + 1;
+      state.bytesCount = totalBytes;
       state.contentPieces.push(finalText);
+
+      log.info("[ask-eco] stream_chunk", {
+        index: chunkIndex,
+        bytes: chunkBytes,
+        totalBytes,
+        chunks: state.chunksCount,
+        origin: origin ?? null,
+      });
     }
 
     abortListener = () => {
@@ -1601,8 +1891,9 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
         releaseActiveStream();
         return;
       }
+      clearFirstTokenWatchdog();
       const reasonValue = abortSignal.reason;
-      const finishReason = (() => {
+      let finishReason = (() => {
         if (typeof reasonValue === "string" && reasonValue.trim()) {
           return reasonValue.trim();
         }
@@ -1613,39 +1904,40 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
         }
         return "aborted";
       })();
+      if (finishReason === "superseded_stream") {
+        finishReason = "replaced_by_new_stream";
+      }
+      state.serverAbortReason = finishReason;
+      if (!state.connectionClosed) {
+        markConnectionClosed("server.abort");
+      }
       if (finishReason === "client_closed") {
         log.info("[ask-eco] sse_client_closed", {
-          origin,
+          origin: origin ?? null,
+          streamId: streamId ?? null,
+          clientMessageId: clientMessageId ?? null,
+          chunks: state.chunksCount,
+          stack: state.clientClosedStack ?? undefined,
         });
-      } else if (finishReason === "superseded_stream") {
+      } else if (finishReason === "replaced_by_new_stream") {
         log.info("[ask-eco] sse_stream_replaced", {
           origin: origin ?? null,
           streamId: streamId ?? null,
+        });
+      } else if (finishReason === "proxy_closed") {
+        log.info("[ask-eco] sse_proxy_closed", {
+          origin: origin ?? null,
+          streamId: streamId ?? null,
+          clientMessageId: clientMessageId ?? null,
+          closeError: state.closeErrorMessage ?? undefined,
         });
       }
       state.clientClosed = state.clientClosed || finishReason === "client_closed";
       sendDone(finishReason || "aborted");
     };
     abortSignal.addEventListener("abort", abortListener);
-    sse.sendControl("prompt_ready", { interaction_id: resolvedInteractionId });
-    sse.send("control", {
-      type: "interaction",
-      interaction_id: resolvedInteractionId,
-    });
-    enqueuePassiveSignal("prompt_ready", 1, {
-      stream: true,
-      origin: origin ?? null,
-    });
 
     interactionBootstrapPromise = bootstrapInteraction();
-
-    req.on("close", () => {
-      if (state.clientClosed) return;
-      state.clientClosed = true;
-      if (!abortSignal.aborted) {
-        abortController.abort(new Error("client_closed"));
-      }
-    });
 
     const forwardEvent = (rawEvt: EcoStreamEvent | any) => {
       if (state.done || state.clientClosed) return;
@@ -1669,6 +1961,48 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
           }
           if (evt?.timings && typeof evt.timings === "object") {
             mergeLatencyMarks(evt.timings as Record<string, unknown>);
+          }
+          if (name === "prompt_ready") {
+            const nowTs = Date.now();
+            state.promptReadyAt = nowTs;
+            state.lastEventAt = nowTs;
+            sse.sendControl("prompt_ready", {
+              interaction_id: resolvedInteractionId,
+              sinceStartMs: nowTs - state.t0,
+            });
+            sse.send("control", {
+              type: "interaction",
+              interaction_id: resolvedInteractionId,
+              source: "stream",
+            });
+            enqueuePassiveSignal("prompt_ready", 1, {
+              stream: true,
+              origin: origin ?? null,
+            });
+            log.info("[ask-eco] prompt_ready", {
+              origin: origin ?? null,
+              clientMessageId: clientMessageId ?? null,
+              interactionId: resolvedInteractionId ?? null,
+              sinceStartMs: nowTs - state.t0,
+            });
+            armFirstTokenWatchdog();
+            return;
+          }
+          if (name === "guard_fallback_trigger") {
+            const nowTs = Date.now();
+            state.lastEventAt = nowTs;
+            const payload: Record<string, unknown> = { name: "guard_fallback_trigger" };
+            if (meta) {
+              payload.meta = meta;
+            }
+            sse.send("control", payload);
+            log.warn("[ask-eco] guard_fallback_trigger", {
+              origin: origin ?? null,
+              clientMessageId: clientMessageId ?? null,
+              interactionId: resolvedInteractionId ?? null,
+              meta: meta ?? null,
+            });
+            return;
           }
           if (name === "meta" && meta) {
             sendMeta(meta);
