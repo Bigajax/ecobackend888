@@ -30,7 +30,7 @@ function sanitizeOutput(input?: string): string {
 }
 
 const GUARD_FALLBACK_TEXT =
-  "Senti uma oscilação do meu lado, mas continuo aqui com você. Podemos tentar novamente em instantes?";
+  "Não consegui responder agora. Vamos tentar de novo?";
 
 type DonePayload = {
   content: string | null;
@@ -1434,8 +1434,12 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
       }
 
       const classification = classifyClose(source);
-      state.closeClassification = classification;
-      if (classification === "client_closed") {
+      const effectiveClassification =
+        state.closeClassification === "client_closed" && classification !== "client_closed"
+          ? "client_closed"
+          : classification;
+      state.closeClassification = effectiveClassification;
+      if (effectiveClassification === "client_closed") {
         state.clientClosed = true;
         if (!state.clientClosedStack) {
           state.clientClosedStack = captureShortStack(source);
@@ -1447,20 +1451,23 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
           state.promptReadyAt > 0 ? state.closeAt - state.promptReadyAt : null;
         log.warn("[ask-eco] stream_close_before_done", {
           source,
-          classification,
+          classification: effectiveClassification,
           beforeDone: true,
           chunksEmitted: state.chunksCount,
           bytesSent: state.bytesCount,
           sincePromptReadyMs: sincePromptReady,
           origin: origin ?? null,
           clientMessageId: clientMessageId ?? null,
-          stack: classification === "client_closed" ? state.clientClosedStack ?? undefined : undefined,
+          stack:
+            effectiveClassification === "client_closed"
+              ? state.clientClosedStack ?? undefined
+              : undefined,
           closeError: state.closeErrorMessage ?? undefined,
           error: error instanceof Error ? error.message : error ? String(error) : undefined,
         });
       }
 
-      return classification;
+      return effectiveClassification;
     };
 
     const clearFirstTokenWatchdog = () => {
@@ -1498,6 +1505,7 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
     };
 
     const handleConnectionClosed = ({ source, error }: { source: string; error?: unknown }) => {
+      isClosed = true;
       const classification = markConnectionClosed(source, error);
       if (!state.finishReason) {
         if (classification === "client_closed") {
@@ -1599,6 +1607,17 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
 
     sseConnection = sse;
 
+    let isClosed = false;
+    req.on("close", () => {
+      isClosed = true;
+    });
+    req.on("aborted", () => {
+      isClosed = true;
+    });
+    (res as any).on?.("close", () => {
+      isClosed = true;
+    });
+
     let interactionBootstrapPromise: Promise<void> = Promise.resolve();
 
     const bootstrapInteraction = async () => {
@@ -1672,15 +1691,24 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
       if (state.sawChunk || state.guardFallbackSent) {
         return;
       }
-      state.guardFallbackSent = true;
       state.guardFallbackReason = reason;
+      const canEmitGuard = Boolean(sseConnection) && !isClosed;
+      state.guardFallbackSent = true;
       log.warn("[ask-eco] guard_fallback_emit", {
         origin: origin ?? null,
         clientMessageId: clientMessageId ?? null,
         interactionId: resolvedInteractionId ?? null,
         reason,
+        emitted: canEmitGuard,
       });
-      sendChunk({ text: GUARD_FALLBACK_TEXT });
+      if (!canEmitGuard || !sseConnection) {
+        return;
+      }
+      sendChunk({ text: GUARD_FALLBACK_TEXT, index: 0 });
+      if (!doneSent) {
+        sseConnection.write({ index: 1, done: true });
+        doneSent = true;
+      }
     };
 
     function sendDone(reason?: string | null) {
