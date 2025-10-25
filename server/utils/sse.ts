@@ -44,8 +44,9 @@ export function prepareSseHeaders(
     "Access-Control-Allow-Credentials",
     allowCredentials ? "true" : "false"
   );
+  res.removeHeader("Content-Length");
   res.setHeader("Content-Type", "text/event-stream");
-  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
   res.setHeader("Connection", "keep-alive");
   res.setHeader("X-Accel-Buffering", "no");
   res.setHeader("Transfer-Encoding", "chunked");
@@ -92,7 +93,7 @@ export function createSSE(
     res.setHeader("Content-Type", "text/event-stream");
   }
   if (!res.hasHeader("Cache-Control")) {
-    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Cache-Control", "no-cache, no-transform");
   }
   if (!res.hasHeader("Connection")) {
     res.setHeader("Connection", "keep-alive");
@@ -102,6 +103,9 @@ export function createSSE(
   }
   if (!res.hasHeader("Transfer-Encoding")) {
     res.setHeader("Transfer-Encoding", "chunked");
+  }
+  if (res.hasHeader("Content-Length")) {
+    res.removeHeader("Content-Length");
   }
 
   (res as any).flushHeaders?.();

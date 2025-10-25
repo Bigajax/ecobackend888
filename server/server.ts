@@ -24,6 +24,7 @@ import dotenv from "dotenv";
 import { createApp } from "./core/http/app";
 import { getConfiguredCorsOrigins } from "./middleware/cors";
 import { configureModuleStore } from "./bootstrap/modules";
+import { ModuleCatalog } from "./domains/prompts/ModuleCatalog";
 import registrarTodasHeuristicas from "./services/registrarTodasHeuristicas";
 import registrarModulosFilosoficos from "./services/registrarModulosFilosoficos";
 import { log } from "./services/promptContext/logger";
@@ -122,6 +123,18 @@ function assertRequiredModules() {
 async function start() {
   assertRequiredModules();
   await configureModuleStore();
+  const moduleStats = ModuleCatalog.stats();
+  if (moduleStats.indexedCount > 0) {
+    console.info("[boot] module_index_ready", {
+      roots: moduleStats.roots,
+      indexedCount: moduleStats.indexedCount,
+    });
+  } else {
+    console.error("[boot] module_index_empty", {
+      roots: moduleStats.roots,
+      indexedCount: moduleStats.indexedCount,
+    });
+  }
   await ensureEcoIdentityPromptAvailability();
   startBanditRewardSyncScheduler();
 
