@@ -287,10 +287,10 @@ test("SSE streaming emits tokens, done and disables compression", async () => {
   await handler(req as any, res as any);
 
   assert.equal(res.statusCode, 200);
-  assert.equal(res.headers.get("content-type"), "text/event-stream");
+  assert.equal(res.headers.get("content-type"), "text/event-stream; charset=utf-8");
   assert.equal(res.headers.get("content-encoding"), "identity");
   assert.equal(res.headers.get("x-no-compression"), "1");
-  assert.equal(res.headers.get("cache-control"), "no-cache");
+  assert.equal(res.headers.get("cache-control"), "no-cache, no-transform");
   assert.equal(res.headers.get("connection"), "keep-alive");
   assert.equal(
     res.headers.get("x-eco-interaction-id"),
@@ -302,11 +302,13 @@ test("SSE streaming emits tokens, done and disables compression", async () => {
 
   const output = res.chunks.join("");
   assert.ok(res.chunks.length > 0, "should emit at least one SSE chunk");
-  assert.ok(!output.includes("event:"), "should not include explicit event fields");
-
   const payloads = parseSsePayloads(output);
   assert.ok(payloads.length >= 2, "should emit chunks and a done payload");
-  for (const payload of payloads) {
+
+  const promptReadyPayload = payloads.find((payload) => payload?.name === "prompt_ready");
+  assert.ok(promptReadyPayload, "should emit prompt_ready control event");
+  const nonControlPayloads = payloads.filter((payload) => payload?.name !== "prompt_ready");
+  for (const payload of nonControlPayloads) {
     assert.ok(!Object.prototype.hasOwnProperty.call(payload, "type"));
     assert.ok(!Object.prototype.hasOwnProperty.call(payload, "delta"));
     assert.ok(!Object.prototype.hasOwnProperty.call(payload, "name"));

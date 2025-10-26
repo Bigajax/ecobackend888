@@ -46,8 +46,8 @@ export function prepareSseHeaders(
   );
   res.removeHeader("Content-Length");
   res.removeHeader("Content-Encoding");
-  res.setHeader("Content-Type", "text/event-stream");
-  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
   res.setHeader("Connection", "keep-alive");
   res.setHeader("X-Accel-Buffering", "no");
   res.setHeader("Transfer-Encoding", "chunked");
@@ -112,10 +112,10 @@ export function createSSE(
   res.status(200);
 
   if (!res.hasHeader("Content-Type")) {
-    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
   }
   if (!res.hasHeader("Cache-Control")) {
-    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Cache-Control", "no-cache, no-transform");
   }
   if (!res.hasHeader("Connection")) {
     res.setHeader("Connection", "keep-alive");
@@ -123,6 +123,7 @@ export function createSSE(
   if (!res.hasHeader("X-Accel-Buffering")) {
     res.setHeader("X-Accel-Buffering", "no");
   }
+  ensureVaryIncludes(res, "Origin");
   if (!res.hasHeader("Transfer-Encoding")) {
     res.setHeader("Transfer-Encoding", "chunked");
   }
@@ -199,6 +200,7 @@ export function createSSE(
     }
     try {
       res.write(chunk);
+      (res as any).flushHeaders?.();
       (res as any).flush?.();
       return true;
     } catch (error) {
