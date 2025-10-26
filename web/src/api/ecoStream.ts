@@ -264,9 +264,50 @@ export interface EcoStreamHandle {
 
 const activeStreamState: {
   controller: AbortController | null;
+  label: string | null;
+  startedAt: number | null;
 } = {
   controller: null,
+  label: null,
+  startedAt: null,
 };
+
+function safeTimestamp(): number {
+  if (typeof performance !== "undefined" && typeof performance.now === "function") {
+    return performance.now();
+  }
+  return Date.now();
+}
+
+function makeStreamLabel(explicit?: string | null | undefined): string {
+  const trimmed = typeof explicit === "string" ? explicit.trim() : "";
+  if (trimmed) {
+    return trimmed;
+  }
+  return `anon_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function logStreamDebug(event: string, payload: Record<string, unknown>): void {
+  try {
+    console.debug(`[SSE] ${event}`, payload);
+  } catch {
+    // ignore logging failures in non-browser environments
+  }
+}
+
+function logClientAbort(
+  streamId: string,
+  reason: string,
+  meta: Record<string, unknown> = {}
+): void {
+  const stackHolder = new Error(`client_abort:${reason}`);
+  logStreamDebug("client_abort", {
+    streamId,
+    reason,
+    stack: stackHolder.stack,
+    ...meta,
+  });
+}
 
 function createAbortError(reason: string): Error {
   const error = new Error(reason);
@@ -285,23 +326,60 @@ export function startEcoStream({
   headers,
 }: StartEcoStreamParams): EcoStreamHandle {
   const controller = new AbortController();
+  const label = makeStreamLabel(streamId);
+  const startedAt = safeTimestamp();
+
+  const summarizeBody = () => {
+    if (!body || typeof body !== "object") {
+      return { type: typeof body };
+    }
+    const candidate = body as Record<string, unknown>;
+    const hasMessages = Array.isArray((candidate as any).messages);
+    const messageCount = hasMessages ? ((candidate as any).messages as unknown[]).length : undefined;
+    return {
+      keys: Object.keys(candidate).slice(0, 8),
+      hasMessages,
+      messageCount,
+    };
+  };
+
+  logStreamDebug("stream_start", {
+    streamId: label,
+    endpoint,
+    startedAt,
+    body: summarizeBody(),
+  });
 
   if (activeStreamState.controller && activeStreamState.controller !== controller) {
     try {
+      logClientAbort(activeStreamState.label ?? label, "superseded_stream", {
+        elapsedMs:
+          activeStreamState.startedAt != null ? startedAt - activeStreamState.startedAt : undefined,
+      });
       activeStreamState.controller.abort(createAbortError("superseded_stream"));
     } catch {
       /* ignore abort propagation failures */
     }
   }
   activeStreamState.controller = controller;
+  activeStreamState.label = label;
+  activeStreamState.startedAt = startedAt;
 
   if (signal) {
     if (signal.aborted) {
+      logClientAbort(label, "external_signal_pre", {
+        elapsedMs: safeTimestamp() - startedAt,
+        externalReason: signal.reason instanceof Error ? signal.reason.message : signal.reason,
+      });
       controller.abort(signal.reason);
     } else {
       signal.addEventListener(
         "abort",
         () => {
+          logClientAbort(label, "external_signal", {
+            elapsedMs: safeTimestamp() - startedAt,
+            externalReason: signal.reason instanceof Error ? signal.reason.message : signal.reason,
+          });
           controller.abort(signal.reason);
         },
         { once: true }
@@ -312,6 +390,8 @@ export function startEcoStream({
   const finalizeActiveStream = () => {
     if (activeStreamState.controller === controller) {
       activeStreamState.controller = null;
+      activeStreamState.label = null;
+      activeStreamState.startedAt = null;
     }
   };
 
@@ -386,6 +466,16 @@ export function startEcoStream({
               const payload = JSON.parse(entry.data) as EcoServerEvent;
               const normalizedEvents = normalizeServerEvent(payload, entry.event);
               for (const normalized of normalizedEvents) {
+                const payload: Record<string, unknown> = {
+                  streamId: label,
+                  type: normalized.type,
+                  elapsedMs: safeTimestamp() - startedAt,
+                };
+                if (normalized.type === "chunk") {
+                  payload.index = normalized.index;
+                  payload.deltaLength = normalized.delta.length;
+                }
+                logStreamDebug("stream_event", payload);
                 // LATENCY: entrega cada token/control para renderização imediata.
                 onEvent(normalized);
               }
@@ -406,6 +496,16 @@ export function startEcoStream({
             const payload = JSON.parse(entry.data) as EcoServerEvent;
             const normalizedEvents = normalizeServerEvent(payload, entry.event);
             for (const normalized of normalizedEvents) {
+              const logPayload: Record<string, unknown> = {
+                streamId: label,
+                type: normalized.type,
+                elapsedMs: safeTimestamp() - startedAt,
+              };
+              if (normalized.type === "chunk") {
+                logPayload.index = normalized.index;
+                logPayload.deltaLength = normalized.delta.length;
+              }
+              logStreamDebug("stream_event", logPayload);
               onEvent(normalized);
             }
           } catch (parseErr) {
@@ -413,16 +513,42 @@ export function startEcoStream({
           }
         }
       }
+      logStreamDebug("stream_end", {
+        streamId: label,
+        elapsedMs: safeTimestamp() - startedAt,
+        buffered: buffer.length,
+      });
     } catch (error) {
-      if (controller.signal.aborted) return;
+      if (controller.signal.aborted) {
+        logStreamDebug("stream_aborted", {
+          streamId: label,
+          elapsedMs: safeTimestamp() - startedAt,
+        });
+        return;
+      }
       const err = error instanceof Error ? error : new Error(String(error));
       onError?.(err);
+      logStreamDebug("stream_error", {
+        streamId: label,
+        elapsedMs: safeTimestamp() - startedAt,
+        message: err.message,
+      });
       throw err;
     }
-  })().finally(finalizeActiveStream);
+  })()
+    .finally(() => {
+      logStreamDebug("stream_finalize", {
+        streamId: label,
+        elapsedMs: safeTimestamp() - startedAt,
+      });
+      finalizeActiveStream();
+    });
 
   return {
     close: () => {
+      logClientAbort(label, "client_closed", {
+        elapsedMs: safeTimestamp() - startedAt,
+      });
       finalizeActiveStream();
       controller.abort(createAbortError("client_closed"));
     },
