@@ -1378,6 +1378,8 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
     };
 
     let doneSent = false;
+    let earlyClientAbortTimer: NodeJS.Timeout | null = null;
+    let immediatePromptReadySent = false;
     let sseConnection: ReturnType<typeof createSSE> | null = null;
 
     const classifyClose = (source: string | null | undefined):
@@ -1533,6 +1535,25 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
             state.finishReason = state.finishReason || "client_disconnect";
             doneSent = true;
           }
+          sseConnection?.sendComment?.("");
+          if (!state.sawChunk) {
+            if (!earlyClientAbortTimer) {
+              log.info("[ask-eco] client closed before first chunk — keeping LLM alive brevemente", {
+                origin: origin ?? null,
+                clientMessageId: clientMessageId ?? null,
+                streamId: streamId ?? null,
+              });
+              earlyClientAbortTimer = setTimeout(() => {
+                earlyClientAbortTimer = null;
+                if (!state.sawChunk && !abortSignal.aborted) {
+                  state.finishReason = "client_closed_early";
+                  abortController.abort(new Error("client_closed_early"));
+                }
+              }, 1500);
+            }
+            state.finishReason = "client_closed_early";
+            return;
+          }
           abortController.abort(new Error("client_closed"));
         } else if (classification === "proxy_closed") {
           abortController.abort(new Error("proxy_closed"));
@@ -1606,6 +1627,26 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
     });
 
     sseConnection = sse;
+
+    const sendImmediatePromptReady = () => {
+      if (immediatePromptReadySent) {
+        return;
+      }
+      immediatePromptReadySent = true;
+      const nowTs = Date.now();
+      sse.sendComment("");
+      sse.sendControl("prompt_ready");
+      state.promptReadyAt = nowTs;
+      state.lastEventAt = nowTs;
+      armFirstTokenWatchdog();
+      log.info("[ask-eco] prompt_ready_immediate", {
+        origin: origin ?? null,
+        clientMessageId: clientMessageId ?? null,
+        streamId: streamId ?? null,
+      });
+    };
+
+    sendImmediatePromptReady();
 
     let isClosed = false;
     req.on("close", () => {
@@ -1715,6 +1756,10 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
       if (state.done) return;
       clearFirstTokenWatchdog();
       state.done = true;
+      if (earlyClientAbortTimer) {
+        clearTimeout(earlyClientAbortTimer);
+        earlyClientAbortTimer = null;
+      }
       if (heartbeat) {
         clearInterval(heartbeat);
         heartbeat = null;
@@ -1959,6 +2004,10 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
       }
 
       state.sawChunk = true;
+      if (earlyClientAbortTimer) {
+        clearTimeout(earlyClientAbortTimer);
+        earlyClientAbortTimer = null;
+      }
       const providedIndex =
         typeof input.index === "number" && Number.isFinite(input.index)
           ? Number(input.index)
@@ -2010,6 +2059,10 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
         return;
       }
       clearFirstTokenWatchdog();
+      if (earlyClientAbortTimer) {
+        clearTimeout(earlyClientAbortTimer);
+        earlyClientAbortTimer = null;
+      }
       if (heartbeat) {
         clearInterval(heartbeat);
         heartbeat = null;
@@ -2101,6 +2154,16 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
               sinceStartMs: nowTs - state.t0,
             });
             armFirstTokenWatchdog();
+            if (sseConnection) {
+              const payload: Record<string, unknown> = {};
+              if (evt?.timings && typeof evt.timings === "object") {
+                payload.timings = evt.timings as Record<string, unknown>;
+              }
+              if (meta) {
+                payload.meta = meta;
+              }
+              sseConnection.sendControl("prompt_ready", payload);
+            }
             return;
           }
           if (name === "guard_fallback_trigger") {

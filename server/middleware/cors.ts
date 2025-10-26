@@ -151,11 +151,16 @@ export function applyCorsResponseHeaders(req: Request, res: Response) {
 
   if (allowed && normalized) {
     res.setHeader("Access-Control-Allow-Origin", normalized);
+    res.setHeader("Access-Control-Allow-Credentials", "true");
+  } else if (!normalized) {
+    // Alguns navegadores omitem o header Origin em requisições SSE; não bloqueie nesses casos.
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Access-Control-Allow-Credentials", "false");
   } else {
     res.removeHeader("Access-Control-Allow-Origin");
+    res.setHeader("Access-Control-Allow-Credentials", "false");
   }
 
-  res.setHeader("Access-Control-Allow-Credentials", allowed && normalized ? "true" : "false");
   res.setHeader("Access-Control-Allow-Headers", CORS_ALLOW_HEADERS.join(", "));
   res.setHeader("Access-Control-Allow-Methods", CORS_ALLOW_METHODS.join(", "));
   res.setHeader("Access-Control-Expose-Headers", CORS_EXPOSE_HEADERS.join(", "));
