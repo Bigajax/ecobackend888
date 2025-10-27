@@ -14,20 +14,25 @@ import {
   updateInteractionGuest,
 } from "../services/conversation/interactionIdentityStore";
 import { applyCorsResponseHeaders, isAllowedOrigin } from "../middleware/cors";
-import { normalizeGuestIdentifier } from "../core/http/guestIdentity";
 import { createInteraction } from "../services/conversation/interactionAnalytics";
-
-/** Sanitiza a saída removendo blocos ```json``` e JSON final pendurado */
-function sanitizeOutput(input?: string): string {
-  const txt = input ?? "";
-  return txt
-    // remove blocos ```json ... ```
-    .replace(/```(?:json)?[\s\S]*?```/gi, "")
-    // remove possível payload JSON final
-    .replace(/\{[\s\S]*?\}\s*$/g, "")
-    // remove caracteres de controle perigosos, preservando espaços comuns
-    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, "");
-}
+import { extractEventText, extractTextLoose, sanitizeOutput } from "../utils/textExtractor";
+import { getGuestIdFromCookies, resolveGuestId } from "../utils/guestIdResolver";
+import { validateAskEcoPayload } from "../validation/payloadValidator";
+import { SseStreamState } from "../sse/sseState";
+import { SseEventHandlers } from "../sse/sseEvents";
+import { SseTelemetry } from "../sse/sseTelemetry";
+import {
+  activeStreamSessions,
+  buildActiveInteractionKey,
+  releaseActiveInteraction,
+  reserveActiveInteraction,
+} from "../deduplication/activeStreamManager";
+import {
+  buildClientMessageKey,
+  markClientMessageCompleted,
+  releaseClientMessage,
+  reserveClientMessage,
+} from "../deduplication/clientMessageRegistry";
 
 const GUARD_FALLBACK_TEXT =
   "Não consegui responder agora. Vamos tentar de novo?";
@@ -111,147 +116,6 @@ function buildSummaryFromChunks(pieces: string[]): string {
 }
 
 const activeClientMessageLocks = new Map<string, true>();
-
-const activeStreamSessions = new Map<
-  string,
-  { controller: AbortController; interactionId: string }
->();
-
-type ActiveInteractionState = {
-  controller: AbortController;
-  startedAt: number;
-};
-
-const ACTIVE_INTERACTION_TTL_MS = parseDurationEnv(
-  process.env.ECO_ACTIVE_INTERACTION_TTL_MS,
-  10 * 60 * 1000
-);
-
-const activeInteractions = new Map<string, ActiveInteractionState>();
-
-function pruneActiveInteractions(now: number = Date.now()): void {
-  for (const [key, entry] of activeInteractions.entries()) {
-    const isExpired = entry.startedAt + ACTIVE_INTERACTION_TTL_MS <= now;
-    if (isExpired || entry.controller.signal.aborted) {
-      activeInteractions.delete(key);
-    }
-  }
-}
-
-function reserveActiveInteraction(
-  key: string,
-  controller: AbortController
-): boolean {
-  const normalized = key.trim();
-  if (!normalized) {
-    return true;
-  }
-  pruneActiveInteractions();
-  const existing = activeInteractions.get(normalized);
-  if (existing) {
-    if (existing.controller === controller) {
-      return true;
-    }
-    if (existing.controller.signal.aborted) {
-      activeInteractions.delete(normalized);
-    } else {
-      return false;
-    }
-  }
-  activeInteractions.set(normalized, {
-    controller,
-    startedAt: Date.now(),
-  });
-  return true;
-}
-
-function releaseActiveInteraction(
-  key: string,
-  controller: AbortController
-): void {
-  const normalized = key.trim();
-  if (!normalized) {
-    return;
-  }
-  const existing = activeInteractions.get(normalized);
-  if (!existing) {
-    return;
-  }
-  if (existing.controller === controller) {
-    activeInteractions.delete(normalized);
-  }
-}
-
-function buildActiveInteractionKey(type: "client" | "interaction", value: string): string {
-  return `${type}:${value.trim()}`;
-}
-
-type ClientMessageState = {
-  status: "active" | "completed";
-  expiresAt: number;
-};
-
-function parseDurationEnv(value: string | undefined, fallback: number): number {
-  if (!value) return fallback;
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed) || parsed <= 0) {
-    return fallback;
-  }
-  return parsed;
-}
-
-const CLIENT_MESSAGE_ACTIVE_TTL_MS = parseDurationEnv(
-  process.env.ECO_CLIENT_MESSAGE_ACTIVE_TTL_MS,
-  5 * 60 * 1000
-);
-const CLIENT_MESSAGE_COMPLETED_TTL_MS = parseDurationEnv(
-  process.env.ECO_CLIENT_MESSAGE_COMPLETED_TTL_MS,
-  60 * 60 * 1000
-);
-
-const clientMessageRegistry = new Map<string, ClientMessageState>();
-
-function pruneClientMessageRegistry(now: number = Date.now()): void {
-  for (const [key, entry] of clientMessageRegistry.entries()) {
-    if (entry.expiresAt <= now) {
-      clientMessageRegistry.delete(key);
-    }
-  }
-}
-
-function reserveClientMessage(
-  key: string
-): { ok: true } | { ok: false; status: "active" | "completed" } {
-  const now = Date.now();
-  pruneClientMessageRegistry(now);
-  const existing = clientMessageRegistry.get(key);
-  if (existing && existing.expiresAt > now) {
-    return { ok: false, status: existing.status };
-  }
-  clientMessageRegistry.set(key, {
-    status: "active",
-    expiresAt: now + CLIENT_MESSAGE_ACTIVE_TTL_MS,
-  });
-  return { ok: true };
-}
-
-function markClientMessageCompleted(key: string): void {
-  const now = Date.now();
-  clientMessageRegistry.set(key, {
-    status: "completed",
-    expiresAt: now + CLIENT_MESSAGE_COMPLETED_TTL_MS,
-  });
-}
-
-function releaseClientMessage(key: string): void {
-  clientMessageRegistry.delete(key);
-}
-
-function buildClientMessageKey(identity: string | null, messageId: string): string {
-  const normalizedIdentity = identity && identity.trim() ? identity.trim() : null;
-  const normalizedMessageId = messageId.trim();
-  return normalizedIdentity ? `${normalizedIdentity}:${normalizedMessageId}` : normalizedMessageId;
-}
 
 export { askEcoRouter as askEcoRoutes };
 
@@ -402,238 +266,6 @@ router.get("/prompt-preview", async (req: Request, res: Response) => {
   }
 });
 
-/** Extrai texto de payloads em formatos variados (defensivo) */
-function extractTextLoose(payload: any): string | undefined {
-  if (!payload) return undefined;
-  if (typeof payload === "string" && payload.trim()) return payload.trim();
-
-  const tryList = (val: any): string | undefined => {
-    if (!val) return undefined;
-    if (typeof val === "string" && val.trim()) return val.trim();
-
-    if (Array.isArray(val)) {
-      for (const v of val) {
-        const t = tryList(v);
-        if (t) return t;
-      }
-    } else if (typeof val === "object") {
-      const keysTextFirst = [
-        "text",
-        "content",
-        "texto",
-        "output_text",
-        "outputText",
-        "output",
-        "answer",
-        "reply",
-        "resposta",
-        "respostaFinal",
-        "fala",
-        "speech",
-        "message",
-        "delta",
-      ];
-      for (const k of keysTextFirst) {
-        const t = tryList((val as any)[k]);
-        if (t) return t;
-      }
-
-      const paths = [
-        ["response", "text"],
-        ["response", "content"],
-        ["response", "message"],
-        ["result", "text"],
-        ["result", "content"],
-        ["result", "message"],
-        ["payload", "text"],
-        ["payload", "content"],
-        ["payload", "message"],
-      ] as const;
-      for (const p of paths) {
-        const t = tryList((val as any)[p[0]]?.[p[1]]);
-        if (t) return t;
-      }
-
-      if (Array.isArray((val as any).choices)) {
-        for (const c of (val as any).choices) {
-          const t =
-            tryList((c as any).delta) ||
-            tryList((c as any).message) ||
-            tryList((c as any).text) ||
-            tryList((c as any).content);
-          if (t) return t;
-        }
-      }
-    }
-    return undefined;
-  };
-
-  return tryList(payload);
-}
-
-/**
- * Extrai texto de eventos vindos do orquestrador de streaming.
- * Os adaptadores nem sempre usam a mesma chave, então varremos uma lista ampla
- * de campos conhecidos, caindo em `extractTextLoose` para objetos aninhados.
- */
-function extractEventText(event: unknown): string | undefined {
-  if (!event) return undefined;
-
-  const candidates: unknown[] = [];
-
-  if (typeof event === "string") {
-    candidates.push(event);
-  } else if (typeof event === "object") {
-    const obj = event as Record<string, unknown>;
-    const delta = obj.delta;
-    if (delta !== undefined) {
-      candidates.push(delta);
-      if (typeof delta === "object" && delta !== null) {
-        const deltaObj = delta as Record<string, unknown>;
-        candidates.push(deltaObj.content, deltaObj.text, deltaObj.value);
-        if (Array.isArray(deltaObj.content)) {
-          candidates.push(deltaObj.content.join(""));
-        }
-      }
-    }
-    candidates.push(
-      obj.content,
-      obj.text,
-      obj.message,
-      obj.output,
-      obj.output_text,
-      obj.response,
-      obj.value
-    );
-  }
-
-  for (const candidate of candidates) {
-    if (!candidate) continue;
-    if (typeof candidate === "string") {
-      const normalized = candidate.replace(/\r\n/g, "\n");
-      if (normalized.length > 0) {
-        return normalized;
-      }
-      continue;
-    }
-    const extracted = extractTextLoose(candidate);
-    if (extracted) {
-      return extracted;
-    }
-  }
-
-  if (typeof event === "string") {
-    return event.replace(/\r\n/g, "\n");
-  }
-  return extractTextLoose(event);
-}
-
-function getGuestIdFromCookies(req: Request): string | undefined {
-  const cookieGuestId = (req as any)?.cookies?.guest_id;
-  if (typeof cookieGuestId === "string" && cookieGuestId.trim()) {
-    return cookieGuestId.trim();
-  }
-
-  const rawCookie = req.headers.cookie;
-  if (!rawCookie) return undefined;
-
-  for (const piece of rawCookie.split(";")) {
-    const [key, ...rest] = piece.split("=");
-    if (!key) continue;
-    if (key.trim() === "guest_id") {
-      try {
-        const value = rest.join("=");
-        const decoded = decodeURIComponent(value ?? "");
-        if (decoded.trim()) {
-          return decoded.trim();
-        }
-      } catch {
-        /* ignore decode errors */
-      }
-    }
-  }
-
-  return undefined;
-}
-
-type NormalizedMessage = { id?: string; role: string; content: string };
-
-const UUID_V4_REGEX =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
-function normalizeMessages(payload: unknown): { messages: NormalizedMessage[]; shape: string } {
-  const body = payload && typeof payload === "object" ? (payload as Record<string, any>) : {};
-  const result: NormalizedMessage[] = [];
-  let shape: "text" | "mensagem" | "mensagens" | "invalid" = "invalid";
-
-  const sourceArray: unknown = Array.isArray(body.messages)
-    ? body.messages
-    : Array.isArray(body.mensagens)
-    ? body.mensagens
-    : undefined;
-
-  if (Array.isArray(sourceArray)) {
-    shape = "mensagens";
-    for (const raw of sourceArray) {
-      if (!raw || typeof raw !== "object") continue;
-      const roleValue = (raw as any).role;
-      const contentValue =
-        (raw as any).content ??
-        (raw as any).text ??
-        (raw as any).mensagem ??
-        (raw as any).message ??
-        (raw as any).delta ??
-        (raw as any).value;
-      const role = typeof roleValue === "string" && roleValue.trim() ? roleValue.trim() : "user";
-      let content: string = "";
-      if (typeof contentValue === "string") {
-        content = contentValue;
-      } else if (contentValue != null) {
-        try {
-          content = JSON.stringify(contentValue);
-        } catch {
-          content = String(contentValue);
-        }
-      }
-      const normalized: NormalizedMessage = { role, content };
-      if (typeof (raw as any).id === "string") {
-        normalized.id = (raw as any).id;
-      }
-      result.push(normalized);
-    }
-    return { messages: result, shape };
-  }
-
-  const singleText = typeof body.text === "string" && body.text.trim();
-  if (singleText) {
-    shape = "text";
-    result.push({ role: "user", content: body.text });
-    return { messages: result, shape };
-  }
-
-  const singleMensagem = typeof body.mensagem === "string" && body.mensagem.trim();
-  if (singleMensagem) {
-    shape = "mensagem";
-    result.push({ role: "user", content: body.mensagem });
-    return { messages: result, shape };
-  }
-
-  return { messages: result, shape };
-}
-
-function resolveGuestId(
-  ...candidates: Array<string | null | undefined>
-): string | undefined {
-  for (const candidate of candidates) {
-    if (typeof candidate !== "string") continue;
-    const normalized = normalizeGuestIdentifier(candidate);
-    if (normalized) {
-      return normalized;
-    }
-  }
-  return undefined;
-}
-
 askEcoRouter.head("/", (req: Request, res: Response) => {
   applyCorsResponseHeaders(req, res);
   res.status(200).end();
@@ -663,8 +295,6 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
   const streamIdHeader = req.headers["x-stream-id"];
   const streamId = typeof streamIdHeader === "string" ? streamIdHeader : undefined;
 
-  let resolvedInteractionId: string | null = null;
-  let interactionIdReady = false;
   const idleTimeoutMs = streamIdleTimeoutMs;
   const pingIntervalMs = streamPingIntervalMs;
   const firstTokenTimeoutMs = firstTokenWatchdogMs;
@@ -674,42 +304,22 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
     return res.status(403).end();
   }
 
-  const rawBody = req.body;
-  const isJsonObject = rawBody && typeof rawBody === "object" && !Array.isArray(rawBody);
-  if (!isJsonObject) {
-    log.warn("[ask-eco] payload_invalid", { reason: "body_not_object" });
-    return res
-      .status(400)
-      .json({ ok: false, error: "payload inválido: texto e usuario_id são obrigatórios" });
+  const validation = validateAskEcoPayload(req.body, req.headers);
+
+  if (!validation.valid) {
+    const { status, message } = validation.error;
+    return res.status(status).json({ ok: false, error: message });
   }
 
-  const body = rawBody as Record<string, any>;
-  const textoRaw = typeof body.texto === "string" ? body.texto.trim() : "";
-  const usuarioIdRaw = typeof body.usuario_id === "string" ? body.usuario_id.trim() : "";
-  const contextoValue = body.contexto;
-  const contextoValid =
-    contextoValue === undefined ||
-    contextoValue === null ||
-    (typeof contextoValue === "object" && !Array.isArray(contextoValue));
-
-  if (!textoRaw || !usuarioIdRaw || !UUID_V4_REGEX.test(usuarioIdRaw) || !contextoValid) {
-    log.warn("[ask-eco] payload_invalid", {
-      reason: "missing_required_fields",
-      hasTexto: Boolean(textoRaw),
-      hasUsuarioId: Boolean(usuarioIdRaw),
-      contextoType: Array.isArray(contextoValue)
-        ? "array"
-        : contextoValue === null
-        ? "null"
-        : typeof contextoValue,
-    });
-    return res
-      .status(400)
-      .json({ ok: false, error: "payload inválido: texto e usuario_id são obrigatórios" });
-  }
-
-  body.texto = textoRaw;
-  body.usuario_id = usuarioIdRaw;
+  const {
+    body,
+    normalized,
+    payloadShape,
+    clientMessageId,
+    activeClientMessageId,
+    sessionIdHeader,
+    sessionMetaObject,
+  } = validation.data;
 
   const locals = (res.locals ?? {}) as Record<string, unknown>;
   locals.corsAllowed = allowedOrigin;
@@ -735,74 +345,6 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
   } = body;
 
   const isGuestRequest = Boolean(isGuest);
-
-  const sessionMetaObject =
-    sessionMeta && typeof sessionMeta === "object" && !Array.isArray(sessionMeta)
-      ? (sessionMeta as Record<string, unknown>)
-      : undefined;
-
-  const sessionIdHeaderRaw = req.get("X-Eco-Session-Id");
-  const sessionIdHeader =
-    typeof sessionIdHeaderRaw === "string" && sessionIdHeaderRaw.trim()
-      ? sessionIdHeaderRaw.trim()
-      : null;
-
-  const normalized = normalizeMessages(body);
-  const payloadShape = normalized.shape;
-
-  const rawClientMessageId = (() => {
-    const candidate =
-      typeof body.clientMessageId === "string"
-        ? body.clientMessageId
-        : typeof body.client_message_id === "string"
-        ? body.client_message_id
-        : typeof body.messageId === "string"
-        ? body.messageId
-        : typeof body.message_id === "string"
-        ? body.message_id
-        : undefined;
-    if (typeof candidate !== "string") return null;
-    const trimmed = candidate.trim();
-    return trimmed ? trimmed : null;
-  })();
-
-  if (rawClientMessageId && normalized.messages.length) {
-    const lastIndex = normalized.messages.length - 1;
-    const lastMessage = normalized.messages[lastIndex];
-    lastMessage.id = rawClientMessageId;
-  }
-
-  const lastMessageWithId = [...normalized.messages]
-    .slice()
-    .reverse()
-    .find((msg) => typeof msg.id === "string");
-
-  let lastMessageId: string | null = null;
-  if (lastMessageWithId && typeof lastMessageWithId.id === "string") {
-    const trimmed = lastMessageWithId.id.trim();
-    if (trimmed) {
-      lastMessageWithId.id = trimmed;
-      lastMessageId = trimmed;
-    } else {
-      (lastMessageWithId as { id?: string }).id = undefined;
-    }
-  }
-
-  const clientMessageId = rawClientMessageId ?? lastMessageId;
-
-  const headerClientMessageIdRaw = req.get("X-Eco-Client-Message-Id");
-  const headerClientMessageId =
-    typeof headerClientMessageIdRaw === "string" && headerClientMessageIdRaw.trim()
-      ? headerClientMessageIdRaw.trim()
-      : null;
-  const activeClientMessageId =
-    headerClientMessageId ??
-    (typeof clientMessageId === "string" && clientMessageId.trim() ? clientMessageId.trim() : null);
-
-  if (!activeClientMessageId) {
-    log.warn("[ask-eco] missing_client_message_id");
-    return res.status(400).json({ ok: false, error: "missing clientMessageId" });
-  }
 
   if (activeClientMessageLocks.has(activeClientMessageId)) {
     log.warn("[ask-eco] duplicate_client_message_active", { clientMessageId: activeClientMessageId });
@@ -1103,7 +645,7 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
       origin: origin ?? null,
       streamId: streamId ?? null,
       clientMessageId: clientMessageId ?? null,
-      interactionId: resolvedInteractionId ?? null,
+      interactionId: getResolvedInteractionId() ?? null,
       headers: {
         accept: typeof req.headers.accept === "string" ? req.headers.accept : undefined,
         "user-agent": typeof req.headers["user-agent"] === "string" ? req.headers["user-agent"] : undefined,
@@ -1213,6 +755,11 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
       }
     })();
 
+    const telemetry = new SseTelemetry(telemetryClient, {
+      origin: origin ?? undefined,
+      clientMessageId: clientMessageId ?? undefined,
+    });
+
     const fallbackInteractionId = randomUUID();
     (params as any).interactionId = fallbackInteractionId;
     (params as any).abortSignal = abortSignal;
@@ -1221,8 +768,10 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
       buildActiveInteractionKey("interaction", fallbackInteractionId)
     );
 
-    const pendingSignals: Array<{ signal: string; meta: Record<string, unknown> }> = [];
-    resolvedInteractionId = fallbackInteractionId;
+    telemetry.setFallbackInteractionId(fallbackInteractionId);
+
+    const getResolvedInteractionId = () => telemetry.getResolvedInteractionId();
+    const isInteractionIdReady = () => telemetry.isInteractionIdReady();
 
     const finalizeClientMessageReservation = (finishReason?: string | null) => {
       if (!clientMessageReserved || !clientMessageKey) {
@@ -1254,86 +803,25 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
       }
     };
 
-
-    const compactMeta = (meta: Record<string, unknown>): Record<string, unknown> => {
-      return Object.entries(meta).reduce<Record<string, unknown>>((acc, [key, value]) => {
-        if (value !== undefined) acc[key] = value;
-        return acc;
-      }, {});
-    };
-
-    const sendSignalRow = (interactionId: string, signal: string, meta: Record<string, unknown>) => {
-      if (!telemetryClient) return;
-      const payload = { interaction_id: interactionId, signal, meta };
-      void Promise.resolve(
-        telemetryClient
-          .from("eco_passive_signals")
-          .insert([payload])
-      )
-        .then(({ error }) => {
-          if (error) {
-            log.error("[ask-eco] telemetry_failed", {
-              signal,
-              message: error.message,
-              code: error.code ?? null,
-              table: "eco_passive_signals",
-              payload,
-            });
-            return;
-          }
-          log.info("[ask-eco] telemetry_inserted", {
-            signal,
-            table: "eco_passive_signals",
-            interaction_id: interactionId,
-          });
-        })
-        .catch((error: unknown) => {
-          log.error("[ask-eco] telemetry_failed", {
-            signal,
-            message: error instanceof Error ? error.message : String(error),
-            table: "eco_passive_signals",
-            payload,
-          });
-        });
-    };
-
-    const flushPendingSignals = () => {
-      if (!interactionIdReady || !pendingSignals.length) return;
-      const interactionId = resolvedInteractionId;
-      if (!interactionId) return;
-      const queued = pendingSignals.splice(0, pendingSignals.length);
-      for (const item of queued) {
-        sendSignalRow(interactionId, item.signal, item.meta);
-      }
-    };
-
     const captureInteractionId = (value: unknown) => {
-      if (typeof value !== "string") return;
-      const trimmed = value.trim();
-      if (!trimmed) return;
-      if (interactionIdReady) {
-        if (resolvedInteractionId !== trimmed) {
-          log.warn("[ask-eco] interaction_id_mismatch", {
-            current: resolvedInteractionId,
-            incoming: trimmed,
-          });
-        }
-        updateInteractionGuest(trimmed, guestIdResolved ?? null);
+      const result = telemetry.captureInteractionId(value);
+      if (!result) return;
+      const { interactionId, alreadyReady } = result;
+      if (!interactionId) return;
+      if (alreadyReady) {
+        updateInteractionGuest(interactionId, guestIdResolved ?? null);
         return;
       }
-      resolvedInteractionId = trimmed;
-      interactionIdReady = true;
-      rememberInteractionGuest(trimmed, guestIdResolved ?? null);
-      updateActiveStreamInteractionId(trimmed);
-      const interactionKey = buildActiveInteractionKey("interaction", trimmed);
+      rememberInteractionGuest(interactionId, guestIdResolved ?? null);
+      updateActiveStreamInteractionId(interactionId);
+      const interactionKey = buildActiveInteractionKey("interaction", interactionId);
       if (!registerActiveInteractionKey(interactionKey)) {
         log.warn("[ask-eco] active_interaction_conflict", {
-          interactionId: trimmed,
+          interactionId,
           clientMessageId: clientMessageId ?? null,
           origin: origin ?? null,
         });
       }
-      flushPendingSignals();
     };
 
     const enqueuePassiveSignal = (
@@ -1341,142 +829,32 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
       value?: number | null,
       meta?: Record<string, unknown>
     ) => {
-      if (!telemetryClient) return;
-      let serializedMeta: Record<string, unknown> = {};
-      if (meta && typeof meta === "object") {
-        serializedMeta = compactMeta(meta);
-      }
-      if (typeof value === "number" && Number.isFinite(value)) {
-        serializedMeta = { ...serializedMeta, value };
-      }
-
-      try {
-        serializedMeta = JSON.parse(JSON.stringify(serializedMeta));
-      } catch (error) {
-        log.debug("[ask-eco] telemetry_meta_failed", {
-          signal,
-          message: error instanceof Error ? error.message : String(error),
-        });
-        serializedMeta = {};
-      }
-
-      if (interactionIdReady) {
-        const interactionId = resolvedInteractionId;
-        if (!interactionId) return;
-        sendSignalRow(interactionId, signal, serializedMeta);
-        return;
-      }
-
-      pendingSignals.push({ signal, meta: serializedMeta });
+      telemetry.enqueuePassiveSignal(signal, value ?? null, meta);
     };
 
-    const state = {
-      done: false,
-      sawChunk: false,
-      finishReason: "" as string | undefined,
-      clientClosed: false,
-      clientClosedStack: null as string | null,
-      firstSent: false,
-      t0: Date.now(),
-      promptReadyAt: 0,
-      firstTokenAt: 0,
-      chunksCount: 0,
-      bytesCount: 0,
-      lastChunkAt: 0,
-      lastEventAt: Date.now(),
-      model: null as string | null,
-      firstTokenTelemetrySent: false,
-      endLogged: false,
-      contentPieces: [] as string[],
-      metaPayload: {} as Record<string, unknown>,
-      doneMeta: {} as Record<string, unknown>,
-      memoryEvents: [] as Array<Record<string, unknown>>,
-      usageTokens: { in: null as number | null, out: null as number | null },
-      latencyMarks: {} as Record<string, unknown>,
-      streamResult: null as Record<string, unknown> | null,
-      firstTokenWatchdog: null as NodeJS.Timeout | null,
-      firstTokenWatchdogFired: false,
-      connectionClosed: false,
-      closeSource: null as string | null,
-      closeClassification: null as string | null,
-      closeAt: 0,
-      closeErrorMessage: null as string | null,
-      serverAbortReason: null as string | null,
-      doneAt: 0,
-      guardFallbackSent: false,
-      guardFallbackReason: null as string | null,
-    };
+    const compactMeta = (meta: Record<string, unknown>): Record<string, unknown> =>
+      telemetry.compactMeta(meta);
+
+    const state = new SseStreamState();
 
     let doneSent = false;
     let earlyClientAbortTimer: NodeJS.Timeout | null = null;
     let immediatePromptReadySent = false;
     let sseConnection: ReturnType<typeof createSSE> | null = null;
+    let interactionBootstrapPromise: Promise<void> = Promise.resolve();
 
-    const classifyClose = (source: string | null | undefined):
-      | "client_closed"
-      | "proxy_closed"
-      | "server_abort"
-      | "unknown" => {
-      if (!source) {
-        return state.serverAbortReason ? "server_abort" : "unknown";
-      }
-      if (source === "req.close" || source === "res.write") {
-        return "client_closed";
-      }
-      if (source === "req.aborted" || source === "res.error") {
-        return "proxy_closed";
-      }
-      if (source === "server.abort") {
-        return "server_abort";
-      }
-      if (source === "res.close") {
-        if (state.serverAbortReason || state.done) {
-          return "server_abort";
-        }
-        return "proxy_closed";
-      }
-      if (state.serverAbortReason) {
-        return "server_abort";
-      }
-      return "unknown";
-    };
+    const classifyClose = (source: string | null | undefined) =>
+      state.classifyClose(source);
 
     const markConnectionClosed = (
       source: string,
       error?: unknown
     ): "client_closed" | "proxy_closed" | "server_abort" | "unknown" => {
-      if (!state.connectionClosed) {
-        state.connectionClosed = true;
-        state.closeSource = source;
-        state.closeAt = Date.now();
-      }
-
-      if (!state.closeErrorMessage) {
-        if (error instanceof Error && typeof error.message === "string") {
-          const trimmed = error.message.trim();
-          if (trimmed) {
-            state.closeErrorMessage = trimmed;
-          }
-        } else if (typeof error === "string") {
-          const trimmed = error.trim();
-          if (trimmed) {
-            state.closeErrorMessage = trimmed;
-          }
-        }
-      }
-
-      const classification = classifyClose(source);
-      const effectiveClassification =
-        state.closeClassification === "client_closed" && classification !== "client_closed"
-          ? "client_closed"
-          : classification;
-      state.closeClassification = effectiveClassification;
-      if (effectiveClassification === "client_closed") {
-        state.clientClosed = true;
-        if (!state.clientClosedStack) {
-          state.clientClosedStack = captureShortStack(source);
-        }
-      }
+      const effectiveClassification = state.markConnectionClosed(
+        source,
+        error,
+        captureShortStack
+      );
 
       if (!state.done) {
         const sincePromptReady =
@@ -1503,10 +881,7 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
     };
 
     const clearFirstTokenWatchdog = () => {
-      if (state.firstTokenWatchdog) {
-        clearTimeout(state.firstTokenWatchdog);
-        state.firstTokenWatchdog = null;
-      }
+      state.clearFirstTokenWatchdogTimer();
     };
 
     const armFirstTokenWatchdog = () => {
@@ -1514,12 +889,12 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
       if (firstTokenWatchdogMs <= 0) {
         return;
       }
-      state.firstTokenWatchdog = setTimeout(() => {
-        state.firstTokenWatchdog = null;
+      const timer = setTimeout(() => {
+        state.markFirstTokenWatchdogCleared();
         if (state.done || state.firstTokenWatchdogFired) {
           return;
         }
-        state.firstTokenWatchdogFired = true;
+        state.markFirstTokenWatchdogFired();
         const nowTs = Date.now();
         log.warn("[ask-eco] first_token_watchdog_triggered", {
           timeoutMs: firstTokenWatchdogMs,
@@ -1530,10 +905,11 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
           timeout_ms: firstTokenWatchdogMs,
         });
         if (!state.sawChunk && !state.done) {
-          state.finishReason = state.finishReason || "first_token_timeout";
+          state.ensureFinishReason("first_token_timeout");
         }
-        state.lastEventAt = nowTs;
+        state.updateLastEvent(nowTs);
       }, firstTokenWatchdogMs);
+      state.setFirstTokenWatchdogTimer(timer);
     };
 
     const handleConnectionClosed = ({ source, error }: { source: string; error?: unknown }) => {
@@ -1541,11 +917,11 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
       const classification = markConnectionClosed(source, error);
       if (!state.finishReason) {
         if (classification === "client_closed") {
-          state.finishReason = "client_closed";
+          state.setFinishReason("client_closed");
         } else if (classification === "proxy_closed") {
-          state.finishReason = "proxy_closed";
+          state.setFinishReason("proxy_closed");
         } else if (classification === "server_abort" && state.serverAbortReason) {
-          state.finishReason = state.serverAbortReason;
+          state.setFinishReason(state.serverAbortReason);
         }
       }
       if (!state.done && !abortSignal.aborted) {
@@ -1561,8 +937,8 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
               usage: usageMeta,
             };
             sseConnection.write({ index: state.chunksCount, done: true, meta: finalMeta });
-            state.doneMeta = finalMeta;
-            state.finishReason = state.finishReason || "client_disconnect";
+            state.setDoneMeta(finalMeta);
+            state.ensureFinishReason("client_disconnect");
             doneSent = true;
           }
           sseConnection?.sendComment?.("");
@@ -1576,12 +952,12 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
               earlyClientAbortTimer = setTimeout(() => {
                 earlyClientAbortTimer = null;
                 if (!state.sawChunk && !abortSignal.aborted) {
-                  state.finishReason = "client_closed_early";
+                  state.setFinishReason("client_closed_early");
                   abortController.abort(new Error("client_closed_early"));
                 }
               }, 1500);
             }
-            state.finishReason = "client_closed_early";
+            state.setFinishReason("client_closed_early");
             return;
           }
           abortController.abort(new Error("client_closed"));
@@ -1595,7 +971,7 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
 
     const consoleStreamEnd = (payload?: Record<string, unknown>) => {
       if (state.endLogged) return;
-      state.endLogged = true;
+      state.markEndLogged();
       console.info("[ask-eco] end", {
         origin: origin ?? null,
         streamId: streamId ?? null,
@@ -1604,37 +980,11 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
     };
 
     const updateUsageTokens = (meta: any) => {
-      if (!meta || typeof meta !== "object") return;
-      const source = meta as Record<string, any>;
-      const usage = source.usage || source.token_usage || source.tokens || {};
-      const maybeIn =
-        usage?.prompt_tokens ??
-        usage?.input_tokens ??
-        usage?.tokens_in ??
-        usage?.in ??
-        source.prompt_tokens ??
-        source.input_tokens ??
-        null;
-      const maybeOut =
-        usage?.completion_tokens ??
-        usage?.output_tokens ??
-        usage?.tokens_out ??
-        usage?.out ??
-        source.completion_tokens ??
-        source.output_tokens ??
-        null;
-
-      if (typeof maybeIn === "number" && Number.isFinite(maybeIn)) {
-        state.usageTokens.in = Number(maybeIn);
-      }
-      if (typeof maybeOut === "number" && Number.isFinite(maybeOut)) {
-        state.usageTokens.out = Number(maybeOut);
-      }
+      state.updateUsageTokens(meta);
     };
 
     const mergeLatencyMarks = (marks: Record<string, unknown> | null | undefined) => {
-      if (!marks || typeof marks !== "object") return;
-      state.latencyMarks = { ...state.latencyMarks, ...marks };
+      state.mergeLatencyMarks(marks ?? undefined);
     };
 
     const resolvedUserIdForInteraction =
@@ -1644,21 +994,74 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
     const normalizedSessionId =
       typeof sessionId === "string" && sessionId.trim() ? sessionId.trim() : null;
 
-    if (typeof resolvedInteractionId === "string" && resolvedInteractionId && !res.headersSent) {
-      res.setHeader("X-Eco-Interaction-Id", resolvedInteractionId);
+    const initialResolvedInteractionId = getResolvedInteractionId();
+    if (
+      typeof initialResolvedInteractionId === "string" &&
+      initialResolvedInteractionId &&
+      !res.headersSent
+    ) {
+      res.setHeader("X-Eco-Interaction-Id", initialResolvedInteractionId);
     }
+
+    let isClosed = false;
 
     const sse = createSSE(res, req, {
       pingIntervalMs: 0,
       idleMs: idleTimeoutMs,
-      onIdle: handleStreamTimeout,
+      onIdle: () => handlers.handleStreamTimeout(),
       onConnectionClose: handleConnectionClosed,
       commentOnOpen: null,
     });
 
     sseConnection = sse;
 
-    let isClosed = false;
+    handlers = new SseEventHandlers(state, sse, {
+      origin: origin ?? null,
+      clientMessageId: clientMessageId ?? null,
+      streamId: streamId ?? null,
+      onTelemetry: enqueuePassiveSignal,
+      guardFallbackText: GUARD_FALLBACK_TEXT,
+      idleTimeoutMs,
+      getDoneSent: () => doneSent,
+      setDoneSent: (value: boolean) => {
+        doneSent = value;
+      },
+      clearHeartbeat: clearHeartbeatTimer,
+      clearEarlyClientAbortTimer,
+      getIsClosed: () => isClosed,
+      clearFirstTokenWatchdog,
+      recordFirstTokenTelemetry,
+      updateUsageTokens,
+      mergeLatencyMarks,
+      buildSummaryFromChunks,
+      buildDonePayload,
+      finalizeClientMessageReservation,
+      getResolvedInteractionId,
+      isInteractionIdReady,
+      captureInteractionId,
+      getInteractionBootstrapPromise: () => interactionBootstrapPromise,
+      sendLatency,
+      consoleStreamEnd,
+      compactMeta,
+      abortSignal,
+      clearAbortListener: clearAbortListenerRef,
+      releaseActiveStream,
+      onStreamEnd: () => {
+        sseConnection = null;
+      },
+      getSseConnection,
+      armFirstTokenWatchdog,
+      streamHasChunkHandler: true,
+    });
+
+    const sendMeta = (obj: Record<string, unknown>) => handlers.sendMeta(obj);
+    const sendMemorySaved = (obj: Record<string, unknown>) => handlers.sendMemorySaved(obj);
+    const sendErrorEvent = (payload: Record<string, unknown>) => handlers.sendErrorEvent(payload);
+    const ensureGuardFallback = (reason: string) => handlers.ensureGuardFallback(reason);
+    const sendDone = (reason?: string | null) => handlers.sendDone(reason);
+    const sendChunk = (input: { text: string; index?: number; meta?: Record<string, unknown> }) =>
+      handlers.sendChunk(input);
+    const forwardEvent = (rawEvt: EcoStreamEvent | any) => handlers.forwardEvent(rawEvt);
 
     const startHeartbeat = () => {
       if (heartbeat || pingIntervalMs <= 0) {
@@ -1690,8 +1093,7 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
       const nowTs = Date.now();
       sse.sendControl("prompt_ready");
       flushSse();
-      state.promptReadyAt = nowTs;
-      state.lastEventAt = nowTs;
+      state.markPromptReady(nowTs);
       armFirstTokenWatchdog();
       startHeartbeat();
       log.info("[ask-eco] prompt_ready_immediate", {
@@ -1713,7 +1115,6 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
       isClosed = true;
     });
 
-    let interactionBootstrapPromise: Promise<void> = Promise.resolve();
 
     const bootstrapInteraction = async () => {
       try {
@@ -1728,7 +1129,7 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
         });
 
         if (interactionId && typeof interactionId === "string") {
-          const previousInteractionId = resolvedInteractionId;
+          const previousInteractionId = getResolvedInteractionId();
           captureInteractionId(interactionId);
           (params as any).interactionId = interactionId;
           return;
@@ -1739,392 +1140,61 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
         });
       }
 
-      if (!interactionIdReady) {
-        captureInteractionId(resolvedInteractionId);
+      if (!isInteractionIdReady()) {
+        captureInteractionId(getResolvedInteractionId());
       }
     };
 
     const recordFirstTokenTelemetry = (chunkBytes: number) => {
       if (state.firstTokenTelemetrySent) return;
-      state.firstTokenTelemetrySent = true;
+      state.markFirstTokenTelemetrySent();
       const latency = state.firstTokenAt ? state.firstTokenAt - state.t0 : null;
-      enqueuePassiveSignal(
-        "first_token",
-        1,
-        compactMeta({ latency_ms: latency ?? undefined, chunk_bytes: chunkBytes })
+      telemetry.setFirstTokenLatency(latency);
+      telemetry.recordFirstTokenTelemetry(
+        chunkBytes,
+        typeof latency === "number" && Number.isFinite(latency) ? latency : null
       );
     };
 
     let abortListener: (() => void) | null = null;
     let heartbeat: NodeJS.Timeout | null = null;
 
-    function sendMeta(obj: Record<string, unknown>) {
-      state.metaPayload = { ...state.metaPayload, ...obj };
-    }
-
-    function sendMemorySaved(obj: Record<string, unknown>) {
-      state.memoryEvents.push(obj);
-    }
-
-    function sendLatency(_payload: Record<string, unknown>) {}
-
-    function sendErrorEvent(payload: Record<string, unknown>) {
-      const message =
-        typeof payload.message === "string" && payload.message.trim()
-          ? payload.message.trim()
-          : undefined;
-      const reason =
-        typeof payload.reason === "string" && payload.reason.trim()
-          ? payload.reason.trim()
-          : typeof payload.code === "string" && payload.code.trim()
-          ? payload.code.trim()
-          : message ?? "unknown_error";
-      log.error("[ask-eco] sse_error", { ...payload, reason });
-    }
-
-    const ensureGuardFallback = (reason: string) => {
-      if (state.sawChunk || state.guardFallbackSent) {
-        return;
-      }
-      state.guardFallbackReason = reason;
-      const canEmitGuard = Boolean(sseConnection) && !isClosed;
-      state.guardFallbackSent = true;
-      log.warn("[ask-eco] guard_fallback_emit", {
-        origin: origin ?? null,
-        clientMessageId: clientMessageId ?? null,
-        interactionId: resolvedInteractionId ?? null,
-        reason,
-        emitted: canEmitGuard,
-      });
-      if (!canEmitGuard || !sseConnection) {
-        return;
-      }
-      sendChunk({ text: GUARD_FALLBACK_TEXT, index: 0 });
-      if (!doneSent) {
-        sseConnection.write({ index: 1, done: true });
-        doneSent = true;
+    const clearHeartbeatTimer = () => {
+      if (heartbeat) {
+        clearInterval(heartbeat);
+        heartbeat = null;
       }
     };
 
-    function sendDone(reason?: string | null) {
-      if (state.done) return;
-      clearFirstTokenWatchdog();
-      state.done = true;
+    const clearEarlyClientAbortTimer = () => {
       if (earlyClientAbortTimer) {
         clearTimeout(earlyClientAbortTimer);
         earlyClientAbortTimer = null;
       }
-      if (heartbeat) {
-        clearInterval(heartbeat);
-        heartbeat = null;
+    };
+
+    function sendLatency(_payload: Record<string, unknown>) {}
+
+    let handlers: SseEventHandlers;
+
+    const getSseConnection = () => sseConnection;
+
+    const clearAbortListenerRef = () => {
+      if (abortListener) {
+        abortSignal.removeEventListener("abort", abortListener);
+        abortListener = null;
       }
-      const nowTs = Date.now();
-      if (!state.lastChunkAt) {
-        state.lastChunkAt = nowTs;
-      }
-      state.doneAt = state.lastChunkAt || nowTs;
-      state.lastEventAt = state.doneAt;
-
-      let finishReason = reason ?? state.finishReason;
-      if (!finishReason && state.firstTokenWatchdogFired) {
-        finishReason = "first_token_timeout";
-      }
-      state.finishReason = finishReason ?? "unknown";
-
-      ensureGuardFallback(state.finishReason || "unknown");
-
-      if (!state.sawChunk) {
-        log.error("[ask-eco] guard_fallback_missing_chunk", {
-          origin: origin ?? null,
-          clientMessageId: clientMessageId ?? null,
-          interactionId: resolvedInteractionId ?? null,
-          finishReason: state.finishReason,
-        });
-      }
-
-      const finalizeStream = async () => {
-        try {
-          await interactionBootstrapPromise.catch(() => undefined);
-        } finally {
-          if (!interactionIdReady) {
-            captureInteractionId(resolvedInteractionId);
-          }
-        }
-
-        const firstTokenLatency = state.firstTokenAt ? state.firstTokenAt - state.t0 : null;
-        const finishedAt = state.doneAt || Date.now();
-        const totalLatency = finishedAt - state.t0;
-        const sincePromptReady =
-          state.promptReadyAt > 0 ? finishedAt - state.promptReadyAt : null;
-        const beforeDone =
-          state.connectionClosed && state.closeAt > 0 && state.closeAt < state.doneAt;
-        const closeDelayMs =
-          state.closeAt > 0 ? Math.max(0, state.doneAt - state.closeAt) : null;
-        const closeSinceStartMs =
-          state.closeAt > 0 ? Math.max(0, state.closeAt - state.t0) : null;
-
-        try {
-          sendMeta({
-            type: "llm_status",
-            firstTokenLatencyMs: firstTokenLatency,
-            chunks: state.chunksCount,
-            bytes: state.bytesCount,
-          });
-
-          const resolvedFinishReason = state.finishReason || "unknown";
-
-          log.info("[ask-eco] stream_done", {
-            finishReason: resolvedFinishReason,
-            sawChunk: state.sawChunk,
-            chunks: state.chunksCount,
-            bytes: state.bytesCount,
-            totalBytes: state.bytesCount,
-            guardFallback: state.guardFallbackSent,
-            origin: origin ?? null,
-            clientMessageId: clientMessageId ?? null,
-            firstTokenLatencyMs: firstTokenLatency,
-            totalLatencyMs: totalLatency,
-            sincePromptReadyMs: sincePromptReady,
-          });
-
-          const streamMeta = state.streamResult && typeof state.streamResult === "object"
-            ? (state.streamResult as Record<string, unknown>)
-            : null;
-
-          updateUsageTokens(streamMeta);
-          updateUsageTokens(streamMeta?.meta);
-          mergeLatencyMarks(streamMeta?.timings as Record<string, unknown> | undefined);
-
-          const aggregatedMeta = (() => {
-            const combined: Record<string, unknown> = { ...state.metaPayload };
-            if (streamMeta?.meta && typeof streamMeta.meta === "object") {
-              Object.assign(combined, streamMeta.meta as Record<string, unknown>);
-            }
-            if (state.memoryEvents.length) {
-              combined.memory_events = state.memoryEvents;
-            }
-            return Object.keys(combined).length ? combined : null;
-          })();
-
-          if (streamMeta?.timings && typeof streamMeta.timings === "object") {
-            mergeLatencyMarks(streamMeta.timings as Record<string, unknown>);
-          }
-
-          const latencyPayload = compactMeta({
-            first_token_latency_ms: firstTokenLatency ?? undefined,
-            total_latency_ms: totalLatency,
-            marks: Object.keys(state.latencyMarks).length ? state.latencyMarks : undefined,
-          });
-
-          if (Object.keys(latencyPayload).length) {
-            sendLatency(latencyPayload);
-          }
-
-          const summaryText = buildSummaryFromChunks(state.contentPieces);
-          const resolvedInteractionForPayload =
-            resolvedInteractionId ??
-            (typeof streamMeta?.meta === "object"
-              ? ((streamMeta.meta as Record<string, unknown>).interaction_id as string | undefined) ?? null
-              : null);
-
-          const donePayload = buildDonePayload({
-            content: summaryText.length ? summaryText : null,
-            interactionId: resolvedInteractionForPayload,
-            tokens: state.usageTokens,
-            meta: aggregatedMeta ?? null,
-            timings: Object.keys(state.latencyMarks).length ? state.latencyMarks : null,
-            firstTokenLatency,
-            totalLatency,
-            timestamp: finishedAt,
-          });
-
-          const usagePayload = {
-            input_tokens: state.usageTokens.in,
-            output_tokens: state.usageTokens.out,
-          };
-
-          const baseMeta = Object.keys(state.doneMeta).length ? { ...state.doneMeta } : {};
-          const finalMeta = {
-            ...baseMeta,
-            finishReason: resolvedFinishReason,
-            usage: usagePayload,
-          };
-          state.doneMeta = finalMeta;
-
-          if (!doneSent) {
-            sse.write({
-              index: state.chunksCount,
-              done: true,
-            });
-            doneSent = true;
-          }
-
-          log.info("[ask-eco] stream_finalize", {
-            origin: origin ?? null,
-            interaction_id: resolvedInteractionId ?? null,
-            clientMessageId: clientMessageId ?? null,
-            stream_aborted: abortSignal.aborted,
-            final_chunk_sent: state.sawChunk,
-            finishReason: resolvedFinishReason,
-            summary: donePayload,
-            guardFallback: state.guardFallbackSent,
-          });
-
-          finalizeClientMessageReservation(resolvedFinishReason);
-
-          log.info("[ask-eco] stream_end", {
-            finishReason: resolvedFinishReason,
-            chunks: state.chunksCount,
-            bytes: state.bytesCount,
-            totalBytes: state.bytesCount,
-            guardFallback: state.guardFallbackSent,
-            clientClosed: state.clientClosed,
-            clientClosedStack: state.clientClosedStack ?? undefined,
-            closeClassification: state.closeClassification,
-            closeSource: state.closeSource ?? undefined,
-            closeError: state.closeErrorMessage ?? undefined,
-            origin: origin ?? null,
-            beforeDone,
-            sinceStartMs: totalLatency,
-            sincePromptReadyMs: sincePromptReady,
-            closeSinceStartMs,
-            closeDelayMs: closeDelayMs ?? undefined,
-            serverAbortReason: state.serverAbortReason ?? undefined,
-          });
-
-          const endPayload: Record<string, unknown> = {};
-          if (resolvedFinishReason) {
-            endPayload.finishReason = resolvedFinishReason;
-          }
-          consoleStreamEnd(Object.keys(endPayload).length ? endPayload : undefined);
-
-          const doneValue =
-            resolvedFinishReason === "error" || resolvedFinishReason === "timeout"
-              ? 0
-              : 1;
-          enqueuePassiveSignal(
-            "done",
-            doneValue,
-            compactMeta({
-              finish_reason: resolvedFinishReason,
-              chunks: state.chunksCount,
-              bytes: state.bytesCount,
-              first_token_latency_ms: firstTokenLatency ?? undefined,
-              total_latency_ms: totalLatency,
-              model: state.model ?? undefined,
-              saw_chunk: state.sawChunk,
-            })
-          );
-        } finally {
-          if (abortListener) {
-            abortSignal.removeEventListener("abort", abortListener);
-            abortListener = null;
-          }
-          releaseActiveStream();
-
-          sse.end();
-          sseConnection = null;
-        }
-      };
-
-      void finalizeStream();
-    }
-
-    function handleStreamTimeout() {
-      if (state.done) {
-        return;
-      }
-      clearFirstTokenWatchdog();
-      state.serverAbortReason = "idle_timeout";
-      state.finishReason = state.finishReason || "idle_timeout";
-      log.warn("[ask-eco] stream_idle_timeout", {
-        timeoutMs: idleTimeoutMs,
-        origin: origin ?? null,
-        clientMessageId: clientMessageId ?? null,
-      });
-      enqueuePassiveSignal("idle_timeout", 0, {
-        timeout_ms: idleTimeoutMs,
-      });
-      sendDone("idle_timeout");
-    }
-
-    function sendChunk(input: { text: string; index?: number; meta?: Record<string, unknown> }) {
-      if (!input || typeof input.text !== "string") return;
-      const cleaned = sanitizeOutput(input.text);
-      const finalText = cleaned;
-      if (finalText.length === 0) return;
-      if (finalText.trim().toLowerCase() === "ok") {
-        return;
-      }
-
-      state.sawChunk = true;
-      if (heartbeat) {
-        clearInterval(heartbeat);
-        heartbeat = null;
-      }
-      if (earlyClientAbortTimer) {
-        clearTimeout(earlyClientAbortTimer);
-        earlyClientAbortTimer = null;
-      }
-      const providedIndex =
-        typeof input.index === "number" && Number.isFinite(input.index)
-          ? Number(input.index)
-          : null;
-      const chunkIndex = providedIndex ?? state.chunksCount;
-      const chunkBytes = Buffer.byteLength(finalText, "utf8");
-      const totalBytes = state.bytesCount + chunkBytes;
-      const now = Date.now();
-      state.lastChunkAt = now;
-      state.lastEventAt = now;
-
-      if (!state.firstSent) {
-        state.firstSent = true;
-        state.firstTokenAt = now;
-        clearFirstTokenWatchdog();
-        sendMeta({ type: "first_token_latency_ms", value: state.firstTokenAt - state.t0 });
-        recordFirstTokenTelemetry(chunkBytes);
-      }
-
-      if (input.meta && typeof input.meta === "object" && Object.keys(input.meta).length) {
-        sendMeta(input.meta);
-      }
-
-      sse.write({
-        index: chunkIndex,
-        text: finalText,
-      });
-
-      state.chunksCount = Math.max(state.chunksCount, chunkIndex + 1);
-      state.bytesCount = totalBytes;
-      state.contentPieces.push(finalText);
-
-      log.info("[ask-eco] stream_chunk", {
-        index: chunkIndex,
-        bytes: chunkBytes,
-        totalBytes,
-        chunks: state.chunksCount,
-        origin: origin ?? null,
-      });
-    }
+    };
 
     abortListener = () => {
       if (state.done) {
-        if (abortListener) {
-          abortSignal.removeEventListener("abort", abortListener);
-          abortListener = null;
-        }
+        clearAbortListenerRef();
         releaseActiveStream();
         return;
       }
       clearFirstTokenWatchdog();
-      if (earlyClientAbortTimer) {
-        clearTimeout(earlyClientAbortTimer);
-        earlyClientAbortTimer = null;
-      }
-      if (heartbeat) {
-        clearInterval(heartbeat);
-        heartbeat = null;
-      }
+      clearEarlyClientAbortTimer();
+      clearHeartbeatTimer();
       const reasonValue = abortSignal.reason;
       let finishReason = (() => {
         if (typeof reasonValue === "string" && reasonValue.trim()) {
@@ -2140,7 +1210,7 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
       if (finishReason === "superseded_stream") {
         finishReason = "replaced_by_new_stream";
       }
-      state.serverAbortReason = finishReason;
+      state.setServerAbortReason(finishReason);
       if (!state.connectionClosed) {
         markConnectionClosed("server.abort");
       }
@@ -2165,155 +1235,12 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
           closeError: state.closeErrorMessage ?? undefined,
         });
       }
-      state.clientClosed = state.clientClosed || finishReason === "client_closed";
+      state.markClientClosedFromFinishReason(finishReason);
       sendDone(finishReason || "aborted");
     };
     abortSignal.addEventListener("abort", abortListener);
 
     interactionBootstrapPromise = bootstrapInteraction();
-
-    const streamHasChunkHandler = true;
-
-    const forwardEvent = (rawEvt: EcoStreamEvent | any) => {
-      if (state.done || state.clientClosed) return;
-      const evt = rawEvt as any;
-      const type = String(evt?.type || "");
-
-      switch (type) {
-        case "control": {
-          const name = typeof evt?.name === "string" ? evt.name : "";
-          const meta = evt?.meta && typeof evt.meta === "object" ? (evt.meta as Record<string, unknown>) : null;
-          if (meta) {
-            captureInteractionId((meta as { interaction_id?: unknown }).interaction_id);
-            const maybeModel =
-              typeof meta.model === "string"
-                ? meta.model
-                : typeof (meta as any).modelo === "string"
-                ? (meta as any).modelo
-                : undefined;
-            if (maybeModel) state.model = maybeModel;
-            updateUsageTokens(meta);
-          }
-          if (evt?.timings && typeof evt.timings === "object") {
-            mergeLatencyMarks(evt.timings as Record<string, unknown>);
-          }
-          if (name === "prompt_ready") {
-            const nowTs = Date.now();
-            state.promptReadyAt = nowTs;
-            state.lastEventAt = nowTs;
-            enqueuePassiveSignal("prompt_ready", 1, {
-              stream: true,
-              origin: origin ?? null,
-            });
-            log.info("[ask-eco] prompt_ready", {
-              origin: origin ?? null,
-              clientMessageId: clientMessageId ?? null,
-              interactionId: resolvedInteractionId ?? null,
-              sinceStartMs: nowTs - state.t0,
-            });
-            armFirstTokenWatchdog();
-            if (sseConnection) {
-              const payload: Record<string, unknown> = {};
-              if (evt?.timings && typeof evt.timings === "object") {
-                payload.timings = evt.timings as Record<string, unknown>;
-              }
-              if (meta) {
-                payload.meta = meta;
-              }
-              sseConnection.sendControl("prompt_ready", payload);
-            }
-            return;
-          }
-          if (name === "guard_fallback_trigger") {
-            const nowTs = Date.now();
-            state.lastEventAt = nowTs;
-            const reasonFromMeta =
-              typeof (meta as any)?.reason === "string"
-                ? ((meta as any).reason as string)
-                : "guard_fallback_trigger";
-            ensureGuardFallback(reasonFromMeta);
-            log.warn("[ask-eco] guard_fallback_trigger", {
-              origin: origin ?? null,
-              clientMessageId: clientMessageId ?? null,
-              interactionId: resolvedInteractionId ?? null,
-              meta: meta ?? null,
-              fallbackEmitted: state.guardFallbackSent,
-            });
-            return;
-          }
-          if (name === "meta" && meta) {
-            sendMeta(meta);
-            return;
-          }
-          if (name === "memory_saved" && meta) {
-            sendMemorySaved(meta);
-            return;
-          }
-          if (name === "done") {
-            sendDone(evt?.meta?.finishReason ?? evt?.finishReason ?? "done");
-          }
-          return;
-        }
-        case "first_token": {
-          if (streamHasChunkHandler) {
-            return;
-          }
-          const text = extractEventText(evt);
-          if (typeof text === "string" && text && state.chunksCount === 0) {
-            sendChunk({ text });
-          }
-          return;
-        }
-        case "chunk":
-          if (streamHasChunkHandler) {
-            return;
-          }
-        // fallthrough
-        case "delta":
-        case "token": {
-          const text = extractEventText(evt);
-          if (typeof text === "string" && text) {
-            sendChunk({ text });
-          }
-          return;
-        }
-        case "done": {
-          const meta = evt?.meta && typeof evt.meta === "object" ? (evt.meta as Record<string, unknown>) : null;
-          if (meta) {
-            captureInteractionId((meta as { interaction_id?: unknown }).interaction_id);
-            const maybeModel =
-              typeof meta.model === "string"
-                ? meta.model
-                : typeof (meta as any).modelo === "string"
-                ? (meta as any).modelo
-                : undefined;
-            if (maybeModel) state.model = maybeModel;
-            updateUsageTokens(meta);
-          }
-          if (evt?.timings && typeof evt.timings === "object") {
-            mergeLatencyMarks(evt.timings as Record<string, unknown>);
-          }
-          sendDone(evt?.meta?.finishReason ?? evt?.finishReason ?? "done");
-          return;
-        }
-        case "error": {
-          const message =
-            typeof evt?.message === "string"
-              ? evt.message
-              : evt?.error?.message || "Erro desconhecido";
-          sendErrorEvent({ message });
-          sendDone("error");
-          return;
-        }
-        default: {
-          const text = extractEventText(evt);
-          if (typeof text === "string" && text) {
-            sendChunk({ text });
-          }
-          return;
-        }
-      }
-    };
 
     try {
       const stream: EcoStreamHandler = {
@@ -2327,7 +1254,7 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
 
           if (payload.done) {
             if (metaValue) {
-              state.doneMeta = { ...state.doneMeta, ...metaValue };
+              state.mergeDoneMeta(metaValue);
               if (!state.finishReason) {
                 const finishFromMeta = (() => {
                   if (typeof (metaValue as any).finishReason === "string") {
@@ -2342,7 +1269,7 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
                   return undefined;
                 })();
                 if (finishFromMeta) {
-                  state.finishReason = finishFromMeta;
+                  state.setFinishReason(finishFromMeta);
                 }
               }
             }
@@ -2372,8 +1299,8 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
             : typeof (result as any).model === "string"
             ? (result as any).model
             : undefined;
-        if (maybeModel) state.model = maybeModel;
-        state.streamResult = result as Record<string, unknown>;
+        if (maybeModel) state.setModel(maybeModel);
+        state.setStreamResult(result as Record<string, unknown>);
         captureInteractionId((result as any)?.meta?.interaction_id);
         updateUsageTokens(result);
         updateUsageTokens((result as any)?.meta);
