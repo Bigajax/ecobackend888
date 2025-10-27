@@ -45,8 +45,9 @@ export async function executeModulePipeline({
   hasContinuity,
   continuityRef,
   nivel,
-  activationTracer,
+  activationTracer: maybeTracer,
 }: ModulePipelineParams): Promise<ModulePipelineResult> {
+  const tracer: ActivationTracer | undefined = maybeTracer || undefined;
   const selectionResult = await selectModules({
     texto,
     ecoDecision,
@@ -102,7 +103,7 @@ export async function executeModulePipeline({
     footerModules: adjustedFooters,
     nivel,
     ecoDecision,
-    activationTracer,
+    activationTracer: tracer,
   });
 
   return {

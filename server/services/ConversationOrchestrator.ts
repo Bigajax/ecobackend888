@@ -332,7 +332,7 @@ async function buildPromptContext({
     supabase: systemPromptDeps.supabase,
     promptOverride: systemPromptDeps.promptOverride,
     metaFromBuilder: systemPromptDeps.metaFromBuilder,
-    mems: systemPromptDeps.mems,
+    mems: systemPromptDeps.mems ?? [],
     userName: systemPromptDeps.userName,
     forcarMetodoViva: systemPromptDeps.forcarMetodoViva,
     blocoTecnicoForcado: systemPromptDeps.blocoTecnicoForcado,
@@ -353,7 +353,7 @@ async function buildPromptContext({
 
   logSelectorPipeline(systemPromptDeps.ecoDecision, context?.sources?.mems ?? null);
 
-  const memsSemelhantes = Array.isArray(context?.memsSemelhantes) ? context.memsSemelhantes : [];
+  const memsSemelhantes = context?.memsSemelhantes ?? [];
   const { prompt: basePromptMessages, maxTokens } = buildFullPrompt({
     decision: routeDecision,
     ultimaMsg,
