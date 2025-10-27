@@ -40,12 +40,17 @@ type FileMetadata = {
 /** -------------------------- Helpers de path -------------------------- */
 
 /** Retorna apenas diretórios que existem. */
+function normalizeRoot(candidate: string): string {
+  return path.isAbsolute(candidate) ? candidate : path.resolve(process.cwd(), candidate);
+}
+
 async function filterExistingDirs(paths: string[]): Promise<string[]> {
   const out: string[] = [];
   for (const p of paths) {
+    const resolved = normalizeRoot(p);
     try {
-      const st = await fs.stat(p);
-      if (st.isDirectory()) out.push(p);
+      const st = await fs.stat(resolved);
+      if (st.isDirectory()) out.push(resolved);
     } catch {
       // ignore
     }
@@ -80,13 +85,22 @@ async function resolveDefaultRoots(): Promise<string[]> {
   const envRoots = (process.env.ECO_PROMPT_ROOTS || "")
     .split(",")
     .map((s) => s.trim())
-    .filter(Boolean);
+    .filter(Boolean)
+    .map(normalizeRoot);
 
   if (envRoots.length) {
     const existing = await filterExistingDirs(envRoots);
     if (existing.length) {
-      if (isDebug()) log.debug("[ModuleStore] Using ECO_PROMPT_ROOTS", { roots: existing });
-      return existing;
+      const deduped = Array.from(new Set(existing));
+      const fallbackRoot = path.resolve(process.cwd(), "server/assets");
+      if (
+        (await directoryExists(fallbackRoot)) &&
+        !deduped.includes(fallbackRoot)
+      ) {
+        deduped.push(fallbackRoot);
+      }
+      if (isDebug()) log.debug("[ModuleStore] Using ECO_PROMPT_ROOTS", { roots: deduped });
+      return deduped;
     }
     if (isDebug()) log.debug("[ModuleStore] ECO_PROMPT_ROOTS provided but none exist", { envRoots });
   }
@@ -115,6 +129,8 @@ async function resolveDefaultRoots(): Promise<string[]> {
   const distRoot = await firstExisting(distCandidates);
   const workspaceRoot = await firstExisting(workspaceCandidates);
 
+  const fallbackRoot = path.resolve(process.cwd(), "server/assets");
+
   if (await directoryExists(path.resolve(process.cwd(), "assets"))) {
     log.warn("[ModuleStore] legacy_assets_detected", {
       legacyRoot: path.resolve(process.cwd(), "assets"),
@@ -128,18 +144,41 @@ async function resolveDefaultRoots(): Promise<string[]> {
     });
   }
 
-  if (distRoot) {
+  const roots: string[] = [];
+  const pushRoot = (candidate: string | null) => {
+    if (!candidate) return;
+    const resolved = normalizeRoot(candidate);
+    if (!roots.includes(resolved)) roots.push(resolved);
+  };
+
+  const envAssetRoot = process.env.ECO_ASSETS_ROOT;
+  if (envAssetRoot) {
+    const resolvedEnvRoot = normalizeRoot(envAssetRoot);
+    pushRoot(resolvedEnvRoot);
+    if (!(await directoryExists(resolvedEnvRoot))) {
+      log.warn("[ModuleStore] assets_root_missing", { root: resolvedEnvRoot });
+    }
+  } else if (distRoot) {
     if (isDebug()) log.debug("[ModuleStore] Using packaged assets", { root: distRoot });
-    return [distRoot];
-  }
-
-  if (workspaceRoot) {
+    pushRoot(distRoot);
+  } else if (workspaceRoot) {
     if (isDebug()) log.debug("[ModuleStore] Using workspace assets", { root: workspaceRoot });
-    return [workspaceRoot];
+    pushRoot(workspaceRoot);
+  } else {
+    const defaultRoot = normalizeRoot("dist/assets");
+    if (isDebug()) log.debug("[ModuleStore] Defaulting assets root", { root: defaultRoot });
+    pushRoot(defaultRoot);
   }
 
-  if (isDebug()) log.debug("[ModuleStore] No asset roots resolved", { distCandidates, workspaceCandidates });
-  return [];
+  if ((await directoryExists(fallbackRoot)) && !roots.includes(fallbackRoot)) {
+    pushRoot(fallbackRoot);
+  }
+
+  if (!roots.length) {
+    if (isDebug()) log.debug("[ModuleStore] No asset roots resolved", { distCandidates, workspaceCandidates });
+  }
+
+  return roots;
 }
 
 /** ----------------------------- Classe ----------------------------- */
@@ -154,6 +193,7 @@ export class ModuleStore {
   private uniqueFiles = new Map<string, FileMetadata>();
   private cacheModulos = new Map<string, string>(); // key(norm) -> content
   private tokenCountCache = new Map<string, number>(); // key -> tokens
+  private cacheSources = new Map<string, { root: string | null; path: string | null }>();
   private buildLock: Promise<void> | null = null;
   private bootstrapped = false;
 
@@ -161,12 +201,13 @@ export class ModuleStore {
 
   /** Define pastas e limpa caches/índices. */
   configure(roots: string[]) {
-    this.roots = (roots || []).filter(Boolean);
+    this.roots = (roots || []).filter(Boolean).map(normalizeRoot);
     this.fileIndexBuilt = false;
     this.fileIndex.clear();
     this.uniqueFiles.clear();
     this.cacheModulos.clear();
     this.tokenCountCache.clear();
+    this.cacheSources.clear();
     this.bootstrapped = this.roots.length > 0;
     if (isDebug()) log.debug("[ModuleStore.configure]", { roots: this.roots });
   }
@@ -229,11 +270,13 @@ export class ModuleStore {
     if (!name) {
       this.cacheModulos.clear();
       this.tokenCountCache.clear();
+      this.cacheSources.clear();
       return;
     }
     const k = normKey(name);
     this.cacheModulos.delete(k);
     this.tokenCountCache.delete(k);
+    this.cacheSources.delete(k);
     // inline caches usam chaves __INLINE__: não dá para invalidar seletivo sem parâmetro extra
   }
 
@@ -243,6 +286,7 @@ export class ModuleStore {
     const c = (content ?? "").trim();
     this.cacheModulos.set(k, c);
     this.tokenCountCache.set(k, enc.encode(c).length);
+    this.cacheSources.set(k, { root: null, path: null });
     // NÃO grava no fileIndex; é somente cache em memória.
     if (isDebug()) log.debug("[ModuleStore.registerInline] registrado", { name, tokens: this.tokenCountCache.get(k) });
   }
@@ -349,6 +393,8 @@ export class ModuleStore {
 
     const cached = this.cacheModulos.get(key);
     if (cached != null) {
+      const source = this.cacheSources.get(key);
+      this.logServed(name, source, true);
       if (isDebug())
         log.debug("[ModuleStore.read] cache hit", { name, tokens: this.tokenCountCache.get(key) ?? -1 });
       return cached;
@@ -363,6 +409,9 @@ export class ModuleStore {
         const c = (await fs.readFile(indexed.full, "utf-8")).trim();
         this.cacheModulos.set(key, c);
         this.tokenCountCache.set(key, enc.encode(c).length);
+        const root = this.findRootForPath(indexed.full);
+        const source = this.captureSource(key, root, indexed.full);
+        this.logServed(name, source, false);
         if (isDebug())
           log.debug("[ModuleStore.read] index path", {
             name,
@@ -387,6 +436,8 @@ export class ModuleStore {
         const c = (await fs.readFile(full, "utf-8")).trim();
         this.cacheModulos.set(key, c);
         this.tokenCountCache.set(key, enc.encode(c).length);
+        const source = this.captureSource(key, base, full);
+        this.logServed(name, source, false);
         if (isDebug())
           log.debug("[ModuleStore.read] fallback path", { name, path: full, tokens: this.tokenCountCache.get(key) });
         return c;
@@ -429,6 +480,39 @@ export class ModuleStore {
         hadContent: cachedContent.length > 0,
       });
     return n;
+  }
+
+  private findRootForPath(fullPath: string): string | null {
+    for (const base of this.roots) {
+      const relative = path.relative(base, fullPath);
+      if (relative === "") return base;
+      if (!relative.startsWith("..") && !path.isAbsolute(relative)) {
+        return base;
+      }
+    }
+    return null;
+  }
+
+  private captureSource(key: string, root: string | null, filePath: string | null) {
+    const resolvedRoot = root ? normalizeRoot(root) : null;
+    const resolvedPath = filePath ? path.resolve(filePath) : null;
+    const source = { root: resolvedRoot, path: resolvedPath };
+    this.cacheSources.set(key, source);
+    return source;
+  }
+
+  private logServed(
+    name: string,
+    source: { root: string | null; path: string | null } | undefined,
+    cached: boolean
+  ) {
+    if (!source && cached) return;
+    if (!source?.root && !source?.path) return;
+    const payload: Record<string, unknown> = { name };
+    if (source?.root) payload.root = source.root;
+    if (source?.path) payload.path = source.path;
+    if (cached) payload.cached = true;
+    log.info("[ModuleStore.read] served", payload);
   }
 }
 
