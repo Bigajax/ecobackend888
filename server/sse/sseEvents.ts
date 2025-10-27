@@ -56,6 +56,7 @@ interface SseEventHandlerOptions {
   getSseConnection?: () => SSEConnection | null;
   armFirstTokenWatchdog: () => void;
   streamHasChunkHandler: boolean;
+  getRequestAborted?: () => boolean;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -75,12 +76,141 @@ function resolveSseConnection(
   return fallback;
 }
 
+function toNullableNumber(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return null;
+    }
+    const parsed = Number(trimmed);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+  return null;
+}
+
+function compactBody(value: unknown): string | null {
+  if (value == null) {
+    return null;
+  }
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return null;
+    }
+    return trimmed.length > 2000 ? `${trimmed.slice(0, 1997)}...` : trimmed;
+  }
+  try {
+    const serialized = JSON.stringify(value);
+    if (!serialized) {
+      return null;
+    }
+    return serialized.length > 2000 ? `${serialized.slice(0, 1997)}...` : serialized;
+  } catch {
+    try {
+      const coerced = String(value);
+      const trimmed = coerced.trim();
+      if (!trimmed) {
+        return null;
+      }
+      return trimmed.length > 2000 ? `${trimmed.slice(0, 1997)}...` : trimmed;
+    } catch {
+      return null;
+    }
+  }
+}
+
 export class SseEventHandlers {
+  private providerOpenedLogged = false;
+  private hasEmittedChunk = false;
+  private lastDoneEvent: Record<string, unknown> | null = null;
+
   constructor(
     private readonly state: SseStreamState,
     private readonly sse: SSEConnection,
     private readonly options: SseEventHandlerOptions
   ) {}
+
+  private resolveClientFinishReason(original?: string | null): string {
+    if (this.options.getRequestAborted?.()) {
+      return "client_disconnect";
+    }
+    if (!this.hasEmittedChunk) {
+      return "no_content";
+    }
+    const normalized = typeof original === "string" ? original.trim() : "";
+    if (normalized && !["done", "stream_done", "completed", "stop"].includes(normalized)) {
+      return normalized;
+    }
+    return "completed";
+  }
+
+  private buildNoChunkErrorPayload(): Record<string, unknown> {
+    const base: Record<string, unknown> = {
+      code: "no_chunks_emitted",
+      finishReason: this.resolveClientFinishReason(),
+    };
+
+    const doneEvent = this.lastDoneEvent;
+    const streamResult = isRecord(this.state.streamResult) ? this.state.streamResult : null;
+
+    const statusCandidates: unknown[] = [
+      doneEvent ? (doneEvent as any).providerStatus : undefined,
+      doneEvent ? (doneEvent as any).status : undefined,
+      doneEvent && isRecord((doneEvent as any).meta)
+        ? ((doneEvent as any).meta as Record<string, unknown>).status
+        : undefined,
+      streamResult ? (streamResult as Record<string, unknown>).providerStatus : undefined,
+      streamResult ? (streamResult as Record<string, unknown>).status : undefined,
+    ];
+
+    for (const candidate of statusCandidates) {
+      const resolved = toNullableNumber(candidate);
+      if (resolved != null) {
+        base.providerStatus = resolved;
+        break;
+      }
+    }
+
+    const bodyCandidates: unknown[] = [
+      doneEvent ? (doneEvent as any).providerBody : undefined,
+      doneEvent ? (doneEvent as any).body : undefined,
+      doneEvent ? (doneEvent as any).raw : undefined,
+      doneEvent && isRecord((doneEvent as any).meta)
+        ? ((doneEvent as any).meta as Record<string, unknown>).providerBody
+        : undefined,
+      doneEvent && isRecord((doneEvent as any).meta)
+        ? ((doneEvent as any).meta as Record<string, unknown>).body
+        : undefined,
+      streamResult ? (streamResult as Record<string, unknown>).providerBody : undefined,
+      streamResult ? (streamResult as Record<string, unknown>).body : undefined,
+      streamResult ? (streamResult as Record<string, unknown>).raw : undefined,
+    ];
+
+    for (const candidate of bodyCandidates) {
+      const compacted = compactBody(candidate);
+      if (compacted) {
+        base.providerBody = compacted;
+        break;
+      }
+    }
+
+    const timingFromEvent = doneEvent && isRecord((doneEvent as any).timings)
+      ? ((doneEvent as any).timings as Record<string, unknown>)
+      : null;
+    const timingSource = timingFromEvent ||
+      (Object.keys(this.state.latencyMarks).length ? this.state.latencyMarks : null);
+
+    if (timingSource && Object.keys(timingSource).length) {
+      base.timings = timingSource;
+    }
+
+    return this.options.compactMeta(base);
+  }
 
   sendMeta(obj: Record<string, unknown>) {
     if (!obj) {
@@ -111,7 +241,7 @@ export class SseEventHandlers {
   }
 
   ensureGuardFallback(reason: string) {
-    if (this.state.sawChunk || this.state.guardFallbackSent) {
+    if (!this.state.sawChunk || this.state.guardFallbackSent) {
       return;
     }
     this.state.markGuardFallback(reason);
@@ -205,6 +335,7 @@ export class SseEventHandlers {
         });
 
         const resolvedFinishReason = this.state.finishReason || "unknown";
+        const clientFinishReason = this.resolveClientFinishReason(resolvedFinishReason);
 
         log.info("[ask-eco] stream_done", {
           finishReason: resolvedFinishReason,
@@ -218,6 +349,7 @@ export class SseEventHandlers {
           firstTokenLatencyMs: firstTokenLatency,
           totalLatencyMs: totalLatency,
           sincePromptReadyMs: sincePromptReady,
+          clientFinishReason,
         });
 
         const streamMeta = isRecord(this.state.streamResult) ? this.state.streamResult : null;
@@ -276,23 +408,39 @@ export class SseEventHandlers {
         };
 
         const baseMeta = Object.keys(this.state.doneMeta).length ? { ...this.state.doneMeta } : {};
-        const finalMeta = {
+        const finalMeta: Record<string, unknown> = {
           ...baseMeta,
-          finishReason: resolvedFinishReason,
+          finishReason: clientFinishReason,
           usage: usagePayload,
         };
+        if (resolvedFinishReason && resolvedFinishReason !== clientFinishReason) {
+          finalMeta.originalFinishReason = resolvedFinishReason;
+        }
         this.state.setDoneMeta(finalMeta);
 
         const connection = resolveSseConnection(this.sse, this.options.getSseConnection);
-        if (!this.options.getDoneSent()) {
-          connection?.write({
-            index: this.state.chunksCount,
-            done: true,
-            meta: finalMeta,
+        if (this.hasEmittedChunk) {
+          if (!this.options.getDoneSent()) {
+            connection?.write({
+              index: this.state.chunksCount,
+              done: true,
+              meta: finalMeta,
+            });
+          }
+          connection?.sendControl("done", { meta: finalMeta });
+          this.options.setDoneSent(true);
+        } else {
+          const errorPayload = this.buildNoChunkErrorPayload();
+          connection?.sendControl("error", errorPayload);
+          this.options.setDoneSent(true);
+          log.warn("[ask-eco] sse_no_chunk_ended", {
+            origin: this.options.origin ?? null,
+            clientMessageId: this.options.clientMessageId ?? null,
+            streamId: this.options.streamId ?? null,
+            finishReason: clientFinishReason,
+            providerStatus: (errorPayload as { providerStatus?: number }).providerStatus ?? null,
           });
         }
-        connection?.sendControl("done", { meta: finalMeta });
-        this.options.setDoneSent(true);
 
         log.info("[ask-eco] stream_finalize", {
           origin: this.options.origin ?? null,
@@ -301,14 +449,16 @@ export class SseEventHandlers {
           stream_aborted: this.options.abortSignal.aborted,
           final_chunk_sent: this.state.sawChunk,
           finishReason: resolvedFinishReason,
+          clientFinishReason,
           summary: donePayload,
           guardFallback: this.state.guardFallbackSent,
         });
 
-        this.options.finalizeClientMessageReservation(resolvedFinishReason);
+        this.options.finalizeClientMessageReservation(clientFinishReason);
 
         log.info("[ask-eco] stream_end", {
           finishReason: resolvedFinishReason,
+          clientFinishReason,
           chunks: this.state.chunksCount,
           bytes: this.state.bytesCount,
           totalBytes: this.state.bytesCount,
@@ -330,16 +480,16 @@ export class SseEventHandlers {
         const endPayload: Record<string, unknown> = {};
         if (resolvedFinishReason) {
           endPayload.finishReason = resolvedFinishReason;
+          endPayload.clientFinishReason = clientFinishReason;
         }
         this.options.consoleStreamEnd(Object.keys(endPayload).length ? endPayload : undefined);
 
-        const doneValue =
-          resolvedFinishReason === "error" || resolvedFinishReason === "timeout" ? 0 : 1;
+        const doneValue = clientFinishReason === "completed" ? 1 : 0;
         this.options.onTelemetry(
           "done",
           doneValue,
           this.options.compactMeta({
-            finish_reason: resolvedFinishReason,
+            finish_reason: clientFinishReason,
             chunks: this.state.chunksCount,
             bytes: this.state.bytesCount,
             first_token_latency_ms: firstTokenLatency ?? undefined,
@@ -399,6 +549,13 @@ export class SseEventHandlers {
       this.options.clearFirstTokenWatchdog();
       this.sendMeta({ type: "first_token_latency_ms", value: this.state.firstTokenAt - this.state.t0 });
       this.options.recordFirstTokenTelemetry(chunkInfo.chunkBytes);
+      log.info("[ask-eco] sse_first_chunk", {
+        origin: this.options.origin ?? null,
+        clientMessageId: this.options.clientMessageId ?? null,
+        streamId: this.options.streamId ?? null,
+        index: chunkInfo.chunkIndex,
+        bytes: chunkInfo.chunkBytes,
+      });
     }
 
     if (input.meta && isRecord(input.meta) && Object.keys(input.meta).length) {
@@ -410,6 +567,9 @@ export class SseEventHandlers {
       index: chunkInfo.chunkIndex,
       text: finalText,
     });
+
+    this.hasEmittedChunk = true;
+    this.options.clearFirstTokenWatchdog();
 
     log.info("[ask-eco] stream_chunk", {
       index: chunkInfo.chunkIndex,
@@ -424,6 +584,18 @@ export class SseEventHandlers {
     if (this.state.done || this.state.clientClosed) return;
     const evt = rawEvt as any;
     const type = String(evt?.type || "");
+
+    if (!this.providerOpenedLogged) {
+      this.providerOpenedLogged = true;
+      const controlName = typeof evt?.name === "string" ? evt.name : undefined;
+      log.info("[ask-eco] sse_provider_open", {
+        origin: this.options.origin ?? null,
+        clientMessageId: this.options.clientMessageId ?? null,
+        streamId: this.options.streamId ?? null,
+        eventType: type || null,
+        control: controlName || undefined,
+      });
+    }
 
     switch (type) {
       case "control": {
@@ -496,6 +668,7 @@ export class SseEventHandlers {
           return;
         }
         if (name === "done") {
+          this.lastDoneEvent = evt as Record<string, unknown>;
           this.sendDone(evt?.meta?.finishReason ?? evt?.finishReason ?? "done");
         }
         return;
