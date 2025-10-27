@@ -101,7 +101,8 @@ const parseSsePayloads = (raw: string): Array<Record<string, any>> => {
         return null;
       }
     })
-    .filter((payload): payload is Record<string, any> => payload !== null);
+    .filter((payload): payload is Record<string, any> => payload !== null)
+    .filter((payload) => payload.type !== "ping");
 };
 
 const toContractEvents = (raw: string): ContractEvent[] => {
@@ -477,7 +478,8 @@ test("SSE streaming triggers timeout fallback when orchestrator stalls", async (
     assert.equal(doneEvent!.payload.index, chunkEvents.length);
     assert.equal(doneEvent!.payload.done, true);
 
-    for (const payload of payloads) {
+    const nonControlPayloads = payloads.filter((payload) => payload.name !== "prompt_ready");
+    for (const payload of nonControlPayloads) {
       assert.ok(!Object.prototype.hasOwnProperty.call(payload, "type"));
       assert.ok(!Object.prototype.hasOwnProperty.call(payload, "delta"));
       assert.ok(!Object.prototype.hasOwnProperty.call(payload, "name"));
@@ -492,11 +494,8 @@ test("SSE streaming triggers timeout fallback when orchestrator stalls", async (
   }
 });
 
-test("StreamSession heartbeats use comments and close with done event", async () => {
-  assert.ok(
-    HEARTBEAT_INTERVAL_MS >= 20_000 && HEARTBEAT_INTERVAL_MS <= 30_000,
-    "heartbeat interval should fall within 20-30 seconds"
-  );
+test("StreamSession heartbeats send JSON ping payloads frequently", async () => {
+  assert.equal(HEARTBEAT_INTERVAL_MS, 2_000, "heartbeat interval should be two seconds");
 
   const req = new EventEmitter();
   const res = new MockResponse();
@@ -541,8 +540,8 @@ test("StreamSession heartbeats use comments and close with done event", async ()
 
     heartbeatCallback?.();
     assert.ok(
-      res.chunks.includes(":\n\n"),
-      "heartbeat callback should write SSE comment"
+      res.chunks.some((chunk) => chunk.includes('"type":"ping"')),
+      "heartbeat callback should write JSON ping payload"
     );
 
     const chunksBeforeEnd = res.chunks.length;

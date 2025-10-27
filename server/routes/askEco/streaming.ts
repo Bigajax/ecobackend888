@@ -7,7 +7,7 @@ import type {
 } from "../../services/ConversationOrchestrator";
 import { log } from "../../services/promptContext/logger";
 import { now, smartJoin } from "../../utils";
-export const HEARTBEAT_INTERVAL_MS = 25_000;
+export const HEARTBEAT_INTERVAL_MS = 2_000;
 export const STREAM_TIMEOUT_GUARD_MS = 5_000;
 export const STREAM_TIMEOUT_MESSAGE =
   "Desculpe, não consegui enviar uma resposta a tempo. Pode tentar novamente em instantes?";
@@ -57,6 +57,7 @@ export class StreamSession {
   private nextEventId = 0;
   private endReason: StreamEndReason | null = null;
   private sseLoggedStart = false;
+  private promptReadyControlSent = false;
 
   constructor(options: StreamSessionOptions) {
     this.req = options.req;
@@ -85,6 +86,7 @@ export class StreamSession {
     this.setTimeoutGuardHandler(() => this.triggerTimeoutFallback());
     if (this.respondAsStream) {
       this.startSse();
+      this.sendPromptReadyControl();
     }
     if (promptReadyImmediate) {
       const at = now();
@@ -164,6 +166,27 @@ export class StreamSession {
     this.res.flush?.();
     (this.res as any).__sseNextId = this.nextEventId;
     return eventId;
+  }
+
+  private writeSseControl(name: string, payload?: Record<string, unknown>): number {
+    const eventId = this.nextEventId++;
+    const data = payload && Object.keys(payload).length > 0 ? { name, ...payload } : { name };
+    const chunk = `id: ${eventId}\nevent: control\ndata: ${JSON.stringify(data)}\n\n`;
+    this.res.write(chunk);
+    this.res.flush?.();
+    (this.res as any).__sseNextId = this.nextEventId;
+    return eventId;
+  }
+
+  private sendPromptReadyControl() {
+    if (this.promptReadyControlSent || !this.respondAsStream || this.streamClosed) {
+      return;
+    }
+    this.promptReadyControlSent = true;
+    const at = now();
+    const sinceStartMs = at - this.startTime;
+    this.writeSseControl("prompt_ready", { at, sinceStartMs });
+    this.logSseLifecycle("chunk", { control: "prompt_ready" });
   }
 
   emitLatency(stage: LatencyStage, at: number, timings?: EcoLatencyMarks) {
@@ -338,7 +361,7 @@ export class StreamSession {
 
   private sendHeartbeat() {
     if (!this.respondAsStream || this.streamClosed || !this.sseStarted) return;
-    this.res.write(`:\n\n`);
+    this.res.write(`data: ${JSON.stringify({ type: "ping" })}\n\n`);
     this.res.flush?.();
   }
 
