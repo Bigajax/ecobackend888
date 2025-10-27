@@ -21,7 +21,7 @@ import type { EcoHints } from "../../utils/types";
 
 const BLOCO_DEADLINE_MS = Number(process.env.ECO_BLOCO_DEADLINE_MS ?? 5000);
 const BLOCO_PENDING_MS = Number(process.env.ECO_BLOCO_PENDING_MS ?? 1000);
-const STREAM_GUARD_MS = Number(process.env.ECO_STREAM_GUARD_MS ?? 4000);
+const STREAM_GUARD_MS = Number(process.env.ECO_STREAM_GUARD_MS ?? 2000);
 
 function normalizeBlocoForMeta(
   bloco: any,
