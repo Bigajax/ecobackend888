@@ -289,10 +289,13 @@ const firstTokenTimeoutMs = (() => {
   return parsed;
 })();
 
-const firstTokenWatchdogMs = Math.min(
-  Math.max(firstTokenTimeoutMs, MIN_FIRST_TOKEN_TIMEOUT_MS),
-  MAX_FIRST_TOKEN_TIMEOUT_MS
-);
+const TEST_FIRST_TOKEN_TIMEOUT_MS = 4_000;
+const firstTokenWatchdogMs = IS_TEST_ENV
+  ? TEST_FIRST_TOKEN_TIMEOUT_MS
+  : Math.min(
+      Math.max(firstTokenTimeoutMs, MIN_FIRST_TOKEN_TIMEOUT_MS),
+      MAX_FIRST_TOKEN_TIMEOUT_MS
+    );
 
 const DEFAULT_PING_INTERVAL_MS = 20_000;
 const MIN_PING_INTERVAL_MS = 15_000;
@@ -307,10 +310,13 @@ const resolvedPingIntervalMs = (() => {
   return parsed;
 })();
 
-const streamPingIntervalMs = Math.min(
-  Math.max(resolvedPingIntervalMs, MIN_PING_INTERVAL_MS),
-  MAX_PING_INTERVAL_MS
-);
+const TEST_PING_INTERVAL_MS = 2_000;
+const streamPingIntervalMs = IS_TEST_ENV
+  ? TEST_PING_INTERVAL_MS
+  : Math.min(
+      Math.max(resolvedPingIntervalMs, MIN_PING_INTERVAL_MS),
+      MAX_PING_INTERVAL_MS
+    );
 
 type RequestWithIdentity = Request & {
   guestId?: string | null;
@@ -1035,6 +1041,30 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
       flush: false,
     });
 
+    const flushSse = () => {
+      (res as any).flushHeaders?.();
+      (res as any).flush?.();
+    };
+
+    const safeEarlyWrite = (chunk: string): boolean => {
+      const resAny = res as any;
+      if (resAny.writableEnded || resAny.writableFinished || resAny.destroyed) {
+        return false;
+      }
+      try {
+        res.write(chunk);
+        flushSse();
+        return true;
+      } catch (error) {
+        log.warn("[ask-eco] sse_early_write_failed", {
+          message: error instanceof Error ? error.message : String(error),
+        });
+        return false;
+      }
+    };
+
+    safeEarlyWrite(": open\n\n");
+
     const formatHeaderValue = (
       value: string | number | string[] | boolean | null | undefined
     ): string | null => {
@@ -1628,17 +1658,42 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
 
     sseConnection = sse;
 
+    let isClosed = false;
+
+    const startHeartbeat = () => {
+      if (heartbeat || pingIntervalMs <= 0) {
+        return;
+      }
+      const sendHeartbeat = () => {
+        if (state.done || state.sawChunk || isClosed) {
+          if (heartbeat) {
+            clearInterval(heartbeat);
+            heartbeat = null;
+          }
+          return;
+        }
+        if (sseConnection) {
+          sseConnection.sendComment("hb");
+          flushSse();
+        } else {
+          safeEarlyWrite(": hb\n\n");
+        }
+      };
+      heartbeat = setInterval(sendHeartbeat, pingIntervalMs);
+    };
+
     const sendImmediatePromptReady = () => {
       if (immediatePromptReadySent) {
         return;
       }
       immediatePromptReadySent = true;
       const nowTs = Date.now();
-      sse.sendComment("");
       sse.sendControl("prompt_ready");
+      flushSse();
       state.promptReadyAt = nowTs;
       state.lastEventAt = nowTs;
       armFirstTokenWatchdog();
+      startHeartbeat();
       log.info("[ask-eco] prompt_ready_immediate", {
         origin: origin ?? null,
         clientMessageId: clientMessageId ?? null,
@@ -1648,7 +1703,6 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
 
     sendImmediatePromptReady();
 
-    let isClosed = false;
     req.on("close", () => {
       isClosed = true;
     });
@@ -2004,6 +2058,10 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
       }
 
       state.sawChunk = true;
+      if (heartbeat) {
+        clearInterval(heartbeat);
+        heartbeat = null;
+      }
       if (earlyClientAbortTimer) {
         clearTimeout(earlyClientAbortTimer);
         earlyClientAbortTimer = null;

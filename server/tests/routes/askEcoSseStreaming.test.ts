@@ -297,8 +297,10 @@ test("SSE streaming emits tokens, done and disables compression", async () => {
     TEST_INTERACTION_ID,
     "should expose interaction id in headers"
   );
+  assert.ok(res.headersFlushed, "should flush headers immediately for SSE");
   assert.equal(res.ended, true, "stream should close after done event");
   assert.ok(res.flushed, "safeWrite should flush chunks for SSE");
+  assert.equal(res.chunks[0], ": open\n\n", "should send initial open comment before data");
 
   const output = res.chunks.join("");
   assert.ok(res.chunks.length > 0, "should emit at least one SSE chunk");
@@ -337,6 +339,78 @@ test("SSE streaming emits tokens, done and disables compression", async () => {
     !payloads.some((entry) => typeof entry.text === "string" && entry.text.trim().toLowerCase() === "ok"),
     "should avoid plain ok payloads"
   );
+});
+
+test("SSE streaming sends open comment and heartbeats before first chunk", async () => {
+  let heartbeatCallback: (() => void) | null = null;
+  const fakeInterval = { ref: Symbol("interval") } as unknown as NodeJS.Timeout;
+  const originalSetInterval = global.setInterval;
+  const originalClearInterval = global.clearInterval;
+
+  try {
+    (global as any).setInterval = ((fn: () => void) => {
+      heartbeatCallback = fn;
+      return fakeInterval;
+    }) as typeof setInterval;
+    (global as any).clearInterval = () => {};
+
+    let releaseResponse: (() => void) | null = null;
+
+    const router = await loadRouterWithStubs("../../routes/promptRoutes", {
+      "../services/ConversationOrchestrator": {
+        getEcoResponse: async () =>
+          await new Promise((resolve) => {
+            releaseResponse = () => resolve({ raw: "resultado" });
+          }),
+      },
+      "../services/conversation/interactionAnalytics": {
+        createInteraction: async () => TEST_INTERACTION_ID,
+      },
+      "../services/promptContext/logger": {
+        log: {
+          info: () => {},
+          warn: () => {},
+          error: () => {},
+          debug: () => {},
+        },
+      },
+    });
+
+    const handler = getRouteHandler(router, "/ask-eco");
+
+    const req = new MockRequest(
+      {
+        stream: true,
+        messages: [{ role: "user", content: "Olá" }],
+      },
+      {
+        accept: "text/event-stream",
+        "content-type": "application/json",
+      }
+    );
+    req.guest = { id: TEST_GUEST_ID };
+    req.guestId = TEST_GUEST_ID;
+
+    const res = new MockResponse();
+
+    const handlerPromise = handler(req as any, res as any);
+
+    assert.equal(res.chunks[0], ": open\n\n", "should send open comment immediately");
+    assert.ok(heartbeatCallback, "should register heartbeat callback");
+
+    heartbeatCallback?.();
+
+    assert.ok(
+      res.chunks.some((chunk, index) => index > 0 && chunk.includes(": hb")),
+      "heartbeat callback should append hb comment"
+    );
+
+    releaseResponse?.();
+    await handlerPromise;
+  } finally {
+    global.setInterval = originalSetInterval;
+    global.clearInterval = originalClearInterval;
+  }
 });
 
 test("SSE streaming triggers timeout fallback when orchestrator stalls", async () => {
