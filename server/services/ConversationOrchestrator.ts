@@ -190,10 +190,10 @@ async function runPreLLMPipeline({
   lastMessageId?: string | null;
   sessionMeta?: any;
   streamHandler: EcoStreamHandler | null;
-  clientHour?: number | null;
+  clientHour?: number;
   isGuest: boolean;
   guestId: string | null;
-  activationTracer?: ActivationTracer | null;
+  activationTracer?: ActivationTracer;
 }): Promise<GetEcoResult | EcoStreamingResult | null> {
   const preLLM = await handlePreLLMShortcuts(
     {
@@ -206,7 +206,7 @@ async function runPreLLMPipeline({
       lastMessageId: lastMessageId ?? undefined,
       sessionMeta,
       streamHandler,
-      clientHour,
+      clientHour: clientHour ?? undefined,
       isGuest,
       guestId: guestId ?? undefined,
     },
@@ -223,9 +223,10 @@ async function runPreLLMPipeline({
 
   const ecoDecision = computeEcoDecision(ultimaMsg);
   const retrieveForAnalytics = inferRetrieveMode({ ultimaMsg, hints: null, ecoDecision });
+  const tracer = activationTracer || undefined;
   const analyticsContext = {
     retrieveMode: retrieveForAnalytics.mode,
-    activationTracer,
+    activationTracer: tracer,
     userId: !isGuest ? userId : null,
   };
 
@@ -245,7 +246,7 @@ function applyMemoryDecision({
 }: {
   ecoDecision: EcoDecisionResult;
   isGuest: boolean;
-  activationTracer?: ActivationTracer | null;
+  activationTracer?: ActivationTracer;
 }) {
   const crossedThreshold = ecoDecision.intensity >= MEMORY_THRESHOLD;
   ecoDecision.saveMemory = ecoDecision.saveMemory && !isGuest;
@@ -316,7 +317,7 @@ async function buildPromptContext({
     userId: string;
     isGuest: boolean;
     guestId: string | null;
-    activationTracer?: ActivationTracer | null;
+    activationTracer?: ActivationTracer;
   };
   calHints: ReturnType<typeof computeCalHints>["calHints"];
   retrieveDecision: RetrieveDecision;
@@ -345,7 +346,7 @@ async function buildPromptContext({
     cacheUserId: systemPromptDeps.userId,
     isGuest: systemPromptDeps.isGuest,
     guestId: systemPromptDeps.guestId ?? undefined,
-    activationTracer: systemPromptDeps.activationTracer,
+    activationTracer: systemPromptDeps.activationTracer || undefined,
     retrieveMode: retrieveDecision.mode,
     authUid,
   });
@@ -408,7 +409,7 @@ async function maybeRunFastLane({
   isGuest: boolean;
   guestId: string | null;
   ecoDecision: EcoDecisionResult;
-  activationTracer?: ActivationTracer | null;
+  activationTracer?: ActivationTracer;
   retrieveDecision: RetrieveDecision;
 }): Promise<GetEcoResult | null> {
   if (!shouldUseFastLane({ routeDecision, streamHandler })) {
@@ -439,7 +440,7 @@ async function maybeRunFastLane({
   await persistAnalyticsSafe({
     result: fast.response,
     retrieveMode: retrieveDecision.mode,
-    activationTracer,
+    activationTracer: activationTracer || undefined,
     userId: !isGuest ? userId : null,
   });
 
@@ -481,6 +482,8 @@ export async function getEcoResponse({
   stream?: EcoStreamHandler;
   abortSignal?: AbortSignal;
 }): Promise<GetEcoResult | EcoStreamingResult> {
+  const normalizedClientHour = clientHour ?? undefined;
+  const normalizedActivationTracer = activationTracer || undefined;
   const needsSupabase = !isGuest && !!accessToken;
   validateEnvironment(needsSupabase);
 
@@ -519,10 +522,10 @@ export async function getEcoResponse({
       lastMessageId,
       sessionMeta,
       streamHandler,
-      clientHour,
+      clientHour: normalizedClientHour,
       isGuest,
       guestId,
-      activationTracer,
+      activationTracer: normalizedActivationTracer,
     });
 
     if (preLLMResult) {
@@ -530,7 +533,7 @@ export async function getEcoResponse({
     }
 
     ecoDecision = computeEcoDecision(ultimaMsg);
-    applyMemoryDecision({ ecoDecision, isGuest, activationTracer });
+    applyMemoryDecision({ ecoDecision, isGuest, activationTracer: normalizedActivationTracer });
 
     const routeDecision = decideRoute({
       messages: thread,
@@ -566,7 +569,7 @@ export async function getEcoResponse({
       isGuest,
       guestId,
       ecoDecision,
-      activationTracer,
+      activationTracer: normalizedActivationTracer,
       retrieveDecision,
     });
     if (fastLaneResult) {
@@ -608,7 +611,7 @@ export async function getEcoResponse({
         userId,
         isGuest,
         guestId,
-        activationTracer,
+        activationTracer: normalizedActivationTracer,
       },
       calHints,
       retrieveDecision,
@@ -616,7 +619,7 @@ export async function getEcoResponse({
     });
 
     const principalModel = process.env.ECO_CLAUDE_MODEL || "anthropic/claude-3-5-sonnet";
-    activationTracer?.setModel?.(principalModel);
+    normalizedActivationTracer?.setModel?.(principalModel);
 
     if (streamHandler) {
       return runStreamingPath({
@@ -648,7 +651,7 @@ export async function getEcoResponse({
         },
         analytics: {
           retrieveMode: retrieveDecision.mode,
-          activationTracer,
+          activationTracer: normalizedActivationTracer,
           userId: !isGuest ? userId : null,
         },
       });
@@ -681,7 +684,7 @@ export async function getEcoResponse({
       },
       analytics: {
         retrieveMode: retrieveDecision.mode,
-        activationTracer,
+        activationTracer: normalizedActivationTracer,
         userId: !isGuest ? userId : null,
       },
     });

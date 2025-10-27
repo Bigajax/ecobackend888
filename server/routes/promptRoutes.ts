@@ -17,7 +17,11 @@ import { applyCorsResponseHeaders, isAllowedOrigin } from "../middleware/cors";
 import { createInteraction } from "../services/conversation/interactionAnalytics";
 import { extractEventText, extractTextLoose, sanitizeOutput } from "../utils/textExtractor";
 import { getGuestIdFromCookies, resolveGuestId } from "../utils/guestIdResolver";
-import { validateAskEcoPayload } from "../validation/payloadValidator";
+import {
+  validateAskEcoPayload,
+  type ValidationError,
+  type ValidationResult,
+} from "../validation/payloadValidator";
 import { SseStreamState } from "../sse/sseState";
 import { SseEventHandlers } from "../sse/sseEvents";
 import { SseTelemetry } from "../sse/sseTelemetry";
@@ -187,6 +191,12 @@ type RequestWithIdentity = Request & {
   user?: { id?: string | null } | null;
 };
 
+function isValidationFailure(
+  result: ValidationResult
+): result is { valid: false; error: ValidationError } {
+  return result.valid === false;
+}
+
 function disableCompressionForSse(response: Response) {
   if (typeof (response as any).removeHeader === "function") {
     (response as any).removeHeader("Content-Encoding");
@@ -306,7 +316,7 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
 
   const validation = validateAskEcoPayload(req.body, req.headers);
 
-  if (!validation.valid) {
+  if (isValidationFailure(validation)) {
     const { status, message } = validation.error;
     return res.status(status).json({ ok: false, error: message });
   }
@@ -574,6 +584,9 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
     // SSE mode
     res.socket?.setTimeout(300000);
     res.socket?.setKeepAlive(true, 30000);
+    const lastMessageId =
+      req.get("Last-Event-ID") ?? req.header("Last-Event-ID") ?? undefined;
+
     res.status(200);
     disableCompressionForSse(res);
     const normalizedOrigin = allowedOrigin && origin ? origin : undefined;
@@ -770,7 +783,9 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
 
     telemetry.setFallbackInteractionId(fallbackInteractionId);
 
-    const getResolvedInteractionId = () => telemetry.getResolvedInteractionId();
+    function getResolvedInteractionId(): string | undefined {
+      return telemetry.getResolvedInteractionId() ?? undefined;
+    }
     const isInteractionIdReady = () => telemetry.isInteractionIdReady();
 
     const finalizeClientMessageReservation = (finishReason?: string | null) => {
@@ -1004,6 +1019,47 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
     }
 
     let isClosed = false;
+    let abortListener: (() => void) | null = null;
+    let heartbeat: NodeJS.Timeout | null = null;
+    let handlers: SseEventHandlers;
+
+    function getSseConnection() {
+      return sseConnection;
+    }
+
+    function recordFirstTokenTelemetry(chunkBytes: number) {
+      if (state.firstTokenTelemetrySent) return;
+      state.markFirstTokenTelemetrySent();
+      const latency = state.firstTokenAt ? state.firstTokenAt - state.t0 : null;
+      telemetry.setFirstTokenLatency(latency);
+      telemetry.recordFirstTokenTelemetry(
+        chunkBytes,
+        typeof latency === "number" && Number.isFinite(latency) ? latency : null
+      );
+    }
+
+    function clearHeartbeatTimer() {
+      if (heartbeat) {
+        clearInterval(heartbeat);
+        heartbeat = null;
+      }
+    }
+
+    function clearEarlyClientAbortTimer() {
+      if (earlyClientAbortTimer) {
+        clearTimeout(earlyClientAbortTimer);
+        earlyClientAbortTimer = null;
+      }
+    }
+
+    function clearAbortListenerRef() {
+      if (abortListener) {
+        abortSignal.removeEventListener("abort", abortListener);
+        abortListener = null;
+      }
+    }
+
+    function sendLatency(_payload: Record<string, unknown>) {}
 
     const sse = createSSE(res, req, {
       pingIntervalMs: 0,
@@ -1142,47 +1198,6 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
 
       if (!isInteractionIdReady()) {
         captureInteractionId(getResolvedInteractionId());
-      }
-    };
-
-    const recordFirstTokenTelemetry = (chunkBytes: number) => {
-      if (state.firstTokenTelemetrySent) return;
-      state.markFirstTokenTelemetrySent();
-      const latency = state.firstTokenAt ? state.firstTokenAt - state.t0 : null;
-      telemetry.setFirstTokenLatency(latency);
-      telemetry.recordFirstTokenTelemetry(
-        chunkBytes,
-        typeof latency === "number" && Number.isFinite(latency) ? latency : null
-      );
-    };
-
-    let abortListener: (() => void) | null = null;
-    let heartbeat: NodeJS.Timeout | null = null;
-
-    const clearHeartbeatTimer = () => {
-      if (heartbeat) {
-        clearInterval(heartbeat);
-        heartbeat = null;
-      }
-    };
-
-    const clearEarlyClientAbortTimer = () => {
-      if (earlyClientAbortTimer) {
-        clearTimeout(earlyClientAbortTimer);
-        earlyClientAbortTimer = null;
-      }
-    };
-
-    function sendLatency(_payload: Record<string, unknown>) {}
-
-    let handlers: SseEventHandlers;
-
-    const getSseConnection = () => sseConnection;
-
-    const clearAbortListenerRef = () => {
-      if (abortListener) {
-        abortSignal.removeEventListener("abort", abortListener);
-        abortListener = null;
       }
     };
 

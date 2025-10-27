@@ -23,7 +23,7 @@ export interface BudgetPlannerParams {
   footerModules: PreparedModule[];
   nivel: 1 | 2 | 3;
   ecoDecision: EcoDecisionResult;
-  activationTracer?: ActivationTracer | null;
+  activationTracer?: ActivationTracer;
 }
 
 export interface BudgetPlannerResult {

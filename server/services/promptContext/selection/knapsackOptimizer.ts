@@ -3,17 +3,13 @@ import { getManifestDefaults } from "../moduleManifest";
 import { ordemAbsoluta } from "../matrizPromptBaseV2";
 import { qualityAnalyticsStore } from "../../analytics/analyticsStore";
 import type { ModuleDebugEntry, PreparedModule } from "../Selector";
+import type { ModuleCandidate } from "../moduleCatalog";
 import { ensureDeveloperPromptFirst, sortByAbsoluteOrder } from "./moduleSelector";
 
 const KNAPSACK_BUDGET_ENV = "ECO_KNAPSACK_BUDGET_TOKENS";
 const VPT_FALLBACK = 0.0001;
 
-export interface KnapsackCandidate {
-  name: string;
-  text: string;
-  tokens: number;
-  meta: unknown;
-  hadContent: boolean;
+export interface KnapsackCandidate extends ModuleCandidate {
   bytes?: number;
 }
 
