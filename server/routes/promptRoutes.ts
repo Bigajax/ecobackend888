@@ -1151,7 +1151,10 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
               finishReason: "client_disconnect",
               usage: usageMeta,
             };
+            // (A) mantenha compat. antiga opcionalmente:
             sseConnection.write({ index: state.chunksCount, done: true, meta: finalMeta });
+            // (B) **sempre** emita o evento padronizado de conclusão:
+            sseConnection.sendControl("done", { meta: finalMeta });
             state.setDoneMeta(finalMeta);
             state.ensureFinishReason("client_disconnect");
             doneSent = true;
