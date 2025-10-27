@@ -38,7 +38,7 @@ interface SseEventHandlerOptions {
   clearFirstTokenWatchdog: () => void;
   recordFirstTokenTelemetry: (chunkBytes: number) => void;
   updateUsageTokens: (meta: any) => void;
-  mergeLatencyMarks: (marks: Record<string, unknown> | undefined) => void;
+  mergeLatencyMarks: (marks?: Record<string, unknown>) => void;
   buildSummaryFromChunks: (pieces: string[]) => string;
   buildDonePayload: BuildDonePayload;
   finalizeClientMessageReservation: (finishReason?: string | null) => void;

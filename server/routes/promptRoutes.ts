@@ -192,7 +192,7 @@ type MakeHandlersParams = {
   clearFirstTokenWatchdog: () => void;
   recordFirstTokenTelemetry: (chunkBytes: number) => void;
   updateUsageTokens: (meta: any) => void;
-  mergeLatencyMarks: (marks: Record<string, unknown>) => void;
+  mergeLatencyMarks: (marks?: Record<string, unknown>) => void;
   buildSummaryFromChunks: typeof buildSummaryFromChunks;
   buildDonePayload: typeof buildDonePayload;
   finalizeClientMessageReservation: (finishReason?: string | null) => void;
@@ -1186,8 +1186,8 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
       state.updateUsageTokens(meta);
     };
 
-    const mergeLatencyMarks = (marks: Record<string, unknown> | null | undefined) => {
-      state.mergeLatencyMarks(marks ?? undefined);
+    const mergeLatencyMarks: (marks?: Record<string, unknown>) => void = (marks) => {
+      state.mergeLatencyMarks(marks ?? {});
     };
 
     const resolvedUserIdForInteraction =

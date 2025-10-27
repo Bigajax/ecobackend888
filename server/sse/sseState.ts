@@ -244,9 +244,10 @@ export class SseStreamState {
     }
   }
 
-  mergeLatencyMarks(marks: Record<string, unknown> | null | undefined) {
-    if (!marks || typeof marks !== "object") return;
-    this.latencyMarks = { ...this.latencyMarks, ...marks };
+  mergeLatencyMarks(marks?: Record<string, unknown> | null) {
+    const resolvedMarks = marks ?? {};
+    if (typeof resolvedMarks !== "object") return;
+    this.latencyMarks = { ...this.latencyMarks, ...resolvedMarks };
   }
 
   setStreamResult(result: Record<string, unknown>) {
