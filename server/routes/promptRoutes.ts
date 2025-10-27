@@ -119,6 +119,194 @@ function buildSummaryFromChunks(pieces: string[]): string {
   return normalized;
 }
 
+type SseConnection = ReturnType<typeof createSSE>;
+
+function createGetResolvedInteractionId(telemetry: SseTelemetry) {
+  return function getResolvedInteractionId(): string | undefined {
+    return telemetry.getResolvedInteractionId() ?? undefined;
+  };
+}
+
+function createGetSseConnectionRef(connectionRef: { current: SseConnection | null }) {
+  return function getSseConnection(): SseConnection | null {
+    return connectionRef.current;
+  };
+}
+
+function createRecordFirstTokenTelemetry(state: SseStreamState, telemetry: SseTelemetry) {
+  return function recordFirstTokenTelemetry(chunkBytes: number) {
+    if (state.firstTokenTelemetrySent) return;
+    state.markFirstTokenTelemetrySent();
+    const latency = state.firstTokenAt ? state.firstTokenAt - state.t0 : null;
+    telemetry.setFirstTokenLatency(latency);
+    telemetry.recordFirstTokenTelemetry(
+      chunkBytes,
+      typeof latency === "number" && Number.isFinite(latency) ? latency : null
+    );
+  };
+}
+
+function createClearHeartbeatTimer(heartbeatRef: { current: NodeJS.Timeout | null }) {
+  return function clearHeartbeatTimer() {
+    if (heartbeatRef.current) {
+      clearInterval(heartbeatRef.current);
+      heartbeatRef.current = null;
+    }
+  };
+}
+
+function createClearEarlyClientAbortTimer(timerRef: { current: NodeJS.Timeout | null }) {
+  return function clearEarlyClientAbortTimer() {
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+  };
+}
+
+function createClearAbortListenerRef(
+  abortSignal: AbortSignal,
+  abortListenerRef: { current: (() => void) | null }
+) {
+  return function clearAbortListenerRef() {
+    const listener = abortListenerRef.current;
+    if (listener) {
+      abortSignal.removeEventListener("abort", listener);
+      abortListenerRef.current = null;
+    }
+  };
+}
+
+type MakeHandlersParams = {
+  state: SseStreamState;
+  sse: SseConnection;
+  context: { origin: string | null; clientMessageId: string | null; streamId: string | null };
+  onTelemetry: (signal: string, value?: number | null, meta?: Record<string, unknown>) => void;
+  guardFallbackText: string;
+  idleTimeoutMs: number;
+  getDoneSent: () => boolean;
+  setDoneSent: (value: boolean) => void;
+  clearHeartbeat: () => void;
+  clearEarlyClientAbortTimer: () => void;
+  getIsClosed: () => boolean;
+  clearFirstTokenWatchdog: () => void;
+  recordFirstTokenTelemetry: (chunkBytes: number) => void;
+  updateUsageTokens: (meta: any) => void;
+  mergeLatencyMarks: (marks: Record<string, unknown>) => void;
+  buildSummaryFromChunks: typeof buildSummaryFromChunks;
+  buildDonePayload: typeof buildDonePayload;
+  finalizeClientMessageReservation: (finishReason?: string | null) => void;
+  getResolvedInteractionId: () => string | undefined;
+  isInteractionIdReady: () => boolean;
+  captureInteractionId: (value: unknown) => void;
+  getInteractionBootstrapPromise: () => Promise<void>;
+  sendLatency: (payload: Record<string, unknown>) => void;
+  consoleStreamEnd: (payload?: Record<string, unknown>) => void;
+  compactMeta: (meta: Record<string, unknown>) => Record<string, unknown>;
+  abortSignal: AbortSignal;
+  clearAbortListener: () => void;
+  releaseActiveStream: () => void;
+  onStreamEnd: () => void;
+  getSseConnection: () => SseConnection | null;
+  armFirstTokenWatchdog: () => void;
+  streamHasChunkHandler: boolean;
+};
+
+type MakeHandlersResult = {
+  handlers: SseEventHandlers;
+  sendMeta: (obj: Record<string, unknown>) => void;
+  sendMemorySaved: (obj: Record<string, unknown>) => void;
+  sendErrorEvent: (payload: Record<string, unknown>) => void;
+  ensureGuardFallback: (reason: string) => void;
+  sendDone: (reason?: string | null) => void;
+  sendChunk: (input: { text: string; index?: number; meta?: Record<string, unknown> }) => void;
+  forwardEvent: (rawEvt: EcoStreamEvent | any) => void;
+};
+
+function makeHandlers(params: MakeHandlersParams): MakeHandlersResult {
+  const {
+    state,
+    sse,
+    context,
+    onTelemetry,
+    guardFallbackText,
+    idleTimeoutMs,
+    getDoneSent,
+    setDoneSent,
+    clearHeartbeat,
+    clearEarlyClientAbortTimer,
+    getIsClosed,
+    clearFirstTokenWatchdog,
+    recordFirstTokenTelemetry,
+    updateUsageTokens,
+    mergeLatencyMarks,
+    buildSummaryFromChunks: buildSummary,
+    buildDonePayload: buildDone,
+    finalizeClientMessageReservation,
+    getResolvedInteractionId,
+    isInteractionIdReady,
+    captureInteractionId,
+    getInteractionBootstrapPromise,
+    sendLatency,
+    consoleStreamEnd,
+    compactMeta,
+    abortSignal,
+    clearAbortListener,
+    releaseActiveStream,
+    onStreamEnd,
+    getSseConnection,
+    armFirstTokenWatchdog,
+    streamHasChunkHandler,
+  } = params;
+
+  const handlers = new SseEventHandlers(state, sse, {
+    origin: context.origin ?? null,
+    clientMessageId: context.clientMessageId ?? null,
+    streamId: context.streamId ?? null,
+    onTelemetry,
+    guardFallbackText,
+    idleTimeoutMs,
+    getDoneSent,
+    setDoneSent,
+    clearHeartbeat,
+    clearEarlyClientAbortTimer,
+    getIsClosed,
+    clearFirstTokenWatchdog,
+    recordFirstTokenTelemetry,
+    updateUsageTokens,
+    mergeLatencyMarks,
+    buildSummaryFromChunks: buildSummary,
+    buildDonePayload: buildDone,
+    finalizeClientMessageReservation,
+    getResolvedInteractionId,
+    isInteractionIdReady,
+    captureInteractionId,
+    getInteractionBootstrapPromise,
+    sendLatency,
+    consoleStreamEnd,
+    compactMeta,
+    abortSignal,
+    clearAbortListener,
+    releaseActiveStream,
+    onStreamEnd,
+    getSseConnection,
+    armFirstTokenWatchdog,
+    streamHasChunkHandler,
+  });
+
+  return {
+    handlers,
+    sendMeta: (obj: Record<string, unknown>) => handlers.sendMeta(obj),
+    sendMemorySaved: (obj: Record<string, unknown>) => handlers.sendMemorySaved(obj),
+    sendErrorEvent: (payload: Record<string, unknown>) => handlers.sendErrorEvent(payload),
+    ensureGuardFallback: (reason: string) => handlers.ensureGuardFallback(reason),
+    sendDone: (reason?: string | null) => handlers.sendDone(reason),
+    sendChunk: (input: { text: string; index?: number; meta?: Record<string, unknown> }) =>
+      handlers.sendChunk(input),
+    forwardEvent: (rawEvt: EcoStreamEvent | any) => handlers.forwardEvent(rawEvt),
+  };
+}
+
 const activeClientMessageLocks = new Map<string, true>();
 
 export { askEcoRouter as askEcoRoutes };
@@ -375,6 +563,10 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
   let clientMessageReserved = false;
   let doneSent = false;
   let sseConnection: ReturnType<typeof createSSE> | null = null;
+  let sseStarted = false;
+  let sseSendErrorEvent: ((payload: Record<string, unknown>) => void) | null = null;
+  let sseSendDone: ((reason?: string | null) => void) | null = null;
+  let sseSafeEarlyWrite: ((chunk: string) => boolean) | null = null;
 
   const guestIdResolved = resolveGuestId(
     typeof guestId === "string" ? guestId : undefined,
@@ -582,93 +774,8 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
     }
 
     // SSE mode
-    res.socket?.setTimeout(300000);
-    res.socket?.setKeepAlive(true, 30000);
     const lastMessageId =
       req.get("Last-Event-ID") ?? req.header("Last-Event-ID") ?? undefined;
-
-    res.status(200);
-    disableCompressionForSse(res);
-    const normalizedOrigin = allowedOrigin && origin ? origin : undefined;
-    prepareSseHeaders(res, {
-      origin: normalizedOrigin,
-      allowCredentials: Boolean(normalizedOrigin),
-      flush: false,
-    });
-
-    const flushSse = () => {
-      (res as any).flushHeaders?.();
-      (res as any).flush?.();
-    };
-
-    const safeEarlyWrite = (chunk: string): boolean => {
-      const resAny = res as any;
-      if (resAny.writableEnded || resAny.writableFinished || resAny.destroyed) {
-        return false;
-      }
-      try {
-        res.write(chunk);
-        flushSse();
-        return true;
-      } catch (error) {
-        log.warn("[ask-eco] sse_early_write_failed", {
-          message: error instanceof Error ? error.message : String(error),
-        });
-        return false;
-      }
-    };
-
-    safeEarlyWrite(": open\n\n");
-
-    const formatHeaderValue = (
-      value: string | number | string[] | boolean | null | undefined
-    ): string | null => {
-      if (Array.isArray(value)) {
-        return value
-          .map((entry) =>
-            typeof entry === "string" || typeof entry === "number"
-              ? String(entry)
-              : ""
-          )
-          .filter(Boolean)
-          .join(", ");
-      }
-      if (typeof value === "number") {
-        return String(value);
-      }
-      if (typeof value === "boolean") {
-        return value ? "true" : "false";
-      }
-      if (typeof value === "string") {
-        return value;
-      }
-      return value ?? null;
-    };
-
-    const headerSnapshot = {
-      "content-type": formatHeaderValue(res.getHeader("Content-Type")),
-      "cache-control": formatHeaderValue(res.getHeader("Cache-Control")),
-      connection: formatHeaderValue(res.getHeader("Connection")),
-      "x-accel-buffering": formatHeaderValue(res.getHeader("X-Accel-Buffering")),
-      "x-no-compression": formatHeaderValue(res.getHeader("X-No-Compression")),
-      "transfer-encoding": formatHeaderValue(res.getHeader("Transfer-Encoding")),
-    };
-
-    log.info("[ask-eco] stream_start", {
-      origin: origin ?? null,
-      streamId: streamId ?? null,
-      clientMessageId: clientMessageId ?? null,
-      interactionId: getResolvedInteractionId() ?? null,
-      headers: {
-        accept: typeof req.headers.accept === "string" ? req.headers.accept : undefined,
-        "user-agent": typeof req.headers["user-agent"] === "string" ? req.headers["user-agent"] : undefined,
-      },
-      pid: process.pid,
-      idleTimeoutMs,
-      pingIntervalMs,
-      firstTokenTimeoutMs,
-      responseHeaders: headerSnapshot,
-    });
 
     const abortController = new AbortController();
     const abortSignal = abortController.signal;
@@ -743,13 +850,6 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
           clientMessageReserved = false;
         }
         releaseActiveInteractionKeys();
-        if (res.headersSent) {
-          log.error("[ask-eco] headers already sent, cannot send JSON", {
-            stage: "active_interaction_conflict",
-            isEventStreamRequest,
-          });
-          return;
-        }
         return res.status(409).json({
           ok: false,
           code: "STREAM_ALREADY_ACTIVE",
@@ -783,9 +883,7 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
 
     telemetry.setFallbackInteractionId(fallbackInteractionId);
 
-    function getResolvedInteractionId(): string | undefined {
-      return telemetry.getResolvedInteractionId() ?? undefined;
-    }
+    const getResolvedInteractionId = createGetResolvedInteractionId(telemetry);
     const isInteractionIdReady = () => telemetry.isInteractionIdReady();
 
     const finalizeClientMessageReservation = (finishReason?: string | null) => {
@@ -850,12 +948,102 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
     const compactMeta = (meta: Record<string, unknown>): Record<string, unknown> =>
       telemetry.compactMeta(meta);
 
+    const normalizedOrigin = allowedOrigin && origin ? origin : undefined;
+
+    res.socket?.setTimeout(300000);
+    res.socket?.setKeepAlive(true, 30000);
+
+    res.status(200);
+    disableCompressionForSse(res);
+    prepareSseHeaders(res, {
+      origin: normalizedOrigin,
+      allowCredentials: Boolean(normalizedOrigin),
+      flush: false,
+    });
+    sseStarted = true;
+
+    const flushSse = () => {
+      (res as any).flushHeaders?.();
+      (res as any).flush?.();
+    };
+
+    const safeEarlyWrite = (chunk: string): boolean => {
+      const resAny = res as any;
+      if (resAny.writableEnded || resAny.writableFinished || resAny.destroyed) {
+        return false;
+      }
+      try {
+        res.write(chunk);
+        flushSse();
+        return true;
+      } catch (error) {
+        log.warn("[ask-eco] sse_early_write_failed", {
+          message: error instanceof Error ? error.message : String(error),
+        });
+        return false;
+      }
+    };
+
+    sseSafeEarlyWrite = safeEarlyWrite;
+
+    safeEarlyWrite(": open\n\n");
+
+    const formatHeaderValue = (
+      value: string | number | string[] | boolean | null | undefined
+    ): string | null => {
+      if (Array.isArray(value)) {
+        return value
+          .map((entry) =>
+            typeof entry === "string" || typeof entry === "number"
+              ? String(entry)
+              : ""
+          )
+          .filter(Boolean)
+          .join(", ");
+      }
+      if (typeof value === "number") {
+        return String(value);
+      }
+      if (typeof value === "boolean") {
+        return value ? "true" : "false";
+      }
+      if (typeof value === "string") {
+        return value;
+      }
+      return value ?? null;
+    };
+
+    const headerSnapshot = {
+      "content-type": formatHeaderValue(res.getHeader("Content-Type")),
+      "cache-control": formatHeaderValue(res.getHeader("Cache-Control")),
+      connection: formatHeaderValue(res.getHeader("Connection")),
+      "x-accel-buffering": formatHeaderValue(res.getHeader("X-Accel-Buffering")),
+      "x-no-compression": formatHeaderValue(res.getHeader("X-No-Compression")),
+      "transfer-encoding": formatHeaderValue(res.getHeader("Transfer-Encoding")),
+    };
+
+    log.info("[ask-eco] stream_start", {
+      origin: origin ?? null,
+      streamId: streamId ?? null,
+      clientMessageId: clientMessageId ?? null,
+      interactionId: getResolvedInteractionId() ?? null,
+      headers: {
+        accept: typeof req.headers.accept === "string" ? req.headers.accept : undefined,
+        "user-agent": typeof req.headers["user-agent"] === "string" ? req.headers["user-agent"] : undefined,
+      },
+      pid: process.pid,
+      idleTimeoutMs,
+      pingIntervalMs,
+      firstTokenTimeoutMs,
+      responseHeaders: headerSnapshot,
+    });
+
     const state = new SseStreamState();
 
-    let doneSent = false;
-    let earlyClientAbortTimer: NodeJS.Timeout | null = null;
+    const earlyClientAbortTimerRef: { current: NodeJS.Timeout | null } = {
+      current: null,
+    };
     let immediatePromptReadySent = false;
-    let sseConnection: ReturnType<typeof createSSE> | null = null;
     let interactionBootstrapPromise: Promise<void> = Promise.resolve();
 
     const classifyClose = (source: string | null | undefined) =>
@@ -958,14 +1146,14 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
           }
           sseConnection?.sendComment?.("");
           if (!state.sawChunk) {
-            if (!earlyClientAbortTimer) {
+            if (!earlyClientAbortTimerRef.current) {
               log.info("[ask-eco] client closed before first chunk — keeping LLM alive brevemente", {
                 origin: origin ?? null,
                 clientMessageId: clientMessageId ?? null,
                 streamId: streamId ?? null,
               });
-              earlyClientAbortTimer = setTimeout(() => {
-                earlyClientAbortTimer = null;
+              earlyClientAbortTimerRef.current = setTimeout(() => {
+                earlyClientAbortTimerRef.current = null;
                 if (!state.sawChunk && !abortSignal.aborted) {
                   state.setFinishReason("client_closed_early");
                   abortController.abort(new Error("client_closed_early"));
@@ -1019,45 +1207,18 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
     }
 
     let isClosed = false;
-    let abortListener: (() => void) | null = null;
-    let heartbeat: NodeJS.Timeout | null = null;
+    const abortListenerRef: { current: (() => void) | null } = { current: null };
+    const heartbeatRef: { current: NodeJS.Timeout | null } = { current: null };
     let handlers: SseEventHandlers;
 
-    function getSseConnection() {
-      return sseConnection;
-    }
-
-    function recordFirstTokenTelemetry(chunkBytes: number) {
-      if (state.firstTokenTelemetrySent) return;
-      state.markFirstTokenTelemetrySent();
-      const latency = state.firstTokenAt ? state.firstTokenAt - state.t0 : null;
-      telemetry.setFirstTokenLatency(latency);
-      telemetry.recordFirstTokenTelemetry(
-        chunkBytes,
-        typeof latency === "number" && Number.isFinite(latency) ? latency : null
-      );
-    }
-
-    function clearHeartbeatTimer() {
-      if (heartbeat) {
-        clearInterval(heartbeat);
-        heartbeat = null;
-      }
-    }
-
-    function clearEarlyClientAbortTimer() {
-      if (earlyClientAbortTimer) {
-        clearTimeout(earlyClientAbortTimer);
-        earlyClientAbortTimer = null;
-      }
-    }
-
-    function clearAbortListenerRef() {
-      if (abortListener) {
-        abortSignal.removeEventListener("abort", abortListener);
-        abortListener = null;
-      }
-    }
+    const sseConnectionRef: { current: ReturnType<typeof createSSE> | null } = {
+      current: sseConnection,
+    };
+    const getSseConnection = createGetSseConnectionRef(sseConnectionRef);
+    const recordFirstTokenTelemetry = createRecordFirstTokenTelemetry(state, telemetry);
+    const clearHeartbeatTimer = createClearHeartbeatTimer(heartbeatRef);
+    const clearEarlyClientAbortTimer = createClearEarlyClientAbortTimer(earlyClientAbortTimerRef);
+    const clearAbortListenerRef = createClearAbortListenerRef(abortSignal, abortListenerRef);
 
     function sendLatency(_payload: Record<string, unknown>) {}
 
@@ -1070,11 +1231,16 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
     });
 
     sseConnection = sse;
+    sseConnectionRef.current = sse;
 
-    handlers = new SseEventHandlers(state, sse, {
-      origin: origin ?? null,
-      clientMessageId: clientMessageId ?? null,
-      streamId: streamId ?? null,
+    const handlerResult = makeHandlers({
+      state,
+      sse,
+      context: {
+        origin: origin ?? null,
+        clientMessageId: clientMessageId ?? null,
+        streamId: streamId ?? null,
+      },
       onTelemetry: enqueuePassiveSignal,
       guardFallbackText: GUARD_FALLBACK_TEXT,
       idleTimeoutMs,
@@ -1104,30 +1270,35 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
       releaseActiveStream,
       onStreamEnd: () => {
         sseConnection = null;
+        sseConnectionRef.current = null;
       },
       getSseConnection,
       armFirstTokenWatchdog,
       streamHasChunkHandler: true,
     });
 
-    const sendMeta = (obj: Record<string, unknown>) => handlers.sendMeta(obj);
-    const sendMemorySaved = (obj: Record<string, unknown>) => handlers.sendMemorySaved(obj);
-    const sendErrorEvent = (payload: Record<string, unknown>) => handlers.sendErrorEvent(payload);
-    const ensureGuardFallback = (reason: string) => handlers.ensureGuardFallback(reason);
-    const sendDone = (reason?: string | null) => handlers.sendDone(reason);
-    const sendChunk = (input: { text: string; index?: number; meta?: Record<string, unknown> }) =>
-      handlers.sendChunk(input);
-    const forwardEvent = (rawEvt: EcoStreamEvent | any) => handlers.forwardEvent(rawEvt);
+    handlers = handlerResult.handlers;
+
+    const sendMeta = handlerResult.sendMeta;
+    const sendMemorySaved = handlerResult.sendMemorySaved;
+    const sendErrorEvent = handlerResult.sendErrorEvent;
+    const ensureGuardFallback = handlerResult.ensureGuardFallback;
+    const sendDone = handlerResult.sendDone;
+    const sendChunk = handlerResult.sendChunk;
+    const forwardEvent = handlerResult.forwardEvent;
+
+    sseSendErrorEvent = sendErrorEvent;
+    sseSendDone = sendDone;
 
     const startHeartbeat = () => {
-      if (heartbeat || pingIntervalMs <= 0) {
+      if (heartbeatRef.current || pingIntervalMs <= 0) {
         return;
       }
       const sendHeartbeat = () => {
         if (state.done || state.sawChunk || isClosed) {
-          if (heartbeat) {
-            clearInterval(heartbeat);
-            heartbeat = null;
+          if (heartbeatRef.current) {
+            clearInterval(heartbeatRef.current);
+            heartbeatRef.current = null;
           }
           return;
         }
@@ -1138,7 +1309,7 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
           safeEarlyWrite(": hb\n\n");
         }
       };
-      heartbeat = setInterval(sendHeartbeat, pingIntervalMs);
+      heartbeatRef.current = setInterval(sendHeartbeat, pingIntervalMs);
     };
 
     const sendImmediatePromptReady = () => {
@@ -1201,7 +1372,7 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
       }
     };
 
-    abortListener = () => {
+    abortListenerRef.current = () => {
       if (state.done) {
         clearAbortListenerRef();
         releaseActiveStream();
@@ -1253,7 +1424,7 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
       state.markClientClosedFromFinishReason(finishReason);
       sendDone(finishReason || "aborted");
     };
-    abortSignal.addEventListener("abort", abortListener);
+    abortSignal.addEventListener("abort", abortListenerRef.current);
 
     interactionBootstrapPromise = bootstrapInteraction();
 
@@ -1370,17 +1541,15 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
         clientMessageReserved = false;
       }
       if (!state.done) {
-        if (abortListener) {
-          abortSignal.removeEventListener("abort", abortListener);
-          abortListener = null;
-        }
+        clearAbortListenerRef();
         releaseActiveStream();
-        if (heartbeat) {
-          clearInterval(heartbeat);
-          heartbeat = null;
-        }
+        clearHeartbeatTimer();
         sse.end();
         sseConnection = null;
+        sseConnectionRef.current = null;
+        sseSendErrorEvent = null;
+        sseSendDone = null;
+        sseSafeEarlyWrite = null;
       }
     }
   } catch (error) {
@@ -1390,40 +1559,149 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
       clientMessageReserved = false;
     }
     if (isHttpError(error)) {
-      if (res.headersSent) {
-        log.error("[ask-eco] headers already sent, cannot send JSON", {
-          stage: "http_error_catch",
+      if (sseStarted) {
+        const payload = {
+          ...(typeof error.body === "object" && error.body ? (error.body as Record<string, unknown>) : {}),
           status: error.status,
-          isEventStreamRequest,
-        });
-        if (sseConnection) {
-          if (!doneSent) {
-            (sseConnection as any).write({ done: true, meta: { error: "validation_error" } });
-            doneSent = true;
+        };
+        const serialized = (() => {
+          try {
+            return JSON.stringify(payload);
+          } catch {
+            return "{}";
           }
-          (sseConnection as any).end();
-          sseConnection = null;
+        })();
+        let errorSent = false;
+        if (sseSendErrorEvent) {
+          try {
+            sseSendErrorEvent(payload);
+            errorSent = true;
+          } catch (sendError) {
+            log.warn("[ask-eco] sse_error_event_failed", {
+              message: sendError instanceof Error ? sendError.message : String(sendError),
+            });
+          }
         }
+        if (!errorSent) {
+          try {
+            if (sseSafeEarlyWrite) {
+              sseSafeEarlyWrite(`event: error\n`);
+              sseSafeEarlyWrite(`data: ${serialized}\n\n`);
+            } else if (sseConnection) {
+              sseConnection.write({ event: "error", data: payload });
+            } else {
+              res.write(`event: error\n`);
+              res.write(`data: ${serialized}\n\n`);
+            }
+            errorSent = true;
+          } catch (writeError) {
+            log.warn("[ask-eco] sse_error_write_failed", {
+              message: writeError instanceof Error ? writeError.message : String(writeError),
+            });
+          }
+        }
+        if (sseSendDone) {
+          try {
+            sseSendDone("error");
+            doneSent = true;
+          } catch (sendError) {
+            log.warn("[ask-eco] sse_done_error_failed", {
+              message: sendError instanceof Error ? sendError.message : String(sendError),
+            });
+          }
+        }
+        if (!doneSent && sseConnection && errorSent) {
+          try {
+            sseConnection.write({ done: true, meta: { error: "validation_error" } });
+            doneSent = true;
+          } catch (writeError) {
+            log.warn("[ask-eco] sse_done_write_failed", {
+              message: writeError instanceof Error ? writeError.message : String(writeError),
+            });
+          }
+        }
+        if (sseConnection) {
+          sseConnection.end();
+        } else {
+          try {
+            res.end();
+          } catch (endError) {
+            log.warn("[ask-eco] sse_end_failed", {
+              message: endError instanceof Error ? endError.message : String(endError),
+            });
+          }
+        }
+        sseConnection = null;
+        sseSendErrorEvent = null;
+        sseSendDone = null;
+        sseSafeEarlyWrite = null;
         return;
       }
       return res.status(error.status).json(error.body);
     }
     const traceId = randomUUID();
     log.error("[ask-eco] validation_unexpected", { trace_id: traceId, message: (error as Error)?.message });
-    if (res.headersSent) {
-      log.error("[ask-eco] headers already sent, cannot send JSON", {
-        stage: "unexpected_error_catch",
-        traceId,
-        isEventStreamRequest,
-      });
-      if (sseConnection) {
-        if (!doneSent) {
-          (sseConnection as any).write({ done: true, meta: { error: "validation_error" } });
-          doneSent = true;
+    if (sseStarted) {
+      const payload = { code: "INTERNAL_ERROR", trace_id: traceId };
+      const serialized = (() => {
+        try {
+          return JSON.stringify(payload);
+        } catch {
+          return "{}";
         }
-        (sseConnection as any).end();
-        sseConnection = null;
+      })();
+      let errorSent = false;
+      if (sseSendErrorEvent) {
+        try {
+          sseSendErrorEvent(payload);
+          errorSent = true;
+        } catch (sendError) {
+          log.warn("[ask-eco] sse_error_event_failed", {
+            message: sendError instanceof Error ? sendError.message : String(sendError),
+          });
+        }
       }
+      if (!errorSent) {
+        try {
+          if (sseSafeEarlyWrite) {
+            sseSafeEarlyWrite(`event: error\n`);
+            sseSafeEarlyWrite(`data: ${serialized}\n\n`);
+          } else if (sseConnection) {
+            sseConnection.write({ event: "error", data: payload });
+          } else {
+            res.write(`event: error\n`);
+            res.write(`data: ${serialized}\n\n`);
+          }
+        } catch (writeError) {
+          log.warn("[ask-eco] sse_error_write_failed", {
+            message: writeError instanceof Error ? writeError.message : String(writeError),
+          });
+        }
+      }
+      if (sseSendDone) {
+        try {
+          sseSendDone("error");
+        } catch (sendError) {
+          log.warn("[ask-eco] sse_done_error_failed", {
+            message: sendError instanceof Error ? sendError.message : String(sendError),
+          });
+        }
+      }
+      if (sseConnection) {
+        sseConnection.end();
+      } else {
+        try {
+          res.end();
+        } catch (endError) {
+          log.warn("[ask-eco] sse_end_failed", {
+            message: endError instanceof Error ? endError.message : String(endError),
+          });
+        }
+      }
+      sseConnection = null;
+      sseSendErrorEvent = null;
+      sseSendDone = null;
+      sseSafeEarlyWrite = null;
       return;
     }
     return res.status(500).json({ code: "INTERNAL_ERROR", trace_id: traceId });
