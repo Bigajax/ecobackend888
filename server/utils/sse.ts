@@ -109,34 +109,38 @@ export function createSSE(
 
   const HEARTBEAT_INTERVAL_MS = 15000;
 
-  res.status(200);
+  const headersAlreadySent = res.headersSent;
 
-  if (!res.hasHeader("Content-Type")) {
-    res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
-  }
-  if (!res.hasHeader("Cache-Control")) {
-    res.setHeader("Cache-Control", "no-cache, no-transform");
-  }
-  if (!res.hasHeader("Connection")) {
-    res.setHeader("Connection", "keep-alive");
-  }
-  if (!res.hasHeader("X-Accel-Buffering")) {
-    res.setHeader("X-Accel-Buffering", "no");
-  }
-  ensureVaryIncludes(res, "Origin");
-  if (!res.hasHeader("Transfer-Encoding")) {
-    res.setHeader("Transfer-Encoding", "chunked");
-  }
-  if (res.hasHeader("Content-Length")) {
-    res.removeHeader("Content-Length");
-  }
-  if (res.hasHeader("Content-Encoding")) {
-    res.removeHeader("Content-Encoding");
-  }
-  res.setHeader("Content-Encoding", "identity");
-  res.setHeader("X-No-Compression", "1");
+  if (!headersAlreadySent) {
+    res.status(200);
 
-  (res as any).flushHeaders?.();
+    if (!res.hasHeader("Content-Type")) {
+      res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+    }
+    if (!res.hasHeader("Cache-Control")) {
+      res.setHeader("Cache-Control", "no-cache, no-transform");
+    }
+    if (!res.hasHeader("Connection")) {
+      res.setHeader("Connection", "keep-alive");
+    }
+    if (!res.hasHeader("X-Accel-Buffering")) {
+      res.setHeader("X-Accel-Buffering", "no");
+    }
+    ensureVaryIncludes(res, "Origin");
+    if (!res.hasHeader("Transfer-Encoding")) {
+      res.setHeader("Transfer-Encoding", "chunked");
+    }
+    if (res.hasHeader("Content-Length")) {
+      res.removeHeader("Content-Length");
+    }
+    if (res.hasHeader("Content-Encoding")) {
+      res.removeHeader("Content-Encoding");
+    }
+    res.setHeader("Content-Encoding", "identity");
+    res.setHeader("X-No-Compression", "1");
+
+    (res as any).flushHeaders?.();
+  }
 
   let ended = false;
   let heartbeatRef: TimeoutRef | null = null;
