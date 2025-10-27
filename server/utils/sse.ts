@@ -70,7 +70,11 @@ export interface CreateSSEOptions {
   commentOnOpen?: string | null;
 }
 
-export type SseControlName = "prompt_ready" | "done" | "guard_fallback_trigger";
+export type SseControlName =
+  | "prompt_ready"
+  | "done"
+  | "guard_fallback_trigger"
+  | "error";
 
 export interface SSEConnection {
   send: (event: string, data: unknown) => number | void;
