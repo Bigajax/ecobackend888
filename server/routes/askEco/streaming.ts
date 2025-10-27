@@ -1,3 +1,4 @@
+import { Buffer } from "node:buffer";
 import type { Request, Response } from "express";
 
 import type { ActivationTracer } from "../../core/activationTracer";
@@ -164,6 +165,7 @@ export class StreamSession {
     const payload = `id: ${eventId}\nevent: ${name}\ndata: ${JSON.stringify(data)}\n\n`;
     this.res.write(payload);
     this.res.flush?.();
+    this.logSseWrite(name, payload);
     (this.res as any).__sseNextId = this.nextEventId;
     return eventId;
   }
@@ -174,6 +176,7 @@ export class StreamSession {
     const chunk = `id: ${eventId}\nevent: control\ndata: ${JSON.stringify(data)}\n\n`;
     this.res.write(chunk);
     this.res.flush?.();
+    this.logSseWrite(`control:${name}`, chunk);
     (this.res as any).__sseNextId = this.nextEventId;
     return eventId;
   }
@@ -361,8 +364,15 @@ export class StreamSession {
 
   private sendHeartbeat() {
     if (!this.respondAsStream || this.streamClosed || !this.sseStarted) return;
-    this.res.write(`data: ${JSON.stringify({ type: "ping" })}\n\n`);
+    const payload = `data: ${JSON.stringify({ type: "ping" })}\n\n`;
+    this.res.write(payload);
     this.res.flush?.();
+    this.logSseWrite("heartbeat", payload);
+  }
+
+  private logSseWrite(type: string, payload: string) {
+    const bytes = Buffer.byteLength(payload, "utf8");
+    console.log("[SSE] Sent event", { type, bytes, timestamp: Date.now() });
   }
 
   private stopHeartbeat() {
