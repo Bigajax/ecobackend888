@@ -164,6 +164,55 @@ test("cached base sempre injeta o texto mais recente", async () => {
   assert.equal(second, "base-1|segunda mensagem", "texto atual deve ser aplicado no cache");
 });
 
+test("cache key for memorias semelhantes is order-insensitive", async () => {
+  const cacheKeys: string[] = [];
+  const cache = {
+    get(key: string) {
+      cacheKeys.push(key);
+      return undefined;
+    },
+    set: () => {},
+  };
+
+  const builder = {
+    build: async () => ({
+      base: "base-mem",
+      montarMensagemAtual: (textoAtual: string) => `base-mem|${textoAtual}`,
+    }),
+    montarMensagemAtual: (base: string, textoAtual: string) => `${base}|${textoAtual}`,
+  };
+
+  const logger = { debug: () => {} };
+
+  const contextCache = new ContextCache({
+    cache: cache as any,
+    builder: builder as any,
+    logger: logger as any,
+    debug: () => false,
+  });
+
+  await contextCache.build({
+    ...baseParams,
+    memoriasSemelhantes: [
+      { tags: ["Tag-A", "Tag-B"] },
+      { tags: ["Tag-C"] },
+    ],
+  });
+  const [firstKey] = cacheKeys.slice(-1);
+
+  await contextCache.build({
+    ...baseParams,
+    memoriasSemelhantes: [
+      { tags: ["Tag-C"] },
+      { tags: ["Tag-B", "Tag-A"] },
+    ],
+  });
+  const [secondKey] = cacheKeys.slice(-1);
+
+  assert.ok(firstKey && secondKey, "cache keys must be captured");
+  assert.equal(firstKey, secondKey, "cache key should not depend on tag order");
+});
+
 (async () => {
   let failures = 0;
   for (const { name, run } of tests) {

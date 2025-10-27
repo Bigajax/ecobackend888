@@ -60,20 +60,22 @@ export class ContextCache {
     const memoryTagSignature = (() => {
       if (!Array.isArray(params.memoriasSemelhantes) || params.memoriasSemelhantes.length === 0)
         return "none";
-      const tags: string[] = [];
+      const tags = new Set<string>();
       for (const memoria of params.memoriasSemelhantes) {
-        if (tags.length >= 3) break;
+        if (tags.size >= 3) break;
         const rawTags = Array.isArray(memoria?.tags) ? memoria.tags : [];
         for (const raw of rawTags) {
+          if (tags.size >= 3) break;
           if (typeof raw !== "string") continue;
           const normalized = raw.trim().toLowerCase();
           if (!normalized) continue;
-          tags.push(normalized);
-          if (tags.length >= 3) break;
+          tags.add(normalized);
         }
       }
-      if (!tags.length) return "vazio";
-      const signature = tags.slice(0, 3).join("|");
+      if (tags.size === 0) return "vazio";
+      const signature = Array.from(tags)
+        .sort()
+        .join("|");
       const hash = createHash("sha1").update(signature).digest("hex").slice(0, 6);
       return hash;
     })();
