@@ -130,7 +130,19 @@ export class SseEventHandlers {
     }
     this.sendChunk({ text: this.options.guardFallbackText, index: 0 });
     if (!this.options.getDoneSent()) {
-      connection.write({ index: 1, done: true });
+      const usageMeta = {
+        input_tokens: this.state.usageTokens.in,
+        output_tokens: this.state.usageTokens.out,
+      };
+      const finalMeta = {
+        ...this.state.doneMeta,
+        finishReason: reason || this.state.finishReason || "guard_fallback",
+        usage: usageMeta,
+      };
+      connection.write({ index: 1, done: true, meta: finalMeta });
+      connection.sendControl("done", { meta: finalMeta });
+      this.state.setDoneMeta(finalMeta);
+      this.state.ensureFinishReason(finalMeta.finishReason as string);
       this.options.setDoneSent(true);
     }
   }
@@ -271,14 +283,16 @@ export class SseEventHandlers {
         };
         this.state.setDoneMeta(finalMeta);
 
+        const connection = resolveSseConnection(this.sse, this.options.getSseConnection);
         if (!this.options.getDoneSent()) {
-          const connection = resolveSseConnection(this.sse, this.options.getSseConnection);
           connection?.write({
             index: this.state.chunksCount,
             done: true,
+            meta: finalMeta,
           });
-          this.options.setDoneSent(true);
         }
+        connection?.sendControl("done", { meta: finalMeta });
+        this.options.setDoneSent(true);
 
         log.info("[ask-eco] stream_finalize", {
           origin: this.options.origin ?? null,
