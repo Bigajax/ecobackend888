@@ -615,7 +615,7 @@ export async function getEcoResponse({
       authUid,
     });
 
-    const principalModel = process.env.ECO_CLAUDE_MODEL || "anthropic/claude-3-5-sonnet";
+    const principalModel = process.env.ECO_CLAUDE_MODEL || "anthropic/claude-3.5-sonnet";
     activationTracer?.setModel?.(principalModel);
 
     if (streamHandler) {
