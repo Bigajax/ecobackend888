@@ -853,3 +853,55 @@ test("three sequential streams emit independent chunk sequences", async () => {
   assert.equal(createdInteractions.length, texts.length, "should create one interaction per message");
   assert.equal(callIndex, texts.length, "orchestrator should run for each message");
 });
+
+test("SSE bootstrap forwards Last-Event-ID to interaction creation", async () => {
+  const lastEventId = "evt-last-42";
+  let recordedMessageId: string | undefined;
+
+  const router = await loadRouterWithStubs("../../routes/promptRoutes", {
+    "../services/ConversationOrchestrator": {
+      getEcoResponse: async (params: any) => {
+        params.stream?.onEvent?.({ type: "chunk", delta: "olá" });
+        params.stream?.onEvent?.({ type: "done", meta: { finishReason: "stop" } });
+        return { raw: "olá" };
+      },
+    },
+    "../services/conversation/interactionAnalytics": {
+      createInteraction: async (payload: { messageId?: string | null }) => {
+        recordedMessageId = payload.messageId ?? undefined;
+        return TEST_INTERACTION_ID;
+      },
+    },
+    "../services/promptContext/logger": {
+      log: {
+        info: () => {},
+        warn: () => {},
+        error: () => {},
+        debug: () => {},
+      },
+    },
+  });
+
+  const handler = getRouteHandler(router, "/ask-eco");
+
+  const req = new MockRequest(
+    {
+      stream: true,
+      messages: [{ role: "user", content: "Olá" }],
+    },
+    {
+      accept: "text/event-stream",
+      origin: "http://localhost:5173",
+      "content-type": "application/json",
+      "last-event-id": lastEventId,
+    },
+  );
+  req.guest = { id: TEST_GUEST_ID };
+  req.guestId = TEST_GUEST_ID;
+
+  const res = new MockResponse();
+  await handler(req as any, res as any);
+
+  assert.equal(recordedMessageId, lastEventId);
+  assert.equal(res.statusCode, 200);
+});

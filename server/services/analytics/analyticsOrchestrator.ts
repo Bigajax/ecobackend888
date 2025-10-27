@@ -41,6 +41,7 @@ function applyLatencyFallbacks({
   meta: GetEcoResult["meta"];
   runtime: RuntimeMetrics["latency"];
 }) {
+  if (!meta) return;
   const analyticsLatency = (meta.analytics as ResponseAnalyticsMeta | null)?.latency ?? null;
   if (
     runtime.ttfb_ms == null &&
@@ -84,7 +85,8 @@ export async function persistAnalyticsRecords({
 }: PersistAnalyticsOptions): Promise<void> {
   if (!result) return;
 
-  const meta = (result.meta ??= {});
+  const meta = result.meta;
+  if (!meta) return;
   const analyticsMeta = (meta.analytics ?? null) as ResponseAnalyticsMeta | null;
   if (!analyticsMeta) return;
 
