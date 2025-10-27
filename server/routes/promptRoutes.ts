@@ -210,6 +210,7 @@ type MakeHandlersParams = {
   getSseConnection: () => SseConnection | null;
   armFirstTokenWatchdog: () => void;
   streamHasChunkHandler: boolean;
+  getRequestAborted: () => boolean;
 };
 
 type MakeHandlersResult = {
@@ -257,6 +258,7 @@ function makeHandlers(params: MakeHandlersParams): MakeHandlersResult {
     getSseConnection,
     armFirstTokenWatchdog,
     streamHasChunkHandler,
+    getRequestAborted,
   } = params;
 
   const handlers = new SseEventHandlers(state, sse, {
@@ -292,6 +294,7 @@ function makeHandlers(params: MakeHandlersParams): MakeHandlersResult {
     getSseConnection,
     armFirstTokenWatchdog,
     streamHasChunkHandler,
+    getRequestAborted,
   });
 
   return {
@@ -1282,6 +1285,7 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
       getSseConnection,
       armFirstTokenWatchdog,
       streamHasChunkHandler: true,
+      getRequestAborted: () => req.aborted === true,
     });
 
     handlers = handlerResult.handlers;
