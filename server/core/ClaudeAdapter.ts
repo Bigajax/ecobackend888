@@ -8,7 +8,16 @@ export type Msg = { role: "system" | "user" | "assistant"; content: string; name
 
 /** Tipos mínimos do retorno da OpenRouter (compatível com strict) */
 type ORole = "system" | "user" | "assistant";
-interface ORMessage { role: ORole; content?: string }
+type ORContentPiece =
+  | string
+  | {
+      type?: string;
+      text?: string;
+      content?: ORContentPiece | ORContentPiece[];
+      value?: string;
+    };
+
+interface ORMessage { role: ORole; content?: string | ORContentPiece[] }
 interface ORChoice { index?: number; message?: ORMessage; finish_reason?: string }
 export interface ORUsage {
   prompt_tokens?: number;
@@ -27,7 +36,13 @@ interface ORChatCompletion {
 
 interface ORDeltaChoice {
   index?: number;
-  delta?: { content?: string; role?: ORole; stop_reason?: string; finish_reason?: string };
+  delta?: {
+    content?: ORContentPiece | ORContentPiece[] | string;
+    text?: string;
+    role?: ORole;
+    stop_reason?: string;
+    finish_reason?: string;
+  };
   finish_reason?: string | null;
 }
 
@@ -69,6 +84,60 @@ class ClaudeTimeoutError extends Error {
 function resolveTimeoutMs() {
   const raw = Number(process.env.ECO_CLAUDE_TIMEOUT_MS);
   return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_TIMEOUT_MS;
+}
+
+function flattenContentPieces(input: unknown): string[] {
+  if (!input) {
+    return [];
+  }
+
+  if (typeof input === "string") {
+    return [input];
+  }
+
+  if (Array.isArray(input)) {
+    return input.flatMap((entry) => flattenContentPieces(entry));
+  }
+
+  if (typeof input === "object") {
+    const obj = input as Record<string, unknown>;
+    const pieces: string[] = [];
+
+    if (typeof obj.text === "string") {
+      pieces.push(obj.text);
+    }
+
+    if (typeof obj.value === "string") {
+      pieces.push(obj.value);
+    }
+
+    if (typeof obj.content === "string") {
+      pieces.push(obj.content);
+    } else if (Array.isArray(obj.content)) {
+      pieces.push(...flattenContentPieces(obj.content));
+    }
+
+    return pieces;
+  }
+
+  return [];
+}
+
+function normalizeOpenRouterText(input: unknown): string {
+  const pieces = flattenContentPieces(input);
+  return pieces.length ? pieces.join("") : "";
+}
+
+function extractDeltaText(delta: ORDeltaChoice["delta"] | undefined): string {
+  if (!delta) {
+    return "";
+  }
+
+  if (typeof delta.text === "string" && delta.text) {
+    return delta.text;
+  }
+
+  return normalizeOpenRouterText(delta.content);
 }
 
 export async function claudeChatCompletion({
@@ -141,8 +210,10 @@ export async function claudeChatCompletion({
         throw new Error(`OpenRouter API error: ${data.error.message}`);
       }
 
+      const primaryChoice = data.choices?.[0];
       const text =
-        data.choices?.[0]?.message?.content ??
+        normalizeOpenRouterText(primaryChoice?.message?.content) ||
+        normalizeOpenRouterText((primaryChoice as any)?.message) ||
         ""; // segura contra undefined
 
       return {
@@ -366,7 +437,7 @@ export async function streamClaudeChatCompletion(
       }
 
       const choice = parsed?.choices?.[0];
-      const deltaText = choice?.delta?.content ?? "";
+      const deltaText = extractDeltaText(choice?.delta);
       const finishReason =
         choice?.finish_reason ?? choice?.delta?.finish_reason ?? choice?.delta?.stop_reason ?? null;
 

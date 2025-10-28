@@ -91,3 +91,46 @@ test("usa timeout configurado para acionar fallback rapidamente", async (t) => {
     `fallback demorou ${fallbackDelay.toFixed(2)}ms (> ${acceptableWindow}ms)`
   );
 });
+
+test("normaliza conteudo em array retornado pela OpenRouter", async (t) => {
+  const originalFetch = global.fetch;
+  const originalApiKey = process.env.OPENROUTER_API_KEY;
+  process.env.OPENROUTER_API_KEY = "test";
+
+  global.fetch = (async () => ({
+    ok: true,
+    status: 200,
+    statusText: "OK",
+    json: async () => ({
+      choices: [
+        {
+          message: {
+            content: [
+              { type: "output_text", text: "Olá" },
+              { type: "output_text", text: ", mundo!" },
+            ],
+          },
+        },
+      ],
+      model: "anthropic/test",
+      usage: { total_tokens: 12 },
+    }),
+  })) as typeof fetch;
+
+  t.after(() => {
+    global.fetch = originalFetch;
+    if (originalApiKey === undefined) {
+      delete process.env.OPENROUTER_API_KEY;
+    } else {
+      process.env.OPENROUTER_API_KEY = originalApiKey;
+    }
+  });
+
+  const result = await claudeChatCompletion({
+    messages: [{ role: "user", content: "olá" }],
+    model: "anthropic/test",
+    fallbackModel: "anthropic/test",
+  });
+
+  assert.strictEqual(result.content, "Olá, mundo!");
+});
