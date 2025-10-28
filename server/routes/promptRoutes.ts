@@ -8,6 +8,7 @@ import type { EcoStreamHandler, EcoStreamEvent } from "../services/conversation/
 import { createHttpError, isHttpError } from "../utils/http";
 import { getSupabaseAdmin } from "../lib/supabaseAdmin";
 import { createSSE, prepareSseHeaders } from "../utils/sse";
+import sseSmoke from "./sseSmoke";
 import { smartJoin as smartStreamJoin } from "../utils/streamJoin";
 import {
   rememberInteractionGuest,
@@ -103,6 +104,8 @@ function buildDonePayload(options: {
 
 const router = Router();
 const askEcoRouter = Router();
+
+router.get("/_sse-smoke", sseSmoke);
 function buildSummaryFromChunks(pieces: string[]): string {
   if (!Array.isArray(pieces) || pieces.length === 0) {
     return "";
@@ -1006,6 +1009,8 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
     });
 
     (res as any).flushHeaders?.();
+    res.write("\n");
+    (res as any).flush?.();
     sseStarted = true;
     // no headers after SSE start
 
@@ -1367,8 +1372,9 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
       immediatePromptReadySent = true;
       const nowTs = Date.now();
       const sinceStartMs = nowTs - state.t0;
-      streamSse.send("prompt_ready", {
-        type: "prompt_ready",
+      streamSse.send("ready", {
+        type: "ready",
+        prompt_ready: true,
         streamId,
         at: nowTs,
         sinceStartMs,

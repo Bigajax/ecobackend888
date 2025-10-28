@@ -228,7 +228,7 @@ export class StreamSession {
     this.promptReadyControlSent = true;
     const at = now();
     const sinceStartMs = at - this.startTime;
-    this.writeSseControl("prompt_ready", { at, sinceStartMs });
+    this.writeSseControl("ready", { prompt_ready: true, at, sinceStartMs });
     this.logSseLifecycle("chunk", { control: "prompt_ready" });
   }
 
@@ -281,7 +281,13 @@ export class StreamSession {
       } catch {
         // ignore failures flushing the closing frame
       }
-      this.res.end();
+      setTimeout(() => {
+        try {
+          this.res.end();
+        } catch {
+          // ignore close errors
+        }
+      }, 10);
     }
   }
 
@@ -399,6 +405,7 @@ export class StreamSession {
     }
     this.res.setHeader("Content-Encoding", "identity");
     this.res.flushHeaders?.();
+    this.res.write("\n");
     this.res.flush?.();
     if (!this.sseLoggedStart) {
       this.sseLoggedStart = true;
