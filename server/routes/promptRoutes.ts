@@ -494,7 +494,12 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
   const allowedOrigin = isAllowedOrigin(originHeader);
   const origin = originHeader || undefined;
   const streamIdHeader = req.headers["x-stream-id"];
-  const streamId = typeof streamIdHeader === "string" ? streamIdHeader : undefined;
+  const incomingStreamId =
+    typeof streamIdHeader === "string" && streamIdHeader.trim()
+      ? streamIdHeader.trim()
+      : undefined;
+  const generatedStreamId = randomUUID();
+  const streamId = incomingStreamId ?? generatedStreamId;
 
   const idleTimeoutMs = streamIdleTimeoutMs;
   const pingIntervalMs = streamPingIntervalMs;
@@ -966,6 +971,7 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
       res.setHeader("X-Eco-Interaction-Id", initialResolvedInteractionId);
     }
 
+    res.setHeader("X-Stream-Id", streamId);
     res.status(200);
     disableCompressionForSse(res);
     prepareSseHeaders(res, {
@@ -1002,6 +1008,12 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
     sseSafeEarlyWrite = safeEarlyWrite;
 
     safeEarlyWrite(": open\n\n");
+
+    log.info("[ask-eco] stream_open", {
+      origin: origin ?? null,
+      clientMessageId: clientMessageId ?? null,
+      streamId: streamId ?? null,
+    });
 
     const formatHeaderValue = (
       value: string | number | string[] | boolean | null | undefined
@@ -1086,6 +1098,7 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
           sincePromptReadyMs: sincePromptReady,
           origin: origin ?? null,
           clientMessageId: clientMessageId ?? null,
+          streamId: streamId ?? null,
           stack:
             effectiveClassification === "client_closed"
               ? state.clientClosedStack ?? undefined
@@ -1144,7 +1157,7 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
       }
       if (!state.done && !abortSignal.aborted) {
         if (classification === "client_closed") {
-          if (!doneSent && sseConnection && !state.clientClosed) {
+          if (!doneSent && !state.clientClosed) {
             const usageMeta = {
               input_tokens: state.usageTokens.in,
               output_tokens: state.usageTokens.out,
@@ -1154,10 +1167,6 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
               finishReason: "client_disconnect",
               usage: usageMeta,
             };
-            // (A) mantenha compat. antiga opcionalmente:
-            sseConnection.write({ index: state.chunksCount, done: true, meta: finalMeta });
-            // (B) **sempre** emita o evento padronizado de conclusão:
-            sseConnection.sendControl("done", { meta: finalMeta });
             state.setDoneMeta(finalMeta);
             state.ensureFinishReason("client_disconnect");
             doneSent = true;
@@ -1331,7 +1340,13 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
       }
       immediatePromptReadySent = true;
       const nowTs = Date.now();
-      streamSse.sendControl("prompt_ready");
+      const sinceStartMs = nowTs - state.t0;
+      streamSse.send("prompt_ready", {
+        type: "prompt_ready",
+        streamId,
+        at: nowTs,
+        sinceStartMs,
+      });
       flushSse();
       state.markPromptReady(nowTs);
       armFirstTokenWatchdog();
@@ -1526,6 +1541,7 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
         log.info("[ask-eco] stream_aborted", {
           origin: origin ?? null,
           reason: "client_closed_early",
+          streamId: streamId ?? null,
         });
         return;
       }
@@ -1543,6 +1559,7 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
         log.info("[ask-eco] stream_aborted", {
           origin: origin ?? null,
           reason: reasonMessage,
+          streamId: streamId ?? null,
         });
         sendDone(reasonMessage || "aborted");
       } else if (isHttpError(error)) {

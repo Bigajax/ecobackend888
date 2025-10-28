@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import express, { type Response } from "express";
 
 import { extractSessionMeta } from "./sessionMeta";
@@ -196,6 +197,11 @@ router.post("/ask-eco", async (req: GuestAwareRequest, res: Response) => {
   }
 
   const streamPreference = resolveStreamPreference(req, identity.isGuest);
+  const headerStreamId = req.get("X-Stream-Id");
+  const streamId =
+    typeof headerStreamId === "string" && headerStreamId.trim()
+      ? headerStreamId.trim()
+      : randomUUID();
   const streamSession = new StreamSession({
     req,
     res,
@@ -203,6 +209,7 @@ router.post("/ask-eco", async (req: GuestAwareRequest, res: Response) => {
     activationTracer,
     startTime: t0,
     debugRequested,
+    streamId,
   });
   streamSession.initialize(promptReadyImmediate);
 
