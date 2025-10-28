@@ -363,7 +363,7 @@ test("/ask-eco permite fallback JSON quando stream=false", async () => {
   assert.equal(payload?.message, "resposta convidado");
   assert.ok(Array.isArray(payload?.events));
   assert.ok(payload.events.some((event: any) => event?.type === "chunk"));
-  assert.ok(payload.events.some((event: any) => event?.type === "done"));
+  assert.ok(payload.events.some((event: any) => event?.type === "end"));
 });
 
 test("rota de voz dispara trackMensagemRecebida com bytes e duração", async () => {

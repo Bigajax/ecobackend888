@@ -6,6 +6,17 @@ export interface PrepareSseHeadersOptions {
   flush?: boolean;
 }
 
+export function sendSse(res: Response, payload: unknown): number | null {
+  const chunk = `data: ${JSON.stringify(payload)}\n\n`;
+  try {
+    res.write(chunk);
+    return Buffer.byteLength(chunk);
+  } catch (error) {
+    console.error("[SSE write error]", error);
+    return null;
+  }
+}
+
 function ensureVaryIncludes(response: Response, value: string) {
   const existing = response.getHeader("Vary");
   if (!existing) {
@@ -200,6 +211,15 @@ export function createSSE(
     }, idleMs);
   };
 
+  const handleClose = (source: string, error?: unknown) => {
+    if (!ended) {
+      onConnectionClose?.({ source, error });
+      end();
+      return;
+    }
+    onConnectionClose?.({ source, error });
+  };
+
   const write = (chunk: string): boolean => {
     if (ended) return false;
     if (!isWritable(res)) {
@@ -235,17 +255,71 @@ export function createSSE(
     }, HEARTBEAT_INTERVAL_MS) as TimeoutRef;
   };
 
+  const writePayload = (payload: unknown): number | void => {
+    if (ended) return;
+    if (!isWritable(res)) {
+      end();
+      return;
+    }
+    const written = sendSse(res, payload);
+    if (typeof written !== "number") {
+      handleClose("res.write");
+      return;
+    }
+    (res as any).flushHeaders?.();
+    (res as any).flush?.();
+    return written;
+  };
+
+  const normalizePayload = (
+    event: string,
+    data: unknown
+  ): Record<string, unknown> => {
+    const base: Record<string, unknown> =
+      data && typeof data === "object" && !Array.isArray(data)
+        ? { ...(data as Record<string, unknown>) }
+        : {};
+
+    if (!("type" in base) || typeof base.type !== "string" || !base.type) {
+      base.type = event === "done" ? "end" : event;
+    } else if (event === "done" && base.type === "done") {
+      base.type = "end";
+    }
+
+    if (event === "chunk") {
+      if (typeof base.content !== "string") {
+        const delta = base.delta;
+        if (typeof delta === "string") {
+          base.content = delta;
+        } else if (typeof data === "string") {
+          base.content = data;
+        }
+      }
+    }
+
+    if (event === "done") {
+      if (base.done !== true) {
+        base.done = true;
+      }
+    }
+
+    if (Object.keys(base).length === 0 && data !== undefined) {
+      base.content = data as unknown;
+    }
+
+    return base;
+  };
+
   const send = (event: string, data: unknown): number | void => {
     if (ended) return;
-    const payload = typeof data === "string" ? data : JSON.stringify(data);
-    const chunk = `event: ${event}\ndata: ${payload}\n\n`;
-    const ok = write(chunk);
-    if (!ok) {
+    const payload = normalizePayload(event, data);
+    const written = writePayload(payload);
+    if (typeof written !== "number") {
       return;
     }
     scheduleHeartbeat();
     scheduleIdle();
-    return Buffer.byteLength(chunk);
+    return written;
   };
 
   const sendControl = (name: SseControlName, payload?: Record<string, unknown>) => {
@@ -264,15 +338,13 @@ export function createSSE(
 
   const writeData = (data: unknown): number | void => {
     if (ended) return;
-    const payload = typeof data === "string" ? data : JSON.stringify(data);
-    const chunk = `data: ${payload}\n\n`;
-    const ok = write(chunk);
-    if (!ok) {
+    const written = writePayload(data);
+    if (typeof written !== "number") {
       return;
     }
     scheduleHeartbeat();
     scheduleIdle();
-    return Buffer.byteLength(chunk);
+    return written;
   };
 
   if (resolvedPingMs > 0) {
@@ -284,15 +356,6 @@ export function createSSE(
   if (commentOnOpen) {
     sendComment(commentOnOpen);
   }
-
-  const handleClose = (source: string, error?: unknown) => {
-    if (!ended) {
-      onConnectionClose?.({ source, error });
-      end();
-      return;
-    }
-    onConnectionClose?.({ source, error });
-  };
 
   req.on("close", () => handleClose("req.close"));
   req.on("aborted", () => handleClose("req.aborted"));
