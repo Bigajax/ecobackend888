@@ -241,12 +241,17 @@ export class SseEventHandlers {
   }
 
   ensureGuardFallback(reason: string) {
-    if (!this.state.sawChunk || this.state.guardFallbackSent) {
+    if (
+      !this.state.sawChunk ||
+      this.state.guardFallbackSent ||
+      this.state.clientClosed
+    ) {
       return;
     }
     this.state.markGuardFallback(reason);
     const connection = resolveSseConnection(this.sse, this.options.getSseConnection);
-    const canEmitGuard = Boolean(connection) && !this.options.getIsClosed();
+    const canEmitGuard =
+      Boolean(connection) && !this.options.getIsClosed() && !this.state.clientClosed;
     const interactionId = this.options.getResolvedInteractionId?.() ?? null;
     log.warn("[ask-eco] guard_fallback_emit", {
       origin: this.options.origin ?? null,
@@ -259,6 +264,9 @@ export class SseEventHandlers {
       return;
     }
     this.sendChunk({ text: this.options.guardFallbackText, index: 0 });
+    if (this.state.clientClosed) {
+      return;
+    }
     if (!this.options.getDoneSent()) {
       const usageMeta = {
         input_tokens: this.state.usageTokens.in,
@@ -290,9 +298,13 @@ export class SseEventHandlers {
     }
     this.state.setFinishReason(finishReason ?? "unknown");
 
-    this.ensureGuardFallback(this.state.finishReason || "unknown");
+    const clientClosed = this.state.clientClosed;
 
-    if (!this.state.sawChunk) {
+    if (!clientClosed) {
+      this.ensureGuardFallback(this.state.finishReason || "unknown");
+    }
+
+    if (!this.state.sawChunk && !clientClosed) {
       const interactionId = this.options.getResolvedInteractionId?.() ?? null;
       log.error("[ask-eco] guard_fallback_missing_chunk", {
         origin: this.options.origin ?? null,
@@ -419,27 +431,29 @@ export class SseEventHandlers {
         this.state.setDoneMeta(finalMeta);
 
         const connection = resolveSseConnection(this.sse, this.options.getSseConnection);
-        if (this.hasEmittedChunk) {
-          if (!this.options.getDoneSent()) {
-            connection?.write({
-              index: this.state.chunksCount,
-              done: true,
-              meta: finalMeta,
+        if (!clientClosed && connection) {
+          if (this.hasEmittedChunk) {
+            if (!this.options.getDoneSent()) {
+              connection.write({
+                index: this.state.chunksCount,
+                done: true,
+                meta: finalMeta,
+              });
+            }
+            connection.sendControl("done", { meta: finalMeta });
+            this.options.setDoneSent(true);
+          } else {
+            const errorPayload = this.buildNoChunkErrorPayload();
+            connection.sendControl("error", errorPayload);
+            this.options.setDoneSent(true);
+            log.warn("[ask-eco] sse_no_chunk_ended", {
+              origin: this.options.origin ?? null,
+              clientMessageId: this.options.clientMessageId ?? null,
+              streamId: this.options.streamId ?? null,
+              finishReason: clientFinishReason,
+              providerStatus: (errorPayload as { providerStatus?: number }).providerStatus ?? null,
             });
           }
-          connection?.sendControl("done", { meta: finalMeta });
-          this.options.setDoneSent(true);
-        } else {
-          const errorPayload = this.buildNoChunkErrorPayload();
-          connection?.sendControl("error", errorPayload);
-          this.options.setDoneSent(true);
-          log.warn("[ask-eco] sse_no_chunk_ended", {
-            origin: this.options.origin ?? null,
-            clientMessageId: this.options.clientMessageId ?? null,
-            streamId: this.options.streamId ?? null,
-            finishReason: clientFinishReason,
-            providerStatus: (errorPayload as { providerStatus?: number }).providerStatus ?? null,
-          });
         }
 
         log.info("[ask-eco] stream_finalize", {
@@ -530,6 +544,9 @@ export class SseEventHandlers {
 
   sendChunk(input: { text: string; index?: number; meta?: Record<string, unknown> }) {
     if (!input || typeof input.text !== "string") return;
+    if (this.state.clientClosed) {
+      return;
+    }
     const cleaned = sanitizeOutput(input.text);
     const finalText = cleaned;
     if (finalText.length === 0) return;
@@ -563,10 +580,12 @@ export class SseEventHandlers {
     }
 
     const connection = resolveSseConnection(this.sse, this.options.getSseConnection);
-    connection?.write({
-      index: chunkInfo.chunkIndex,
-      text: finalText,
-    });
+    if (!this.state.clientClosed) {
+      connection?.write({
+        index: chunkInfo.chunkIndex,
+        text: finalText,
+      });
+    }
 
     this.hasEmittedChunk = true;
     this.options.clearFirstTokenWatchdog();
