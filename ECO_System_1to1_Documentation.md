@@ -19,7 +19,7 @@
 
 ## Frontend Overview
 - **Streaming client** (`web/src/api/ecoStream.ts`, `web/src/api/chatStreamClient.ts`):
-  - `startEcoStream` POSTs JSON to `/ask-eco` with `Authorization: Bearer <token>` plus stored `X-Eco-Guest-Id`/`X-Eco-Session-Id`, decoding SSE chunks into normalized events for immediate rendering and updating both headers from every response.
+  - `startEcoStream` POSTs JSON to `/api/ask-eco` with `Authorization: Bearer <token>` plus stored `X-Eco-Guest-Id`/`X-Eco-Session-Id`, decoding SSE chunks into normalized events for immediate rendering and updating both headers from every response.
   - `streamConversation` wraps the transport to aggregate text, expose lifecycle callbacks, emit latency analytics, persist the returned `interaction_id`, and trigger passive signals (`first_token`, `done`, `view`).
   - Headers expected by backend: `Authorization`, `Content-Type: application/json`, `X-Eco-Guest-Id`, and `X-Eco-Session-Id`; responses echo both so the frontend caches them in storage.
   - SSE events consumed: `prompt_ready`, `first_token`, `chunk`, `meta`, `memory_saved`, `latency` (staged), `done` (final metadata + `content`), and `error` for rare fallbacks.
