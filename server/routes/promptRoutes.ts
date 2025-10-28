@@ -527,6 +527,11 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
     sessionMetaObject,
   } = validation.data;
 
+  const promptReadyClientMessageId =
+    typeof clientMessageId === "string" && clientMessageId.trim()
+      ? clientMessageId.trim()
+      : randomUUID();
+
   const locals = (res.locals ?? {}) as Record<string, unknown>;
   locals.corsAllowed = allowedOrigin;
   locals.corsOrigin = origin ?? null;
@@ -972,13 +977,34 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
     }
 
     res.setHeader("X-Stream-Id", streamId);
-    res.status(200);
     disableCompressionForSse(res);
     prepareSseHeaders(res, {
       origin: normalizedOrigin,
       allowCredentials: Boolean(normalizedOrigin),
       flush: false,
     });
+
+    const allowOriginHeader =
+      normalizedOrigin ?? "https://ecofrontend888-*.vercel.app";
+    const allowHeadersHeader =
+      "content-type,x-client-id,x-eco-session-id,x-eco-guest-id";
+
+    res.setHeader("Access-Control-Allow-Origin", allowOriginHeader);
+    res.setHeader("Access-Control-Allow-Headers", allowHeadersHeader);
+    res.setHeader(
+      "Access-Control-Allow-Credentials",
+      normalizedOrigin ? "true" : "false"
+    );
+
+    res.writeHead(200, {
+      "Content-Type": "text/event-stream; charset=utf-8",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+      "X-Accel-Buffering": "no",
+      "Access-Control-Allow-Origin": allowOriginHeader,
+      "Access-Control-Allow-Headers": allowHeadersHeader,
+    });
+
     (res as any).flushHeaders?.();
     sseStarted = true;
     // no headers after SSE start
@@ -1346,6 +1372,7 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
         streamId,
         at: nowTs,
         sinceStartMs,
+        client_message_id: promptReadyClientMessageId,
       });
       flushSse();
       state.markPromptReady(nowTs);

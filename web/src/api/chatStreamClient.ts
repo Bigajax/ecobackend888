@@ -142,7 +142,9 @@ export function streamConversation({
         registerLatency(event);
       }
 
-      if (event.type === "done" && !lifecycleSignalsSent) {
+      const isEndEvent = event.type === "end" || event.type === "done";
+
+      if (isEndEvent && !lifecycleSignalsSent) {
         const interactionId = extractInteractionId(event.meta);
         persistInteractionId(interactionId);
         lifecycleSignalsSent = true;
@@ -152,6 +154,12 @@ export function streamConversation({
       }
 
       if (event.type === "chunk") {
+        const chunkText =
+          typeof event.delta === "string" && event.delta
+            ? event.delta
+            : typeof (event as any).content === "string"
+            ? ((event as any).content as string)
+            : "";
         const numericIndex =
           typeof event.index === "number" && Number.isFinite(event.index)
             ? event.index
@@ -167,7 +175,7 @@ export function streamConversation({
           lastChunkIndex += 1;
         }
         callbacks.onEvent?.(event);
-        aggregated = smartJoin(aggregated, event.delta);
+        aggregated = smartJoin(aggregated, chunkText);
         // LATENCY: repassa o texto parcial para atualizar o UI em tempo real.
         callbacks.onText?.(aggregated);
         return;
@@ -175,7 +183,7 @@ export function streamConversation({
 
       callbacks.onEvent?.(event);
 
-      if (event.type === "done" && callbacks.onText) {
+      if (isEndEvent && callbacks.onText) {
         callbacks.onText(aggregated);
       }
     },
