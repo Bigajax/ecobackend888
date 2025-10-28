@@ -321,7 +321,7 @@ export function startEcoStream({
   onEvent,
   onError,
   signal,
-  endpoint = "/ask-eco",
+  endpoint = "/api/ask-eco",
   streamId,
   headers,
 }: StartEcoStreamParams): EcoStreamHandle {
