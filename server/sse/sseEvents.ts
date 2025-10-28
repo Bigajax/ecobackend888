@@ -135,6 +135,92 @@ export class SseEventHandlers {
     private readonly options: SseEventHandlerOptions
   ) {}
 
+  private getStreamId(): string | null {
+    const raw = this.options.streamId;
+    if (typeof raw === "string" && raw.trim()) {
+      return raw.trim();
+    }
+    return null;
+  }
+
+  private sendEvent(
+    event: string,
+    payload: Record<string, unknown>,
+    resolver?: () => SSEConnection | null
+  ) {
+    if (this.state.clientClosed) {
+      return;
+    }
+    const connection = resolveSseConnection(this.sse, resolver ?? this.options.getSseConnection);
+    if (!connection) {
+      return;
+    }
+    const streamId = this.getStreamId();
+    const envelope: Record<string, unknown> = {
+      type: event,
+      streamId,
+      ...payload,
+    };
+    connection.send(event, envelope);
+  }
+
+  private emitDoneEvent(options: {
+    finalMeta: Record<string, unknown>;
+    donePayload: Record<string, unknown>;
+    timings?: Record<string, unknown> | null;
+  }) {
+    const { finalMeta, donePayload, timings } = options;
+    const summaryText = (() => {
+      if (typeof (donePayload as any)?.content === "string") {
+        return (donePayload as any).content as string;
+      }
+      const fallback = this.options.buildSummaryFromChunks(this.state.contentPieces);
+      return typeof fallback === "string" ? fallback : "";
+    })();
+    const streamId = this.getStreamId();
+    const response = {
+      messages: [
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "output_text",
+              text: summaryText,
+            },
+          ],
+        },
+      ],
+    };
+
+    const envelope: Record<string, unknown> = {
+      done: true,
+      meta: finalMeta,
+      response,
+      payload: donePayload,
+      index: this.state.chunksCount,
+    };
+
+    const sinceStart = (donePayload as any)?.sinceStartMs;
+    if (typeof sinceStart === "number" && Number.isFinite(sinceStart)) {
+      envelope.sinceStartMs = sinceStart;
+    }
+    const atValue = (donePayload as any)?.at;
+    if (typeof atValue === "string") {
+      envelope.at = atValue;
+    }
+    if (timings && Object.keys(timings).length) {
+      envelope.timings = timings;
+    }
+
+    this.sendEvent("done", envelope);
+    log.info("[ask-eco] stream_done_event", {
+      origin: this.options.origin ?? null,
+      clientMessageId: this.options.clientMessageId ?? null,
+      streamId,
+      response,
+    });
+  }
+
   private resolveClientFinishReason(original?: string | null): string {
     if (this.options.getRequestAborted?.()) {
       return "client_disconnect";
@@ -217,6 +303,7 @@ export class SseEventHandlers {
       return;
     }
     this.state.mergeMetaPayload(obj);
+    this.sendEvent("meta", { data: { ...obj } });
   }
 
   sendMemorySaved(obj: Record<string, unknown>) {
@@ -224,6 +311,7 @@ export class SseEventHandlers {
       return;
     }
     this.state.addMemoryEvent(obj);
+    this.sendEvent("memory_saved", { saved: true, meta: { ...obj } });
   }
 
   sendErrorEvent(payload: Record<string, unknown>) {
@@ -277,11 +365,26 @@ export class SseEventHandlers {
         finishReason: reason || this.state.finishReason || "guard_fallback",
         usage: usageMeta,
       };
-      connection.write({ index: 1, done: true, meta: finalMeta });
-      connection.sendControl("done", { meta: finalMeta });
+      const donePayload = this.options.buildDonePayload({
+        content: this.options.buildSummaryFromChunks(this.state.contentPieces),
+        interactionId: this.options.getResolvedInteractionId?.() ?? null,
+        tokens: this.state.usageTokens,
+        meta: finalMeta,
+        timings: Object.keys(this.state.latencyMarks).length
+          ? this.state.latencyMarks
+          : null,
+        totalLatency: this.state.doneAt ? this.state.doneAt - this.state.t0 : null,
+      });
       this.state.setDoneMeta(finalMeta);
       this.state.ensureFinishReason(finalMeta.finishReason as string);
       this.options.setDoneSent(true);
+      this.emitDoneEvent({
+        finalMeta,
+        donePayload,
+        timings: Object.keys(this.state.latencyMarks).length
+          ? this.state.latencyMarks
+          : null,
+      });
     }
   }
 
@@ -311,6 +414,7 @@ export class SseEventHandlers {
         clientMessageId: this.options.clientMessageId ?? null,
         interactionId,
         finishReason: this.state.finishReason,
+        streamId: this.getStreamId(),
       });
     }
 
@@ -337,6 +441,7 @@ export class SseEventHandlers {
         this.state.closeAt > 0 ? Math.max(0, this.state.doneAt - this.state.closeAt) : null;
       const closeSinceStartMs =
         this.state.closeAt > 0 ? Math.max(0, this.state.closeAt - this.state.t0) : null;
+      const streamId = this.getStreamId();
 
       try {
         this.sendMeta({
@@ -362,6 +467,7 @@ export class SseEventHandlers {
           totalLatencyMs: totalLatency,
           sincePromptReadyMs: sincePromptReady,
           clientFinishReason,
+          streamId,
         });
 
         const streamMeta = isRecord(this.state.streamResult) ? this.state.streamResult : null;
@@ -434,22 +540,26 @@ export class SseEventHandlers {
         if (!clientClosed && connection) {
           if (this.hasEmittedChunk) {
             if (!this.options.getDoneSent()) {
-              connection.write({
-                index: this.state.chunksCount,
-                done: true,
-                meta: finalMeta,
+              this.options.setDoneSent(true);
+              this.emitDoneEvent({
+                finalMeta,
+                donePayload,
+                timings: Object.keys(this.state.latencyMarks).length
+                  ? this.state.latencyMarks
+                  : null,
               });
             }
-            connection.sendControl("done", { meta: finalMeta });
-            this.options.setDoneSent(true);
           } else {
             const errorPayload = this.buildNoChunkErrorPayload();
-            connection.sendControl("error", errorPayload);
             this.options.setDoneSent(true);
+            this.sendEvent("error", {
+              message: "no_chunks_emitted",
+              details: errorPayload,
+            });
             log.warn("[ask-eco] sse_no_chunk_ended", {
               origin: this.options.origin ?? null,
               clientMessageId: this.options.clientMessageId ?? null,
-              streamId: this.options.streamId ?? null,
+              streamId,
               finishReason: clientFinishReason,
               providerStatus: (errorPayload as { providerStatus?: number }).providerStatus ?? null,
             });
@@ -466,6 +576,7 @@ export class SseEventHandlers {
           clientFinishReason,
           summary: donePayload,
           guardFallback: this.state.guardFallbackSent,
+          streamId,
         });
 
         this.options.finalizeClientMessageReservation(clientFinishReason);
@@ -489,6 +600,7 @@ export class SseEventHandlers {
           closeSinceStartMs,
           closeDelayMs: closeDelayMs ?? undefined,
           serverAbortReason: this.state.serverAbortReason ?? undefined,
+          streamId,
         });
 
         const endPayload: Record<string, unknown> = {};
@@ -562,6 +674,8 @@ export class SseEventHandlers {
         : null;
     const chunkInfo = this.state.recordChunk({ text: finalText, providedIndex });
 
+    const streamId = this.getStreamId();
+
     if (chunkInfo.firstChunk) {
       this.options.clearFirstTokenWatchdog();
       this.sendMeta({ type: "first_token_latency_ms", value: this.state.firstTokenAt - this.state.t0 });
@@ -569,7 +683,7 @@ export class SseEventHandlers {
       log.info("[ask-eco] sse_first_chunk", {
         origin: this.options.origin ?? null,
         clientMessageId: this.options.clientMessageId ?? null,
-        streamId: this.options.streamId ?? null,
+        streamId,
         index: chunkInfo.chunkIndex,
         bytes: chunkInfo.chunkBytes,
       });
@@ -579,12 +693,15 @@ export class SseEventHandlers {
       this.sendMeta(input.meta);
     }
 
-    const connection = resolveSseConnection(this.sse, this.options.getSseConnection);
     if (!this.state.clientClosed) {
-      connection?.write({
-        index: chunkInfo.chunkIndex,
-        text: finalText,
-      });
+      this.sendEvent(
+        "chunk",
+        {
+          index: chunkInfo.chunkIndex,
+          delta: finalText,
+        },
+        this.options.getSseConnection
+      );
     }
 
     this.hasEmittedChunk = true;
@@ -596,6 +713,7 @@ export class SseEventHandlers {
       totalBytes: chunkInfo.totalBytes,
       chunks: this.state.chunksCount,
       origin: this.options.origin ?? null,
+      streamId,
     });
   }
 
@@ -648,17 +766,17 @@ export class SseEventHandlers {
             sinceStartMs: nowTs - this.state.t0,
           });
           this.options.armFirstTokenWatchdog();
-          const connection = resolveSseConnection(this.sse, this.options.getSseConnection);
-          if (connection) {
-            const payload: Record<string, unknown> = {};
-            if (evt?.timings && isRecord(evt.timings)) {
-              payload.timings = evt.timings as Record<string, unknown>;
-            }
-            if (meta) {
-              payload.meta = meta;
-            }
-            connection.sendControl("prompt_ready", payload);
+          const payload: Record<string, unknown> = {
+            at: nowTs,
+            sinceStartMs: nowTs - this.state.t0,
+          };
+          if (evt?.timings && isRecord(evt.timings)) {
+            payload.timings = evt.timings as Record<string, unknown>;
           }
+          if (meta) {
+            payload.meta = meta;
+          }
+          this.sendEvent("prompt_ready", payload);
           return;
         }
         if (name === "guard_fallback_trigger") {

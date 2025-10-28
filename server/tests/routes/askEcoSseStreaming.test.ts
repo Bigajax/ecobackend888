@@ -81,46 +81,70 @@ type ContractEvent =
   | { kind: "chunk"; payload: { index: number; text: string } }
   | { kind: "done"; payload: { index: number; done: true } };
 
-const parseSsePayloads = (raw: string): Array<Record<string, any>> => {
+type ParsedSseFrame = {
+  event: string | null;
+  data: Record<string, any> | null;
+};
+
+const parseSseFrames = (raw: string): ParsedSseFrame[] => {
   return raw
     .split("\n\n")
     .map((block) => block.trim())
     .filter(Boolean)
     .map((block) => {
-      const data = block
-        .split("\n")
-        .filter((line) => line.startsWith("data:"))
-        .map((line) => line.replace(/^data:\s*/, ""))
-        .join("");
-      if (!data) {
-        return null;
+      let eventName: string | null = null;
+      const dataLines: string[] = [];
+
+      for (const line of block.split("\n")) {
+        if (line.startsWith(":")) {
+          continue;
+        }
+        if (line.startsWith("event:")) {
+          eventName = line.replace(/^event:\s*/, "").trim() || null;
+          continue;
+        }
+        if (line.startsWith("data:")) {
+          dataLines.push(line.replace(/^data:\s*/, ""));
+        }
       }
+
+      if (!dataLines.length) {
+        return { event: eventName, data: null } satisfies ParsedSseFrame;
+      }
+
+      const payloadRaw = dataLines.join("");
       try {
-        return JSON.parse(data);
+        const parsed = JSON.parse(payloadRaw) as Record<string, any>;
+        if (parsed?.type === "ping") {
+          return { event: eventName, data: null } satisfies ParsedSseFrame;
+        }
+        return { event: eventName, data: parsed } satisfies ParsedSseFrame;
       } catch {
-        return null;
+        return { event: eventName, data: null } satisfies ParsedSseFrame;
       }
     })
-    .filter((payload): payload is Record<string, any> => payload !== null)
-    .filter((payload) => payload.type !== "ping");
+    .filter((frame) => frame.data !== null);
 };
 
 const toContractEvents = (raw: string): ContractEvent[] => {
-  return parseSsePayloads(raw).map((payload) => {
-    if (payload && typeof payload === "object" && payload.done === true) {
+  return parseSseFrames(raw)
+    .filter((frame) => frame.event === "chunk" || frame.event === "done")
+    .map((frame) => {
+      const payload = frame.data ?? {};
+      if (frame.event === "done") {
+        return {
+          kind: "done",
+          payload: { index: Number(payload.index ?? 0), done: true },
+        } satisfies ContractEvent;
+      }
       return {
-        kind: "done",
-        payload: { index: Number(payload.index ?? 0), done: true },
+        kind: "chunk",
+        payload: {
+          index: Number(payload.index ?? 0),
+          text: String(payload.delta ?? payload.text ?? ""),
+        },
       } satisfies ContractEvent;
-    }
-    return {
-      kind: "chunk",
-      payload: {
-        index: Number(payload.index ?? 0),
-        text: String(payload.text ?? ""),
-      },
-    } satisfies ContractEvent;
-  });
+    });
 };
 
 const DEFAULT_USUARIO_ID = "c5c5b1af-5f6c-4e5f-8cb4-7a6d12345678";
@@ -243,14 +267,17 @@ test("SSE streaming emits tokens, done and disables compression", async () => {
       getEcoResponse: async (params: any) => {
         if (params.stream?.onEvent) {
           await params.stream.onEvent({ type: "chunk", delta: "primeiro" });
+          await params.stream.onChunk?.({ index: 0, text: "primeiro" });
           await params.stream.onEvent({
             type: "chunk",
             delta: { content: "segundo" },
           });
+          await params.stream.onChunk?.({ index: 1, text: "segundo" });
           await params.stream.onEvent({
             type: "done",
             meta: { finishReason: "stop" },
           });
+          await params.stream.onChunk?.({ done: true, meta: { finishReason: "stop" } });
         }
         return { raw: "resultado" };
       },
@@ -305,16 +332,19 @@ test("SSE streaming emits tokens, done and disables compression", async () => {
 
   const output = res.chunks.join("");
   assert.ok(res.chunks.length > 0, "should emit at least one SSE chunk");
-  const payloads = parseSsePayloads(output);
-  assert.ok(payloads.length >= 2, "should emit chunks and a done payload");
+  const frames = parseSseFrames(output);
+  assert.ok(frames.length >= 2, "should emit frames for chunk and done");
 
-  const promptReadyPayload = payloads.find((payload) => payload?.name === "prompt_ready");
-  assert.ok(promptReadyPayload, "should emit prompt_ready control event");
-  const nonControlPayloads = payloads.filter((payload) => payload?.name !== "prompt_ready");
-  for (const payload of nonControlPayloads) {
-    assert.ok(!Object.prototype.hasOwnProperty.call(payload, "type"));
-    assert.ok(!Object.prototype.hasOwnProperty.call(payload, "delta"));
-    assert.ok(!Object.prototype.hasOwnProperty.call(payload, "name"));
+  const streamIdHeader = res.headers.get("x-stream-id");
+  assert.ok(streamIdHeader && streamIdHeader.length > 0, "should expose server stream id");
+
+  const promptReadyFrame = frames.find((frame) => frame.event === "prompt_ready");
+  assert.ok(promptReadyFrame, "should emit prompt_ready event");
+  assert.equal(promptReadyFrame!.data?.streamId, streamIdHeader);
+
+  for (const frame of frames) {
+    if (!frame.data) continue;
+    assert.equal(frame.data.streamId, streamIdHeader);
   }
 
   const contractEvents = toContractEvents(output);
@@ -336,8 +366,18 @@ test("SSE streaming emits tokens, done and disables compression", async () => {
   assert.equal(doneEvent!.payload.index, chunkEvents.length, "done index should match chunk count");
   assert.equal(doneEvent!.payload.done, true);
 
+  const doneFrame = frames.find((frame) => frame.event === "done");
+  assert.ok(doneFrame?.data, "done frame should include payload");
+  const consolidatedText =
+    doneFrame!.data?.response?.messages?.[0]?.content?.[0]?.text ?? null;
+  assert.equal(consolidatedText, "primeirosegundo", "done payload should include full text");
+
+  const chunkFrames = frames.filter((frame) => frame.event === "chunk");
   assert.ok(
-    !payloads.some((entry) => typeof entry.text === "string" && entry.text.trim().toLowerCase() === "ok"),
+    !chunkFrames.some(
+      (entry) =>
+        typeof entry.data?.delta === "string" && entry.data.delta.trim().toLowerCase() === "ok"
+    ),
     "should avoid plain ok payloads"
   );
 });
@@ -462,9 +502,9 @@ test("SSE streaming triggers timeout fallback when orchestrator stalls", async (
 
     const output = res.chunks.join("");
 
-    assert.ok(!output.includes("event:"), "should not include explicit event fields");
+    assert.ok(output.includes("event:"), "should include explicit event fields");
 
-    const payloads = parseSsePayloads(output);
+    const frames = parseSseFrames(output);
     const contractEvents = toContractEvents(output);
     const chunkEvents = contractEvents.filter((evt) => evt.kind === "chunk");
     assert.ok(chunkEvents.length >= 1, "idle timeout guard should emit at least one chunk");
@@ -478,11 +518,9 @@ test("SSE streaming triggers timeout fallback when orchestrator stalls", async (
     assert.equal(doneEvent!.payload.index, chunkEvents.length);
     assert.equal(doneEvent!.payload.done, true);
 
-    const nonControlPayloads = payloads.filter((payload) => payload.name !== "prompt_ready");
-    for (const payload of nonControlPayloads) {
-      assert.ok(!Object.prototype.hasOwnProperty.call(payload, "type"));
-      assert.ok(!Object.prototype.hasOwnProperty.call(payload, "delta"));
-      assert.ok(!Object.prototype.hasOwnProperty.call(payload, "name"));
+    for (const frame of frames) {
+      if (!frame.data) continue;
+      assert.ok(typeof frame.data.streamId === "string" || frame.data.streamId === null);
     }
 
   } finally {
@@ -527,6 +565,7 @@ test("StreamSession heartbeats send JSON ping payloads frequently", async () => 
       activationTracer: tracer,
       startTime: 0,
       debugRequested: false,
+      streamId: "test-stream",
     });
 
     session.initialize(false);
@@ -614,10 +653,12 @@ test("client message ids are deduped with 409 without re-running orchestrator", 
         orchestratorCalls += 1;
         if (params.stream?.onEvent) {
           params.stream.onEvent({ type: "chunk", delta: `resposta-${orchestratorCalls}` });
+          params.stream.onChunk?.({ index: orchestratorCalls - 1, text: `resposta-${orchestratorCalls}` });
           params.stream.onEvent({
             type: "done",
             meta: { finishReason: "stop" },
           });
+          params.stream.onChunk?.({ done: true, meta: { finishReason: "stop" } });
         }
         return { raw: `resposta-${orchestratorCalls}` };
       },
@@ -716,7 +757,9 @@ test("starting a new stream on the same stream id aborts the previous run", asyn
 
         if (params.stream?.onEvent) {
           params.stream.onEvent({ type: "chunk", delta: "segunda" });
+          params.stream.onChunk?.({ index: 0, text: "segunda" });
           params.stream.onEvent({ type: "done", meta: { finishReason: "stop" } });
+          params.stream.onChunk?.({ done: true, meta: { finishReason: "stop" } });
         }
         return { raw: "segunda" };
       },
@@ -779,7 +822,9 @@ test("three sequential streams emit independent chunk sequences", async () => {
         callIndex += 1;
         if (params.stream?.onEvent) {
           params.stream.onEvent({ type: "chunk", delta: texts[current] });
+          params.stream.onChunk?.({ index: 0, text: texts[current] });
           params.stream.onEvent({ type: "done", meta: { finishReason: "stop" } });
+          params.stream.onChunk?.({ done: true, meta: { finishReason: "stop" } });
         }
         return { raw: texts[current] };
       },
@@ -822,9 +867,9 @@ test("three sequential streams emit independent chunk sequences", async () => {
     await handler(req as any, res as any);
 
     const output = res.chunks.join("");
-    assert.ok(!output.includes("event:"), "should not include explicit event fields");
+    assert.ok(output.includes("event:"), "should include explicit event fields");
 
-    const payloads = parseSsePayloads(output);
+    const frames = parseSseFrames(output);
     const contractEvents = toContractEvents(output);
     const chunkEvents = contractEvents.filter((evt) => evt.kind === "chunk");
     assert.equal(chunkEvents.length, 1, "stream should emit exactly one chunk event");
@@ -840,13 +885,19 @@ test("three sequential streams emit independent chunk sequences", async () => {
     assert.equal(doneEvent!.payload.index, chunkEvents.length);
     assert.equal(doneEvent!.payload.done, true);
 
-    for (const payload of payloads) {
-      assert.ok(!Object.prototype.hasOwnProperty.call(payload, "type"));
-      assert.ok(!Object.prototype.hasOwnProperty.call(payload, "delta"));
-      assert.ok(!Object.prototype.hasOwnProperty.call(payload, "name"));
+    for (const frame of frames) {
+      if (!frame.data) continue;
+      assert.ok(typeof frame.data.streamId === "string" || frame.data.streamId === null);
     }
 
-    assert.ok(!payloads.some((entry) => typeof entry.text === "string" && entry.text.trim().toLowerCase() === "ok"));
+    assert.ok(
+      !frames.some(
+        (entry) =>
+          entry.event === "chunk" &&
+          typeof entry.data?.delta === "string" &&
+          entry.data.delta.trim().toLowerCase() === "ok"
+      )
+    );
   }
 
   assert.equal(createdInteractions.length, texts.length, "should create one interaction per message");

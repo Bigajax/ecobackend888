@@ -22,6 +22,7 @@ export type StreamSessionOptions = {
   activationTracer: ActivationTracer;
   startTime: number;
   debugRequested: boolean;
+  streamId: string;
 };
 
 type StreamEvent =
@@ -47,6 +48,7 @@ export class StreamSession {
   private readonly req: Request;
   private readonly res: Response & { flush?: () => void; flushHeaders?: () => void };
   private readonly activationTracer: ActivationTracer;
+  private readonly streamId: string;
   private readonly startTime: number;
 
   private sseStarted = false;
@@ -66,6 +68,7 @@ export class StreamSession {
     this.respondAsStream = options.respondAsStream;
     this.activationTracer = options.activationTracer;
     this.startTime = options.startTime;
+    this.streamId = options.streamId;
 
     this.req.on("close", () => {
       if (!this.streamClosed) {
@@ -115,11 +118,9 @@ export class StreamSession {
     const sessionGuest =
       typeof (this.req as any)?.guest?.id === "string" ? ((this.req as any).guest.id as string) : undefined;
     const guestId = requestGuest || headerGuest || sessionGuest || null;
-    const streamIdHeader = this.req.get("X-Stream-Id")?.trim();
-
     return {
       guestId,
-      streamId: streamIdHeader || null,
+      streamId: this.streamId || null,
       path: this.req.originalUrl,
     };
   }
@@ -155,13 +156,48 @@ export class StreamSession {
 
   private writeSseEvent(event: StreamEvent): number {
     const eventId = this.nextEventId++;
-    const name = event.type === "message" ? "message" : event.type;
-    const data =
-      event.type === "message"
-        ? { index: event.index, text: event.text }
-        : event.type === "done"
-        ? { done: true }
-        : { error: event.message };
+    let name: string;
+    let data: Record<string, unknown>;
+
+    if (event.type === "message") {
+      name = "chunk";
+      data = {
+        type: "chunk",
+        streamId: this.streamId,
+        index: event.index,
+        delta: event.text,
+        text: event.text,
+      };
+    } else if (event.type === "done") {
+      name = "done";
+      data = {
+        type: "done",
+        streamId: this.streamId,
+        done: true,
+        index: this.lastChunkIndex + 1,
+        finishReason: this.endReason ?? "ok",
+        response: {
+          messages: [
+            {
+              role: "assistant",
+              content: [
+                {
+                  type: "output_text",
+                  text: this.aggregatedText,
+                },
+              ],
+            },
+          ],
+        },
+      };
+    } else {
+      name = "error";
+      data = {
+        type: "error",
+        streamId: this.streamId,
+        message: event.message,
+      };
+    }
     const payload = `id: ${eventId}\nevent: ${name}\ndata: ${JSON.stringify(data)}\n\n`;
     this.res.write(payload);
     this.res.flush?.();
@@ -172,11 +208,15 @@ export class StreamSession {
 
   private writeSseControl(name: string, payload?: Record<string, unknown>): number {
     const eventId = this.nextEventId++;
-    const data = payload && Object.keys(payload).length > 0 ? { name, ...payload } : { name };
-    const chunk = `id: ${eventId}\nevent: control\ndata: ${JSON.stringify(data)}\n\n`;
+    const body: Record<string, unknown> = {
+      type: name,
+      streamId: this.streamId,
+      ...(payload ?? {}),
+    };
+    const chunk = `id: ${eventId}\nevent: ${name}\ndata: ${JSON.stringify(body)}\n\n`;
     this.res.write(chunk);
     this.res.flush?.();
-    this.logSseWrite(`control:${name}`, chunk);
+    this.logSseWrite(name, chunk);
     (this.res as any).__sseNextId = this.nextEventId;
     return eventId;
   }
@@ -309,6 +349,7 @@ export class StreamSession {
       }
       const at = now();
       this.emitLatency("ttlc", at, this.latestTimings);
+      this.endReason = "done";
       this.dispatchEvent({ type: "done" });
       this.clearTimeoutGuard();
       this.end("done");
@@ -342,11 +383,21 @@ export class StreamSession {
   private startSse() {
     if (!this.respondAsStream || this.sseStarted) return;
     this.sseStarted = true;
+    this.res.setHeader("X-Stream-Id", this.streamId);
     this.res.status(200);
-    this.res.setHeader("Content-Type", "text/event-stream");
-    this.res.setHeader("Cache-Control", "no-cache");
+    this.res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+    this.res.setHeader("Cache-Control", "no-cache, no-transform");
     this.res.setHeader("Connection", "keep-alive");
     this.res.setHeader("X-Accel-Buffering", "no");
+    this.res.setHeader("Transfer-Encoding", "chunked");
+    this.res.setHeader("X-No-Compression", "1");
+    if (this.res.hasHeader("Content-Length")) {
+      this.res.removeHeader("Content-Length");
+    }
+    if (this.res.hasHeader("Content-Encoding")) {
+      this.res.removeHeader("Content-Encoding");
+    }
+    this.res.setHeader("Content-Encoding", "identity");
     this.res.flushHeaders?.();
     this.res.flush?.();
     if (!this.sseLoggedStart) {
