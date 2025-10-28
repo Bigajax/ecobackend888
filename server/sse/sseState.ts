@@ -263,6 +263,10 @@ export class SseStreamState {
     this.guardFallbackSent = true;
   }
 
+  markClientClosed(value = true) {
+    this.clientClosed = value === true;
+  }
+
   markDone(timestamp: number) {
     this.done = true;
     if (!this.lastChunkAt) {

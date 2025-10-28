@@ -1144,7 +1144,7 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
       }
       if (!state.done && !abortSignal.aborted) {
         if (classification === "client_closed") {
-          if (!doneSent && sseConnection) {
+          if (!doneSent && sseConnection && !state.clientClosed) {
             const usageMeta = {
               input_tokens: state.usageTokens.in,
               output_tokens: state.usageTokens.out,
@@ -1162,7 +1162,9 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
             state.ensureFinishReason("client_disconnect");
             doneSent = true;
           }
-          sseConnection?.sendComment?.("");
+          if (!state.clientClosed) {
+            sseConnection?.sendComment?.("");
+          }
           if (!state.sawChunk) {
             if (!earlyClientAbortTimerRef.current) {
               log.info("[ask-eco] client closed before first chunk — keeping LLM alive brevemente", {
@@ -1518,6 +1520,15 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
         }
       }
     } catch (error) {
+      if ((error as any)?.message === "client_closed_early") {
+        state.markClientClosed();
+        state.setFinishReason("client_closed_early");
+        log.info("[ask-eco] stream_aborted", {
+          origin: origin ?? null,
+          reason: "client_closed_early",
+        });
+        return;
+      }
       if (abortSignal.aborted) {
         const reasonValue = abortSignal.reason;
         const reasonMessage = (() => {

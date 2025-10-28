@@ -216,7 +216,11 @@ async function start() {
   });
 }
 
-process.on("unhandledRejection", (reason) => {
+process.on("unhandledRejection", (reason: any) => {
+  if (reason?.message === "client_closed_early") {
+    log.debug("[boot] swallowed unhandledRejection: client_closed_early");
+    return;
+  }
   log.error("unhandledRejection", { reason });
 });
 process.on("uncaughtException", (err) => {
