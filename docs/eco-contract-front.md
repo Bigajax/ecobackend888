@@ -27,6 +27,7 @@ Regex UUID v4:
   - `Cache-Control: no-cache, no-transform`
   - `Connection: keep-alive`
   - `Access-Control-Allow-Origin: <echoed origin>`
+- Se `guest_id` ou `session_id` não forem UUID v4 válidos, o backend encerra com `400 invalid_guest_id`.
 
 ## Seção 3 — Fallback JSON (POST /api/ask-eco)
 
@@ -58,8 +59,9 @@ Regex UUID v4:
 ## Seção 5 — Códigos & Timeouts
 
 - Códigos de erro:
-  - `400 missing_guest_id` — "Informe X-Eco-Guest-Id"
-  - `400 missing_session_id` — "Informe X-Eco-Session-Id"
+- `400 invalid_guest_id` — "Envie um UUID v4 em X-Eco-Guest-Id"
+- `400 missing_guest_id` — "Informe X-Eco-Guest-Id"
+- `400 missing_session_id` — "Informe X-Eco-Session-Id"
 - Timeouts (ms):
   - Supabase: `8000`
   - OpenRouter: `30000`
