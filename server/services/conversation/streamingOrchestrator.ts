@@ -108,6 +108,7 @@ export async function executeStreamingLLM({
   continuity,
   abortSignal,
 }: StreamingExecutionParams): Promise<EcoStreamingResult> {
+  console.log("[ECO-SSE] início streaming", { timestamp: new Date().toISOString() });
   const supabaseClient = supabase ?? null;
   const resolvedPromptHash =
     typeof basePromptHash === "string" && basePromptHash
@@ -135,6 +136,8 @@ export async function executeStreamingLLM({
       ? streamHandler.onChunk.bind(streamHandler)
       : null;
 
+  let emittedChunkCount = 0;
+
   const emitStream = async (event: EcoStreamEvent) => {
     const payloadForLog: Record<string, unknown> = { type: event.type };
     if (event.type === "chunk") {
@@ -142,8 +145,22 @@ export async function executeStreamingLLM({
       if (typeof event.index === "number") {
         payloadForLog.index = event.index;
       }
+      const previewSource =
+        typeof event.delta === "string" && event.delta.length
+          ? event.delta
+          : typeof event.content === "string"
+            ? event.content
+            : "";
+      emittedChunkCount += 1;
+      console.log("[ECO-SSE] chunk enviado", {
+        num: emittedChunkCount,
+        preview: previewSource.slice(0, 30),
+      });
     } else if (event.type === "control") {
       payloadForLog.name = event.name;
+      if (event.name === "done") {
+        console.log("[ECO-SSE] done emitido");
+      }
     } else if (event.type === "error") {
       payloadForLog.message = event.error?.message;
     }

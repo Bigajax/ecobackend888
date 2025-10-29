@@ -217,7 +217,16 @@ export function createApp(): Express {
   });
   // 7) Rotas (prefixo /api) — /api/ask-eco (SSE) vive em promptRoutes
   app.use(sseSmokeRouter);
-  app.use("/api", askEcoModernRouter);
+
+  const useStubEcoEnv = String(process.env.USE_STUB_ECO ?? "").toLowerCase();
+  const useStubEco = ["1", "true", "yes"].includes(useStubEcoEnv);
+  if (useStubEco) {
+    log.info("[ask-eco] Using stub handler via USE_STUB_ECO");
+    app.use("/api", askEcoModernRouter);
+  } else {
+    // Stub desabilitado para permitir que promptRoutes processe /api/ask-eco
+    log.info("[ask-eco] Using full promptRoutes handler");
+  }
   app.use("/api", promptRoutes);
   app.use("/api/memorias", memoryRoutes);
   app.use("/api/memories", memoryRoutes);
