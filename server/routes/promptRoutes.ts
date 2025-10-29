@@ -381,6 +381,7 @@ const streamPingIntervalMs = IS_TEST_ENV
 
 type RequestWithIdentity = Request & {
   guestId?: string | null;
+  ecoSessionId?: string | null;
   user?: { id?: string | null } | null;
 };
 
@@ -500,17 +501,30 @@ askEcoRouter.options("/", corsMiddleware, (_req: Request, res: Response) => {
   res.status(204).end();
 });
 
+// Aceita headers: X-Eco-Guest-Id, X-Eco-Session-Id
+// Aceita query: ?guest_id=...&session_id=...
+// Front pode usar qualquer um dos dois.
 askEcoRouter.head("/", (req: Request, res: Response) => {
-  const guestId = resolveHeaderOrQuery(req, "x-eco-guest-id", "guest");
-  const sessionId = resolveHeaderOrQuery(req, "x-eco-session-id", "session");
+  const guestId = resolveHeaderOrQuery(req, "x-eco-guest-id", "guest_id");
+  const sessionId = resolveHeaderOrQuery(req, "x-eco-session-id", "session_id");
 
   if (!guestId) {
+    log.warn("[ask-eco] missing_identity", {
+      guestId,
+      sessionId,
+      origin: req.headers.origin || null,
+    });
     return res
       .status(400)
       .json({ error: "missing_guest_id", message: "Informe X-Eco-Guest-Id" });
   }
 
   if (!sessionId) {
+    log.warn("[ask-eco] missing_identity", {
+      guestId,
+      sessionId,
+      origin: req.headers.origin || null,
+    });
     return res
       .status(400)
       .json({ error: "missing_session_id", message: "Informe X-Eco-Session-Id" });
@@ -521,16 +535,26 @@ askEcoRouter.head("/", (req: Request, res: Response) => {
 
 /** POST /api/ask-eco — stream SSE (ou JSON se cliente não pedir SSE) */
 askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) => {
-  const guestId = resolveHeaderOrQuery(req, "x-eco-guest-id", "guest");
-  const sessionId = resolveHeaderOrQuery(req, "x-eco-session-id", "session");
+  const guestId = resolveHeaderOrQuery(req, "x-eco-guest-id", "guest_id");
+  const sessionId = resolveHeaderOrQuery(req, "x-eco-session-id", "session_id");
 
   if (!guestId) {
+    log.warn("[ask-eco] missing_identity", {
+      guestId,
+      sessionId,
+      origin: req.headers.origin || null,
+    });
     return res
       .status(400)
       .json({ error: "missing_guest_id", message: "Informe X-Eco-Guest-Id" });
   }
 
   if (!sessionId) {
+    log.warn("[ask-eco] missing_identity", {
+      guestId,
+      sessionId,
+      origin: req.headers.origin || null,
+    });
     return res
       .status(400)
       .json({ error: "missing_session_id", message: "Informe X-Eco-Session-Id" });
@@ -678,7 +702,7 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
     usuario_id,
     clientHour,
     isGuest,
-    guestId,
+    guestId: guestIdFromBody,
     sessionMeta,
   } = body;
 
@@ -704,14 +728,14 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
   let doneSent = false;
 
   const guestIdResolved = resolveGuestId(
-    typeof guestId === "string" ? guestId : undefined,
+    typeof guestIdFromBody === "string" ? guestIdFromBody : undefined,
     guestIdFromHeader,
     guestIdFromCookie,
     guestIdFromRequest,
     guestIdFromSession
   );
 
-  const sessionId =
+  const sessionIdResolved =
     sessionIdHeader ??
     extractSessionIdLoose(sessionMetaObject) ??
     extractSessionIdLoose(body) ??
@@ -720,7 +744,7 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
   log.info("[ask-eco] payload_valid", {
     origin: origin ?? null,
     guestId: guestIdResolved ?? null,
-    sessionId,
+    sessionId: sessionIdResolved,
   });
 
   const identityKey =
