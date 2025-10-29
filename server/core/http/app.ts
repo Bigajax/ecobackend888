@@ -16,6 +16,7 @@ import {
   applyCorsResponseHeaders,
   corsResponseInjector,
 } from "../../middleware/cors";
+import { corsLog } from "../../middleware/corsLog";
 import { requestLogger } from "./middlewares/logger";
 import { normalizeQuery } from "./middlewares/queryNormalizer";
 import { ModuleCatalog } from "../../domains/prompts/ModuleCatalog";
@@ -112,9 +113,11 @@ export function createApp(): Express {
   app.set("trust proxy", 1);
 
   // 1) CORS global antes de qualquer rota
+  app.use(corsLog);
   app.use(corsMiddleware);
-  app.options("/api/*", corsMiddleware);
-  app.options("*", corsMiddleware);
+  app.options("*", corsMiddleware, (_req, res) => {
+    res.status(204).end();
+  });
   app.use(corsResponseInjector);
 
   // 2) Parsers (não executam em OPTIONS)

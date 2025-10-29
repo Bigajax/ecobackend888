@@ -246,6 +246,10 @@ export function normalizeServerEvent(event: EcoServerEvent, rawEventName?: strin
 
   return [];
 }
+type AdditionalHeaders = Record<string, string | undefined> & {
+  baseHeaders?: Record<string, string | undefined>;
+};
+
 export interface StartEcoStreamParams {
   body: unknown;
   token: string;
@@ -254,7 +258,7 @@ export interface StartEcoStreamParams {
   signal?: AbortSignal;
   endpoint?: string;
   streamId?: string;
-  headers?: Record<string, string | undefined>;
+  headers?: AdditionalHeaders;
 }
 
 export interface EcoStreamHandle {
@@ -266,10 +270,14 @@ const activeStreamState: {
   controller: AbortController | null;
   label: string | null;
   startedAt: number | null;
+  clientMessageId: string | null;
+  handle: EcoStreamHandle | null;
 } = {
   controller: null,
   label: null,
   startedAt: null,
+  clientMessageId: null,
+  handle: null,
 };
 
 function safeTimestamp(): number {
@@ -315,6 +323,52 @@ function createAbortError(reason: string): Error {
   return error;
 }
 
+function extractClientMessageIdFromMessages(messages: unknown): string | null {
+  if (!Array.isArray(messages) || messages.length === 0) {
+    return null;
+  }
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const entry = messages[index];
+    if (!entry || typeof entry !== "object") continue;
+    const candidate =
+      typeof (entry as any).id === "string"
+        ? (entry as any).id
+        : typeof (entry as any).messageId === "string"
+        ? (entry as any).messageId
+        : typeof (entry as any).message_id === "string"
+        ? (entry as any).message_id
+        : undefined;
+    if (typeof candidate === "string") {
+      const trimmed = candidate.trim();
+      if (trimmed) {
+        return trimmed;
+      }
+    }
+  }
+  return null;
+}
+
+function extractClientMessageId(payload: unknown): string | null {
+  if (!payload || typeof payload !== "object") {
+    return null;
+  }
+  const source = payload as Record<string, unknown>;
+  const directKeys = [
+    "client_message_id",
+    "clientMessageId",
+    "message_id",
+    "messageId",
+    "clientMessageID",
+  ];
+  for (const key of directKeys) {
+    const value = source[key];
+    if (typeof value === "string" && value.trim()) {
+      return value.trim();
+    }
+  }
+  return extractClientMessageIdFromMessages(source.messages);
+}
+
 export function startEcoStream({
   body,
   token,
@@ -325,9 +379,25 @@ export function startEcoStream({
   streamId,
   headers,
 }: StartEcoStreamParams): EcoStreamHandle {
-  const controller = new AbortController();
   const label = makeStreamLabel(streamId);
   const startedAt = safeTimestamp();
+  const clientMessageId = extractClientMessageId(body);
+
+  if (
+    clientMessageId &&
+    activeStreamState.controller &&
+    !activeStreamState.controller.signal.aborted &&
+    activeStreamState.clientMessageId === clientMessageId &&
+    activeStreamState.handle
+  ) {
+    logStreamDebug("stream_dedup_skip", {
+      streamId: activeStreamState.label ?? label,
+      clientMessageId,
+    });
+    return activeStreamState.handle;
+  }
+
+  const controller = new AbortController();
 
   const summarizeBody = () => {
     if (!body || typeof body !== "object") {
@@ -364,6 +434,8 @@ export function startEcoStream({
   activeStreamState.controller = controller;
   activeStreamState.label = label;
   activeStreamState.startedAt = startedAt;
+  activeStreamState.clientMessageId = clientMessageId ?? null;
+  activeStreamState.handle = null;
 
   if (signal) {
     if (signal.aborted) {
@@ -392,6 +464,8 @@ export function startEcoStream({
       activeStreamState.controller = null;
       activeStreamState.label = null;
       activeStreamState.startedAt = null;
+      activeStreamState.clientMessageId = null;
+      activeStreamState.handle = null;
     }
   };
 
@@ -410,8 +484,30 @@ export function startEcoStream({
         requestHeaders["X-Stream-Id"] = streamId.trim();
       }
 
+      if (clientMessageId) {
+        requestHeaders["X-Eco-Client-Message-Id"] = clientMessageId;
+      }
+
       if (headers) {
+        const baseHeadersCandidate = (headers as unknown as Record<string, unknown>)[
+          "baseHeaders"
+        ];
+        if (
+          baseHeadersCandidate &&
+          typeof baseHeadersCandidate === "object" &&
+          !Array.isArray(baseHeadersCandidate)
+        ) {
+          for (const [key, value] of Object.entries(
+            baseHeadersCandidate as Record<string, unknown>
+          )) {
+            if (typeof value === "string" && value.trim()) {
+              requestHeaders[key] = value;
+            }
+          }
+        }
+
         for (const [key, value] of Object.entries(headers)) {
+          if (key === "baseHeaders") continue;
           if (typeof value === "string" && value.trim()) {
             requestHeaders[key] = value;
           }
@@ -544,7 +640,7 @@ export function startEcoStream({
       finalizeActiveStream();
     });
 
-  return {
+  const handle: EcoStreamHandle = {
     close: () => {
       logClientAbort(label, "client_closed", {
         elapsedMs: safeTimestamp() - startedAt,
@@ -554,4 +650,8 @@ export function startEcoStream({
     },
     finished,
   };
+
+  activeStreamState.handle = handle;
+
+  return handle;
 }
