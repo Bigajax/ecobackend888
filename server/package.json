@@ -12,7 +12,8 @@
     "build": "npm run copy:assets && tsc -p tsconfig.build.json && npm run verify:assets",
     "copy:assets": "node ./scripts/copyAssets.cjs",
     "verify:assets": "node ./scripts/verifyAssetsBuild.cjs",
-    "start": "node dist/server.js"
+    "start": "node dist/server.js",
+    "cors:smoke": "bash server/scripts/cors-smoke.sh"
   },
   "dependencies": {
     "@dqbd/tiktoken": "^1.0.21",

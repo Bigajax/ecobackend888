@@ -14,15 +14,28 @@ const SSE_HEADER_CONFIG = {
   "X-Accel-Buffering": "no",
 } as const;
 
-export function prepareSseHeaders(res: Response) {
+export function prepareSse(res: Response, origin: string): void {
+  const headerOrigin = origin && origin.trim() ? origin.trim() : PRIMARY_CORS_ORIGIN;
+
   if (!res.headersSent) {
     res.removeHeader("Content-Length");
     res.removeHeader("Content-Encoding");
-
-    for (const [header, value] of Object.entries(SSE_HEADER_CONFIG)) {
-      res.setHeader(header, value);
-    }
   }
+
+  res.setHeader("Access-Control-Allow-Origin", headerOrigin);
+  res.setHeader("Access-Control-Allow-Methods", CORS_ALLOWED_METHODS_VALUE);
+  res.setHeader("Access-Control-Allow-Headers", CORS_ALLOWED_HEADERS_VALUE);
+  res.setHeader("Vary", "Origin");
+
+  for (const [header, value] of Object.entries(SSE_HEADER_CONFIG)) {
+    res.setHeader(header, value);
+  }
+
+  if (!res.headersSent) {
+    res.status(200);
+  }
+
+  (res as any).flushHeaders?.();
 }
 
 type AnyRecord = Record<string, unknown>;
@@ -52,20 +65,9 @@ export function createSSE(
     if (!res.headersSent) {
       const originHeader = typeof req?.headers.origin === "string" ? req.headers.origin : null;
       const allowedOrigin = resolveCorsOrigin(originHeader);
-      const headerOrigin = allowedOrigin ?? (originHeader ? null : PRIMARY_CORS_ORIGIN);
-
-      if (headerOrigin) {
-        res.setHeader("Access-Control-Allow-Origin", headerOrigin);
-      } else {
-        res.removeHeader("Access-Control-Allow-Origin");
-      }
-      res.setHeader("Access-Control-Allow-Headers", CORS_ALLOWED_HEADERS_VALUE);
-      res.setHeader("Access-Control-Allow-Methods", CORS_ALLOWED_METHODS_VALUE);
-      res.setHeader("Vary", "Origin");
-
-      prepareSseHeaders(res);
-      res.status(200);
-      (res as any).flushHeaders?.();
+      const fallbackOrigin = originHeader && originHeader.trim() ? originHeader : PRIMARY_CORS_ORIGIN;
+      const targetOrigin = allowedOrigin ?? fallbackOrigin;
+      prepareSse(res, targetOrigin);
     }
 
     res.write(`:ok\n\n`);

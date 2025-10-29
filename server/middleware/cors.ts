@@ -1,6 +1,5 @@
+import cors from "cors";
 import type { NextFunction, Request, Response } from "express";
-
-import { log } from "../services/promptContext/logger";
 
 export const CORS_ALLOWED_ORIGINS = [
   "https://ecofrontend888.vercel.app",
@@ -33,6 +32,22 @@ export function isAllowedOrigin(origin?: string | null): boolean {
   return resolveCorsOrigin(origin) !== null;
 }
 
+export const corsMiddleware = cors({
+  origin(origin, callback) {
+    if (!origin) {
+      return callback(null, true);
+    }
+    if (resolveCorsOrigin(origin)) {
+      return callback(null, origin);
+    }
+    return callback(null, false);
+  },
+  methods: [...CORS_ALLOWED_METHODS],
+  allowedHeaders: [...CORS_ALLOWED_HEADERS],
+  credentials: false,
+  optionsSuccessStatus: 204,
+});
+
 function applyCorsHeaders(res: Response, origin: string | null) {
   if (origin) {
     res.setHeader("Access-Control-Allow-Origin", origin);
@@ -44,35 +59,16 @@ function applyCorsHeaders(res: Response, origin: string | null) {
   res.setHeader("Access-Control-Allow-Headers", CORS_ALLOWED_HEADERS_VALUE);
 }
 
-function handleCors(req: Request, res: Response) {
+export function applyCorsResponseHeaders(req: Request, res: Response) {
   const origin = requestOrigin(req);
   const allowedOrigin = resolveCorsOrigin(origin);
-  applyCorsHeaders(res, allowedOrigin);
-  return { origin, allowedOrigin };
-}
-
-export function applyCorsResponseHeaders(req: Request, res: Response) {
-  handleCors(req, res);
+  const headerOrigin = allowedOrigin ?? (origin ? null : PRIMARY_CORS_ORIGIN);
+  applyCorsHeaders(res, headerOrigin);
 }
 
 export function corsResponseInjector(req: Request, res: Response, next: NextFunction) {
-  handleCors(req, res);
+  applyCorsResponseHeaders(req, res);
   next();
-}
-
-export function corsMiddleware(req: Request, res: Response, next: NextFunction) {
-  const { origin, allowedOrigin } = handleCors(req, res);
-  log.info("CORS middleware ativo", { origin, method: req.method, path: req.path });
-
-  if (req.method === "OPTIONS") {
-    if (!allowedOrigin) {
-      return res.status(403).end();
-    }
-    res.status(204);
-    return res.end();
-  }
-
-  return next();
 }
 
 export function getConfiguredCorsOrigins(): string[] {

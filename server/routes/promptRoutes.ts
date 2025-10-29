@@ -7,13 +7,17 @@ import { log } from "../services/promptContext/logger";
 import type { EcoStreamHandler, EcoStreamEvent } from "../services/conversation/types";
 import { createHttpError, isHttpError } from "../utils/http";
 import { getSupabaseAdmin } from "../lib/supabaseAdmin";
-import { createSSE, prepareSseHeaders } from "../utils/sse";
+import { createSSE, prepareSse } from "../utils/sse";
 import { smartJoin as smartStreamJoin } from "../utils/streamJoin";
 import {
   rememberInteractionGuest,
   updateInteractionGuest,
 } from "../services/conversation/interactionIdentityStore";
-import { isAllowedOrigin } from "../middleware/cors";
+import {
+  corsMiddleware,
+  resolveCorsOrigin,
+  PRIMARY_CORS_ORIGIN,
+} from "../middleware/cors";
 import { createInteraction } from "../services/conversation/interactionAnalytics";
 import { extractEventText, extractTextLoose, sanitizeOutput } from "../utils/textExtractor";
 import { getGuestIdFromCookies, resolveGuestId } from "../utils/guestIdResolver";
@@ -469,6 +473,10 @@ router.get("/prompt-preview", async (req: Request, res: Response) => {
   }
 });
 
+askEcoRouter.options("/", corsMiddleware, (_req: Request, res: Response) => {
+  res.status(204).end();
+});
+
 askEcoRouter.head("/", (_req: Request, res: Response) => {
   res.status(200).end();
 });
@@ -491,7 +499,8 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
   const isEventStreamRequest = typeof req.headers.accept === "string" &&
     req.headers.accept.includes("text/event-stream");
   const originHeader = typeof req.headers.origin === "string" ? req.headers.origin : undefined;
-  const allowedOrigin = isAllowedOrigin(originHeader);
+  const resolvedAllowedOrigin = resolveCorsOrigin(originHeader ?? null);
+  const allowedOrigin = Boolean(resolvedAllowedOrigin);
   const origin = originHeader || undefined;
   const normalizedOriginHeader = allowedOrigin && origin ? origin : undefined;
   const streamIdHeader = req.headers["x-stream-id"];
@@ -522,13 +531,10 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
     sseWarmupStarted = true;
     disableCompressionForSse(res);
     ensureVaryIncludes(res, "Origin");
-    res.setHeader("Cache-Control", "no-cache, no-transform");
-    res.setHeader("Connection", "keep-alive");
-    res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
-    res.setHeader("X-Accel-Buffering", "no");
-    if (!res.headersSent) {
-      res.status(200);
-    }
+    const fallbackOrigin =
+      typeof originHeader === "string" && originHeader ? originHeader : PRIMARY_CORS_ORIGIN;
+    const targetOrigin = resolvedAllowedOrigin ?? fallbackOrigin;
+    prepareSse(res, targetOrigin);
     try {
       res.write(":ok\n\n");
       (res as any).flushHeaders?.();
@@ -1038,8 +1044,10 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
         streamId: streamId ?? null,
         clientMessageId: clientMessageId ?? null,
       });
-      res.status(200);
-      prepareSseHeaders(res);
+      const fallbackOrigin =
+        typeof originHeader === "string" && originHeader ? originHeader : PRIMARY_CORS_ORIGIN;
+      const targetOrigin = resolvedAllowedOrigin ?? fallbackOrigin;
+      prepareSse(res, targetOrigin);
       log.debug("[DEBUG] SSE headers set", {
         origin: origin ?? null,
         streamId: streamId ?? null,
