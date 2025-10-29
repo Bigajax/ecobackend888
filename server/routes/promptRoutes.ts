@@ -13,7 +13,7 @@ import {
   rememberInteractionGuest,
   updateInteractionGuest,
 } from "../services/conversation/interactionIdentityStore";
-import { corsMiddleware, resolveCorsOrigin } from "../middleware/cors";
+import { resolveCorsOrigin, PRIMARY_CORS_ORIGIN } from "../middleware/cors";
 import {
   ensureIdentity,
   type RequestWithIdentity as RequestWithEcoIdentity,
@@ -41,6 +41,7 @@ import {
   releaseClientMessage,
   reserveClientMessage,
 } from "../deduplication/clientMessageRegistry";
+import { extractStringCandidate, isUuidV4 } from "../utils/requestIdentity";
 
 const GUARD_FALLBACK_TEXT =
   "Não consegui responder agora. Vamos tentar de novo?";
@@ -428,6 +429,62 @@ function ensureVaryIncludes(response: Response, value: string) {
   }
 }
 
+const ASK_ECO_ALLOWED_HEADERS_VALUE =
+  "content-type, x-client-id, x-eco-guest-id, x-eco-session-id, x-eco-client-message-id";
+const ASK_ECO_ALLOWED_METHODS_VALUE = "GET,POST,OPTIONS";
+const ASK_ECO_EXPOSE_HEADERS_VALUE = "x-eco-guest-id, x-eco-session-id, x-eco-client-message-id";
+
+type QueryIdentityResult = {
+  value: string | null;
+  provided: boolean;
+  valid: boolean;
+  sourceKey: string | null;
+};
+
+function readUuidFromQuery(req: Request, keys: string[]): QueryIdentityResult {
+  const queryBag = req.query as Record<string, unknown> | undefined;
+  if (!queryBag) {
+    return { value: null, provided: false, valid: false, sourceKey: null };
+  }
+
+  for (const key of keys) {
+    if (!Object.prototype.hasOwnProperty.call(queryBag, key)) {
+      continue;
+    }
+    const candidate = extractStringCandidate(queryBag[key]);
+    if (candidate) {
+      const normalized = candidate.trim();
+      const valid = isUuidV4(normalized);
+      return {
+        value: valid ? normalized : null,
+        provided: true,
+        valid,
+        sourceKey: key,
+      };
+    }
+  }
+
+  return { value: null, provided: false, valid: false, sourceKey: null };
+}
+
+function applyAskEcoCorsHeaders(
+  res: Response,
+  originHeader: string | null,
+  allowedOrigin: string | null
+) {
+  const headerOrigin = allowedOrigin ?? (!originHeader ? PRIMARY_CORS_ORIGIN : null);
+  if (headerOrigin) {
+    res.setHeader("Access-Control-Allow-Origin", headerOrigin);
+  } else {
+    res.removeHeader("Access-Control-Allow-Origin");
+  }
+  res.setHeader("Access-Control-Allow-Credentials", "true");
+  res.setHeader("Access-Control-Expose-Headers", ASK_ECO_EXPOSE_HEADERS_VALUE);
+  res.setHeader("Access-Control-Allow-Headers", ASK_ECO_ALLOWED_HEADERS_VALUE);
+  res.setHeader("Access-Control-Allow-Methods", ASK_ECO_ALLOWED_METHODS_VALUE);
+  ensureVaryIncludes(res, "Origin");
+}
+
 function captureShortStack(label: string): string | null {
   const err = new Error(label);
   if (!err.stack) return null;
@@ -472,8 +529,97 @@ router.get("/prompt-preview", async (req: Request, res: Response) => {
   }
 });
 
-askEcoRouter.options("/", corsMiddleware, (_req: Request, res: Response) => {
+askEcoRouter.options("/", (req: Request, res: Response) => {
+  const originHeader = typeof req.headers.origin === "string" ? req.headers.origin : null;
+  const allowedOrigin = resolveCorsOrigin(originHeader);
+
+  if (originHeader && !allowedOrigin) {
+    log.warn("[ask-eco] origin_blocked", { method: "OPTIONS", origin: originHeader });
+    ensureVaryIncludes(res, "Origin");
+    return res.status(403).end();
+  }
+
+  applyAskEcoCorsHeaders(res, originHeader, allowedOrigin);
   res.status(204).end();
+});
+
+askEcoRouter.get("/", (req: Request, res: Response) => {
+  const originHeader = typeof req.headers.origin === "string" ? req.headers.origin : null;
+  const allowedOrigin = resolveCorsOrigin(originHeader);
+
+  const guestQuery = readUuidFromQuery(req, ["guest_id", "guest", "guestId"]);
+  const sessionQuery = readUuidFromQuery(req, ["session_id", "session", "sessionId"]);
+  const clientQuery = readUuidFromQuery(req, ["client_message_id", "clientMessageId"]);
+
+  log.info("[ask-eco] identity_source", {
+    path: req.path,
+    method: "GET",
+    origin: originHeader ?? null,
+    guestIdSource: guestQuery.provided ? "query" : null,
+    guestIdValid: guestQuery.valid,
+    sessionIdSource: sessionQuery.provided ? "query" : null,
+    sessionIdValid: sessionQuery.valid,
+    clientMessageIdSource: clientQuery.provided ? "query" : null,
+    clientMessageIdValid: clientQuery.valid,
+  });
+
+  if (originHeader && !allowedOrigin) {
+    log.warn("[ask-eco] origin_blocked", { method: "GET", origin: originHeader });
+    ensureVaryIncludes(res, "Origin");
+    return res.status(403).end();
+  }
+
+  const guestId = guestQuery.valid ? guestQuery.value : null;
+  const sessionId = sessionQuery.valid ? sessionQuery.value : null;
+
+  if (!guestId || !sessionId) {
+    applyAskEcoCorsHeaders(res, originHeader, allowedOrigin);
+    return res
+      .status(400)
+      .json({ error: "invalid_guest_id", message: "Envie um UUID v4 em X-Eco-Guest-Id" });
+  }
+
+  const clientMessageId = clientQuery.valid ? clientQuery.value : null;
+
+  disableCompressionForSse(res);
+  applyAskEcoCorsHeaders(res, originHeader, allowedOrigin);
+  res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
+  res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no");
+
+  res.setHeader("X-Eco-Guest-Id", guestId);
+  res.setHeader("X-Eco-Session-Id", sessionId);
+  if (clientMessageId) {
+    res.setHeader("X-Eco-Client-Message-Id", clientMessageId);
+  }
+
+  res.status(200);
+  (res as any).flushHeaders?.();
+
+  try {
+    res.write(`:ok\n\n`);
+    res.write(`event: ready\n`);
+    res.write(`data: ${JSON.stringify({ status: "starting" })}\n\n`);
+    (res as any).flush?.();
+  } catch (error) {
+    log.warn("[ask-eco] sse_get_write_failed", {
+      method: "GET",
+      origin: originHeader ?? null,
+      message: error instanceof Error ? error.message : String(error),
+    });
+    res.end();
+    return;
+  }
+
+  req.on("close", () => {
+    log.info("[ask-eco] sse_get_closed", {
+      method: "GET",
+      origin: originHeader ?? null,
+      guestId,
+      sessionId,
+    });
+  });
 });
 
 // Aceita headers: X-Eco-Guest-Id, X-Eco-Session-Id
@@ -503,13 +649,12 @@ askEcoRouter.post("/", ensureIdentity, async (req: Request, res: Response, _next
   })();
   const wantsStreamByFlag = typeof streamParam === "string" && /^(1|true|yes)$/i.test(streamParam.trim());
   const wantsStream = wantsStreamByFlag || accept.includes("text/event-stream");
-  const isEventStreamRequest = typeof req.headers.accept === "string" &&
-    req.headers.accept.includes("text/event-stream");
-  const originHeader = typeof req.headers.origin === "string" ? req.headers.origin : undefined;
-  const resolvedAllowedOrigin = resolveCorsOrigin(originHeader ?? null);
+  const originHeader = typeof req.headers.origin === "string" ? req.headers.origin : null;
+  const resolvedAllowedOrigin = resolveCorsOrigin(originHeader);
   const allowedOrigin = Boolean(resolvedAllowedOrigin);
-  const origin = originHeader || undefined;
-  const normalizedOriginHeader = allowedOrigin && origin ? origin : undefined;
+  const origin = originHeader ?? undefined;
+  const normalizedOriginHeader = allowedOrigin && originHeader ? originHeader : undefined;
+  applyAskEcoCorsHeaders(res, originHeader, resolvedAllowedOrigin);
   const streamIdHeader = req.headers["x-stream-id"];
   const incomingStreamId =
     typeof streamIdHeader === "string" && streamIdHeader.trim()
@@ -559,7 +704,7 @@ askEcoRouter.post("/", ensureIdentity, async (req: Request, res: Response, _next
   };
 
   if (wantsStream && !allowedOrigin) {
-    log.warn("[ask-eco] origin_blocked", { origin: origin ?? null });
+    log.warn("[ask-eco] origin_blocked", { origin: origin ?? null, method: req.method });
     return res.status(403).end();
   }
 
