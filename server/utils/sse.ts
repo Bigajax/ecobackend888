@@ -100,3 +100,5 @@ export function createSSE(
     write,
   };
 }
+
+export type SSEConnection = ReturnType<typeof createSSE>;
