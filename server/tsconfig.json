@@ -18,5 +18,18 @@
     "types": ["node"]
   },
   "include": ["**/*.ts", "types/**/*.d.ts"],
-  "exclude": ["node_modules", "dist"]
+  "exclude": [
+    "node_modules",
+    "dist",
+    "tests",
+    "**/__tests__/**",
+    "**/*.test.ts",
+    "**/*.spec.ts",
+    "**/*.contract.ts",
+    "jest*.ts",
+    "jest.config.ts",
+    "jest.contract.config.ts",
+    "vitest.config.*",
+    "../tests"
+  ]
 }
