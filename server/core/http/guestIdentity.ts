@@ -32,6 +32,7 @@ declare global {
   namespace Express {
     interface Request {
       guestId?: string;
+      sessionId?: string;
       ecoSessionId?: string;
     }
   }
@@ -104,18 +105,23 @@ function normalizeSessionId(candidate: string | undefined): string | undefined {
 function ensureSessionHeader(req: Request, res: Response) {
   const headerCandidate = getHeaderValue(req.headers["x-eco-session-id"]);
   let sessionId = normalizeSessionId(headerCandidate);
+  let generated = false;
 
   if (!sessionId) {
     sessionId = randomUUID();
+    generated = true;
+    log.info("[guestIdentity] generated new session ID", { id: sessionId, path: req.path });
   }
 
+  req.sessionId = sessionId;
   req.ecoSessionId = sessionId;
   (req.headers as Record<string, string>)["x-eco-session-id"] = sessionId;
   res.setHeader("X-Eco-Session-Id", sessionId);
+  return { sessionId, generated };
 }
 
 export function ensureGuestIdentity(req: Request, res: Response, next: NextFunction) {
-  ensureSessionHeader(req, res);
+  const { sessionId } = ensureSessionHeader(req, res);
 
   if ((req as any).user?.id) {
     return next();
@@ -126,41 +132,45 @@ export function ensureGuestIdentity(req: Request, res: Response, next: NextFunct
 
   const requiresGuestId = GUEST_ID_REQUIRED_PATHS.some((pattern) => pattern.test(req.path));
 
-  let guestId =
-    normalizeGuestIdentifier(headerCandidate) ?? normalizeGuestIdentifier(cookieCandidate);
+  const normalizedHeader = normalizeGuestIdentifier(headerCandidate);
+  const normalizedCookie = normalizeGuestIdentifier(cookieCandidate);
+  const invalidHeader = Boolean(headerCandidate) && !normalizedHeader;
+  const invalidCookie = Boolean(cookieCandidate) && !normalizedCookie;
+  let guestId = normalizedHeader ?? normalizedCookie;
 
   if (!guestId) {
-    if (requiresGuestId) {
-      if (headerCandidate || cookieCandidate) {
-        log.warn("[guestIdentity] invalid guest identifier", {
-          header: headerCandidate ?? null,
-          fromCookie: Boolean(cookieCandidate),
-          path: req.path,
-        });
-      } else {
-        log.warn("[guestIdentity] missing guest identifier", { path: req.path });
-      }
-      return res.status(400).json({ error: "missing_guest_id", message: "Informe X-Eco-Guest-Id" });
-    }
-
-    if (headerCandidate || cookieCandidate) {
+    if (invalidHeader || invalidCookie) {
       log.warn("[guestIdentity] invalid guest identifier", {
         header: headerCandidate ?? null,
         fromCookie: Boolean(cookieCandidate),
         path: req.path,
       });
+      if (requiresGuestId) {
+        return res
+          .status(400)
+          .json({ error: "invalid_guest_id", message: "Envie um UUID v4 em X-Eco-Guest-Id" });
+      }
     } else {
-      log.warn("[guestIdentity] missing guest identifier", { path: req.path });
+      log.info("[guestIdentity] missing guest identifier", { path: req.path });
     }
 
     guestId = randomUUID();
-    log.info("[guestIdentity] generated new guest ID", { id: guestId });
+    log.info("[guestIdentity] generated new guest ID", { id: guestId, path: req.path });
   }
 
   req.guestId = guestId;
   (req.headers as Record<string, string>)["x-eco-guest-id"] = guestId;
 
   mirrorGuestId(res, guestId);
+
+  if (req.path.startsWith("/api/ask-eco")) {
+    log.info("[guestIdentity] resolved", {
+      guestId,
+      sessionId,
+      source: normalizedHeader ? "header" : normalizedCookie ? "cookie" : "generated",
+      path: req.path,
+    });
+  }
 
   next();
 }

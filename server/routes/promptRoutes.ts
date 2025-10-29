@@ -486,6 +486,11 @@ askEcoRouter.head("/", ensureIdentity, (_req: Request, res: Response) => {
 /** POST /api/ask-eco — stream SSE (ou JSON se cliente não pedir SSE) */
 askEcoRouter.post("/", ensureIdentity, async (req: Request, res: Response, _next: NextFunction) => {
   const reqWithIdentity = req as RequestWithIdentity;
+  log.info("[ask-eco] identity_resolved", {
+    guestId: reqWithIdentity.guestId,
+    sessionId: reqWithIdentity.ecoSessionId ?? null,
+    clientMessageId: reqWithIdentity.clientMessageId ?? null,
+  });
   const accept = String(req.headers.accept || "").toLowerCase();
   const streamParam = (() => {
     const fromQuery = (req.query as any)?.stream;

@@ -279,7 +279,7 @@ export function createApp(): Express {
           response_example: { text: "...", usage: { prompt: 0, completion: 0 } },
         },
         error_cases: [
-          { status: 400, code: "missing_guest_id", message: "Informe X-Eco-Guest-Id" },
+          { status: 400, code: "invalid_guest_id", message: "Envie um UUID v4 em X-Eco-Guest-Id" },
           { status: 400, code: "missing_session_id", message: "Informe X-Eco-Session-Id" },
         ],
         timeouts: {
