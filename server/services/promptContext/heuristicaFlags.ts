@@ -1,4 +1,81 @@
-import { tagsPorHeuristica } from "../../assets/config/heuristicasTriggers";
+import fs from "fs";
+import path from "path";
+
+import { getAssetsRoot } from "../../src/utils/assetsRoot";
+
+export type HeuristicaTriggerEntry = {
+  arquivo: string;
+  gatilhos: string[];
+};
+
+type HeuristicaTriggersFile = {
+  heuristicasTriggerMap: HeuristicaTriggerEntry[];
+  tagsPorHeuristica: Record<string, string[]>;
+};
+
+const ASSETS_ROOT = getAssetsRoot();
+const TRIGGERS_PATH = path.join(ASSETS_ROOT, "config", "heuristicasTriggers.json");
+
+let cachedTriggers: HeuristicaTriggersFile | null = null;
+
+function ensureStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((entry): entry is string => typeof entry === "string");
+}
+
+function normalizeTriggerEntry(entry: unknown): HeuristicaTriggerEntry | null {
+  if (!entry || typeof entry !== "object") return null;
+  const record = entry as Record<string, unknown>;
+  const arquivo = typeof record.arquivo === "string" ? record.arquivo : "";
+  if (!arquivo) return null;
+  return {
+    arquivo,
+    gatilhos: ensureStringArray(record.gatilhos),
+  };
+}
+
+function loadHeuristicasTriggers(): HeuristicaTriggersFile {
+  if (cachedTriggers) return cachedTriggers;
+
+  try {
+    const raw = fs.readFileSync(TRIGGERS_PATH, "utf-8");
+    const parsed = JSON.parse(raw) as Partial<HeuristicaTriggersFile> | undefined;
+
+    const triggerEntries = Array.isArray(parsed?.heuristicasTriggerMap)
+      ? parsed!.heuristicasTriggerMap
+      : [];
+
+    const heuristicasTriggerMap = triggerEntries
+      .map(normalizeTriggerEntry)
+      .filter((entry): entry is HeuristicaTriggerEntry => entry !== null);
+
+    const tagsSource = parsed?.tagsPorHeuristica;
+    const tags: Record<string, string[]> = {};
+    if (tagsSource && typeof tagsSource === "object") {
+      for (const [key, value] of Object.entries(tagsSource)) {
+        if (typeof key !== "string") continue;
+        const tagList = ensureStringArray(value);
+        if (tagList.length > 0) {
+          tags[key] = tagList;
+        }
+      }
+    }
+
+    cachedTriggers = {
+      heuristicasTriggerMap,
+      tagsPorHeuristica: tags,
+    };
+    return cachedTriggers;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Failed to load heuristicasTriggers.json at ${TRIGGERS_PATH}: ${message}`);
+  }
+}
+
+const heuristicasTriggers = loadHeuristicasTriggers();
+
+export const heuristicasTriggerMap = heuristicasTriggers.heuristicasTriggerMap;
+export const tagsPorHeuristica = heuristicasTriggers.tagsPorHeuristica;
 
 export const heuristicaFlagNames = [
   "ancoragem",

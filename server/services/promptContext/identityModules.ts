@@ -3,6 +3,7 @@ import { promises as fs } from "fs";
 import { ModuleStore } from "./ModuleStore";
 import { log } from "./logger";
 import { createHttpError, isHttpError } from "../../utils/http";
+import { getAssetsRoot } from "../../src/utils/assetsRoot";
 
 export type IdentityModule = { name: string; text: string; sourcePath?: string };
 
@@ -17,33 +18,22 @@ const DEFAULT_REQUIRED_PROMPTS = [
   `${PROMPT_SUBPATH}/POLICY_MEMORIA.txt`,
 ];
 
-const RUNNING_FROM_DIST = __dirname.split(path.sep).includes("dist");
+const PRIMARY_ASSETS_ROOT = path.resolve(getAssetsRoot());
+const ADDITIONAL_ASSET_ROOTS = [
+  path.resolve(process.cwd(), "server", "assets"),
+  path.resolve(process.cwd(), "dist", "assets"),
+  path.resolve(process.cwd(), "server", "dist", "assets"),
+];
 
-const PROMPT_DIR_CANDIDATES = dedupePaths([
-  path.resolve(process.cwd(), "dist/assets", PROMPT_SUBPATH),
-  path.resolve(process.cwd(), "server/dist/assets", PROMPT_SUBPATH),
-  ...(RUNNING_FROM_DIST ? [path.resolve(__dirname, "../../assets", PROMPT_SUBPATH)] : []),
-  ...(!RUNNING_FROM_DIST
-    ? [
-        path.resolve(__dirname, "../assets", PROMPT_SUBPATH),
-        path.resolve(__dirname, "../../assets", PROMPT_SUBPATH),
-        path.resolve(process.cwd(), "server/assets", PROMPT_SUBPATH),
-      ]
-    : []),
-]);
+const ASSET_ROOTS = dedupePaths([PRIMARY_ASSETS_ROOT, ...ADDITIONAL_ASSET_ROOTS]);
 
-const MANIFEST_CANDIDATES = dedupePaths([
-  path.resolve(process.cwd(), "dist/assets", "MANIFEST.json"),
-  path.resolve(process.cwd(), "server/dist/assets", "MANIFEST.json"),
-  ...(RUNNING_FROM_DIST ? [path.resolve(__dirname, "../../assets", "MANIFEST.json")] : []),
-  ...(!RUNNING_FROM_DIST
-    ? [
-        path.resolve(__dirname, "../assets", "MANIFEST.json"),
-        path.resolve(__dirname, "../../assets", "MANIFEST.json"),
-        path.resolve(process.cwd(), "server/assets", "MANIFEST.json"),
-      ]
-    : []),
-]);
+const PROMPT_DIR_CANDIDATES = dedupePaths(
+  ASSET_ROOTS.map((root) => path.join(root, PROMPT_SUBPATH))
+);
+
+const MANIFEST_CANDIDATES = dedupePaths(
+  ASSET_ROOTS.map((root) => path.join(root, "MANIFEST.json"))
+);
 
 type PromptStatus =
   | { state: "unknown"; checkedAt: null }

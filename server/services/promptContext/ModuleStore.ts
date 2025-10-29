@@ -3,6 +3,7 @@
 import * as path from "path";
 import { promises as fs, Dirent } from "fs";
 import { log, isDebug } from "./logger";
+import { getAssetsRoot } from "../../src/utils/assetsRoot";
 
 /** ---------------------- Encoder resiliente ---------------------- */
 type Encoder = { encode: (s: string) => number[] };
@@ -58,18 +59,6 @@ async function filterExistingDirs(paths: string[]): Promise<string[]> {
   return out;
 }
 
-async function firstExisting(paths: string[]): Promise<string | null> {
-  for (const candidate of paths) {
-    try {
-      const st = await fs.stat(candidate);
-      if (st.isDirectory()) return candidate;
-    } catch {
-      // ignore
-    }
-  }
-  return null;
-}
-
 async function directoryExists(dir: string): Promise<boolean> {
   try {
     const st = await fs.stat(dir);
@@ -81,101 +70,63 @@ async function directoryExists(dir: string): Promise<boolean> {
 
 /** Tenta resolver roots a partir da env ou de candidatos padrão. */
 async function resolveDefaultRoots(): Promise<string[]> {
-  // 1) Via env CSV (prioridade)
-  const envRoots = (process.env.ECO_PROMPT_ROOTS || "")
+  const roots: string[] = [];
+  const pushRoot = (candidate: string | null | undefined) => {
+    if (!candidate) return;
+    const resolved = normalizeRoot(candidate);
+    if (!roots.includes(resolved)) {
+      roots.push(resolved);
+    }
+  };
+
+  const envRootCandidates = (process.env.ECO_PROMPT_ROOTS || "")
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean)
     .map(normalizeRoot);
 
-  if (envRoots.length) {
-    const existing = await filterExistingDirs(envRoots);
-    if (existing.length) {
-      const deduped = Array.from(new Set(existing));
-      const fallbackRoot = path.resolve(process.cwd(), "server/assets");
-      if (
-        (await directoryExists(fallbackRoot)) &&
-        !deduped.includes(fallbackRoot)
-      ) {
-        deduped.push(fallbackRoot);
+  if (envRootCandidates.length > 0) {
+    const existing = await filterExistingDirs(envRootCandidates);
+    if (existing.length > 0) {
+      for (const candidate of existing) {
+        pushRoot(candidate);
       }
-      if (isDebug()) log.debug("[ModuleStore] Using ECO_PROMPT_ROOTS", { roots: deduped });
-      return deduped;
+    } else {
+      log.warn("[ModuleStore] ECO_PROMPT_ROOTS provided but none found", {
+        envRoots: envRootCandidates,
+      });
     }
-    if (isDebug()) log.debug("[ModuleStore] ECO_PROMPT_ROOTS provided but none exist", { envRoots });
   }
 
-  // 2) Candidatos padrão (produção e dev)
-  // __dirname = dist/services/promptContext (neste módulo)
-  const runningFromDist = __dirname.split(path.sep).includes("dist");
-
-  const distCandidates = [
-    path.resolve(process.cwd(), "dist/assets"),
-    path.resolve(process.cwd(), "server/dist/assets"),
-  ];
-  if (runningFromDist) {
-    distCandidates.push(path.resolve(__dirname, "../assets"));
-    distCandidates.push(path.resolve(__dirname, "../../assets"));
+  const assetsRoot = normalizeRoot(getAssetsRoot());
+  if (!(await directoryExists(assetsRoot))) {
+    log.warn("[ModuleStore] assets_root_missing", { root: assetsRoot });
   }
+  pushRoot(assetsRoot);
 
-  const workspaceCandidates = [
-    path.resolve(process.cwd(), "server/assets"),
-  ];
-  if (!runningFromDist) {
-    workspaceCandidates.push(path.resolve(__dirname, "../assets"));
-    workspaceCandidates.push(path.resolve(__dirname, "../../assets"));
-  }
-
-  const distRoot = await firstExisting(distCandidates);
-  const workspaceRoot = await firstExisting(workspaceCandidates);
-
-  const fallbackRoot = path.resolve(process.cwd(), "server/assets");
-
-  if (await directoryExists(path.resolve(process.cwd(), "assets"))) {
-    log.warn("[ModuleStore] legacy_assets_detected", {
-      legacyRoot: path.resolve(process.cwd(), "assets"),
-    });
-  }
-
-  if (distRoot && workspaceRoot) {
-    log.warn("[ModuleStore] multiple_asset_roots", {
-      using: distRoot,
-      ignored: workspaceRoot,
-    });
-  }
-
-  const roots: string[] = [];
-  const pushRoot = (candidate: string | null) => {
-    if (!candidate) return;
-    const resolved = normalizeRoot(candidate);
-    if (!roots.includes(resolved)) roots.push(resolved);
-  };
-
-  const envAssetRoot = process.env.ECO_ASSETS_ROOT;
-  if (envAssetRoot) {
-    const resolvedEnvRoot = normalizeRoot(envAssetRoot);
-    pushRoot(resolvedEnvRoot);
-    if (!(await directoryExists(resolvedEnvRoot))) {
-      log.warn("[ModuleStore] assets_root_missing", { root: resolvedEnvRoot });
-    }
-  } else if (distRoot) {
-    if (isDebug()) log.debug("[ModuleStore] Using packaged assets", { root: distRoot });
-    pushRoot(distRoot);
-  } else if (workspaceRoot) {
-    if (isDebug()) log.debug("[ModuleStore] Using workspace assets", { root: workspaceRoot });
+  const workspaceRoot = normalizeRoot(path.resolve(process.cwd(), "server/assets"));
+  if (workspaceRoot !== assetsRoot && (await directoryExists(workspaceRoot))) {
     pushRoot(workspaceRoot);
-  } else {
-    const defaultRoot = normalizeRoot("dist/assets");
-    if (isDebug()) log.debug("[ModuleStore] Defaulting assets root", { root: defaultRoot });
-    pushRoot(defaultRoot);
   }
 
-  if ((await directoryExists(fallbackRoot)) && !roots.includes(fallbackRoot)) {
-    pushRoot(fallbackRoot);
+  const distRoot = normalizeRoot(path.resolve(process.cwd(), "dist/assets"));
+  if (distRoot !== assetsRoot && (await directoryExists(distRoot))) {
+    pushRoot(distRoot);
   }
 
-  if (!roots.length) {
-    if (isDebug()) log.debug("[ModuleStore] No asset roots resolved", { distCandidates, workspaceCandidates });
+  const serverDistRoot = normalizeRoot(path.resolve(process.cwd(), "server/dist/assets"));
+  if (serverDistRoot !== assetsRoot && (await directoryExists(serverDistRoot))) {
+    pushRoot(serverDistRoot);
+  }
+
+  const legacyRoot = normalizeRoot(path.resolve(process.cwd(), "assets"));
+  if (await directoryExists(legacyRoot)) {
+    log.warn("[ModuleStore] legacy_assets_detected", { legacyRoot });
+    pushRoot(legacyRoot);
+  }
+
+  if (isDebug()) {
+    log.debug("[ModuleStore] resolved_roots", { roots });
   }
 
   return roots;

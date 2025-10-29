@@ -31,6 +31,7 @@ import { log } from "./services/promptContext/logger";
 import { startBanditRewardSyncScheduler } from "./services/banditRewardsSync";
 import { analyticsClientMode } from "./services/supabaseClient";
 import { ensureEcoIdentityPromptAvailability } from "./services/promptContext/identityModules";
+import { describeAssetsRoot } from "./src/utils/assetsRoot";
 
 const app = createApp();
 
@@ -44,22 +45,6 @@ const REQUIRED_MODULE_PATHS = [
   "modulos_extras/bloco_tecnico_memoria.txt",
   "modulos_extras/metodo_viva_enxuto.txt",
 ] as const;
-
-type RootCandidate = { label: string; path: string; exists: boolean };
-
-function resolveRoot(label: string, candidates: string[]): RootCandidate {
-  for (const candidate of candidates) {
-    try {
-      const stats = fs.statSync(candidate);
-      if (stats.isDirectory()) {
-        return { label, path: candidate, exists: true };
-      }
-    } catch {
-      // ignore and try next candidate
-    }
-  }
-  return { label, path: candidates[0], exists: false };
-}
 
 function countFilesSync(dir: string): number {
   let total = 0;
@@ -80,59 +65,37 @@ function countFilesSync(dir: string): number {
 }
 
 function assertRequiredModules() {
-  const RUNNING_FROM_DIST = __dirname.split(path.sep).includes("dist");
-
-  const distCandidates = [
-    path.resolve(process.cwd(), "dist", "assets"),
-    path.resolve(process.cwd(), "server", "dist", "assets"),
-  ];
-  if (RUNNING_FROM_DIST) {
-    distCandidates.push(path.resolve(__dirname, "assets"));
-    distCandidates.push(path.resolve(__dirname, "../assets"));
-  }
-
-  const workspaceCandidates = [path.resolve(process.cwd(), "server", "assets")];
-  if (!RUNNING_FROM_DIST) {
-    workspaceCandidates.push(path.resolve(__dirname, "assets"));
-    workspaceCandidates.push(path.resolve(__dirname, "../assets"));
-  }
-
-  const distRoot = resolveRoot("dist/assets", distCandidates);
-  const workspaceRoot = resolveRoot("server/assets", workspaceCandidates);
+  const assetsInfo = describeAssetsRoot();
+  const primaryRoot = path.resolve(assetsInfo.root);
 
   if (fs.existsSync(path.resolve(process.cwd(), "assets"))) {
     console.warn("[boot] legacy_assets_detected", { legacyRoot: path.resolve(process.cwd(), "assets") });
   }
 
-  const distFiles = distRoot.exists ? countFilesSync(distRoot.path) : 0;
-  console.info("[boot] assets_files_count", {
-    root: distRoot.path,
-    exists: distRoot.exists,
-    files: distFiles,
+  const rootExists = assetsInfo.exists && fs.existsSync(primaryRoot) && fs.statSync(primaryRoot).isDirectory();
+  const filesCount = rootExists ? countFilesSync(primaryRoot) : 0;
+
+  console.info("[boot] assets_root_resolved", {
+    root: primaryRoot,
+    exists: rootExists,
+    files: filesCount,
   });
-  if (distFiles <= 0) {
-    console.error("[boot] dist_assets_empty", { root: distRoot.path, exists: distRoot.exists });
+
+  if (!rootExists || filesCount <= 0) {
+    console.error("[boot] assets_root_unavailable", {
+      root: primaryRoot,
+      exists: rootExists,
+      files: filesCount,
+    });
     process.exit(1);
   }
 
-  const roots = distRoot.exists
-    ? [distRoot]
-    : workspaceRoot.exists
-    ? [workspaceRoot]
-    : [];
-
-  if (distRoot.exists && workspaceRoot.exists) {
-    console.warn("[boot] multiple_asset_roots", { using: distRoot.path, ignored: workspaceRoot.path });
-  }
-
-  const missing: Array<{ file: string; root: string; fullPath: string }> = [];
+  const missing: Array<{ file: string; fullPath: string }> = [];
 
   for (const relativeFile of REQUIRED_MODULE_PATHS) {
-    for (const root of roots) {
-      const fullPath = path.join(root.path, relativeFile);
-      if (!fs.existsSync(fullPath)) {
-        missing.push({ file: relativeFile, root: root.label, fullPath });
-      }
+    const fullPath = path.join(primaryRoot, relativeFile);
+    if (!fs.existsSync(fullPath)) {
+      missing.push({ file: relativeFile, fullPath });
     }
   }
 
@@ -144,27 +107,25 @@ function assertRequiredModules() {
   }
 
   for (const relativeFile of REQUIRED_MODULE_PATHS) {
+    const fullPath = path.join(primaryRoot, relativeFile);
     let hadContent = false;
     let bytes = 0;
 
-    const primaryRoot = roots[0];
-    if (primaryRoot && fs.existsSync(primaryRoot.path)) {
-      try {
-        const content = fs.readFileSync(path.join(primaryRoot.path, relativeFile), "utf-8");
-        bytes = Buffer.byteLength(content, "utf-8");
-        hadContent = content.trim().length > 0;
-      } catch (error) {
-        console.error("[boot] required_module_read_failed", {
-          file: relativeFile,
-          root: primaryRoot.label,
-          message: error instanceof Error ? error.message : String(error),
-        });
-      }
+    try {
+      const content = fs.readFileSync(fullPath, "utf-8");
+      bytes = Buffer.byteLength(content, "utf-8");
+      hadContent = content.trim().length > 0;
+    } catch (error) {
+      console.error("[boot] required_module_read_failed", {
+        file: relativeFile,
+        root: primaryRoot,
+        message: error instanceof Error ? error.message : String(error),
+      });
     }
 
     console.info("[boot] required_module_ok", {
       file: relativeFile,
-      roots: roots.map((root) => path.join(root.path, relativeFile)),
+      root: fullPath,
       hadContent,
       bytes,
     });
