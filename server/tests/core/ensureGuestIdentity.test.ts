@@ -53,8 +53,8 @@ test("gera guestId quando header ausente", () => {
   assert.equal(nextCalled, true, "middleware deve continuar fluxo");
   assert.ok(req.guestId, "guestId deve ser definido");
   assert.match(req.guestId!, UUID_V4_REGEX);
-  assert.equal((req.headers as any)["x-guest-id"], req.guestId);
-  assert.equal(res.getHeader("x-guest-id"), req.guestId);
+  assert.equal((req.headers as any)["x-eco-guest-id"], req.guestId);
+  assert.equal(res.getHeader("x-eco-guest-id"), req.guestId);
 
   const cookieHeader = res.getHeader("set-cookie");
   const cookieValue = Array.isArray(cookieHeader) ? cookieHeader[0] : cookieHeader;
@@ -72,7 +72,7 @@ test("reutiliza guestId do cookie quando header inválido", () => {
   ensureGuestIdentity(req, res, () => {});
 
   assert.equal(req.guestId, existingGuestId);
-  assert.equal(res.getHeader("x-guest-id"), existingGuestId);
+  assert.equal(res.getHeader("x-eco-guest-id"), existingGuestId);
   const cookieHeader = res.getHeader("set-cookie");
   const cookieValue = Array.isArray(cookieHeader) ? cookieHeader[0] : cookieHeader;
   assert.ok(cookieValue && cookieValue.includes(`guest_id=${existingGuestId}`));
