@@ -11,11 +11,11 @@ import express, {
   type NextFunction,
 } from "express";
 
-import corsMiddleware, {
+import {
+  ecoCors,
   applyCorsResponseHeaders,
   corsResponseInjector,
 } from "../../middleware/cors";
-import { createSSE } from "../../utils/sse";
 import { requestLogger } from "./middlewares/logger";
 import { normalizeQuery } from "./middlewares/queryNormalizer";
 import { ModuleCatalog } from "../../domains/prompts/ModuleCatalog";
@@ -43,6 +43,7 @@ import { isSupabaseConfigured } from "../../lib/supabaseAdmin";
 import { guestSessionMiddleware } from "./middlewares/guestSession";
 import guestRoutes from "../../routes/guestRoutes";
 import requireAdmin from "../../mw/requireAdmin";
+import sseSmokeRouter from "../../routes/sseSmoke";
 
 declare module "express-serve-static-core" {
   interface Request {
@@ -110,10 +111,10 @@ export function createApp(): Express {
   app.set("trust proxy", 1);
 
   // 1) CORS global antes de qualquer rota
-  app.use(corsMiddleware);
-  app.options("/api/*", (_req, res) => res.status(204).end());
+  app.use(ecoCors);
+  app.options("/api/*", ecoCors);
   app.use(corsResponseInjector);
-  app.options("*", corsMiddleware);
+  app.options("*", ecoCors);
 
   // 2) Parsers (não executam em OPTIONS)
   const standardJsonParser = express.json({ limit: "1mb" });
@@ -213,20 +214,8 @@ export function createApp(): Express {
       return res.status(500).json({ error: "module_debug_failed" });
     }
   });
-  app.get("/api/_sse-smoke", (req, res) => {
-    applyCorsResponseHeaders(req, res);
-    const sse = createSSE(res, req, {
-      pingIntervalMs: 0,
-      idleMs: 0,
-      commentOnOpen: "ok",
-    });
-    sse.send("ready", { message: "ready" });
-    sse.send("chunk", { message: "smoke" });
-    sse.send("done", { ok: true });
-    sse.end();
-  });
-
   // 7) Rotas (prefixo /api) — /api/ask-eco (SSE) vive em promptRoutes
+  app.use(sseSmokeRouter);
   app.use("/api", promptRoutes);
   app.use("/api/memorias", memoryRoutes);
   app.use("/api/memories", memoryRoutes);
