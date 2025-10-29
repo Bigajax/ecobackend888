@@ -34,6 +34,14 @@ declare global {
       guestId?: string;
       sessionId?: string;
       ecoSessionId?: string;
+      ecoIdentitySources?: {
+        guest: "header" | "query" | "cookie" | "generated";
+        guestHeaderProvided: boolean;
+        guestHeaderValid: boolean;
+        session: "header" | "query" | "generated";
+        sessionHeaderProvided: boolean;
+        sessionHeaderValid: boolean;
+      };
     }
   }
 }
@@ -128,9 +136,14 @@ function normalizeSessionId(candidate: string | undefined): string | undefined {
 
 function ensureSessionHeader(req: Request, res: Response) {
   const headerCandidate = getHeaderValue(req.headers["x-eco-session-id"]);
+  const trimmedHeaderCandidate =
+    typeof headerCandidate === "string" ? headerCandidate.trim() : "";
   const queryCandidate = readQueryParam(req, ["session_id", "sessionId", "session"]);
 
-  let sessionId = normalizeSessionId(headerCandidate);
+  const headerProvided = trimmedHeaderCandidate.length > 0;
+  const headerValid = headerProvided ? UUID_V4.test(trimmedHeaderCandidate) : false;
+
+  let sessionId = normalizeSessionId(headerProvided ? trimmedHeaderCandidate : undefined);
   let source: "header" | "query" | "generated" = "header";
 
   if (!sessionId) {
@@ -151,11 +164,22 @@ function ensureSessionHeader(req: Request, res: Response) {
   req.ecoSessionId = sessionId;
   (req.headers as Record<string, string>)["x-eco-session-id"] = sessionId;
   res.setHeader("X-Eco-Session-Id", sessionId);
-  return { sessionId, generated: source === "generated", source };
+  return {
+    sessionId,
+    generated: source === "generated",
+    source,
+    headerProvided,
+    headerValid,
+  };
 }
 
 export function ensureGuestIdentity(req: Request, res: Response, next: NextFunction) {
-  const { sessionId, source: sessionSource } = ensureSessionHeader(req, res);
+  const {
+    sessionId,
+    source: sessionSource,
+    headerProvided: sessionHeaderProvided,
+    headerValid: sessionHeaderValid,
+  } = ensureSessionHeader(req, res);
 
   if ((req as any).user?.id) {
     return next();
@@ -201,14 +225,26 @@ export function ensureGuestIdentity(req: Request, res: Response, next: NextFunct
 
   mirrorGuestId(res, guestId);
 
+  const guestSource = normalizedHeader
+    ? "header"
+    : normalizedQuery
+      ? "query"
+      : normalizedCookie
+        ? "cookie"
+        : "generated";
+
+  req.ecoIdentitySources = {
+    guest: guestSource,
+    guestHeaderProvided: Boolean(
+      typeof headerCandidate === "string" && headerCandidate.trim().length
+    ),
+    guestHeaderValid: Boolean(normalizedHeader),
+    session: sessionSource,
+    sessionHeaderProvided,
+    sessionHeaderValid,
+  };
+
   if (req.path.startsWith("/api/ask-eco")) {
-    const guestSource = normalizedHeader
-      ? "header"
-      : normalizedQuery
-        ? "query"
-        : normalizedCookie
-          ? "cookie"
-          : "generated";
     log.info("[guestIdentity] resolved", {
       guestId,
       sessionId,
