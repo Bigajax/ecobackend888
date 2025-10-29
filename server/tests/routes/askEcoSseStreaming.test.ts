@@ -297,6 +297,7 @@ test("SSE streaming emits tokens, done and disables compression", async () => {
 
   const handler = getRouteHandler(router, "/ask-eco");
 
+  const origin = "http://localhost:5173";
   const req = new MockRequest(
     {
       stream: true,
@@ -305,6 +306,7 @@ test("SSE streaming emits tokens, done and disables compression", async () => {
     {
       accept: "text/event-stream",
       "content-type": "application/json",
+      origin,
     }
   );
   req.guest = { id: TEST_GUEST_ID };
@@ -320,6 +322,12 @@ test("SSE streaming emits tokens, done and disables compression", async () => {
   assert.equal(res.headers.get("x-no-compression"), "1");
   assert.equal(res.headers.get("cache-control"), "no-cache, no-transform");
   assert.equal(res.headers.get("connection"), "keep-alive");
+  assert.equal(res.headers.get("access-control-allow-origin"), origin);
+  assert.equal(res.headers.get("access-control-allow-credentials"), "true");
+  assert.equal(
+    res.headers.get("access-control-expose-headers"),
+    "x-eco-guest-id, x-eco-session-id, x-eco-client-message-id"
+  );
   assert.equal(
     res.headers.get("x-eco-interaction-id"),
     TEST_INTERACTION_ID,
