@@ -1,9 +1,20 @@
 import type { Request, Response } from "express";
 
+const SSE_HEADER_CONFIG = {
+  "Content-Type": "text/event-stream; charset=utf-8",
+  "Cache-Control": "no-cache, no-transform",
+  Connection: "keep-alive",
+  "X-Accel-Buffering": "no",
+} as const;
+
 export function prepareSseHeaders(res: Response) {
   if (!res.headersSent) {
     res.removeHeader("Content-Length");
     res.removeHeader("Content-Encoding");
+
+    for (const [header, value] of Object.entries(SSE_HEADER_CONFIG)) {
+      res.setHeader(header, value);
+    }
   }
 }
 
@@ -32,12 +43,7 @@ export function createSSE(
     opened = true;
 
     if (!res.headersSent) {
-      res.writeHead(200, {
-        "Content-Type": "text/event-stream; charset=utf-8",
-        "Cache-Control": "no-cache, no-transform",
-        Connection: "keep-alive",
-        "X-Accel-Buffering": "no",
-      });
+      res.writeHead(200, SSE_HEADER_CONFIG);
       (res as any).flushHeaders?.();
     }
 
