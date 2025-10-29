@@ -14,15 +14,21 @@ const SSE_HEADER_CONFIG = {
   "X-Accel-Buffering": "no",
 } as const;
 
-export function prepareSse(res: Response, origin: string): void {
-  const headerOrigin = origin && origin.trim() ? origin.trim() : PRIMARY_CORS_ORIGIN;
+export function prepareSse(res: Response, origin?: string | null): void {
+  const normalizedOrigin = typeof origin === "string" ? origin.trim() : "";
+  const allowedOrigin = normalizedOrigin ? resolveCorsOrigin(normalizedOrigin) : null;
+  const headerOrigin = allowedOrigin ?? (!normalizedOrigin ? PRIMARY_CORS_ORIGIN : null);
 
   if (!res.headersSent) {
     res.removeHeader("Content-Length");
     res.removeHeader("Content-Encoding");
   }
 
-  res.setHeader("Access-Control-Allow-Origin", headerOrigin);
+  if (headerOrigin) {
+    res.setHeader("Access-Control-Allow-Origin", headerOrigin);
+  } else {
+    res.removeHeader("Access-Control-Allow-Origin");
+  }
   res.setHeader("Access-Control-Allow-Methods", CORS_ALLOWED_METHODS_VALUE);
   res.setHeader("Access-Control-Allow-Headers", CORS_ALLOWED_HEADERS_VALUE);
   res.setHeader("Vary", "Origin");
@@ -64,10 +70,7 @@ export function createSSE(
 
     if (!res.headersSent) {
       const originHeader = typeof req?.headers.origin === "string" ? req.headers.origin : null;
-      const allowedOrigin = resolveCorsOrigin(originHeader);
-      const fallbackOrigin = originHeader && originHeader.trim() ? originHeader : PRIMARY_CORS_ORIGIN;
-      const targetOrigin = allowedOrigin ?? fallbackOrigin;
-      prepareSse(res, targetOrigin);
+      prepareSse(res, originHeader);
     }
 
     res.write(`:ok\n\n`);

@@ -13,11 +13,7 @@ import {
   rememberInteractionGuest,
   updateInteractionGuest,
 } from "../services/conversation/interactionIdentityStore";
-import {
-  corsMiddleware,
-  resolveCorsOrigin,
-  PRIMARY_CORS_ORIGIN,
-} from "../middleware/cors";
+import { corsMiddleware, resolveCorsOrigin } from "../middleware/cors";
 import { createInteraction } from "../services/conversation/interactionAnalytics";
 import { extractEventText, extractTextLoose, sanitizeOutput } from "../utils/textExtractor";
 import { getGuestIdFromCookies, resolveGuestId } from "../utils/guestIdResolver";
@@ -531,9 +527,7 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
     sseWarmupStarted = true;
     disableCompressionForSse(res);
     ensureVaryIncludes(res, "Origin");
-    const fallbackOrigin =
-      typeof originHeader === "string" && originHeader ? originHeader : PRIMARY_CORS_ORIGIN;
-    const targetOrigin = resolvedAllowedOrigin ?? fallbackOrigin;
+    const targetOrigin = resolvedAllowedOrigin ?? originHeader ?? null;
     prepareSse(res, targetOrigin);
     try {
       res.write(":ok\n\n");
@@ -1044,9 +1038,7 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
         streamId: streamId ?? null,
         clientMessageId: clientMessageId ?? null,
       });
-      const fallbackOrigin =
-        typeof originHeader === "string" && originHeader ? originHeader : PRIMARY_CORS_ORIGIN;
-      const targetOrigin = resolvedAllowedOrigin ?? fallbackOrigin;
+      const targetOrigin = resolvedAllowedOrigin ?? originHeader ?? null;
       prepareSse(res, targetOrigin);
       log.debug("[DEBUG] SSE headers set", {
         origin: origin ?? null,
