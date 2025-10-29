@@ -13,7 +13,7 @@ import {
   rememberInteractionGuest,
   updateInteractionGuest,
 } from "../services/conversation/interactionIdentityStore";
-import { applyCorsResponseHeaders, isAllowedOrigin } from "../middleware/cors";
+import { isAllowedOrigin } from "../middleware/cors";
 import { createInteraction } from "../services/conversation/interactionAnalytics";
 import { extractEventText, extractTextLoose, sanitizeOutput } from "../utils/textExtractor";
 import { getGuestIdFromCookies, resolveGuestId } from "../utils/guestIdResolver";
@@ -469,14 +469,12 @@ router.get("/prompt-preview", async (req: Request, res: Response) => {
   }
 });
 
-askEcoRouter.head("/", (req: Request, res: Response) => {
-  applyCorsResponseHeaders(req, res);
+askEcoRouter.head("/", (_req: Request, res: Response) => {
   res.status(200).end();
 });
 
 /** POST /api/ask-eco — stream SSE (ou JSON se cliente não pedir SSE) */
 askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) => {
-  applyCorsResponseHeaders(req, res);
   const reqWithIdentity = req as RequestWithIdentity;
   const accept = String(req.headers.accept || "").toLowerCase();
   const streamParam = (() => {
@@ -524,14 +522,6 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
     sseWarmupStarted = true;
     disableCompressionForSse(res);
     ensureVaryIncludes(res, "Origin");
-    if (normalizedOriginHeader) {
-      res.setHeader("Access-Control-Allow-Origin", normalizedOriginHeader);
-      res.setHeader("Access-Control-Allow-Credentials", "true");
-    }
-    res.setHeader(
-      "Access-Control-Allow-Headers",
-      "Content-Type, Accept, X-Client-Message-Id, X-Eco-User-Id, X-Eco-Guest-Id, X-Eco-Session-Id"
-    );
     res.setHeader("Cache-Control", "no-cache, no-transform");
     res.setHeader("Connection", "keep-alive");
     res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
@@ -603,8 +593,6 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
   const locals = (res.locals ?? {}) as Record<string, unknown>;
   locals.corsAllowed = allowedOrigin;
   locals.corsOrigin = origin ?? null;
-
-  applyCorsResponseHeaders(req, res);
 
   (res.locals as Record<string, unknown>).isSse = wantsStream;
 
@@ -1045,31 +1033,13 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
     res.setHeader("X-Stream-Id", streamId);
     if (!res.headersSent) {
       disableCompressionForSse(res);
-      prepareSseHeaders(res, {
-        origin: normalizedOrigin,
-        allowCredentials: Boolean(normalizedOrigin),
-        flush: false,
-      });
-
-      const allowOriginHeader =
-        normalizedOrigin ?? "https://ecofrontend888-*.vercel.app";
-      const allowHeadersHeader =
-        "content-type,x-client-id,x-eco-session-id,x-eco-guest-id,x-client-message-id,accept,x-eco-user-id";
-
-      res.setHeader("Access-Control-Allow-Origin", allowOriginHeader);
-      res.setHeader("Access-Control-Allow-Headers", allowHeadersHeader);
-      res.setHeader(
-        "Access-Control-Allow-Credentials",
-        normalizedOrigin ? "true" : "false"
-      );
+      prepareSseHeaders(res, { flush: false });
 
       res.writeHead(200, {
         "Content-Type": "text/event-stream; charset=utf-8",
         "Cache-Control": "no-cache",
         Connection: "keep-alive",
         "X-Accel-Buffering": "no",
-        "Access-Control-Allow-Origin": allowOriginHeader,
-        "Access-Control-Allow-Headers": allowHeadersHeader,
       });
 
       (res as any).flushHeaders?.();
