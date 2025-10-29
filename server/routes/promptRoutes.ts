@@ -381,6 +381,7 @@ const streamPingIntervalMs = IS_TEST_ENV
 
 type RequestWithIdentity = Request & {
   guestId?: string | null;
+  ecoSessionId?: string | null;
   user?: { id?: string | null } | null;
 };
 
@@ -507,6 +508,9 @@ askEcoRouter.options("/", corsMiddleware, (_req: Request, res: Response) => {
   res.status(204).end();
 });
 
+// Aceita headers: X-Eco-Guest-Id, X-Eco-Session-Id
+// Aceita query: ?guest_id=...&session_id=...
+// Front pode usar qualquer um dos dois.
 askEcoRouter.head("/", (req: Request, res: Response) => {
   const guestIdParam = resolveHeaderOrQuery(req, "x-eco-guest-id", ["guest", "guest_id"]);
   const sessionIdParam = resolveHeaderOrQuery(req, "x-eco-session-id", ["session", "session_id"]);
@@ -718,7 +722,7 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
     guestIdFromSession
   );
 
-  const sessionId =
+  const sessionIdResolved =
     sessionIdHeader ??
     extractSessionIdLoose(sessionMetaObject) ??
     extractSessionIdLoose(body) ??
@@ -727,7 +731,7 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
   log.info("[ask-eco] payload_valid", {
     origin: origin ?? null,
     guestId: guestIdResolved ?? null,
-    sessionId,
+    sessionId: sessionIdResolved,
   });
 
   const identityKey =
