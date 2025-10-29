@@ -1,8 +1,6 @@
 import type { Request, Response } from "express";
 
 export interface PrepareSseHeadersOptions {
-  origin?: string | null;
-  allowCredentials?: boolean;
   flush?: boolean;
 }
 
@@ -43,18 +41,10 @@ export function prepareSseHeaders(
   res: Response,
   options: PrepareSseHeadersOptions = {}
 ) {
-  const { origin, allowCredentials = false, flush = true } = options;
-
-  if (origin) {
-    res.setHeader("Access-Control-Allow-Origin", origin);
-  }
+  const { flush = true } = options;
 
   ensureVaryIncludes(res, "Origin");
 
-  res.setHeader(
-    "Access-Control-Allow-Credentials",
-    allowCredentials ? "true" : "false"
-  );
   res.removeHeader("Content-Length");
   res.removeHeader("Content-Encoding");
   res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
