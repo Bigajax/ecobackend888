@@ -1039,7 +1039,7 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
         clientMessageId: clientMessageId ?? null,
       });
       res.status(200);
-      prepareSseHeaders(res, { flush: false });
+      prepareSseHeaders(res);
       log.debug("[DEBUG] SSE headers set", {
         origin: origin ?? null,
         streamId: streamId ?? null,
