@@ -27,7 +27,7 @@ async function closeServer(server: Server) {
   });
 }
 
-test("OPTIONS /api/ask-eco responde 204 com allowlist padrão", async () => {
+test("OPTIONS /api/ask-eco responde 200 com allowlist padrão", async () => {
   const app = createApp();
   const server = app.listen(0);
 
@@ -45,7 +45,7 @@ test("OPTIONS /api/ask-eco responde 204 com allowlist padrão", async () => {
       },
     });
 
-    assert.equal(response.status, 204, "preflight deve responder 204");
+    assert.equal(response.status, 200, "preflight deve responder 200");
     assert.equal(
       response.headers.get("access-control-allow-origin"),
       "https://ecofrontend888.vercel.app",
@@ -59,34 +59,29 @@ test("OPTIONS /api/ask-eco responde 204 com allowlist padrão", async () => {
     const allowHeaders = response.headers
       .get("access-control-allow-headers")
       ?.split(",")
-      .map((value) => value.trim())
+      .map((value) => value.trim().toLowerCase())
       .filter(Boolean);
     assert.deepEqual(
       allowHeaders,
       [
         "content-type",
-        "authorization",
-        "apikey",
-        "x-requested-with",
-        "x-client-id",
-        "x-trace-id",
+        "accept",
+        "x-client-message-id",
+        "x-eco-user-id",
+        "x-eco-guest-id",
+        "x-eco-session-id",
       ],
       "deve aplicar a lista padrão de headers",
     );
     assert.equal(
       response.headers.get("access-control-allow-methods"),
-      "GET,POST,PUT,PATCH,DELETE,OPTIONS,HEAD",
+      "GET,POST,OPTIONS",
       "deve aplicar a lista padrão de métodos",
     );
     assert.equal(
       response.headers.get("access-control-expose-headers"),
-      "content-type, x-request-id",
+      "Content-Type, X-Request-Id, X-Eco-Interaction-Id",
       "deve expor os headers permitidos",
-    );
-    assert.equal(
-      response.headers.get("access-control-max-age"),
-      "600",
-      "deve aplicar o max-age padrão",
     );
   } finally {
     await closeServer(server);

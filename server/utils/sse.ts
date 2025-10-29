@@ -78,11 +78,15 @@ export type SseControlName =
   | "error";
 
 export interface SSEConnection {
+  open: () => void;
   send: (event: string, data: unknown) => number | void;
   sendControl: (name: SseControlName, payload?: Record<string, unknown>) => number | void;
   sendComment: (comment: string) => void;
   write: (data: unknown) => number | void;
   end: () => void;
+  ready: (data: unknown) => number | void;
+  chunk: (data: unknown) => number | void;
+  done: (data: unknown) => number | void;
 }
 
 function isWritable(response: Response): boolean {
@@ -114,42 +118,44 @@ export function createSSE(
 
   const HEARTBEAT_INTERVAL_MS = 15000;
 
-  const headersAlreadySent = res.headersSent;
-
-  if (!headersAlreadySent) {
-    res.status(200);
-
-    if (!res.hasHeader("Content-Type")) {
-      res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
-    }
-    if (!res.hasHeader("Cache-Control")) {
-      res.setHeader("Cache-Control", "no-cache, no-transform");
-    }
-    if (!res.hasHeader("Connection")) {
-      res.setHeader("Connection", "keep-alive");
-    }
-    if (!res.hasHeader("X-Accel-Buffering")) {
-      res.setHeader("X-Accel-Buffering", "no");
-    }
-    ensureVaryIncludes(res, "Origin");
-    if (!res.hasHeader("Transfer-Encoding")) {
-      res.setHeader("Transfer-Encoding", "chunked");
-    }
-    if (res.hasHeader("Content-Length")) {
-      res.removeHeader("Content-Length");
-    }
-    if (res.hasHeader("Content-Encoding")) {
-      res.removeHeader("Content-Encoding");
-    }
-    res.setHeader("Content-Encoding", "identity");
-    res.setHeader("X-No-Compression", "1");
-
-    (res as any).flushHeaders?.();
-  }
-
   let ended = false;
   let heartbeatRef: TimeoutRef | null = null;
   let idleRef: TimeoutRef | null = null;
+  let opened = false;
+
+  const open = () => {
+    if (opened) {
+      return;
+    }
+    opened = true;
+
+    if (!res.headersSent) {
+      res.status(200);
+      res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+      res.setHeader("Cache-Control", "no-cache, no-transform");
+      res.setHeader("Connection", "keep-alive");
+      res.setHeader("X-Accel-Buffering", "no");
+      ensureVaryIncludes(res, "Origin");
+      res.removeHeader("Content-Length");
+      res.removeHeader("Content-Encoding");
+      (res as any).flushHeaders?.();
+    }
+
+    if (commentOnOpen !== null) {
+      try {
+        res.write(`:${commentOnOpen ?? "ok"}\n\n`);
+      } catch (error) {
+        // eslint-disable-next-line no-console
+        console.warn("[SSE] failed to write warm-up comment", error);
+      }
+    }
+  };
+
+  const ensureOpen = () => {
+    if (!opened) {
+      open();
+    }
+  };
 
   const clearHeartbeat = () => {
     if (heartbeatRef) {
@@ -212,6 +218,7 @@ export function createSSE(
 
   const write = (chunk: string): boolean => {
     if (ended) return false;
+    ensureOpen();
     if (!isWritable(res)) {
       end();
       return false;
@@ -247,6 +254,7 @@ export function createSSE(
 
   const writePayload = (payload: unknown): number | void => {
     if (ended) return;
+    ensureOpen();
     if (!isWritable(res)) {
       end();
       return;
@@ -319,6 +327,7 @@ export function createSSE(
 
   const sendComment = (comment: string) => {
     if (ended) return;
+    ensureOpen();
     const ok = write(`:${comment}\n\n`);
     if (!ok) {
       return;
@@ -328,6 +337,7 @@ export function createSSE(
 
   const writeData = (data: unknown): number | void => {
     if (ended) return;
+    ensureOpen();
     const written = writePayload(data);
     if (typeof written !== "number") {
       return;
@@ -343,20 +353,20 @@ export function createSSE(
 
   scheduleIdle();
 
-  if (commentOnOpen) {
-    sendComment(commentOnOpen);
-  }
-
   req.on("close", () => handleClose("req.close"));
   req.on("aborted", () => handleClose("req.aborted"));
   (res as any).on?.("close", () => handleClose("res.close"));
   (res as any).on?.("error", (error: unknown) => handleClose("res.error", error));
 
   return {
+    open,
     send,
     sendControl,
     sendComment,
     write: writeData,
     end,
+    ready: (data: unknown) => send("ready", data),
+    chunk: (data: unknown) => send("chunk", data),
+    done: (data: unknown) => send("done", data),
   };
 }
