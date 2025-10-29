@@ -14,6 +14,10 @@ import {
   updateInteractionGuest,
 } from "../services/conversation/interactionIdentityStore";
 import { corsMiddleware, resolveCorsOrigin } from "../middleware/cors";
+import {
+  ensureIdentity,
+  type RequestWithIdentity as RequestWithEcoIdentity,
+} from "../middleware/ensureIdentity";
 import { createInteraction } from "../services/conversation/interactionAnalytics";
 import { extractEventText, extractTextLoose, sanitizeOutput } from "../utils/textExtractor";
 import { getGuestIdFromCookies, resolveGuestId } from "../utils/guestIdResolver";
@@ -379,9 +383,7 @@ const streamPingIntervalMs = IS_TEST_ENV
       MAX_PING_INTERVAL_MS
     );
 
-type RequestWithIdentity = Request & {
-  guestId?: string | null;
-  ecoSessionId?: string | null;
+type RequestWithIdentity = RequestWithEcoIdentity & {
   user?: { id?: string | null } | null;
 };
 
@@ -424,40 +426,6 @@ function ensureVaryIncludes(response: Response, value: string) {
     normalized.push(value);
     response.setHeader("Vary", normalized.join(", "));
   }
-}
-
-function extractStringCandidate(value: unknown): string | undefined {
-  if (typeof value === "string") {
-    const trimmed = value.trim();
-    return trimmed || undefined;
-  }
-  if (Array.isArray(value)) {
-    for (let index = value.length - 1; index >= 0; index -= 1) {
-      const resolved = extractStringCandidate(value[index]);
-      if (resolved) return resolved;
-    }
-  }
-  return undefined;
-}
-
-function resolveHeaderOrQuery(
-  req: Request,
-  headerName: string,
-  queryKey: string | string[]
-): string {
-  const headerCandidate = extractStringCandidate(req.headers[headerName]);
-  if (headerCandidate) return headerCandidate;
-
-  const queryBag = req.query as Record<string, unknown> | undefined;
-  if (!queryBag) return "";
-  const keys = Array.isArray(queryKey) ? queryKey : [queryKey];
-  for (const key of keys) {
-    const queryCandidate = extractStringCandidate(queryBag[key]);
-    if (queryCandidate) {
-      return queryCandidate;
-    }
-  }
-  return "";
 }
 
 function captureShortStack(label: string): string | null {
@@ -511,57 +479,13 @@ askEcoRouter.options("/", corsMiddleware, (_req: Request, res: Response) => {
 // Aceita headers: X-Eco-Guest-Id, X-Eco-Session-Id
 // Aceita query: ?guest_id=...&session_id=...
 // Front pode usar qualquer um dos dois.
-askEcoRouter.head("/", (req: Request, res: Response) => {
-  const guestId = resolveHeaderOrQuery(req, "x-eco-guest-id", ["guest", "guest_id"]);
-  const sessionId = resolveHeaderOrQuery(req, "x-eco-session-id", ["session", "session_id"]);
-
-  if (!guestId) {
-    return res
-      .status(400)
-      .json({ error: "missing_guest_id", message: "Informe X-Eco-Guest-Id" });
-  }
-
-  if (!sessionId) {
-    return res
-      .status(400)
-      .json({ error: "missing_session_id", message: "Informe X-Eco-Session-Id" });
-  }
-
+askEcoRouter.head("/", ensureIdentity, (_req: Request, res: Response) => {
   res.status(200).end();
 });
 
 /** POST /api/ask-eco — stream SSE (ou JSON se cliente não pedir SSE) */
-askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) => {
-  const guestId = resolveHeaderOrQuery(req, "x-eco-guest-id", ["guest", "guest_id"]);
-  const sessionId = resolveHeaderOrQuery(req, "x-eco-session-id", ["session", "session_id"]);
-
-  if (!guestId) {
-    return res
-      .status(400)
-      .json({ error: "missing_guest_id", message: "Informe X-Eco-Guest-Id" });
-  }
-
-  if (!sessionId) {
-    return res
-      .status(400)
-      .json({ error: "missing_session_id", message: "Informe X-Eco-Session-Id" });
-  }
-
-  const headerBag = req.headers as Record<string, string>;
-  if (!extractStringCandidate(headerBag["x-eco-guest-id"])) {
-    headerBag["x-eco-guest-id"] = guestId;
-  }
-  if (!extractStringCandidate(headerBag["x-eco-session-id"])) {
-    headerBag["x-eco-session-id"] = sessionId;
-  }
-
+askEcoRouter.post("/", ensureIdentity, async (req: Request, res: Response, _next: NextFunction) => {
   const reqWithIdentity = req as RequestWithIdentity;
-  if (!extractStringCandidate(reqWithIdentity.guestId)) {
-    reqWithIdentity.guestId = guestId;
-  }
-  if (!extractStringCandidate(reqWithIdentity.ecoSessionId)) {
-    reqWithIdentity.ecoSessionId = sessionId;
-  }
   const accept = String(req.headers.accept || "").toLowerCase();
   const streamParam = (() => {
     const fromQuery = (req.query as any)?.stream;
@@ -609,6 +533,12 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
     sseWarmupStarted = true;
     disableCompressionForSse(res);
     ensureVaryIncludes(res, "Origin");
+    if (reqWithIdentity.guestId) {
+      res.setHeader("X-Eco-Guest-Id", reqWithIdentity.guestId);
+    }
+    if (reqWithIdentity.ecoSessionId) {
+      res.setHeader("X-Eco-Session-Id", reqWithIdentity.ecoSessionId);
+    }
     const targetOrigin = resolvedAllowedOrigin ?? originHeader ?? null;
     prepareSse(res, targetOrigin);
     try {
@@ -663,7 +593,6 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
     payloadShape,
     clientMessageId,
     activeClientMessageId,
-    sessionIdHeader,
     sessionMetaObject,
   } = validation.data;
 
@@ -722,16 +651,9 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
     guestIdFromSession
   );
 
-  const sessionIdResolved =
-    sessionIdHeader ??
-    extractSessionIdLoose(sessionMetaObject) ??
-    extractSessionIdLoose(body) ??
-    null;
-
   log.info("[ask-eco] payload_valid", {
-    origin: origin ?? null,
-    guestId: guestIdResolved ?? null,
-    sessionId: sessionIdResolved,
+    guestId: reqWithIdentity.guestId ?? null,
+    sessionId: reqWithIdentity.ecoSessionId ?? null,
   });
 
   const identityKey =
@@ -779,7 +701,9 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
         identityKey ??
         (typeof usuario_id === "string" && usuario_id.trim() ? usuario_id.trim() : null) ??
         guestIdResolved ??
-        (typeof sessionId === "string" && sessionId.trim() ? sessionId.trim() : null);
+        (typeof reqWithIdentity.ecoSessionId === "string" && reqWithIdentity.ecoSessionId.trim()
+          ? reqWithIdentity.ecoSessionId.trim()
+          : null);
       clientMessageKey = buildClientMessageKey(dedupeIdentity ?? null, clientMessageId);
       const reservation = reserveClientMessage(clientMessageKey);
       if (reservation.ok === false) {
@@ -951,8 +875,8 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
       if (typeof streamId === "string" && streamId.trim()) {
         return `stream:${streamId.trim()}`;
       }
-      if (typeof sessionId === "string" && sessionId.trim()) {
-        return `session:${sessionId.trim()}`;
+      if (typeof reqWithIdentity.ecoSessionId === "string" && reqWithIdentity.ecoSessionId.trim()) {
+        return `session:${reqWithIdentity.ecoSessionId.trim()}`;
       }
       return null;
     })();
@@ -1373,7 +1297,9 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
         ? ((params as any).userId as string).trim()
         : null;
     const normalizedSessionId =
-      typeof sessionId === "string" && sessionId.trim() ? sessionId.trim() : null;
+      typeof reqWithIdentity.ecoSessionId === "string" && reqWithIdentity.ecoSessionId.trim()
+        ? reqWithIdentity.ecoSessionId.trim()
+        : null;
 
     let isClosed = false;
     const abortListenerRef: { current: (() => void) | null } = { current: null };
