@@ -7,11 +7,12 @@ const UUID_V4_REGEX =
 
 type Headers = Record<string, string | undefined>;
 
-const createMockReq = (headers: Headers = {}) => {
+const createMockReq = (headers: Headers = {}, query: Record<string, unknown> = {}) => {
   return {
     headers: { ...headers },
     path: "/api/ask-eco",
     method: "POST",
+    query,
   } as any;
 };
 
@@ -19,6 +20,8 @@ const createMockRes = () => {
   const headerStore = new Map<string, string | string[]>();
   const cookieStore: Array<{ name: string; value: string; options?: Record<string, unknown> }> = [];
   return {
+    statusCode: 200,
+    body: undefined as unknown,
     setHeader(name: string, value: string | string[]) {
       headerStore.set(name.toLowerCase(), value);
     },
@@ -31,6 +34,14 @@ const createMockRes = () => {
       headerStore.set("set-cookie", `${name}=${encodeURIComponent(value)}`);
     },
     cookies: cookieStore,
+    status(code: number) {
+      this.statusCode = code;
+      return this;
+    },
+    json(payload: unknown) {
+      this.body = payload;
+      return this;
+    },
   } as any;
 };
 
@@ -92,6 +103,41 @@ test("não interfere quando requisição autenticada", () => {
   assert.equal(req.guestId, undefined);
   assert.equal(res.getHeader("x-guest-id"), undefined);
   assert.equal(res.getHeader("set-cookie"), undefined);
+});
+
+test("usa guest e session resolvidos da query para GET SSE", () => {
+  const guestId = "99999999-9999-4999-8999-999999999999";
+  const sessionId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const req = createMockReq({}, { guest_id: guestId, session_id: sessionId });
+  req.method = "GET";
+  const res = createMockRes();
+
+  ensureGuestIdentity(req, res, () => {});
+
+  assert.equal(req.guestId, guestId);
+  assert.equal(req.sessionId, sessionId);
+  assert.equal((req.headers as any)["x-eco-guest-id"], guestId);
+  assert.equal((req.headers as any)["x-eco-session-id"], sessionId);
+  assert.equal(res.getHeader("x-eco-guest-id"), guestId);
+  assert.equal(res.getHeader("x-eco-session-id"), sessionId);
+});
+
+test("retorna 400 quando guest_id inválido chega pela query em rota obrigatória", () => {
+  const req = createMockReq({}, { guest_id: "invalid", session_id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" });
+  req.method = "GET";
+  const res = createMockRes();
+
+  let nextCalled = false;
+  ensureGuestIdentity(req, res, () => {
+    nextCalled = true;
+  });
+
+  assert.equal(nextCalled, false, "não deve seguir quando identidade inválida");
+  assert.equal(res.statusCode, 400);
+  assert.deepEqual(res.body, {
+    error: "invalid_guest_id",
+    message: "Envie um UUID v4 em X-Eco-Guest-Id",
+  });
 });
 
 (async () => {

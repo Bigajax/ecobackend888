@@ -8,7 +8,7 @@ echo "[OPTIONS]"
 curl -sS -i -X OPTIONS "$B/api/ask-eco" \
   -H "Origin: $F" \
   -H "Access-Control-Request-Method: POST" \
-  -H "Access-Control-Request-Headers: content-type,x-client-id,x-eco-guest-id,x-eco-session-id" \
+  -H "Access-Control-Request-Headers: content-type,x-client-id,x-eco-guest-id,x-eco-session-id,x-eco-client-message-id" \
   | sed -n '1,20p'
 
 echo

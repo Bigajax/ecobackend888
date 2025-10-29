@@ -43,6 +43,30 @@ function getHeaderValue(value: string | string[] | undefined): string | undefine
   return value;
 }
 
+function getQueryValue(value: unknown): string | undefined {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed || undefined;
+  }
+  if (Array.isArray(value)) {
+    for (let index = value.length - 1; index >= 0; index -= 1) {
+      const resolved = getQueryValue(value[index]);
+      if (resolved) return resolved;
+    }
+  }
+  return undefined;
+}
+
+function readQueryParam(req: Request, keys: string[]): string | undefined {
+  const queryBag = req.query as Record<string, unknown> | undefined;
+  if (!queryBag) return undefined;
+  for (const key of keys) {
+    const candidate = getQueryValue(queryBag[key]);
+    if (candidate) return candidate;
+  }
+  return undefined;
+}
+
 function readGuestIdFromCookies(req: Request): string | undefined {
   const cookieBag = (req as any).cookies as Record<string, string> | undefined;
   if (cookieBag && typeof cookieBag[COOKIE_NAME] === "string") {
@@ -104,12 +128,22 @@ function normalizeSessionId(candidate: string | undefined): string | undefined {
 
 function ensureSessionHeader(req: Request, res: Response) {
   const headerCandidate = getHeaderValue(req.headers["x-eco-session-id"]);
+  const queryCandidate = readQueryParam(req, ["session_id", "sessionId", "session"]);
+
   let sessionId = normalizeSessionId(headerCandidate);
-  let generated = false;
+  let source: "header" | "query" | "generated" = "header";
+
+  if (!sessionId) {
+    const normalizedQuery = normalizeSessionId(queryCandidate);
+    if (normalizedQuery) {
+      sessionId = normalizedQuery;
+      source = "query";
+    }
+  }
 
   if (!sessionId) {
     sessionId = randomUUID();
-    generated = true;
+    source = "generated";
     log.info("[guestIdentity] generated new session ID", { id: sessionId, path: req.path });
   }
 
@@ -117,31 +151,35 @@ function ensureSessionHeader(req: Request, res: Response) {
   req.ecoSessionId = sessionId;
   (req.headers as Record<string, string>)["x-eco-session-id"] = sessionId;
   res.setHeader("X-Eco-Session-Id", sessionId);
-  return { sessionId, generated };
+  return { sessionId, generated: source === "generated", source };
 }
 
 export function ensureGuestIdentity(req: Request, res: Response, next: NextFunction) {
-  const { sessionId } = ensureSessionHeader(req, res);
+  const { sessionId, source: sessionSource } = ensureSessionHeader(req, res);
 
   if ((req as any).user?.id) {
     return next();
   }
 
   const headerCandidate = getHeaderValue(req.headers["x-eco-guest-id"]);
+  const queryCandidate = readQueryParam(req, ["guest_id", "guestId", "guest"]);
   const cookieCandidate = readGuestIdFromCookies(req);
 
   const requiresGuestId = GUEST_ID_REQUIRED_PATHS.some((pattern) => pattern.test(req.path));
 
   const normalizedHeader = normalizeGuestIdentifier(headerCandidate);
+  const normalizedQuery = normalizeGuestIdentifier(queryCandidate);
   const normalizedCookie = normalizeGuestIdentifier(cookieCandidate);
   const invalidHeader = Boolean(headerCandidate) && !normalizedHeader;
+  const invalidQuery = Boolean(queryCandidate) && !normalizedQuery;
   const invalidCookie = Boolean(cookieCandidate) && !normalizedCookie;
-  let guestId = normalizedHeader ?? normalizedCookie;
+  let guestId = normalizedHeader ?? normalizedQuery ?? normalizedCookie;
 
   if (!guestId) {
-    if (invalidHeader || invalidCookie) {
+    if (invalidHeader || invalidQuery || invalidCookie) {
       log.warn("[guestIdentity] invalid guest identifier", {
         header: headerCandidate ?? null,
+        query: queryCandidate ?? null,
         fromCookie: Boolean(cookieCandidate),
         path: req.path,
       });
@@ -164,10 +202,18 @@ export function ensureGuestIdentity(req: Request, res: Response, next: NextFunct
   mirrorGuestId(res, guestId);
 
   if (req.path.startsWith("/api/ask-eco")) {
+    const guestSource = normalizedHeader
+      ? "header"
+      : normalizedQuery
+        ? "query"
+        : normalizedCookie
+          ? "cookie"
+          : "generated";
     log.info("[guestIdentity] resolved", {
       guestId,
       sessionId,
-      source: normalizedHeader ? "header" : normalizedCookie ? "cookie" : "generated",
+      source: guestSource,
+      sessionSource,
       path: req.path,
     });
   }
