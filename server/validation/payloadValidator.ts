@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { IncomingHttpHeaders } from "http";
 
 import { log } from "../services/promptContext/logger";
@@ -85,25 +86,80 @@ export function validateAskEcoPayload(
       valid: false,
       error: {
         status: 400,
-        message: "payload inválido: texto e usuario_id são obrigatórios",
+        message: "payload inválido: informe uma mensagem de usuário",
       },
     };
   }
 
   const body = rawBody as Record<string, any>;
-  const textoRaw = typeof body.texto === "string" ? body.texto.trim() : "";
-  const usuarioIdRaw = typeof body.usuario_id === "string" ? body.usuario_id.trim() : "";
+
+  const normalized = normalizeMessages(body);
+  const payloadShape = normalized.shape;
+
+  if (!normalized.messages.length) {
+    log.warn("[ask-eco] payload_invalid", { reason: "missing_messages", payloadShape });
+    return {
+      valid: false,
+      error: { status: 400, message: "payload inválido: informe uma mensagem de usuário" },
+    };
+  }
+
+  const lastUserMessage = [...normalized.messages]
+    .reverse()
+    .find(
+      (msg) =>
+        msg.role === "user" &&
+        typeof msg.content === "string" &&
+        msg.content.trim().length > 0
+    );
+
+  if (!lastUserMessage) {
+    log.warn("[ask-eco] payload_invalid", { reason: "missing_user_message", payloadShape });
+    return {
+      valid: false,
+      error: { status: 400, message: "payload inválido: informe uma mensagem de usuário" },
+    };
+  }
+
+  const textoRaw = lastUserMessage.content.trim();
+  body.texto = textoRaw;
+
+  const rawUsuarioId = (() => {
+    const fromBody =
+      typeof body.usuario_id === "string"
+        ? body.usuario_id
+        : typeof body.usuarioId === "string"
+        ? body.usuarioId
+        : typeof body.user_id === "string"
+        ? body.user_id
+        : typeof body.userId === "string"
+        ? body.userId
+        : undefined;
+    if (typeof fromBody === "string" && fromBody.trim()) {
+      return fromBody.trim();
+    }
+    const fromHeader = getHeaderValue(headers, "x-eco-user-id");
+    if (fromHeader) {
+      return fromHeader;
+    }
+    return null;
+  })();
+
+  const usuarioIdCandidate = rawUsuarioId && rawUsuarioId.trim().length ? rawUsuarioId.trim() : null;
+  const usuarioIdRaw = usuarioIdCandidate && isValidUuid(usuarioIdCandidate)
+    ? usuarioIdCandidate
+    : randomUUID();
+  body.usuario_id = usuarioIdRaw;
+
   const contextoValue = body.contexto;
   const contextoValid =
     contextoValue === undefined ||
     contextoValue === null ||
     (typeof contextoValue === "object" && !Array.isArray(contextoValue));
 
-  if (!textoRaw || !usuarioIdRaw || !isValidUuid(usuarioIdRaw) || !contextoValid) {
+  if (!contextoValid) {
     log.warn("[ask-eco] payload_invalid", {
-      reason: "missing_required_fields",
-      hasTexto: Boolean(textoRaw),
-      hasUsuarioId: Boolean(usuarioIdRaw),
+      reason: "invalid_contexto",
       contextoType: Array.isArray(contextoValue)
         ? "array"
         : contextoValue === null
@@ -112,18 +168,9 @@ export function validateAskEcoPayload(
     });
     return {
       valid: false,
-      error: {
-        status: 400,
-        message: "payload inválido: texto e usuario_id são obrigatórios",
-      },
+      error: { status: 400, message: "payload inválido: contexto deve ser objeto" },
     };
   }
-
-  body.texto = textoRaw;
-  body.usuario_id = usuarioIdRaw;
-
-  const normalized = normalizeMessages(body);
-  const payloadShape = normalized.shape;
 
   const rawClientMessageId = extractClientMessageIdFromBody(body);
 

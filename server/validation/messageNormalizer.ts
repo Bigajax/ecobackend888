@@ -6,7 +6,7 @@ const UUID_V4_REGEX =
 export function normalizeMessages(payload: unknown): { messages: NormalizedMessage[]; shape: string } {
   const body = payload && typeof payload === "object" ? (payload as Record<string, any>) : {};
   const result: NormalizedMessage[] = [];
-  let shape: "text" | "mensagem" | "mensagens" | "invalid" = "invalid";
+  let shape: "text" | "texto" | "mensagem" | "mensagens" | "invalid" = "invalid";
 
   const sourceArray: unknown = Array.isArray(body.messages)
     ? body.messages
@@ -50,6 +50,13 @@ export function normalizeMessages(payload: unknown): { messages: NormalizedMessa
   if (singleText) {
     shape = "text";
     result.push({ role: "user", content: body.text });
+    return { messages: result, shape };
+  }
+
+  const singleTexto = typeof body.texto === "string" && body.texto.trim();
+  if (singleTexto) {
+    shape = "texto";
+    result.push({ role: "user", content: body.texto });
     return { messages: result, shape };
   }
 
