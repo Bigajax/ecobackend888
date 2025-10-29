@@ -425,6 +425,33 @@ function ensureVaryIncludes(response: Response, value: string) {
   }
 }
 
+function extractStringCandidate(value: unknown): string | undefined {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed || undefined;
+  }
+  if (Array.isArray(value)) {
+    for (let index = value.length - 1; index >= 0; index -= 1) {
+      const resolved = extractStringCandidate(value[index]);
+      if (resolved) return resolved;
+    }
+  }
+  return undefined;
+}
+
+function resolveHeaderOrQuery(
+  req: Request,
+  headerName: string,
+  queryKey: string
+): string {
+  const headerCandidate = extractStringCandidate(req.headers[headerName]);
+  if (headerCandidate) return headerCandidate;
+
+  const queryBag = req.query as Record<string, unknown> | undefined;
+  const queryCandidate = queryBag ? extractStringCandidate(queryBag[queryKey]) : undefined;
+  return queryCandidate ?? "";
+}
+
 function captureShortStack(label: string): string | null {
   const err = new Error(label);
   if (!err.stack) return null;
@@ -473,13 +500,57 @@ askEcoRouter.options("/", corsMiddleware, (_req: Request, res: Response) => {
   res.status(204).end();
 });
 
-askEcoRouter.head("/", (_req: Request, res: Response) => {
+askEcoRouter.head("/", (req: Request, res: Response) => {
+  const guestId = resolveHeaderOrQuery(req, "x-eco-guest-id", "guest");
+  const sessionId = resolveHeaderOrQuery(req, "x-eco-session-id", "session");
+
+  if (!guestId) {
+    return res
+      .status(400)
+      .json({ error: "missing_guest_id", message: "Informe X-Eco-Guest-Id" });
+  }
+
+  if (!sessionId) {
+    return res
+      .status(400)
+      .json({ error: "missing_session_id", message: "Informe X-Eco-Session-Id" });
+  }
+
   res.status(200).end();
 });
 
 /** POST /api/ask-eco — stream SSE (ou JSON se cliente não pedir SSE) */
 askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) => {
+  const guestId = resolveHeaderOrQuery(req, "x-eco-guest-id", "guest");
+  const sessionId = resolveHeaderOrQuery(req, "x-eco-session-id", "session");
+
+  if (!guestId) {
+    return res
+      .status(400)
+      .json({ error: "missing_guest_id", message: "Informe X-Eco-Guest-Id" });
+  }
+
+  if (!sessionId) {
+    return res
+      .status(400)
+      .json({ error: "missing_session_id", message: "Informe X-Eco-Session-Id" });
+  }
+
+  const headerBag = req.headers as Record<string, string>;
+  if (!extractStringCandidate(headerBag["x-eco-guest-id"])) {
+    headerBag["x-eco-guest-id"] = guestId;
+  }
+  if (!extractStringCandidate(headerBag["x-eco-session-id"])) {
+    headerBag["x-eco-session-id"] = sessionId;
+  }
+
   const reqWithIdentity = req as RequestWithIdentity;
+  if (!extractStringCandidate(reqWithIdentity.guestId)) {
+    reqWithIdentity.guestId = guestId;
+  }
+  if (!extractStringCandidate(reqWithIdentity.ecoSessionId)) {
+    reqWithIdentity.ecoSessionId = sessionId;
+  }
   const accept = String(req.headers.accept || "").toLowerCase();
   const streamParam = (() => {
     const fromQuery = (req.query as any)?.stream;
