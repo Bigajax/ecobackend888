@@ -7,53 +7,37 @@ const ALLOW_EXACT = new Set<string>([
   "http://localhost:3000",
 ]);
 
-const ALLOW_HEADERS =
-  "Content-Type, Accept, X-Client-Message-Id, X-Eco-User-Id, X-Eco-Guest-Id, X-Eco-Session-Id";
-const ALLOW_METHODS = "GET,POST,OPTIONS";
 const EXPOSE_HEADERS = "Content-Type, X-Request-Id, X-Eco-Interaction-Id";
 
-function setVaryHeader(res: Response, value: string) {
-  const existing = res.getHeader("Vary");
-  if (!existing) {
-    res.setHeader("Vary", value);
-    return;
-  }
-
-  const normalized = (Array.isArray(existing) ? existing : String(existing))
-    .split(",")
-    .map((piece) => piece.trim())
-    .filter(Boolean);
-
-  if (!normalized.includes(value)) {
-    normalized.push(value);
-    res.setHeader("Vary", normalized.join(", "));
-  }
-}
-
-export function isAllowedOrigin(origin?: string | null): boolean {
+function originAllowed(origin?: string | null): boolean {
   if (!origin) return false;
   if (ALLOW_EXACT.has(origin)) return true;
-
   try {
-    const parsed = new URL(origin);
-    return parsed.hostname.endsWith(".vercel.app");
+    return new URL(origin).hostname.endsWith(".vercel.app");
   } catch {
     return false;
   }
 }
 
+export function isAllowedOrigin(origin?: string | null): boolean {
+  return originAllowed(origin);
+}
+
 function applyAllowedHeaders(res: Response, origin: string) {
   res.setHeader("Access-Control-Allow-Origin", origin);
+  res.setHeader("Vary", "Origin");
   res.setHeader("Access-Control-Allow-Credentials", "true");
-  res.setHeader("Access-Control-Allow-Headers", ALLOW_HEADERS);
-  res.setHeader("Access-Control-Allow-Methods", ALLOW_METHODS);
+  res.setHeader(
+    "Access-Control-Allow-Headers",
+    "Content-Type, Accept, X-Client-Message-Id, X-Eco-User-Id, X-Eco-Guest-Id, X-Eco-Session-Id"
+  );
+  res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
   res.setHeader("Access-Control-Expose-Headers", EXPOSE_HEADERS);
-  setVaryHeader(res, "Origin");
 }
 
 function maybeApplyCors(req: Request, res: Response) {
   const origin = typeof req.headers.origin === "string" ? req.headers.origin : undefined;
-  if (isAllowedOrigin(origin)) {
+  if (originAllowed(origin)) {
     applyAllowedHeaders(res, origin!);
   }
 }
@@ -61,8 +45,7 @@ function maybeApplyCors(req: Request, res: Response) {
 export function ecoCors(req: Request, res: Response, next: NextFunction) {
   maybeApplyCors(req, res);
   if (req.method === "OPTIONS") {
-    res.status(200).end();
-    return;
+    return res.sendStatus(200);
   }
   next();
 }
