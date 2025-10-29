@@ -6,6 +6,19 @@ import { log } from "../services/promptContext/logger";
 let bootPromise: Promise<void> | null = null;
 let booted = false;
 
+const REQUIRED_ASSET_FILES: Array<{ relative: string; placeholder: string }> = [
+  {
+    relative: path.join("modulos_core", "developer_prompt.txt"),
+    placeholder:
+      "Placeholder developer prompt. Substitua pelo conteúdo definitivo para evitar respostas incompletas.",
+  },
+  {
+    relative: path.join("modulos_core", "usomemorias.txt"),
+    placeholder:
+      "Placeholder uso de memórias. Adicione instruções reais para habilitar o módulo corretamente.",
+  },
+];
+
 function resolveFirstExisting(candidates: string[]): string | null {
   for (const candidate of candidates) {
     const resolved = path.resolve(candidate);
@@ -38,8 +51,43 @@ function uniqueRoots(entries: Array<string | null | undefined>): string[] {
  * - Suporta override por env ECO_MODULES_DIR (lista separada por vírgula).
  * - Procura em prod: dist/assets (pacote) e em dev: server/assets (workspace).
  */
+function ensureRequiredWorkspaceFiles(workspaceRoot: string) {
+  for (const file of REQUIRED_ASSET_FILES) {
+    const filePath = path.join(workspaceRoot, file.relative);
+    if (fs.existsSync(filePath)) {
+      continue;
+    }
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    fs.writeFileSync(filePath, file.placeholder, "utf8");
+    log.warn("[ModuleStore.bootstrap] placeholder_created", { filePath });
+  }
+}
+
+function resolveSingleCandidate(
+  cwd: string,
+  candidate: string | null | undefined
+): string | null {
+  if (!candidate) {
+    return null;
+  }
+  const normalized = path.isAbsolute(candidate) ? candidate : path.join(cwd, candidate);
+  return resolveFirstExisting([normalized]);
+}
+
 async function runConfigureModuleStore() {
   const cwd = process.cwd();
+  const mode = process.env.NODE_ENV === "production" ? "production" : "development";
+
+  const serverAssetsRoot = path.join(cwd, "server", "assets");
+  if (fs.existsSync(serverAssetsRoot)) {
+    ensureRequiredWorkspaceFiles(serverAssetsRoot);
+  }
+
+  const workspaceRoot = resolveFirstExisting([
+    path.resolve(__dirname, "assets"),
+    path.resolve(__dirname, "../assets"),
+    serverAssetsRoot,
+  ]);
 
   const envRoots = (process.env.ECO_MODULES_DIR || "")
     .split(",")
@@ -49,16 +97,13 @@ async function runConfigureModuleStore() {
     .map((candidate) => resolveFirstExisting([candidate]))
     .filter((candidate): candidate is string => Boolean(candidate));
 
+  const envRootSingle = resolveSingleCandidate(cwd, process.env.ECO_ASSETS_ROOT);
+
   const packagedRoot = resolveFirstExisting([
+    path.resolve(__dirname, "assets"),
+    path.resolve(__dirname, "../assets"),
     path.join(cwd, "dist", "assets"),
     path.join(cwd, "server", "dist", "assets"),
-    path.resolve(__dirname, "../assets"),
-    path.resolve(__dirname, "../../dist", "assets"),
-  ]);
-
-  const workspaceRoot = resolveFirstExisting([
-    path.join(cwd, "server", "assets"),
-    path.resolve(__dirname, "../assets"),
   ]);
 
   const legacyRoot = resolveFirstExisting([
@@ -66,20 +111,30 @@ async function runConfigureModuleStore() {
     path.resolve(__dirname, "../../assets"),
   ]);
 
-  if (legacyRoot) {
+  if (
+    legacyRoot &&
+    legacyRoot !== workspaceRoot &&
+    legacyRoot !== packagedRoot &&
+    (mode !== "production" || !packagedRoot)
+  ) {
     log.warn("[ModuleStore.bootstrap] legacy_assets_detected", { legacyRoot });
   }
 
-  if (packagedRoot && workspaceRoot) {
-    log.warn("[ModuleStore.bootstrap] multiple_asset_roots", {
-      using: packagedRoot,
-      ignored: workspaceRoot,
-    });
-  }
+  const selectedRoot =
+    mode === "production"
+      ? packagedRoot
+      : envRootSingle ?? workspaceRoot ?? packagedRoot ?? null;
 
-  const roots = envRoots.length
-    ? uniqueRoots(envRoots)
-    : uniqueRoots(packagedRoot ? [packagedRoot] : workspaceRoot ? [workspaceRoot] : []);
+  const roots = envRoots.length ? uniqueRoots(envRoots) : uniqueRoots(selectedRoot ? [selectedRoot] : []);
+
+  log.info("[ModuleStore.bootstrap] asset_roots_detected", {
+    mode,
+    packagedRoot,
+    workspaceRoot,
+    envRoot: envRootSingle,
+    envOverride: envRoots.length > 0,
+    selectedRoot,
+  });
 
   ModuleCatalog.configure(roots);
   await ModuleCatalog.buildFileIndexOnce();
@@ -107,6 +162,7 @@ async function runConfigureModuleStore() {
   log.info("[ModuleStore.bootstrap] module_roots_ready", {
     roots,
     filesIndexed: stats.indexedCount,
+    selectedRoot,
     envOverride: envRoots.length > 0,
     sample: sampleEntries.map((entry) => entry.file),
   });
