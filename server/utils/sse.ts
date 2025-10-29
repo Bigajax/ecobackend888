@@ -1,5 +1,12 @@
 import type { Request, Response } from "express";
 
+import {
+  CORS_ALLOWED_HEADERS_VALUE,
+  CORS_ALLOWED_METHODS_VALUE,
+  PRIMARY_CORS_ORIGIN,
+  resolveCorsOrigin,
+} from "../middleware/cors";
+
 const SSE_HEADER_CONFIG = {
   "Content-Type": "text/event-stream; charset=utf-8",
   "Cache-Control": "no-cache, no-transform",
@@ -33,7 +40,7 @@ function serializeData(data: unknown): string {
 
 export function createSSE(
   res: Response,
-  _req?: Request,
+  req?: Request,
   _opts?: AnyRecord
 ) {
   let opened = false;
@@ -43,7 +50,21 @@ export function createSSE(
     opened = true;
 
     if (!res.headersSent) {
-      res.writeHead(200, SSE_HEADER_CONFIG);
+      const originHeader = typeof req?.headers.origin === "string" ? req.headers.origin : null;
+      const allowedOrigin = resolveCorsOrigin(originHeader);
+      const headerOrigin = allowedOrigin ?? (originHeader ? null : PRIMARY_CORS_ORIGIN);
+
+      if (headerOrigin) {
+        res.setHeader("Access-Control-Allow-Origin", headerOrigin);
+      } else {
+        res.removeHeader("Access-Control-Allow-Origin");
+      }
+      res.setHeader("Access-Control-Allow-Headers", CORS_ALLOWED_HEADERS_VALUE);
+      res.setHeader("Access-Control-Allow-Methods", CORS_ALLOWED_METHODS_VALUE);
+      res.setHeader("Vary", "Origin");
+
+      prepareSseHeaders(res);
+      res.status(200);
       (res as any).flushHeaders?.();
     }
 

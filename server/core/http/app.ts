@@ -12,7 +12,7 @@ import express, {
 } from "express";
 
 import {
-  ecoCors,
+  corsMiddleware,
   applyCorsResponseHeaders,
   corsResponseInjector,
 } from "../../middleware/cors";
@@ -112,10 +112,10 @@ export function createApp(): Express {
   app.set("trust proxy", 1);
 
   // 1) CORS global antes de qualquer rota
-  app.use(ecoCors);
-  app.options("/api/*", ecoCors);
+  app.use(corsMiddleware);
+  app.options("/api/*", corsMiddleware);
+  app.options("*", corsMiddleware);
   app.use(corsResponseInjector);
-  app.options("*", ecoCors);
 
   // 2) Parsers (não executam em OPTIONS)
   const standardJsonParser = express.json({ limit: "1mb" });

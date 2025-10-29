@@ -1,66 +1,80 @@
 import type { NextFunction, Request, Response } from "express";
 
-const ALLOW_EXACT = new Set<string>([
+import { log } from "../services/promptContext/logger";
+
+export const CORS_ALLOWED_ORIGINS = [
   "https://ecofrontend888.vercel.app",
   "http://localhost:5173",
-  "http://localhost:4173",
-  "http://localhost:3000",
-]);
+] as const;
 
-const EXPOSE_HEADERS = "Content-Type, X-Request-Id, X-Eco-Interaction-Id";
+export const PRIMARY_CORS_ORIGIN = CORS_ALLOWED_ORIGINS[0];
 
-function originAllowed(origin?: string | null): boolean {
-  if (!origin) return false;
-  if (ALLOW_EXACT.has(origin)) return true;
-  try {
-    return new URL(origin).hostname.endsWith(".vercel.app");
-  } catch {
-    return false;
-  }
+export const CORS_ALLOWED_METHODS = ["GET", "POST", "OPTIONS"] as const;
+export const CORS_ALLOWED_HEADERS = [
+  "Content-Type",
+  "x-client-id",
+  "x-eco-guest-id",
+  "x-eco-session-id",
+] as const;
+
+export const CORS_ALLOWED_METHODS_VALUE = CORS_ALLOWED_METHODS.join(",");
+export const CORS_ALLOWED_HEADERS_VALUE = CORS_ALLOWED_HEADERS.join(",");
+
+function requestOrigin(req: Request): string | null {
+  return typeof req.headers.origin === "string" ? req.headers.origin : null;
+}
+
+export function resolveCorsOrigin(origin?: string | null): string | null {
+  if (!origin) return null;
+  return CORS_ALLOWED_ORIGINS.some((allowed) => allowed === origin) ? origin : null;
 }
 
 export function isAllowedOrigin(origin?: string | null): boolean {
-  return originAllowed(origin);
+  return resolveCorsOrigin(origin) !== null;
 }
 
-function applyAllowedHeaders(res: Response, origin: string) {
-  res.setHeader("Access-Control-Allow-Origin", origin);
+function applyCorsHeaders(res: Response, origin: string | null) {
+  if (origin) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+  } else {
+    res.removeHeader("Access-Control-Allow-Origin");
+  }
   res.setHeader("Vary", "Origin");
-  res.setHeader("Access-Control-Allow-Credentials", "true");
-  res.setHeader(
-    "Access-Control-Allow-Headers",
-    "Content-Type, Accept, X-Client-Message-Id, X-Eco-User-Id, X-Eco-Guest-Id, X-Eco-Session-Id"
-  );
-  res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
-  res.setHeader("Access-Control-Expose-Headers", EXPOSE_HEADERS);
+  res.setHeader("Access-Control-Allow-Methods", CORS_ALLOWED_METHODS_VALUE);
+  res.setHeader("Access-Control-Allow-Headers", CORS_ALLOWED_HEADERS_VALUE);
 }
 
-function maybeApplyCors(req: Request, res: Response) {
-  const origin = typeof req.headers.origin === "string" ? req.headers.origin : undefined;
-  if (originAllowed(origin)) {
-    applyAllowedHeaders(res, origin!);
-  }
-}
-
-export function ecoCors(req: Request, res: Response, next: NextFunction) {
-  maybeApplyCors(req, res);
-  if (req.method === "OPTIONS") {
-    return res.sendStatus(200);
-  }
-  next();
+function handleCors(req: Request, res: Response) {
+  const origin = requestOrigin(req);
+  const allowedOrigin = resolveCorsOrigin(origin);
+  applyCorsHeaders(res, allowedOrigin);
+  return { origin, allowedOrigin };
 }
 
 export function applyCorsResponseHeaders(req: Request, res: Response) {
-  maybeApplyCors(req, res);
+  handleCors(req, res);
 }
 
 export function corsResponseInjector(req: Request, res: Response, next: NextFunction) {
-  maybeApplyCors(req, res);
+  handleCors(req, res);
   next();
 }
 
-export const corsMiddleware = ecoCors;
+export function corsMiddleware(req: Request, res: Response, next: NextFunction) {
+  const { origin, allowedOrigin } = handleCors(req, res);
+  log.info("CORS middleware ativo", { origin, method: req.method, path: req.path });
+
+  if (req.method === "OPTIONS") {
+    if (!allowedOrigin) {
+      return res.status(403).end();
+    }
+    res.status(204);
+    return res.end();
+  }
+
+  return next();
+}
 
 export function getConfiguredCorsOrigins(): string[] {
-  return [...ALLOW_EXACT, "*.vercel.app"];
+  return [...CORS_ALLOWED_ORIGINS];
 }
