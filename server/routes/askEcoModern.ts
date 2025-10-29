@@ -32,7 +32,7 @@ function normalizePayload(body: any, headers: any): Normalized {
 }
 
 export async function askEcoHandler(req: Request, res: Response) {
-  const sse = createSSE(res);
+  const sse = createSSE(res, req);
   sse.open();
 
   const { clientMessageId, userText } = normalizePayload(req.body ?? {}, req.headers);

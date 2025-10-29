@@ -4,8 +4,8 @@ import { createSSE } from "../utils/sse";
 
 const router = Router();
 
-router.get("/api/_sse-smoke", (_req, res) => {
-  const sse = createSSE(res);
+router.get("/api/_sse-smoke", (req, res) => {
+  const sse = createSSE(res, req);
   sse.open();
   sse.ready({ ok: true, source: "_sse-smoke" });
   sse.chunk({ msg: "smoke:chunk-1" });
