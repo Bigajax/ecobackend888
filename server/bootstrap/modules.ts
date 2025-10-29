@@ -2,6 +2,7 @@ import path from "path";
 import fs from "fs";
 import { ModuleCatalog } from "../domains/prompts/ModuleCatalog";
 import { log } from "../services/promptContext/logger";
+import { describeAssetsRoot } from "../src/utils/assetsRoot";
 
 let bootPromise: Promise<void> | null = null;
 let booted = false;
@@ -19,20 +20,6 @@ const REQUIRED_ASSET_FILES: Array<{ relative: string; placeholder: string }> = [
   },
 ];
 
-function resolveFirstExisting(candidates: string[]): string | null {
-  for (const candidate of candidates) {
-    const resolved = path.resolve(candidate);
-    try {
-      if (fs.statSync(resolved).isDirectory()) {
-        return resolved;
-      }
-    } catch {
-      // tenta próximo
-    }
-  }
-  return null;
-}
-
 function uniqueRoots(entries: Array<string | null | undefined>): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
@@ -49,7 +36,7 @@ function uniqueRoots(entries: Array<string | null | undefined>): string[] {
 /**
  * Define as roots de módulos (txt/md) e constrói o índice.
  * - Suporta override por env ECO_MODULES_DIR (lista separada por vírgula).
- * - Procura em prod: dist/assets (pacote) e em dev: server/assets (workspace).
+ * - Utiliza getAssetsRoot() como base e adiciona fallbacks conhecidos.
  */
 function ensureRequiredWorkspaceFiles(workspaceRoot: string) {
   for (const file of REQUIRED_ASSET_FILES) {
@@ -63,17 +50,6 @@ function ensureRequiredWorkspaceFiles(workspaceRoot: string) {
   }
 }
 
-function resolveSingleCandidate(
-  cwd: string,
-  candidate: string | null | undefined
-): string | null {
-  if (!candidate) {
-    return null;
-  }
-  const normalized = path.isAbsolute(candidate) ? candidate : path.join(cwd, candidate);
-  return resolveFirstExisting([normalized]);
-}
-
 async function runConfigureModuleStore() {
   const cwd = process.cwd();
   const mode = process.env.NODE_ENV === "production" ? "production" : "development";
@@ -83,57 +59,52 @@ async function runConfigureModuleStore() {
     ensureRequiredWorkspaceFiles(serverAssetsRoot);
   }
 
-  const workspaceRoot = resolveFirstExisting([
-    path.resolve(__dirname, "assets"),
-    path.resolve(__dirname, "../assets"),
-    serverAssetsRoot,
-  ]);
+  const assetsInfo = describeAssetsRoot();
+  const assetsRoot = path.resolve(assetsInfo.root);
 
   const envRoots = (process.env.ECO_MODULES_DIR || "")
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean)
-    .map((p) => (path.isAbsolute(p) ? p : path.join(cwd, p)))
-    .map((candidate) => resolveFirstExisting([candidate]))
-    .filter((candidate): candidate is string => Boolean(candidate));
+    .map((candidate) => (path.isAbsolute(candidate) ? candidate : path.join(cwd, candidate)))
+    .filter((candidate) => {
+      try {
+        return fs.statSync(candidate).isDirectory();
+      } catch {
+        return false;
+      }
+    });
 
-  const envRootSingle = resolveSingleCandidate(cwd, process.env.ECO_ASSETS_ROOT);
-
-  const packagedRoot = resolveFirstExisting([
-    path.resolve(__dirname, "assets"),
-    path.resolve(__dirname, "../assets"),
+  const fallbackCandidates = uniqueRoots([
+    assetsRoot,
     path.join(cwd, "dist", "assets"),
     path.join(cwd, "server", "dist", "assets"),
+    serverAssetsRoot,
   ]);
 
-  const legacyRoot = resolveFirstExisting([
-    path.join(cwd, "assets"),
-    path.resolve(__dirname, "../../assets"),
-  ]);
+  const discoveredFallbacks = fallbackCandidates.filter((candidate) => {
+    try {
+      return fs.statSync(candidate).isDirectory();
+    } catch {
+      return false;
+    }
+  });
 
-  if (
-    legacyRoot &&
-    legacyRoot !== workspaceRoot &&
-    legacyRoot !== packagedRoot &&
-    (mode !== "production" || !packagedRoot)
-  ) {
-    log.warn("[ModuleStore.bootstrap] legacy_assets_detected", { legacyRoot });
+  if (fs.existsSync(path.join(cwd, "assets"))) {
+    log.warn("[ModuleStore.bootstrap] legacy_assets_detected", {
+      legacyRoot: path.join(cwd, "assets"),
+    });
   }
 
-  const selectedRoot =
-    mode === "production"
-      ? packagedRoot
-      : envRootSingle ?? workspaceRoot ?? packagedRoot ?? null;
-
-  const roots = envRoots.length ? uniqueRoots(envRoots) : uniqueRoots(selectedRoot ? [selectedRoot] : []);
+  const defaultRoots = discoveredFallbacks.length > 0 ? discoveredFallbacks : [assetsRoot];
+  const roots = envRoots.length > 0 ? uniqueRoots([...envRoots, ...defaultRoots]) : uniqueRoots(defaultRoots);
 
   log.info("[ModuleStore.bootstrap] asset_roots_detected", {
     mode,
-    packagedRoot,
-    workspaceRoot,
-    envRoot: envRootSingle,
+    assetsRoot,
+    assetsRootExists: assetsInfo.exists,
     envOverride: envRoots.length > 0,
-    selectedRoot,
+    moduleRoots: roots,
   });
 
   ModuleCatalog.configure(roots);
@@ -162,7 +133,7 @@ async function runConfigureModuleStore() {
   log.info("[ModuleStore.bootstrap] module_roots_ready", {
     roots,
     filesIndexed: stats.indexedCount,
-    selectedRoot,
+    assetsRoot,
     envOverride: envRoots.length > 0,
     sample: sampleEntries.map((entry) => entry.file),
   });

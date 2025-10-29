@@ -5,6 +5,7 @@ import { z } from "zod";
 
 import { qualityAnalyticsStore } from "../analytics/analyticsStore";
 import { isDebug, log } from "./logger";
+import { getAssetsRoot } from "../../src/utils/assetsRoot";
 
 const KNOWN_TOP_FIELDS = new Set(["version", "defaults", "families", "modules"]);
 
@@ -255,12 +256,13 @@ class ModuleManifestRegistry {
   private resolveCandidates(): string[] {
     const override = process.env.ECO_MODULE_MANIFEST;
     const cwd = process.cwd();
+    const primaryRoot = path.resolve(getAssetsRoot());
     const candidates: Array<string | undefined> = [
       override,
+      path.join(primaryRoot, "modules.manifest.json"),
+      path.resolve(cwd, "server/assets/modules.manifest.json"),
       path.resolve(cwd, "dist/assets/modules.manifest.json"),
       path.resolve(cwd, "server/dist/assets/modules.manifest.json"),
-      path.resolve(__dirname, "../assets/modules.manifest.json"),
-      path.resolve(cwd, "server/assets/modules.manifest.json"),
     ];
     const normalized = candidates.filter((candidate): candidate is string => Boolean(candidate));
     return Array.from(new Set(normalized));
