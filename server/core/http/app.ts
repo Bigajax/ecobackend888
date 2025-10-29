@@ -11,10 +11,15 @@ import express, {
   type NextFunction,
 } from "express";
 
+import packageJson from "../../package.json";
+
 import {
   corsMiddleware,
   applyCorsResponseHeaders,
   corsResponseInjector,
+  getConfiguredCorsOrigins,
+  CORS_ALLOWED_METHODS,
+  CORS_ALLOWED_HEADERS,
 } from "../../middleware/cors";
 import { corsLog } from "../../middleware/corsLog";
 import { requestLogger } from "./middlewares/logger";
@@ -186,6 +191,107 @@ export function createApp(): Express {
       return res.status(503).json({ status: "degraded", reason: "no-admin-config" });
     }
     return res.status(200).json({ status: "ready" });
+  });
+  app.get("/api/_eco-contract", (_req, res) => {
+    const resolveVersion = () => {
+      const candidates = [
+        process.env.ECO_CONTRACT_VERSION,
+        process.env.VERCEL_GIT_COMMIT_SHA,
+        process.env.RENDER_GIT_COMMIT,
+        process.env.GITHUB_SHA,
+        packageJson.version,
+      ];
+      for (const candidate of candidates) {
+        if (candidate && candidate.trim().length > 0) {
+          return candidate.trim();
+        }
+      }
+      return "unknown";
+    };
+
+    const resolveBaseUrl = () => {
+      const vercelUrl = process.env.VERCEL_URL;
+      const candidates = [
+        process.env.ECO_CONTRACT_BASE_URL,
+        process.env.ECO_PUBLIC_BASE_URL,
+        process.env.PUBLIC_BASE_URL,
+        process.env.RENDER_EXTERNAL_URL,
+        vercelUrl ? `https://${vercelUrl}` : undefined,
+        "https://ecobackend888.onrender.com",
+      ];
+      for (const candidate of candidates) {
+        if (candidate && candidate.trim().length > 0) {
+          return candidate.trim();
+        }
+      }
+      return "http://localhost:3001";
+    };
+
+    const normalizeHeaders = (values: readonly string[]) =>
+      Array.from(new Set(values.map((value) => value.toLowerCase())));
+
+    const contract = {
+      service: "ecobackend",
+      version: resolveVersion(),
+      base_url: resolveBaseUrl(),
+      cors: {
+        allowlist_patterns: getConfiguredCorsOrigins(),
+        vary: ["Origin"],
+        allow_methods: [...CORS_ALLOWED_METHODS],
+        allow_headers: normalizeHeaders(CORS_ALLOWED_HEADERS),
+      },
+      identity: {
+        uuid_v4_regex: "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{12}$",
+        query_params: {
+          guest_id: "required",
+          session_id: "required",
+          client_message_id: "optional",
+        },
+        headers: {
+          "X-Eco-Guest-Id": "required",
+          "X-Eco-Session-Id": "required",
+          "X-Eco-Client-Message-Id": "optional",
+        },
+        accepted_sources: ["headers", "query"],
+        normalization: "prefer headers; fallback to query; validate uuid v4",
+      },
+      ask_eco: {
+        path: "/api/ask-eco",
+        sse: {
+          method: "GET",
+          identity_transport: "query",
+          events: [
+            { event: "ready", data_example: { status: "starting" } },
+            { event: "chunk", data_example: { text: "..." } },
+            { event: "done", data_example: { usage: { prompt: 0, completion: 0 } } },
+          ],
+          headers_sent_on_open: {
+            "Content-Type": "text/event-stream",
+            "Cache-Control": "no-cache, no-transform",
+            Connection: "keep-alive",
+            "Access-Control-Allow-Origin": "<echoed origin>",
+          },
+        },
+        json_fallback: {
+          method: "POST",
+          identity_transport: "headers",
+          request_body_example: { message: "oi", history: [] },
+          response_example: { text: "...", usage: { prompt: 0, completion: 0 } },
+        },
+        error_cases: [
+          { status: 400, code: "missing_guest_id", message: "Informe X-Eco-Guest-Id" },
+          { status: 400, code: "missing_session_id", message: "Informe X-Eco-Session-Id" },
+        ],
+        timeouts: {
+          supabase_call_timeout_ms: Number(process.env.SUPABASE_FETCH_TIMEOUT_MS ?? 8_000),
+          openrouter_timeout_ms: Number(process.env.OPENROUTER_TIMEOUT_MS ?? 30_000),
+          node_keepAliveTimeout_ms: Number(process.env.NODE_KEEP_ALIVE_TIMEOUT_MS ?? 70_000),
+          node_headersTimeout_ms: Number(process.env.NODE_HEADERS_TIMEOUT_MS ?? 75_000),
+        },
+      },
+    } as const;
+
+    res.status(200).json(contract);
   });
   app.get("/debug/modules", (_req, res) => {
     const stats = ModuleCatalog.stats();
