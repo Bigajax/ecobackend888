@@ -41,6 +41,8 @@ import {
 const GUARD_FALLBACK_TEXT =
   "Não consegui responder agora. Vamos tentar de novo?";
 
+const INVALID_INPUT_MESSAGE = "Entrada inválida. Escreva uma mensagem para o Eco.";
+
 type DonePayload = {
   content: string | null;
   interaction_id: string | null;
@@ -493,6 +495,7 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
   const originHeader = typeof req.headers.origin === "string" ? req.headers.origin : undefined;
   const allowedOrigin = isAllowedOrigin(originHeader);
   const origin = originHeader || undefined;
+  const normalizedOriginHeader = allowedOrigin && origin ? origin : undefined;
   const streamIdHeader = req.headers["x-stream-id"];
   const incomingStreamId =
     typeof streamIdHeader === "string" && streamIdHeader.trim()
@@ -505,15 +508,80 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
   const pingIntervalMs = streamPingIntervalMs;
   const firstTokenTimeoutMs = firstTokenWatchdogMs;
 
+  let sse: ReturnType<typeof createSSE> | null = null;
+  let sseConnection: ReturnType<typeof createSSE> | null = null;
+  let sseStarted = false;
+  let sseWarmupStarted = false;
+  let sseSendErrorEvent: ((payload: Record<string, unknown>) => void) | null = null;
+  let sseSendDone: ((reason?: string | null) => void) | null = null;
+  let sseSafeEarlyWrite: ((chunk: string) => boolean) | null = null;
+  let supabaseContextUnavailable = false;
+
+  const warmupSse = () => {
+    if (!wantsStream || sseWarmupStarted) {
+      return;
+    }
+    sseWarmupStarted = true;
+    disableCompressionForSse(res);
+    ensureVaryIncludes(res, "Origin");
+    if (normalizedOriginHeader) {
+      res.setHeader("Access-Control-Allow-Origin", normalizedOriginHeader);
+      res.setHeader("Access-Control-Allow-Credentials", "true");
+    }
+    res.setHeader(
+      "Access-Control-Allow-Headers",
+      "Content-Type, Accept, X-Client-Message-Id, X-Eco-User-Id, X-Eco-Guest-Id, X-Eco-Session-Id"
+    );
+    res.setHeader("Cache-Control", "no-cache, no-transform");
+    res.setHeader("Connection", "keep-alive");
+    res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+    res.setHeader("X-Accel-Buffering", "no");
+    if (!res.headersSent) {
+      res.status(200);
+    }
+    try {
+      res.write(":ok\n\n");
+      (res as any).flushHeaders?.();
+      (res as any).flush?.();
+    } catch (error) {
+      log.warn("[ask-eco] sse_warmup_failed", {
+        origin: origin ?? null,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  };
+
   if (wantsStream && !allowedOrigin) {
     log.warn("[ask-eco] origin_blocked", { origin: origin ?? null });
     return res.status(403).end();
   }
 
+  warmupSse();
+
   const validation = validateAskEcoPayload(req.body, req.headers);
 
   if (isValidationFailure(validation)) {
     const { status, message } = validation.error;
+    if (wantsStream) {
+      try {
+        const fallbackSse = createSSE(res, req, {
+          pingIntervalMs: 0,
+          idleMs: 0,
+          commentOnOpen: null,
+        });
+        sse = fallbackSse;
+        sseStarted = true;
+        fallbackSse.send("chunk", { error: true, message: INVALID_INPUT_MESSAGE });
+        fallbackSse.send("done", { ok: false, reason: "invalid_input" });
+        fallbackSse.end();
+      } catch (error) {
+        log.warn("[ask-eco] sse_validation_fallback_failed", {
+          origin: origin ?? null,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+      return;
+    }
     return res.status(status).json({ ok: false, error: message });
   }
 
@@ -575,12 +643,6 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
   let clientMessageKey: string | null = null;
   let clientMessageReserved = false;
   let doneSent = false;
-  let sse: ReturnType<typeof createSSE> | null = null;
-  let sseConnection: ReturnType<typeof createSSE> | null = null;
-  let sseStarted = false;
-  let sseSendErrorEvent: ((payload: Record<string, unknown>) => void) | null = null;
-  let sseSendDone: ((reason?: string | null) => void) | null = null;
-  let sseSafeEarlyWrite: ((chunk: string) => boolean) | null = null;
 
   const guestIdResolved = resolveGuestId(
     typeof guestId === "string" ? guestId : undefined,
@@ -874,10 +936,14 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
 
     const telemetryClient = (() => {
       const client = getSupabaseAdmin();
-      if (!client) return null;
+      if (!client) {
+        supabaseContextUnavailable = true;
+        return null;
+      }
       try {
         return client.schema("analytics");
       } catch {
+        supabaseContextUnavailable = true;
         return null;
       }
     })();
@@ -962,7 +1028,7 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
     const compactMeta = (meta: Record<string, unknown>): Record<string, unknown> =>
       telemetry.compactMeta(meta);
 
-    const normalizedOrigin = allowedOrigin && origin ? origin : undefined;
+    const normalizedOrigin = normalizedOriginHeader;
 
     res.socket?.setTimeout(300000);
     res.socket?.setKeepAlive(true, 30000);
@@ -977,35 +1043,37 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
     }
 
     res.setHeader("X-Stream-Id", streamId);
-    disableCompressionForSse(res);
-    prepareSseHeaders(res, {
-      origin: normalizedOrigin,
-      allowCredentials: Boolean(normalizedOrigin),
-      flush: false,
-    });
+    if (!res.headersSent) {
+      disableCompressionForSse(res);
+      prepareSseHeaders(res, {
+        origin: normalizedOrigin,
+        allowCredentials: Boolean(normalizedOrigin),
+        flush: false,
+      });
 
-    const allowOriginHeader =
-      normalizedOrigin ?? "https://ecofrontend888-*.vercel.app";
-    const allowHeadersHeader =
-      "content-type,x-client-id,x-eco-session-id,x-eco-guest-id";
+      const allowOriginHeader =
+        normalizedOrigin ?? "https://ecofrontend888-*.vercel.app";
+      const allowHeadersHeader =
+        "content-type,x-client-id,x-eco-session-id,x-eco-guest-id,x-client-message-id,accept,x-eco-user-id";
 
-    res.setHeader("Access-Control-Allow-Origin", allowOriginHeader);
-    res.setHeader("Access-Control-Allow-Headers", allowHeadersHeader);
-    res.setHeader(
-      "Access-Control-Allow-Credentials",
-      normalizedOrigin ? "true" : "false"
-    );
+      res.setHeader("Access-Control-Allow-Origin", allowOriginHeader);
+      res.setHeader("Access-Control-Allow-Headers", allowHeadersHeader);
+      res.setHeader(
+        "Access-Control-Allow-Credentials",
+        normalizedOrigin ? "true" : "false"
+      );
 
-    res.writeHead(200, {
-      "Content-Type": "text/event-stream; charset=utf-8",
-      "Cache-Control": "no-cache",
-      Connection: "keep-alive",
-      "X-Accel-Buffering": "no",
-      "Access-Control-Allow-Origin": allowOriginHeader,
-      "Access-Control-Allow-Headers": allowHeadersHeader,
-    });
+      res.writeHead(200, {
+        "Content-Type": "text/event-stream; charset=utf-8",
+        "Cache-Control": "no-cache",
+        Connection: "keep-alive",
+        "X-Accel-Buffering": "no",
+        "Access-Control-Allow-Origin": allowOriginHeader,
+        "Access-Control-Allow-Headers": allowHeadersHeader,
+      });
 
-    (res as any).flushHeaders?.();
+      (res as any).flushHeaders?.();
+    }
     sseStarted = true;
     // no headers after SSE start
 
@@ -1335,6 +1403,14 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
     const sendChunk = handlerResult.sendChunk;
     const forwardEvent = handlerResult.forwardEvent;
 
+    if (supabaseContextUnavailable && wantsStream) {
+      streamSse.send("chunk", {
+        warn: true,
+        message: "Contexto indisponível (Supabase). Seguindo sem memórias.",
+      });
+      flushSse();
+    }
+
     sseSendErrorEvent = sendErrorEvent;
     sseSendDone = sendDone;
 
@@ -1591,7 +1667,9 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
         sendDone(reasonMessage || "aborted");
       } else if (isHttpError(error)) {
         sendErrorEvent({ ...error.body, status: error.status });
-        sendDone("error");
+        streamSse.send("chunk", { error: true, message: "LLM indisponível. Tente novamente." });
+        flushSse();
+        sendDone("llm_unavailable");
       } else {
         const traceId = randomUUID();
         log.error("[ask-eco] sse_unexpected", {
@@ -1599,7 +1677,13 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
           message: (error as Error)?.message,
         });
         sendErrorEvent({ code: "INTERNAL_ERROR", trace_id: traceId });
-        sendDone("error");
+        streamSse.send("chunk", {
+          error: true,
+          message: "LLM indisponível. Tente novamente.",
+          traceId,
+        });
+        flushSse();
+        sendDone("llm_unavailable");
       }
     } finally {
       if (clientMessageReserved && clientMessageKey) {
@@ -1631,7 +1715,7 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
       sseStarted,
       message: error instanceof Error ? error.message : String(error),
     });
-    if (!sseStarted) {
+    if (!sseStarted && !sseWarmupStarted) {
       return res.status(400).json({
         error: "invalid_request",
         traceId,
@@ -1639,6 +1723,15 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
       });
     }
     try {
+      if (!sse) {
+        const fallbackSse = createSSE(res, req, {
+          pingIntervalMs: 0,
+          idleMs: 0,
+          commentOnOpen: null,
+        });
+        sse = fallbackSse;
+        sseStarted = true;
+      }
       sse?.send("error", { message: "internal_error", traceId });
     } catch (sendError) {
       log.warn("[ask-eco] sse_error_emit_failed", {

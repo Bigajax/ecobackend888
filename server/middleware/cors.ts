@@ -8,6 +8,7 @@ type OriginRule =
 const DEFAULT_ALLOWED_ORIGINS = [
   "https://ecofrontend888.vercel.app",
   "https://*.vercel.app",
+  "http://localhost:4173",
   "http://localhost:5173",
   "http://localhost:3000",
 ];
@@ -89,11 +90,14 @@ export function isAllowedOrigin(origin?: string | null): boolean {
 
 export const CORS_ALLOW_HEADERS = [
   "content-type",
+  "accept",
   "authorization",
   "apikey",
   "x-requested-with",
   "x-client-id",
+  "x-client-message-id",
   "x-trace-id",
+  "x-eco-user-id",
   "x-eco-guest-id",
   "x-eco-session-id",
   "x-stream-id",
