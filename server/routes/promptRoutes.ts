@@ -1033,15 +1033,18 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
     res.setHeader("X-Stream-Id", streamId);
     if (!res.headersSent) {
       disableCompressionForSse(res);
-      prepareSseHeaders(res, { flush: false });
-
-      res.writeHead(200, {
-        "Content-Type": "text/event-stream; charset=utf-8",
-        "Cache-Control": "no-cache",
-        Connection: "keep-alive",
-        "X-Accel-Buffering": "no",
+      log.debug("[DEBUG] About to set SSE headers", {
+        origin: origin ?? null,
+        streamId: streamId ?? null,
+        clientMessageId: clientMessageId ?? null,
       });
-
+      res.status(200);
+      prepareSseHeaders(res, { flush: false });
+      log.debug("[DEBUG] SSE headers set", {
+        origin: origin ?? null,
+        streamId: streamId ?? null,
+        clientMessageId: clientMessageId ?? null,
+      });
       (res as any).flushHeaders?.();
     }
     sseStarted = true;
