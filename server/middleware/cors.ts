@@ -31,7 +31,7 @@ export const CORS_ALLOWED_HEADERS = [
   "x-client-id",
   "x-eco-guest-id",
   "x-eco-session-id",
-  "x-eco-session",
+  "x-eco-client-message-id",
 ] as const;
 
 export const CORS_ALLOWED_METHODS_VALUE = CORS_ALLOWED_METHODS.join(",");

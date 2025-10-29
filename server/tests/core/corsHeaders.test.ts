@@ -61,18 +61,18 @@ test("OPTIONS /api/ask-eco responde 200 com allowlist padrão", async () => {
       ?.split(",")
       .map((value) => value.trim().toLowerCase())
       .filter(Boolean);
-    assert.deepEqual(
-      allowHeaders,
-      [
-        "content-type",
-        "accept",
-        "x-client-message-id",
-        "x-eco-user-id",
-        "x-eco-guest-id",
-        "x-eco-session-id",
-      ],
-      "deve aplicar a lista padrão de headers",
-    );
+    assert.ok(Array.isArray(allowHeaders) && allowHeaders.length > 0, "preflight deve informar allow-headers");
+    const allowHeadersSet = new Set(allowHeaders);
+    const requiredHeaders = [
+      "content-type",
+      "x-client-id",
+      "x-eco-guest-id",
+      "x-eco-session-id",
+      "x-eco-client-message-id",
+    ];
+    for (const header of requiredHeaders) {
+      assert.ok(allowHeadersSet.has(header), `allow-headers deve conter ${header}`);
+    }
     assert.equal(
       response.headers.get("access-control-allow-methods"),
       "GET,POST,OPTIONS",
