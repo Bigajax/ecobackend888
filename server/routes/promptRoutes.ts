@@ -512,16 +512,16 @@ askEcoRouter.options("/", corsMiddleware, (_req: Request, res: Response) => {
 // Aceita query: ?guest_id=...&session_id=...
 // Front pode usar qualquer um dos dois.
 askEcoRouter.head("/", (req: Request, res: Response) => {
-  const guestIdParam = resolveHeaderOrQuery(req, "x-eco-guest-id", ["guest", "guest_id"]);
-  const sessionIdParam = resolveHeaderOrQuery(req, "x-eco-session-id", ["session", "session_id"]);
+  const guestId = resolveHeaderOrQuery(req, "x-eco-guest-id", ["guest", "guest_id"]);
+  const sessionId = resolveHeaderOrQuery(req, "x-eco-session-id", ["session", "session_id"]);
 
-  if (!guestIdParam) {
+  if (!guestId) {
     return res
       .status(400)
       .json({ error: "missing_guest_id", message: "Informe X-Eco-Guest-Id" });
   }
 
-  if (!sessionIdParam) {
+  if (!sessionId) {
     return res
       .status(400)
       .json({ error: "missing_session_id", message: "Informe X-Eco-Session-Id" });
@@ -532,16 +532,16 @@ askEcoRouter.head("/", (req: Request, res: Response) => {
 
 /** POST /api/ask-eco — stream SSE (ou JSON se cliente não pedir SSE) */
 askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) => {
-  const guestIdParam = resolveHeaderOrQuery(req, "x-eco-guest-id", ["guest", "guest_id"]);
-  const sessionIdParam = resolveHeaderOrQuery(req, "x-eco-session-id", ["session", "session_id"]);
+  const guestId = resolveHeaderOrQuery(req, "x-eco-guest-id", ["guest", "guest_id"]);
+  const sessionId = resolveHeaderOrQuery(req, "x-eco-session-id", ["session", "session_id"]);
 
-  if (!guestIdParam) {
+  if (!guestId) {
     return res
       .status(400)
       .json({ error: "missing_guest_id", message: "Informe X-Eco-Guest-Id" });
   }
 
-  if (!sessionIdParam) {
+  if (!sessionId) {
     return res
       .status(400)
       .json({ error: "missing_session_id", message: "Informe X-Eco-Session-Id" });
@@ -549,18 +549,18 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
 
   const headerBag = req.headers as Record<string, string>;
   if (!extractStringCandidate(headerBag["x-eco-guest-id"])) {
-    headerBag["x-eco-guest-id"] = guestIdParam;
+    headerBag["x-eco-guest-id"] = guestId;
   }
   if (!extractStringCandidate(headerBag["x-eco-session-id"])) {
-    headerBag["x-eco-session-id"] = sessionIdParam;
+    headerBag["x-eco-session-id"] = sessionId;
   }
 
   const reqWithIdentity = req as RequestWithIdentity;
   if (!extractStringCandidate(reqWithIdentity.guestId)) {
-    reqWithIdentity.guestId = guestIdParam;
+    reqWithIdentity.guestId = guestId;
   }
   if (!extractStringCandidate(reqWithIdentity.ecoSessionId)) {
-    reqWithIdentity.ecoSessionId = sessionIdParam;
+    reqWithIdentity.ecoSessionId = sessionId;
   }
   const accept = String(req.headers.accept || "").toLowerCase();
   const streamParam = (() => {
