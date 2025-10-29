@@ -442,14 +442,21 @@ function extractStringCandidate(value: unknown): string | undefined {
 function resolveHeaderOrQuery(
   req: Request,
   headerName: string,
-  queryKey: string
+  queryKey: string | string[]
 ): string {
   const headerCandidate = extractStringCandidate(req.headers[headerName]);
   if (headerCandidate) return headerCandidate;
 
   const queryBag = req.query as Record<string, unknown> | undefined;
-  const queryCandidate = queryBag ? extractStringCandidate(queryBag[queryKey]) : undefined;
-  return queryCandidate ?? "";
+  if (!queryBag) return "";
+  const keys = Array.isArray(queryKey) ? queryKey : [queryKey];
+  for (const key of keys) {
+    const queryCandidate = extractStringCandidate(queryBag[key]);
+    if (queryCandidate) {
+      return queryCandidate;
+    }
+  }
+  return "";
 }
 
 function captureShortStack(label: string): string | null {
@@ -501,16 +508,16 @@ askEcoRouter.options("/", corsMiddleware, (_req: Request, res: Response) => {
 });
 
 askEcoRouter.head("/", (req: Request, res: Response) => {
-  const guestId = resolveHeaderOrQuery(req, "x-eco-guest-id", "guest");
-  const sessionId = resolveHeaderOrQuery(req, "x-eco-session-id", "session");
+  const guestIdParam = resolveHeaderOrQuery(req, "x-eco-guest-id", ["guest", "guest_id"]);
+  const sessionIdParam = resolveHeaderOrQuery(req, "x-eco-session-id", ["session", "session_id"]);
 
-  if (!guestId) {
+  if (!guestIdParam) {
     return res
       .status(400)
       .json({ error: "missing_guest_id", message: "Informe X-Eco-Guest-Id" });
   }
 
-  if (!sessionId) {
+  if (!sessionIdParam) {
     return res
       .status(400)
       .json({ error: "missing_session_id", message: "Informe X-Eco-Session-Id" });
@@ -521,16 +528,16 @@ askEcoRouter.head("/", (req: Request, res: Response) => {
 
 /** POST /api/ask-eco — stream SSE (ou JSON se cliente não pedir SSE) */
 askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) => {
-  const guestId = resolveHeaderOrQuery(req, "x-eco-guest-id", "guest");
-  const sessionId = resolveHeaderOrQuery(req, "x-eco-session-id", "session");
+  const guestIdParam = resolveHeaderOrQuery(req, "x-eco-guest-id", ["guest", "guest_id"]);
+  const sessionIdParam = resolveHeaderOrQuery(req, "x-eco-session-id", ["session", "session_id"]);
 
-  if (!guestId) {
+  if (!guestIdParam) {
     return res
       .status(400)
       .json({ error: "missing_guest_id", message: "Informe X-Eco-Guest-Id" });
   }
 
-  if (!sessionId) {
+  if (!sessionIdParam) {
     return res
       .status(400)
       .json({ error: "missing_session_id", message: "Informe X-Eco-Session-Id" });
@@ -538,18 +545,18 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
 
   const headerBag = req.headers as Record<string, string>;
   if (!extractStringCandidate(headerBag["x-eco-guest-id"])) {
-    headerBag["x-eco-guest-id"] = guestId;
+    headerBag["x-eco-guest-id"] = guestIdParam;
   }
   if (!extractStringCandidate(headerBag["x-eco-session-id"])) {
-    headerBag["x-eco-session-id"] = sessionId;
+    headerBag["x-eco-session-id"] = sessionIdParam;
   }
 
   const reqWithIdentity = req as RequestWithIdentity;
   if (!extractStringCandidate(reqWithIdentity.guestId)) {
-    reqWithIdentity.guestId = guestId;
+    reqWithIdentity.guestId = guestIdParam;
   }
   if (!extractStringCandidate(reqWithIdentity.ecoSessionId)) {
-    reqWithIdentity.ecoSessionId = sessionId;
+    reqWithIdentity.ecoSessionId = sessionIdParam;
   }
   const accept = String(req.headers.accept || "").toLowerCase();
   const streamParam = (() => {
@@ -678,7 +685,7 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
     usuario_id,
     clientHour,
     isGuest,
-    guestId,
+    guestId: guestIdFromBody,
     sessionMeta,
   } = body;
 
@@ -704,7 +711,7 @@ askEcoRouter.post("/", async (req: Request, res: Response, _next: NextFunction) 
   let doneSent = false;
 
   const guestIdResolved = resolveGuestId(
-    typeof guestId === "string" ? guestId : undefined,
+    typeof guestIdFromBody === "string" ? guestIdFromBody : undefined,
     guestIdFromHeader,
     guestIdFromCookie,
     guestIdFromRequest,
