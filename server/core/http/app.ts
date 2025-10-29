@@ -15,6 +15,7 @@ import corsMiddleware, {
   applyCorsResponseHeaders,
   corsResponseInjector,
 } from "../../middleware/cors";
+import { createSSE } from "../../utils/sse";
 import { requestLogger } from "./middlewares/logger";
 import { normalizeQuery } from "./middlewares/queryNormalizer";
 import { ModuleCatalog } from "../../domains/prompts/ModuleCatalog";
@@ -211,6 +212,18 @@ export function createApp(): Express {
       log.warn("[debug.modules] read_failed", { id: normalized, message });
       return res.status(500).json({ error: "module_debug_failed" });
     }
+  });
+  app.get("/api/_sse-smoke", (req, res) => {
+    applyCorsResponseHeaders(req, res);
+    const sse = createSSE(res, req, {
+      pingIntervalMs: 0,
+      idleMs: 0,
+      commentOnOpen: "ok",
+    });
+    sse.send("ready", { message: "ready" });
+    sse.send("chunk", { message: "smoke" });
+    sse.send("done", { ok: true });
+    sse.end();
   });
 
   // 7) Rotas (prefixo /api) — /api/ask-eco (SSE) vive em promptRoutes
