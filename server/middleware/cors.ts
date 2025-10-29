@@ -149,6 +149,9 @@ function resolveAndCacheOrigin(req: Request, res: Response) {
 }
 
 export function applyCorsResponseHeaders(req: Request, res: Response) {
+  if (res.headersSent) {
+    return;
+  }
   const { normalized, allowed } = resolveAndCacheOrigin(req, res);
 
   setVaryHeader(res, "Origin");
