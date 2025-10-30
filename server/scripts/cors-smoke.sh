@@ -8,10 +8,10 @@ echo "[OPTIONS]"
 curl -sS -i -X OPTIONS "$B/api/ask-eco" \
   -H "Origin: $F" \
   -H "Access-Control-Request-Method: POST" \
-  -H "Access-Control-Request-Headers: content-type,x-client-id,x-eco-guest-id,x-eco-session-id" \
+  -H "Access-Control-Request-Headers: content-type,x-client-id,x-eco-guest-id,x-eco-session-id,x-eco-client-message-id" \
   | sed -n '1,20p'
 
 echo
-echo "[SSE smoke]"
+echo "[SSE smoke] (includes timed heartbeats)"
 curl -sS -i -N -H "Accept: text/event-stream" "$B/api/_sse-smoke" \
-  | sed -n '1,40p'
+  | sed -n '1,80p'

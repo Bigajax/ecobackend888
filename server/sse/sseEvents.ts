@@ -666,7 +666,6 @@ export class SseEventHandlers {
       return;
     }
 
-    this.options.clearHeartbeat();
     this.options.clearEarlyClientAbortTimer();
     const providedIndex =
       typeof input.index === "number" && Number.isFinite(input.index)
@@ -686,6 +685,12 @@ export class SseEventHandlers {
         streamId,
         index: chunkInfo.chunkIndex,
         bytes: chunkInfo.chunkBytes,
+      });
+      log.info("[ask-eco] first_token", {
+        origin: this.options.origin ?? null,
+        clientMessageId: this.options.clientMessageId ?? null,
+        streamId,
+        index: chunkInfo.chunkIndex,
       });
     }
 

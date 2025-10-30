@@ -14,6 +14,12 @@ const SSE_HEADER_CONFIG = {
   "X-Accel-Buffering": "no",
 } as const;
 
+const SSE_EXPOSE_HEADERS = [
+  "x-eco-guest-id",
+  "x-eco-session-id",
+  "x-eco-client-message-id",
+] as const;
+
 export function prepareSse(res: Response, origin?: string | null): void {
   const normalizedOrigin = typeof origin === "string" ? origin.trim() : "";
   const allowedOrigin = normalizedOrigin ? resolveCorsOrigin(normalizedOrigin) : null;
@@ -31,6 +37,8 @@ export function prepareSse(res: Response, origin?: string | null): void {
   }
   res.setHeader("Access-Control-Allow-Methods", CORS_ALLOWED_METHODS_VALUE);
   res.setHeader("Access-Control-Allow-Headers", CORS_ALLOWED_HEADERS_VALUE);
+  res.setHeader("Access-Control-Allow-Credentials", "true");
+  res.setHeader("Access-Control-Expose-Headers", SSE_EXPOSE_HEADERS.join(", "));
   res.setHeader("Vary", "Origin");
 
   for (const [header, value] of Object.entries(SSE_HEADER_CONFIG)) {
@@ -73,7 +81,11 @@ export function createSSE(
       prepareSse(res, originHeader);
     }
 
-    res.write(`:ok\n\n`);
+    if (!(res as any).__ecoSseWarmupSent) {
+      res.write("\n");
+      res.write(`:ok\n\n`);
+      (res as any).__ecoSseWarmupSent = true;
+    }
   }
 
   function ensureOpen() {

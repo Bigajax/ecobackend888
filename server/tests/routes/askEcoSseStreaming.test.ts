@@ -297,6 +297,7 @@ test("SSE streaming emits tokens, done and disables compression", async () => {
 
   const handler = getRouteHandler(router, "/ask-eco");
 
+  const origin = "http://localhost:5173";
   const req = new MockRequest(
     {
       stream: true,
@@ -305,6 +306,7 @@ test("SSE streaming emits tokens, done and disables compression", async () => {
     {
       accept: "text/event-stream",
       "content-type": "application/json",
+      origin,
     }
   );
   req.guest = { id: TEST_GUEST_ID };
@@ -320,6 +322,12 @@ test("SSE streaming emits tokens, done and disables compression", async () => {
   assert.equal(res.headers.get("x-no-compression"), "1");
   assert.equal(res.headers.get("cache-control"), "no-cache, no-transform");
   assert.equal(res.headers.get("connection"), "keep-alive");
+  assert.equal(res.headers.get("access-control-allow-origin"), origin);
+  assert.equal(res.headers.get("access-control-allow-credentials"), "true");
+  assert.equal(
+    res.headers.get("access-control-expose-headers"),
+    "x-eco-guest-id, x-eco-session-id, x-eco-client-message-id"
+  );
   assert.equal(
     res.headers.get("x-eco-interaction-id"),
     TEST_INTERACTION_ID,
@@ -382,38 +390,70 @@ test("SSE streaming emits tokens, done and disables compression", async () => {
   );
 });
 
-test("SSE streaming sends open comment and heartbeats before first chunk", async () => {
+test("SSE streaming sends heartbeats before and after first chunk", async () => {
   let heartbeatCallback: (() => void) | null = null;
+  let heartbeatCleared = false;
   const fakeInterval = { ref: Symbol("interval") } as unknown as NodeJS.Timeout;
   const originalSetInterval = global.setInterval;
   const originalClearInterval = global.clearInterval;
+  const originalDateNow = Date.now;
 
   try {
+    let nowValue = 1_000;
+    Date.now = (() => nowValue) as typeof Date.now;
     (global as any).setInterval = ((fn: () => void) => {
+      heartbeatCleared = false;
       heartbeatCallback = fn;
       return fakeInterval;
     }) as typeof setInterval;
-    (global as any).clearInterval = () => {};
+    (global as any).clearInterval = ((token: NodeJS.Timeout) => {
+      if (token === fakeInterval) {
+        heartbeatCleared = true;
+        heartbeatCallback = null;
+      }
+    }) as typeof clearInterval;
 
-    let releaseResponse: (() => void) | null = null;
+    let releaseChunk: (() => Promise<void>) | null = null;
+    let releaseDone: (() => Promise<void>) | null = null;
+    const debugCalls: Array<any[]> = [];
+
+    const logStub = {
+      info: () => {},
+      warn: () => {},
+      error: () => {},
+      debug: (...args: any[]) => {
+        debugCalls.push(args);
+      },
+      trace: () => {},
+      withContext: () => logStub,
+    } as const;
 
     const router = await loadRouterWithStubs("../../routes/promptRoutes", {
       "../services/ConversationOrchestrator": {
-        getEcoResponse: async () =>
+        getEcoResponse: async (params: any) =>
           await new Promise((resolve) => {
-            releaseResponse = () => resolve({ raw: "resultado" });
+            const finish = () => resolve({ raw: "resultado" });
+            if (params.stream?.onEvent) {
+              releaseChunk = async () => {
+                await params.stream.onEvent({ type: "chunk", delta: "primeiro" });
+              };
+              releaseDone = async () => {
+                await params.stream.onEvent({
+                  type: "done",
+                  meta: { finishReason: "stop" },
+                });
+                finish();
+              };
+            } else {
+              finish();
+            }
           }),
       },
       "../services/conversation/interactionAnalytics": {
         createInteraction: async () => TEST_INTERACTION_ID,
       },
       "../services/promptContext/logger": {
-        log: {
-          info: () => {},
-          warn: () => {},
-          error: () => {},
-          debug: () => {},
-        },
+        log: logStub,
       },
     });
 
@@ -438,19 +478,66 @@ test("SSE streaming sends open comment and heartbeats before first chunk", async
 
     assert.equal(res.chunks[0], ": open\n\n", "should send open comment immediately");
     assert.ok(heartbeatCallback, "should register heartbeat callback");
+    assert.ok(releaseChunk, "orchestrator stub should expose chunk release helper");
+    assert.ok(releaseDone, "orchestrator stub should expose done release helper");
 
+    const countHeartbeats = () =>
+      res.chunks.reduce((count, chunk) => count + (chunk.includes(": hb") ? 1 : 0), 0);
+
+    nowValue = 1_400;
     heartbeatCallback?.();
+    assert.equal(countHeartbeats(), 1, "heartbeat callback should append hb comment");
 
-    assert.ok(
-      res.chunks.some((chunk, index) => index > 0 && chunk.includes(": hb")),
-      "heartbeat callback should append hb comment"
+    const getHeartbeatLogs = () =>
+      debugCalls.filter((entry) => entry[0] === "[ask-eco] heartbeat");
+    let heartbeatLogs = getHeartbeatLogs();
+    assert.ok(heartbeatLogs.length >= 1, "should record heartbeat log entry");
+    const firstHeartbeatMeta = heartbeatLogs[0]?.[1] ?? {};
+    assert.equal(firstHeartbeatMeta.streamId ?? null, null, "heartbeat log should include stream id");
+    assert.equal(
+      firstHeartbeatMeta.clientMessageId ?? null,
+      null,
+      "heartbeat log should include client message id",
+    );
+    assert.equal(
+      firstHeartbeatMeta.sincePromptReadyMs,
+      400,
+      "heartbeat log should record elapsed time since prompt_ready",
     );
 
-    releaseResponse?.();
+    nowValue = 1_600;
+    await releaseChunk?.();
+
+    assert.equal(heartbeatCleared, false, "heartbeat timer should remain armed after chunk");
+    assert.ok(heartbeatCallback, "heartbeat callback should remain active after chunk");
+
+    const beforeSecondHeartbeat = countHeartbeats();
+    nowValue = 2_100;
+    heartbeatCallback?.();
+    assert.equal(
+      countHeartbeats(),
+      beforeSecondHeartbeat + 1,
+      "heartbeat callback should append hb comment after chunk",
+    );
+
+    heartbeatLogs = getHeartbeatLogs();
+    const secondHeartbeatMeta = heartbeatLogs[1]?.[1] ?? {};
+    assert.equal(
+      secondHeartbeatMeta.sincePromptReadyMs,
+      1_100,
+      "second heartbeat log should update elapsed time",
+    );
+
+    nowValue = 2_400;
+    await releaseDone?.();
+    nowValue = 2_800;
     await handlerPromise;
+
+    assert.equal(heartbeatCleared, true, "heartbeat timer should clear when stream finishes");
   } finally {
     global.setInterval = originalSetInterval;
     global.clearInterval = originalClearInterval;
+    Date.now = originalDateNow;
   }
 });
 
