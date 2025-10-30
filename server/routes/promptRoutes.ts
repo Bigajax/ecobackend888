@@ -649,7 +649,8 @@ router.get("/prompt-preview", async (req: Request, res: Response) => {
       res.status(500).json({ error: "Erro interno ao montar o prompt." });
     }
   }
-}
+});
+
 
 askEcoRouter.get("/", ensureIdentity, handleAskEcoRequest);
 askEcoRouter.post("/", ensureIdentity, handleAskEcoRequest);
