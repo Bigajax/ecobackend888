@@ -1550,7 +1550,7 @@ askEcoRouter.post("/", ensureIdentity, async (req: Request, res: Response, _next
         return;
       }
       const sendHeartbeat = () => {
-        if (state.done || state.sawChunk || isClosed) {
+        if (state.done || isClosed) {
           if (heartbeatRef.current) {
             clearInterval(heartbeatRef.current);
             heartbeatRef.current = null;

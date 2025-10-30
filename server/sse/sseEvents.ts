@@ -666,7 +666,6 @@ export class SseEventHandlers {
       return;
     }
 
-    this.options.clearHeartbeat();
     this.options.clearEarlyClientAbortTimer();
     const providedIndex =
       typeof input.index === "number" && Number.isFinite(input.index)
