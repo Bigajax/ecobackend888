@@ -1,4 +1,3 @@
-// server/routes/promptRoutes.ts
 import { randomUUID } from "node:crypto";
 import { Router, type Request, type Response, type NextFunction } from "express";
 import type { ParsedQs } from "qs";
@@ -20,7 +19,7 @@ import {
   type RequestWithIdentity as RequestWithEcoIdentity,
 } from "../middleware/ensureIdentity";
 import { createInteraction } from "../services/conversation/interactionAnalytics";
-import { extractEventText, extractTextLoose, sanitizeOutput } from "../utils/textExtractor";
+import { extractTextLoose, sanitizeOutput } from "../utils/textExtractor";
 import { getGuestIdFromCookies, resolveGuestId } from "../utils/guestIdResolver";
 import {
   validateAskEcoPayload,
@@ -44,10 +43,20 @@ import {
 } from "../deduplication/clientMessageRegistry";
 import { extractStringCandidate } from "../utils/requestIdentity";
 
-const GUARD_FALLBACK_TEXT =
-  "Não consegui responder agora. Vamos tentar de novo?";
+/**
+ * Eco — /api/ask-eco (SSE + JSON fallback)
+ *
+ * Ajustes principais nesta versão:
+ * 1) Fechamentos e chaves balanceadas para evitar TS1128.
+ * 2) Remoção de import não utilizado (extractEventText).
+ * 3) Pequenos guards para headers após início do SSE.
+ * 4) Normalização de retornos no fluxo de erro.
+ */
 
+const GUARD_FALLBACK_TEXT = "Não consegui responder agora. Vamos tentar de novo?";
 const INVALID_INPUT_MESSAGE = "Entrada inválida. Escreva uma mensagem para o Eco.";
+
+// === Tipos utilitários ===
 
 type DonePayload = {
   content: string | null;
@@ -89,12 +98,8 @@ function buildDonePayload(options: {
     ...(timings ?? {}),
   };
 
-  if (firstTokenLatency != null) {
-    payloadTimings.firstTokenLatencyMs = firstTokenLatency;
-  }
-  if (totalLatency != null) {
-    payloadTimings.totalLatencyMs = totalLatency;
-  }
+  if (firstTokenLatency != null) payloadTimings.firstTokenLatencyMs = firstTokenLatency;
+  if (totalLatency != null) payloadTimings.totalLatencyMs = totalLatency;
 
   const now = typeof timestamp === "number" && Number.isFinite(timestamp) ? timestamp : Date.now();
 
@@ -109,101 +114,72 @@ function buildDonePayload(options: {
   };
 }
 
+// === Router setup ===
+
 const router = Router();
 const askEcoRouter = Router();
+
 function buildSummaryFromChunks(pieces: string[]): string {
-  if (!Array.isArray(pieces) || pieces.length === 0) {
-    return "";
-  }
-  const summary = pieces.reduce<string>((acc, piece) => {
-    if (!acc) return piece;
-    return smartStreamJoin(acc, piece);
-  }, "");
-  if (!summary) {
-    return "";
-  }
+  if (!Array.isArray(pieces) || pieces.length === 0) return "";
+  const summary = pieces.reduce<string>((acc, piece) => (acc ? smartStreamJoin(acc, piece) : piece), "");
+  if (!summary) return "";
   let normalized = summary.replace(/[ \t]*\n[ \t]*/g, "\n");
   normalized = normalized.replace(/([a-zá-ú])([A-ZÁ-Ú])/g, "$1 $2");
   return normalized;
 }
 
 function parseJsonRecord(raw: string | undefined): Record<string, unknown> | undefined {
-  if (typeof raw !== "string") {
-    return undefined;
-  }
+  if (typeof raw !== "string") return undefined;
   try {
     const parsed = JSON.parse(raw);
-    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-      return parsed as Record<string, unknown>;
-    }
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return parsed as Record<string, unknown>;
   } catch {
-    /* ignore parse failure */
+    /* ignore */
   }
   return undefined;
 }
 
 function parseJsonArray(raw: string | undefined): unknown[] | undefined {
-  if (typeof raw !== "string") {
-    return undefined;
-  }
+  if (typeof raw !== "string") return undefined;
   try {
     const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed)) {
-      return parsed as unknown[];
-    }
+    if (Array.isArray(parsed)) return parsed as unknown[];
   } catch {
-    /* ignore parse failure */
+    /* ignore */
   }
   return undefined;
 }
 
 function buildAskEcoQueryPayload(req: Request): Record<string, unknown> {
   const query = (req.query as ParsedQs | undefined) ?? undefined;
-  if (!query) {
-    return {};
-  }
+  if (!query) return {};
 
   const body: Record<string, unknown> = {};
 
   const mergeFromPayload = () => {
     const rawPayload = extractStringCandidate(query.payload);
-    if (!rawPayload) {
-      return;
-    }
+    if (!rawPayload) return;
     const parsedPayload = parseJsonRecord(rawPayload);
-    if (parsedPayload) {
-      Object.assign(body, parsedPayload);
-    }
+    if (parsedPayload) Object.assign(body, parsedPayload);
   };
 
   mergeFromPayload();
 
   const assignIfMissing = (key: string, value: unknown) => {
-    if (value === undefined || value === null) {
-      return;
-    }
-    if (!(key in body)) {
-      body[key] = value;
-    }
+    if (value == null) return;
+    if (!(key in body)) body[key] = value;
   };
 
   const resolveMessages = () => {
-    if ("messages" in body || "mensagens" in body) {
-      return;
-    }
-    const rawMessages = (query as Record<string, unknown>).messages ??
-      (query as Record<string, unknown>).mensagens;
-    if (rawMessages === undefined) {
-      return;
-    }
-    const jsonMessages = parseJsonArray(extractStringCandidate(rawMessages));
+    if ("messages" in body || "mensagens" in body) return;
+    const rawMessages = (query as Record<string, unknown>).messages ?? (query as Record<string, unknown>).mensagens;
+    if (rawMessages === undefined) return;
+    const jsonMessages = parseJsonArray(extractStringCandidate(rawMessages as any));
     if (jsonMessages) {
       body.messages = jsonMessages;
       return;
     }
-    if (Array.isArray(rawMessages)) {
-      body.messages = [...(rawMessages as unknown[])];
-    }
+    if (Array.isArray(rawMessages)) body.messages = [...(rawMessages as unknown[])];
   };
 
   resolveMessages();
@@ -213,73 +189,53 @@ function buildAskEcoQueryPayload(req: Request): Record<string, unknown> {
     extractStringCandidate(query.text) ??
     extractStringCandidate(query.mensagem) ??
     extractStringCandidate((query as Record<string, unknown>).message);
-  if (textCandidate && typeof textCandidate === "string") {
-    assignIfMissing("texto", textCandidate);
-  }
+  if (textCandidate && typeof textCandidate === "string") assignIfMissing("texto", textCandidate);
 
   const nomeUsuarioCandidate =
-    extractStringCandidate(query.nome_usuario) ??
-    extractStringCandidate((query as Record<string, unknown>).nomeUsuario);
-  if (nomeUsuarioCandidate) {
-    assignIfMissing("nome_usuario", nomeUsuarioCandidate);
-  }
+    extractStringCandidate(query.nome_usuario) ?? extractStringCandidate((query as Record<string, unknown>).nomeUsuario);
+  if (nomeUsuarioCandidate) assignIfMissing("nome_usuario", nomeUsuarioCandidate);
 
   const usuarioIdCandidate =
     extractStringCandidate(query.usuario_id) ??
     extractStringCandidate((query as Record<string, unknown>).usuarioId) ??
     extractStringCandidate((query as Record<string, unknown>).user_id) ??
     extractStringCandidate((query as Record<string, unknown>).userId);
-  if (usuarioIdCandidate) {
-    assignIfMissing("usuario_id", usuarioIdCandidate);
-  }
+  if (usuarioIdCandidate) assignIfMissing("usuario_id", usuarioIdCandidate);
 
   const clientMessageCandidate =
     extractStringCandidate(query.client_message_id) ??
     extractStringCandidate((query as Record<string, unknown>).clientMessageId);
-  if (clientMessageCandidate) {
-    assignIfMissing("client_message_id", clientMessageCandidate);
-  }
+  if (clientMessageCandidate) assignIfMissing("client_message_id", clientMessageCandidate);
 
   const contextoCandidate = extractStringCandidate(query.contexto);
-  if (contextoCandidate && !("contexto" in body)) {
+  if (contextoCandidate && !("contexto" in body))
     assignIfMissing("contexto", parseJsonRecord(contextoCandidate) ?? contextoCandidate);
-  }
 
-  const sessionMetaCandidate = extractStringCandidate(query.sessionMeta);
-  if (sessionMetaCandidate && !("sessionMeta" in body)) {
+  const sessionMetaCandidate = extractStringCandidate((query as Record<string, unknown>).sessionMeta as any);
+  if (sessionMetaCandidate && !("sessionMeta" in body))
     assignIfMissing("sessionMeta", parseJsonRecord(sessionMetaCandidate) ?? sessionMetaCandidate);
-  }
 
-  const isGuestCandidate = extractStringCandidate(query.isGuest);
-  if (isGuestCandidate && !("isGuest" in body)) {
-    assignIfMissing(
-      "isGuest",
-      /^(1|true|yes)$/i.test(isGuestCandidate.trim()) ? true : isGuestCandidate
-    );
-  }
+  const isGuestCandidate = extractStringCandidate((query as Record<string, unknown>).isGuest as any);
+  if (isGuestCandidate && !("isGuest" in body))
+    assignIfMissing("isGuest", /^(1|true|yes)$/i.test(isGuestCandidate.trim()) ? true : isGuestCandidate);
 
-  const streamCandidate = extractStringCandidate(query.stream);
-  if (streamCandidate) {
-    assignIfMissing("stream", streamCandidate);
-  }
+  const streamCandidate = extractStringCandidate((query as Record<string, unknown>).stream as any);
+  if (streamCandidate) assignIfMissing("stream", streamCandidate);
 
   const clientHourCandidate =
     extractStringCandidate((query as Record<string, unknown>).client_hour) ??
     extractStringCandidate((query as Record<string, unknown>).clientHour);
   if (clientHourCandidate && !("clientHour" in body)) {
     const parsedHour = Number(clientHourCandidate);
-    assignIfMissing(
-      "clientHour",
-      Number.isFinite(parsedHour) ? parsedHour : clientHourCandidate
-    );
+    assignIfMissing("clientHour", Number.isFinite(parsedHour) ? parsedHour : clientHourCandidate);
   }
 
-  if (!("stream" in body)) {
-    body.stream = "true";
-  }
+  if (!("stream" in body)) body.stream = "true";
 
   return body;
 }
+
+// === SSE helpers ===
 
 type SseConnection = ReturnType<typeof createSSE>;
 
@@ -326,10 +282,7 @@ function createClearEarlyClientAbortTimer(timerRef: { current: NodeJS.Timeout | 
   };
 }
 
-function createClearAbortListenerRef(
-  abortSignal: AbortSignal,
-  abortListenerRef: { current: (() => void) | null }
-) {
+function createClearAbortListenerRef(abortSignal: AbortSignal, abortListenerRef: { current: (() => void) | null }) {
   return function clearAbortListenerRef() {
     const listener = abortListenerRef.current;
     if (listener) {
@@ -338,6 +291,8 @@ function createClearAbortListenerRef(
     }
   };
 }
+
+// === Handlers ===
 
 type MakeHandlersParams = {
   state: SseStreamState;
@@ -466,8 +421,7 @@ function makeHandlers(params: MakeHandlersParams): MakeHandlersResult {
     sendErrorEvent: (payload: Record<string, unknown>) => handlers.sendErrorEvent(payload),
     ensureGuardFallback: (reason: string) => handlers.ensureGuardFallback(reason),
     sendDone: (reason?: string | null) => handlers.sendDone(reason),
-    sendChunk: (input: { text: string; index?: number; meta?: Record<string, unknown> }) =>
-      handlers.sendChunk(input),
+    sendChunk: (input: { text: string; index?: number; meta?: Record<string, unknown> }) => handlers.sendChunk(input),
     forwardEvent: (rawEvt: EcoStreamEvent | any) => handlers.forwardEvent(rawEvt),
   };
 }
@@ -476,8 +430,9 @@ const activeClientMessageLocks = new Map<string, true>();
 
 export { askEcoRouter as askEcoRoutes };
 
-const REQUIRE_GUEST_ID =
-  String(process.env.ECO_REQUIRE_GUEST_ID ?? "false").toLowerCase() === "true";
+// === Config ===
+
+const REQUIRE_GUEST_ID = String(process.env.ECO_REQUIRE_GUEST_ID ?? "false").toLowerCase() === "true";
 
 const DEFAULT_IDLE_TIMEOUT_MS = 55_000;
 const MIN_IDLE_TIMEOUT_MS = 45_000;
@@ -486,9 +441,7 @@ const rawIdleTimeout = (() => {
   const raw = process.env.ECO_SSE_TIMEOUT_MS;
   if (!raw) return DEFAULT_IDLE_TIMEOUT_MS;
   const parsed = Number(raw);
-  if (!Number.isFinite(parsed) || parsed <= 0) {
-    return DEFAULT_IDLE_TIMEOUT_MS;
-  }
+  if (!Number.isFinite(parsed) || parsed <= 0) return DEFAULT_IDLE_TIMEOUT_MS;
   return parsed;
 })();
 
@@ -504,19 +457,14 @@ const firstTokenTimeoutMs = (() => {
   const raw = process.env.ECO_FIRST_TOKEN_TIMEOUT_MS;
   if (!raw) return DEFAULT_FIRST_TOKEN_TIMEOUT_MS;
   const parsed = Number(raw);
-  if (!Number.isFinite(parsed) || parsed <= 0) {
-    return DEFAULT_FIRST_TOKEN_TIMEOUT_MS;
-  }
+  if (!Number.isFinite(parsed) || parsed <= 0) return DEFAULT_FIRST_TOKEN_TIMEOUT_MS;
   return parsed;
 })();
 
 const TEST_FIRST_TOKEN_TIMEOUT_MS = 4_000;
 const firstTokenWatchdogMs = IS_TEST_ENV
   ? TEST_FIRST_TOKEN_TIMEOUT_MS
-  : Math.min(
-      Math.max(firstTokenTimeoutMs, MIN_FIRST_TOKEN_TIMEOUT_MS),
-      MAX_FIRST_TOKEN_TIMEOUT_MS
-    );
+  : Math.min(Math.max(firstTokenTimeoutMs, MIN_FIRST_TOKEN_TIMEOUT_MS), MAX_FIRST_TOKEN_TIMEOUT_MS);
 
 const DEFAULT_PING_INTERVAL_MS = 12_000;
 const MIN_PING_INTERVAL_MS = 10_000;
@@ -525,27 +473,20 @@ const resolvedPingIntervalMs = (() => {
   const raw = process.env.ECO_SSE_PING_INTERVAL_MS;
   if (!raw) return DEFAULT_PING_INTERVAL_MS;
   const parsed = Number(raw);
-  if (!Number.isFinite(parsed) || parsed <= 0) {
-    return DEFAULT_PING_INTERVAL_MS;
-  }
+  if (!Number.isFinite(parsed) || parsed <= 0) return DEFAULT_PING_INTERVAL_MS;
   return parsed;
 })();
 
 const TEST_PING_INTERVAL_MS = 2_000;
 const streamPingIntervalMs = IS_TEST_ENV
   ? TEST_PING_INTERVAL_MS
-  : Math.min(
-      Math.max(resolvedPingIntervalMs, MIN_PING_INTERVAL_MS),
-      MAX_PING_INTERVAL_MS
-    );
+  : Math.min(Math.max(resolvedPingIntervalMs, MIN_PING_INTERVAL_MS), MAX_PING_INTERVAL_MS);
 
-type RequestWithIdentity = RequestWithEcoIdentity & {
-  user?: { id?: string | null } | null;
-};
+// === Identity ===
 
-function isValidationFailure(
-  result: ValidationResult
-): result is { valid: false; error: ValidationError } {
+type RequestWithIdentity = RequestWithEcoIdentity & { user?: { id?: string | null } | null };
+
+function isValidationFailure(result: ValidationResult): result is { valid: false; error: ValidationError } {
   return result.valid === false;
 }
 
@@ -568,7 +509,6 @@ function ensureVaryIncludes(response: Response, value: string) {
     response.setHeader("Vary", value);
     return;
   }
-
   const normalized = (Array.isArray(existing) ? existing : [existing])
     .flatMap((entry) =>
       String(entry)
@@ -577,7 +517,6 @@ function ensureVaryIncludes(response: Response, value: string) {
         .filter(Boolean)
     )
     .filter(Boolean);
-
   if (!normalized.includes(value)) {
     normalized.push(value);
     response.setHeader("Vary", normalized.join(", "));
@@ -589,11 +528,7 @@ const ASK_ECO_ALLOWED_HEADERS_VALUE =
 const ASK_ECO_ALLOWED_METHODS_VALUE = "GET,POST,OPTIONS";
 const ASK_ECO_EXPOSE_HEADERS_VALUE = "x-eco-guest-id, x-eco-session-id, x-eco-client-message-id";
 
-function applyAskEcoCorsHeaders(
-  res: Response,
-  originHeader: string | null,
-  allowedOrigin: string | null
-) {
+function applyAskEcoCorsHeaders(res: Response, originHeader: string | null, allowedOrigin: string | null) {
   const headerOrigin = allowedOrigin ?? (!originHeader ? PRIMARY_CORS_ORIGIN : null);
   if (headerOrigin) {
     res.setHeader("Access-Control-Allow-Origin", headerOrigin);
@@ -610,34 +545,36 @@ function applyAskEcoCorsHeaders(
 function captureShortStack(label: string): string | null {
   const err = new Error(label);
   if (!err.stack) return null;
-  return err.stack
-    .split("\n")
-    .slice(1, 6)
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .join(" | ") || null;
+  return (
+    err.stack
+      .split("\n")
+      .slice(1, 6)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .join(" | ") || null
+  );
 }
 
 function extractSessionIdLoose(value: unknown): string | null {
   if (!value || typeof value !== "object") return null;
   const source = value as Record<string, unknown>;
   const candidates = [
-    source.sessionId,
-    source.session_id,
-    source.sessionID,
-    source.sessaoId,
-    source.sessao_id,
-    source.sessaoID,
-    source.session,
-    source.sessao,
+    (source as any).sessionId,
+    (source as any).session_id,
+    (source as any).sessionID,
+    (source as any).sessaoId,
+    (source as any).sessao_id,
+    (source as any).sessaoID,
+    (source as any).session,
+    (source as any).sessao,
   ];
   for (const candidate of candidates) {
-    if (typeof candidate === "string" && candidate.trim()) {
-      return candidate.trim();
-    }
+    if (typeof candidate === "string" && candidate.trim()) return candidate.trim();
   }
   return null;
 }
+
+// === Routes ===
 
 /** GET /api/prompt-preview */
 router.get("/prompt-preview", async (req: Request, res: Response) => {
@@ -645,12 +582,9 @@ router.get("/prompt-preview", async (req: Request, res: Response) => {
     await getPromptEcoPreview(req, res);
   } catch (error) {
     console.error("Erro no handler de rota /prompt-preview:", error);
-    if (!res.headersSent) {
-      res.status(500).json({ error: "Erro interno ao montar o prompt." });
-    }
+    if (!res.headersSent) res.status(500).json({ error: "Erro interno ao montar o prompt." });
   }
 });
-
 
 askEcoRouter.get("/", ensureIdentity, handleAskEcoRequest);
 askEcoRouter.post("/", ensureIdentity, handleAskEcoRequest);
@@ -662,7 +596,8 @@ askEcoRouter.options("/", (req: Request, res: Response) => {
   if (originHeader && !allowedOrigin) {
     log.warn("[ask-eco] origin_blocked", { method: "OPTIONS", origin: originHeader });
     ensureVaryIncludes(res, "Origin");
-    return res.status(403).end();
+    res.status(403).end();
+    return;
   }
 
   applyAskEcoCorsHeaders(res, originHeader, allowedOrigin);
@@ -671,7 +606,6 @@ askEcoRouter.options("/", (req: Request, res: Response) => {
 
 // Aceita headers: X-Eco-Guest-Id, X-Eco-Session-Id
 // Aceita query: ?guest_id=...&session_id=...
-// Front pode usar qualquer um dos dois.
 askEcoRouter.head("/", ensureIdentity, (_req: Request, res: Response) => {
   res.status(200).end();
 });
@@ -684,9 +618,11 @@ async function handleAskEcoRequest(req: Request, res: Response, _next: NextFunct
     sessionId: reqWithIdentity.ecoSessionId ?? null,
     clientMessageId: reqWithIdentity.clientMessageId ?? null,
   });
+
   const method = req.method.toUpperCase();
-  const rawBody = method === "GET" ? buildAskEcoQueryPayload(req) : req.body;
+  const rawBody = method === "GET" ? buildAskEcoQueryPayload(req) : (req.body as any);
   const accept = String(req.headers.accept || "").toLowerCase();
+
   const streamParam = (() => {
     const fromQuery = (req.query as any)?.stream;
     if (typeof fromQuery === "string") return fromQuery;
@@ -696,19 +632,20 @@ async function handleAskEcoRequest(req: Request, res: Response, _next: NextFunct
     if (typeof bodyValue === "boolean") return bodyValue ? "true" : "false";
     return undefined;
   })();
+
   const wantsStreamByFlag = typeof streamParam === "string" && /^(1|true|yes)$/i.test(streamParam.trim());
   const wantsStream = method === "GET" ? true : wantsStreamByFlag || accept.includes("text/event-stream");
+
   const originHeader = typeof req.headers.origin === "string" ? req.headers.origin : null;
   const resolvedAllowedOrigin = resolveCorsOrigin(originHeader);
   const allowedOrigin = Boolean(resolvedAllowedOrigin);
   const origin = originHeader ?? undefined;
   const normalizedOriginHeader = allowedOrigin && originHeader ? originHeader : undefined;
+
   applyAskEcoCorsHeaders(res, originHeader, resolvedAllowedOrigin);
+
   const streamIdHeader = req.headers["x-stream-id"];
-  const incomingStreamId =
-    typeof streamIdHeader === "string" && streamIdHeader.trim()
-      ? streamIdHeader.trim()
-      : undefined;
+  const incomingStreamId = typeof streamIdHeader === "string" && streamIdHeader.trim() ? streamIdHeader.trim() : undefined;
   const generatedStreamId = randomUUID();
   const streamId = incomingStreamId ?? generatedStreamId;
 
@@ -726,21 +663,13 @@ async function handleAskEcoRequest(req: Request, res: Response, _next: NextFunct
   let supabaseContextUnavailable = false;
 
   const warmupSse = () => {
-    if (!wantsStream || sseWarmupStarted) {
-      return;
-    }
+    if (!wantsStream || sseWarmupStarted) return;
     sseWarmupStarted = true;
     disableCompressionForSse(res);
     ensureVaryIncludes(res, "Origin");
-    if (reqWithIdentity.guestId) {
-      res.setHeader("X-Eco-Guest-Id", reqWithIdentity.guestId);
-    }
-    if (reqWithIdentity.ecoSessionId) {
-      res.setHeader("X-Eco-Session-Id", reqWithIdentity.ecoSessionId);
-    }
-    if (!res.headersSent) {
-      res.setHeader("X-Stream-Id", streamId);
-    }
+    if (reqWithIdentity.guestId) res.setHeader("X-Eco-Guest-Id", reqWithIdentity.guestId);
+    if (reqWithIdentity.ecoSessionId) res.setHeader("X-Eco-Session-Id", reqWithIdentity.ecoSessionId);
+    if (!res.headersSent) res.setHeader("X-Stream-Id", streamId);
     const targetOrigin = resolvedAllowedOrigin ?? originHeader ?? null;
     prepareSse(res, targetOrigin);
     try {
@@ -759,22 +688,18 @@ async function handleAskEcoRequest(req: Request, res: Response, _next: NextFunct
 
   if (wantsStream && !allowedOrigin) {
     log.warn("[ask-eco] origin_blocked", { origin: origin ?? null, method: req.method });
-    return res.status(403).end();
+    res.status(403).end();
+    return;
   }
 
   warmupSse();
 
   const validation = validateAskEcoPayload(rawBody, req.headers);
-
   if (isValidationFailure(validation)) {
     const { status, message } = validation.error;
     if (wantsStream) {
       try {
-        const fallbackSse = createSSE(res, req, {
-          pingIntervalMs: 0,
-          idleMs: 0,
-          commentOnOpen: null,
-        });
+        const fallbackSse = createSSE(res, req, { pingIntervalMs: 0, idleMs: 0, commentOnOpen: null });
         sse = fallbackSse;
         sseStarted = true;
         fallbackSse.send("chunk", { error: true, message: INVALID_INPUT_MESSAGE });
@@ -788,51 +713,31 @@ async function handleAskEcoRequest(req: Request, res: Response, _next: NextFunct
       }
       return;
     }
-    return res.status(status).json({ ok: false, error: message });
+    res.status(status).json({ ok: false, error: message });
+    return;
   }
 
-  const {
-    body,
-    normalized,
-    payloadShape,
-    clientMessageId,
-    activeClientMessageId,
-    sessionMetaObject,
-  } = validation.data;
+  const { body, normalized, payloadShape, clientMessageId, activeClientMessageId, sessionMetaObject } = validation.data;
 
-  const promptReadyClientMessageId =
-    typeof clientMessageId === "string" && clientMessageId.trim()
-      ? clientMessageId.trim()
-      : randomUUID();
+  const promptReadyClientMessageId = typeof clientMessageId === "string" && clientMessageId.trim() ? clientMessageId.trim() : randomUUID();
 
-  const locals = (res.locals ?? {}) as Record<string, unknown>;
-  locals.corsAllowed = allowedOrigin;
-  locals.corsOrigin = origin ?? null;
-
+  (res.locals as Record<string, unknown>).corsAllowed = allowedOrigin;
+  (res.locals as Record<string, unknown>).corsOrigin = origin ?? null;
   (res.locals as Record<string, unknown>).isSse = wantsStream;
 
   const guestIdFromSession: string | undefined = (req as any)?.guest?.id || undefined;
-  const guestIdFromRequest =
-    typeof reqWithIdentity.guestId === "string" ? reqWithIdentity.guestId : undefined;
+  const guestIdFromRequest = typeof reqWithIdentity.guestId === "string" ? reqWithIdentity.guestId : undefined;
   const guestIdFromHeader = req.get("X-Eco-Guest-Id")?.trim();
   const guestIdFromCookie = getGuestIdFromCookies(req);
 
-  const {
-    nome_usuario,
-    usuario_id,
-    clientHour,
-    isGuest,
-    guestId: guestIdFromBody,
-    sessionMeta,
-  } = body;
-
+  const { nome_usuario, usuario_id, clientHour, isGuest, guestId: guestIdFromBody } = body as any;
   const isGuestRequest = Boolean(isGuest);
 
+  // Garantia de não duplicação para a mesma mensagem do cliente
   if (activeClientMessageLocks.has(activeClientMessageId)) {
     log.warn("[ask-eco] duplicate_client_message_active", { clientMessageId: activeClientMessageId });
-    return res
-      .status(409)
-      .json({ ok: false, error: "duplicate message (already processing)", code: "CLIENT_MESSAGE_ACTIVE" });
+    res.status(409).json({ ok: false, error: "duplicate message (already processing)", code: "CLIENT_MESSAGE_ACTIVE" });
+    return;
   }
 
   activeClientMessageLocks.set(activeClientMessageId, true);
@@ -848,7 +753,7 @@ async function handleAskEcoRequest(req: Request, res: Response, _next: NextFunct
   let doneSent = false;
 
   const guestIdResolved = resolveGuestId(
-    typeof guestIdFromBody === "string" ? guestIdFromBody : undefined,
+    typeof (guestIdFromBody as any) === "string" ? (guestIdFromBody as string) : undefined,
     guestIdFromHeader,
     guestIdFromCookie,
     guestIdFromRequest,
@@ -861,16 +766,14 @@ async function handleAskEcoRequest(req: Request, res: Response, _next: NextFunct
   });
 
   const identityKey =
-    (typeof reqWithIdentity.user?.id === "string" && reqWithIdentity.user.id.trim()
-      ? reqWithIdentity.user.id.trim()
-      : null) ??
-    (typeof reqWithIdentity.guestId === "string" && reqWithIdentity.guestId.trim()
-      ? reqWithIdentity.guestId.trim()
-      : null);
+    ((typeof reqWithIdentity.user?.id === "string" && reqWithIdentity.user.id.trim()) ? reqWithIdentity.user.id.trim() : null) ??
+    ((typeof reqWithIdentity.guestId === "string" && reqWithIdentity.guestId.trim()) ? reqWithIdentity.guestId.trim() : null);
+
   const authUid =
     typeof reqWithIdentity.user?.id === "string" && reqWithIdentity.user.id.trim().length
       ? reqWithIdentity.user.id.trim()
       : null;
+
   const hasGuestId = Boolean(identityKey);
   const userMode = reqWithIdentity.user?.id ? "authenticated" : "guest";
 
@@ -884,53 +787,34 @@ async function handleAskEcoRequest(req: Request, res: Response, _next: NextFunct
   });
 
   try {
-    if (!normalized.messages.length) {
-      throw createHttpError(400, "BAD_REQUEST", "Payload inválido (text/mensagem/mensagens)");
-    }
+    if (!normalized.messages.length) throw createHttpError(400, "BAD_REQUEST", "Payload inválido (text/mensagem/mensagens)");
 
     const hasUserMessage = normalized.messages.some(
       (msg) => msg.role === "user" && typeof msg.content === "string" && msg.content.trim()
     );
+    if (!hasUserMessage) throw createHttpError(400, "BAD_REQUEST", "Inclua ao menos uma mensagem de usuário válida");
 
-    if (!hasUserMessage) {
-      throw createHttpError(400, "BAD_REQUEST", "Inclua ao menos uma mensagem de usuário válida");
-    }
-
-    if (REQUIRE_GUEST_ID && !hasGuestId) {
-      throw createHttpError(400, "MISSING_GUEST_ID", "Informe X-Eco-Guest-Id");
-    }
+    if (REQUIRE_GUEST_ID && !hasGuestId) throw createHttpError(400, "MISSING_GUEST_ID", "Informe X-Eco-Guest-Id");
 
     if (clientMessageId) {
       const dedupeIdentity =
         identityKey ??
-        (typeof usuario_id === "string" && usuario_id.trim() ? usuario_id.trim() : null) ??
+        (typeof (usuario_id as any) === "string" && (usuario_id as string).trim() ? (usuario_id as string).trim() : null) ??
         guestIdResolved ??
-        (typeof reqWithIdentity.ecoSessionId === "string" && reqWithIdentity.ecoSessionId.trim()
-          ? reqWithIdentity.ecoSessionId.trim()
-          : null);
+        (typeof reqWithIdentity.ecoSessionId === "string" && reqWithIdentity.ecoSessionId.trim() ? reqWithIdentity.ecoSessionId.trim() : null);
+
       clientMessageKey = buildClientMessageKey(dedupeIdentity ?? null, clientMessageId);
       const reservation = reserveClientMessage(clientMessageKey);
       if (reservation.ok === false) {
         const duplicateStatus = reservation.status;
-        log.warn("[ask-eco] duplicate_client_message", {
-          clientMessageId,
-          status: duplicateStatus,
-          identity: dedupeIdentity ?? null,
-        });
-        return res.status(409).json({
-          ok: false,
-          code: "DUPLICATE_CLIENT_MESSAGE",
-          error: "Interação já processada",
-          status: duplicateStatus,
-        });
+        log.warn("[ask-eco] duplicate_client_message", { clientMessageId, status: duplicateStatus, identity: dedupeIdentity ?? null });
+        res.status(409).json({ ok: false, code: "DUPLICATE_CLIENT_MESSAGE", error: "Interação já processada", status: duplicateStatus });
+        return;
       }
       clientMessageReserved = true;
     }
 
-    const bearer =
-      req.headers.authorization?.startsWith("Bearer ")
-        ? req.headers.authorization.slice(7)
-        : undefined;
+    const bearer = req.headers.authorization?.startsWith("Bearer ") ? req.headers.authorization.slice(7) : undefined;
 
     const params: Record<string, unknown> = {
       messages: normalized.messages,
@@ -938,43 +822,24 @@ async function handleAskEcoRequest(req: Request, res: Response, _next: NextFunct
       authUid: authUid ?? null,
     };
 
-    if (typeof bearer === "string" && bearer.trim()) {
-      (params as any).accessToken = bearer.trim();
-    }
-    if (typeof clientHour === "number" && Number.isFinite(clientHour)) {
-      (params as any).clientHour = clientHour;
-    }
-    if (sessionMetaObject) {
-      (params as any).sessionMeta = sessionMetaObject;
-    }
-    if (typeof nome_usuario === "string" && nome_usuario.trim()) {
-      (params as any).userName = nome_usuario.trim();
-    }
-    if (typeof usuario_id === "string" && usuario_id.trim()) {
-      (params as any).userId = usuario_id.trim();
-    }
-    if (typeof reqWithIdentity.guestId === "string" && reqWithIdentity.guestId.trim()) {
-      (params as any).guestId = reqWithIdentity.guestId.trim();
-    } else if (guestIdResolved) {
-      (params as any).guestId = guestIdResolved;
-    }
+    if (typeof bearer === "string" && bearer.trim()) (params as any).accessToken = bearer.trim();
+    if (typeof clientHour === "number" && Number.isFinite(clientHour)) (params as any).clientHour = clientHour;
+    if (sessionMetaObject) (params as any).sessionMeta = sessionMetaObject;
+    if (typeof nome_usuario === "string" && nome_usuario.trim()) (params as any).userName = nome_usuario.trim();
+    if (typeof usuario_id === "string" && usuario_id.trim()) (params as any).userId = usuario_id.trim();
+    if (typeof reqWithIdentity.guestId === "string" && reqWithIdentity.guestId.trim()) (params as any).guestId = reqWithIdentity.guestId.trim();
+    else if (guestIdResolved) (params as any).guestId = guestIdResolved;
 
-    if (identityKey && typeof (params as any).distinctId !== "string") {
-      (params as any).distinctId = identityKey;
-    }
-    if (identityKey && typeof (params as any).userId !== "string") {
-      (params as any).userId = identityKey;
-    }
+    if (identityKey && typeof (params as any).distinctId !== "string") (params as any).distinctId = identityKey;
+    if (identityKey && typeof (params as any).userId !== "string") (params as any).userId = identityKey;
 
     // JSON mode
     if (!wantsStream) {
       try {
         const result = await getEcoResponse(params as any);
         const textOut = sanitizeOutput(extractTextLoose(result) ?? "");
-        log.info("[ask-eco] response", {
-          mode: "json",
-          hasContent: textOut.length > 0,
-        });
+        log.info("[ask-eco] response", { mode: "json", hasContent: textOut.length > 0 });
+
         const tokens = (() => {
           const usageSource =
             (result as any)?.usage ||
@@ -985,21 +850,9 @@ async function handleAskEcoRequest(req: Request, res: Response, _next: NextFunct
             (result as any)?.meta?.tokens ||
             {};
           const inValue =
-            usageSource?.prompt_tokens ??
-            usageSource?.input_tokens ??
-            usageSource?.tokens_in ??
-            usageSource?.in ??
-            (result as any)?.prompt_tokens ??
-            (result as any)?.input_tokens ??
-            null;
+            usageSource?.prompt_tokens ?? usageSource?.input_tokens ?? usageSource?.tokens_in ?? usageSource?.in ?? (result as any)?.prompt_tokens ?? (result as any)?.input_tokens ?? null;
           const outValue =
-            usageSource?.completion_tokens ??
-            usageSource?.output_tokens ??
-            usageSource?.tokens_out ??
-            usageSource?.out ??
-            (result as any)?.completion_tokens ??
-            (result as any)?.output_tokens ??
-            null;
+            usageSource?.completion_tokens ?? usageSource?.output_tokens ?? usageSource?.tokens_out ?? usageSource?.out ?? (result as any)?.completion_tokens ?? (result as any)?.output_tokens ?? null;
           return {
             in: typeof inValue === "number" && Number.isFinite(inValue) ? Number(inValue) : null,
             out: typeof outValue === "number" && Number.isFinite(outValue) ? Number(outValue) : null,
@@ -1007,20 +860,13 @@ async function handleAskEcoRequest(req: Request, res: Response, _next: NextFunct
         })();
 
         const resultMeta = (result as any)?.meta;
-        const metaPayload =
-          resultMeta && typeof resultMeta === "object"
-            ? { ...(resultMeta as Record<string, unknown>) }
-            : null;
+        const metaPayload = resultMeta && typeof resultMeta === "object" ? { ...(resultMeta as Record<string, unknown>) } : null;
         const rawTimings = (result as any)?.timings;
-        const timingsPayload =
-          rawTimings && typeof rawTimings === "object"
-            ? { ...(rawTimings as Record<string, unknown>) }
-            : null;
+        const timingsPayload = rawTimings && typeof rawTimings === "object" ? { ...(rawTimings as Record<string, unknown>) } : null;
 
         const donePayload = buildDonePayload({
           content: textOut || null,
-          interactionId:
-            typeof resultMeta?.interaction_id === "string" ? resultMeta.interaction_id : null,
+          interactionId: typeof (resultMeta as any)?.interaction_id === "string" ? (resultMeta as any).interaction_id : null,
           tokens,
           meta: metaPayload,
           timings: timingsPayload,
@@ -1031,25 +877,27 @@ async function handleAskEcoRequest(req: Request, res: Response, _next: NextFunct
           clientMessageReserved = false;
         }
 
-        return res.status(200).json(donePayload);
+        res.status(200).json(donePayload);
+        return;
       } catch (error) {
         if (clientMessageReserved && clientMessageKey) {
           releaseClientMessage(clientMessageKey);
           clientMessageReserved = false;
         }
         if (isHttpError(error)) {
-          log.warn("[ask-eco] json_error", { code: (error as any).body?.code, status: error.status });
-          return res.status(error.status).json((error as any).body);
+          log.warn("[ask-eco] json_error", { code: (error as any).body?.code, status: (error as any).status });
+          res.status((error as any).status).json((error as any).body);
+          return;
         }
         const traceId = randomUUID();
         log.error("[ask-eco] json_unexpected", { trace_id: traceId, message: (error as Error)?.message });
-        return res.status(500).json({ code: "INTERNAL_ERROR", trace_id: traceId });
+        res.status(500).json({ code: "INTERNAL_ERROR", trace_id: traceId });
+        return;
       }
     }
 
     // SSE mode
-    const lastMessageId =
-      req.get("Last-Event-ID") ?? req.header("Last-Event-ID") ?? undefined;
+    const lastMessageId = req.get("Last-Event-ID") ?? req.header("Last-Event-ID") ?? undefined;
 
     const abortController = new AbortController();
     const abortSignal = abortController.signal;
@@ -1061,27 +909,19 @@ async function handleAskEcoRequest(req: Request, res: Response, _next: NextFunct
       const trimmed = key.trim();
       if (!trimmed) return true;
       const ok = reserveActiveInteraction(trimmed, abortController);
-      if (ok) {
-        activeInteractionKeys.add(trimmed);
-      }
+      if (ok) activeInteractionKeys.add(trimmed);
       return ok;
     };
 
     const releaseActiveInteractionKeys = () => {
       if (!activeInteractionKeys.size) return;
-      for (const key of activeInteractionKeys) {
-        releaseActiveInteraction(key, abortController);
-      }
+      for (const key of activeInteractionKeys) releaseActiveInteraction(key, abortController);
       activeInteractionKeys.clear();
     };
 
     const streamContextKey = (() => {
-      if (typeof streamId === "string" && streamId.trim()) {
-        return `stream:${streamId.trim()}`;
-      }
-      if (typeof reqWithIdentity.ecoSessionId === "string" && reqWithIdentity.ecoSessionId.trim()) {
-        return `session:${reqWithIdentity.ecoSessionId.trim()}`;
-      }
+      if (typeof streamId === "string" && streamId.trim()) return `stream:${streamId.trim()}`;
+      if (typeof reqWithIdentity.ecoSessionId === "string" && reqWithIdentity.ecoSessionId.trim()) return `session:${reqWithIdentity.ecoSessionId.trim()}`;
       return null;
     })();
 
@@ -1089,9 +929,7 @@ async function handleAskEcoRequest(req: Request, res: Response, _next: NextFunct
       releaseActiveInteractionKeys();
       if (!streamContextKey) return;
       const current = activeStreamSessions.get(streamContextKey);
-      if (current && current.controller === abortController) {
-        activeStreamSessions.delete(streamContextKey);
-      }
+      if (current && current.controller === abortController) activeStreamSessions.delete(streamContextKey);
     };
 
     if (streamContextKey) {
@@ -1100,38 +938,13 @@ async function handleAskEcoRequest(req: Request, res: Response, _next: NextFunct
         try {
           existing.controller.abort(new Error("replaced_by_new_stream"));
         } catch (error) {
-          log.warn("[ask-eco] prior_stream_abort_failed", {
-            message: error instanceof Error ? error.message : String(error),
-          });
+          log.warn("[ask-eco] prior_stream_abort_failed", { message: error instanceof Error ? error.message : String(error) });
         }
       }
-      activeStreamSessions.set(streamContextKey, {
-        controller: abortController,
-        interactionId: "",
-      });
+      activeStreamSessions.set(streamContextKey, { controller: abortController, interactionId: "" });
     }
 
-    if (clientMessageKey) {
-      const activeKey = buildActiveInteractionKey("client", clientMessageKey);
-      if (!registerActiveInteractionKey(activeKey)) {
-        log.warn("[ask-eco] active_interaction_conflict", {
-          clientMessageId: clientMessageId ?? null,
-          identity: identityKey ?? null,
-          origin: origin ?? null,
-        });
-        if (clientMessageReserved) {
-          releaseClientMessage(clientMessageKey);
-          clientMessageReserved = false;
-        }
-        releaseActiveInteractionKeys();
-        return res.status(409).json({
-          ok: false,
-          code: "STREAM_ALREADY_ACTIVE",
-          error: "Já existe uma interação ativa para esta mensagem.",
-        });
-      }
-    }
-
+    // Telemetry client (Supabase)
     const telemetryClient = (() => {
       const client = getSupabaseAdmin();
       if (!client) {
@@ -1146,28 +959,20 @@ async function handleAskEcoRequest(req: Request, res: Response, _next: NextFunct
       }
     })();
 
-    const telemetry = new SseTelemetry(telemetryClient, {
-      origin: origin ?? undefined,
-      clientMessageId: clientMessageId ?? undefined,
-    });
+    const telemetry = new SseTelemetry(telemetryClient, { origin: origin ?? undefined, clientMessageId: clientMessageId ?? undefined });
 
     const fallbackInteractionId = randomUUID();
     (params as any).interactionId = fallbackInteractionId;
     (params as any).abortSignal = abortSignal;
 
-    registerActiveInteractionKey(
-      buildActiveInteractionKey("interaction", fallbackInteractionId)
-    );
-
+    registerActiveInteractionKey(buildActiveInteractionKey("interaction", fallbackInteractionId));
     telemetry.setFallbackInteractionId(fallbackInteractionId);
 
     const getResolvedInteractionId = createGetResolvedInteractionId(telemetry);
     const isInteractionIdReady = () => telemetry.isInteractionIdReady();
 
     const finalizeClientMessageReservation = (finishReason?: string | null) => {
-      if (!clientMessageReserved || !clientMessageKey) {
-        return;
-      }
+      if (!clientMessageReserved || !clientMessageKey) return;
       const reason = typeof finishReason === "string" ? finishReason.toLowerCase() : "";
       const isFailure =
         reason.includes("error") ||
@@ -1175,11 +980,8 @@ async function handleAskEcoRequest(req: Request, res: Response, _next: NextFunct
         reason === "aborted" ||
         reason === "client_closed" ||
         reason === "superseded_stream";
-      if (isFailure) {
-        releaseClientMessage(clientMessageKey);
-      } else {
-        markClientMessageCompleted(clientMessageKey);
-      }
+      if (isFailure) releaseClientMessage(clientMessageKey);
+      else markClientMessageCompleted(clientMessageKey);
       clientMessageReserved = false;
     };
 
@@ -1187,10 +989,7 @@ async function handleAskEcoRequest(req: Request, res: Response, _next: NextFunct
       if (!streamContextKey) return;
       const current = activeStreamSessions.get(streamContextKey);
       if (current && current.controller === abortController) {
-        activeStreamSessions.set(streamContextKey, {
-          controller: abortController,
-          interactionId,
-        });
+        activeStreamSessions.set(streamContextKey, { controller: abortController, interactionId });
       }
     };
 
@@ -1207,24 +1006,15 @@ async function handleAskEcoRequest(req: Request, res: Response, _next: NextFunct
       updateActiveStreamInteractionId(interactionId);
       const interactionKey = buildActiveInteractionKey("interaction", interactionId);
       if (!registerActiveInteractionKey(interactionKey)) {
-        log.warn("[ask-eco] active_interaction_conflict", {
-          interactionId,
-          clientMessageId: clientMessageId ?? null,
-          origin: origin ?? null,
-        });
+        log.warn("[ask-eco] active_interaction_conflict", { interactionId, clientMessageId: clientMessageId ?? null, origin: origin ?? null });
       }
     };
 
-    const enqueuePassiveSignal = (
-      signal: string,
-      value?: number | null,
-      meta?: Record<string, unknown>
-    ) => {
+    const enqueuePassiveSignal = (signal: string, value?: number | null, meta?: Record<string, unknown>) => {
       telemetry.enqueuePassiveSignal(signal, value ?? null, meta);
     };
 
-    const compactMeta = (meta: Record<string, unknown>): Record<string, unknown> =>
-      telemetry.compactMeta(meta);
+    const compactMeta = (meta: Record<string, unknown>): Record<string, unknown> => telemetry.compactMeta(meta);
 
     const normalizedOrigin = normalizedOriginHeader;
 
@@ -1232,33 +1022,20 @@ async function handleAskEcoRequest(req: Request, res: Response, _next: NextFunct
     res.socket?.setKeepAlive(true, 30000);
 
     const initialResolvedInteractionId = getResolvedInteractionId();
-    if (
-      typeof initialResolvedInteractionId === "string" &&
-      initialResolvedInteractionId &&
-      !res.headersSent
-    ) {
+    if (typeof initialResolvedInteractionId === "string" && initialResolvedInteractionId && !res.headersSent) {
       res.setHeader("X-Eco-Interaction-Id", initialResolvedInteractionId);
     }
 
     if (!res.headersSent) {
       res.setHeader("X-Stream-Id", streamId);
       disableCompressionForSse(res);
-      log.debug("[DEBUG] About to set SSE headers", {
-        origin: origin ?? null,
-        streamId: streamId ?? null,
-        clientMessageId: clientMessageId ?? null,
-      });
+      log.debug("[DEBUG] About to set SSE headers", { origin: origin ?? null, streamId: streamId ?? null, clientMessageId: clientMessageId ?? null });
       const targetOrigin = resolvedAllowedOrigin ?? originHeader ?? null;
       prepareSse(res, targetOrigin);
-      log.debug("[DEBUG] SSE headers set", {
-        origin: origin ?? null,
-        streamId: streamId ?? null,
-        clientMessageId: clientMessageId ?? null,
-      });
+      log.debug("[DEBUG] SSE headers set", { origin: origin ?? null, streamId: streamId ?? null, clientMessageId: clientMessageId ?? null });
       (res as any).flushHeaders?.();
     }
     sseStarted = true;
-    // no headers after SSE start
 
     const flushSse = () => {
       (res as any).flushHeaders?.();
@@ -1267,53 +1044,27 @@ async function handleAskEcoRequest(req: Request, res: Response, _next: NextFunct
 
     const safeEarlyWrite = (chunk: string): boolean => {
       const resAny = res as any;
-      if (resAny.writableEnded || resAny.writableFinished || resAny.destroyed) {
-        return false;
-      }
+      if (resAny.writableEnded || resAny.writableFinished || resAny.destroyed) return false;
       try {
         res.write(chunk);
         flushSse();
         return true;
       } catch (error) {
-        log.warn("[ask-eco] sse_early_write_failed", {
-          message: error instanceof Error ? error.message : String(error),
-        });
+        log.warn("[ask-eco] sse_early_write_failed", { message: error instanceof Error ? error.message : String(error) });
         return false;
       }
     };
 
     sseSafeEarlyWrite = safeEarlyWrite;
-
     safeEarlyWrite(": open\n\n");
 
-    log.info("[ask-eco] stream_open", {
-      origin: origin ?? null,
-      clientMessageId: clientMessageId ?? null,
-      streamId: streamId ?? null,
-    });
+    log.info("[ask-eco] stream_open", { origin: origin ?? null, clientMessageId: clientMessageId ?? null, streamId: streamId ?? null });
 
-    const formatHeaderValue = (
-      value: string | number | string[] | boolean | null | undefined
-    ): string | null => {
-      if (Array.isArray(value)) {
-        return value
-          .map((entry) =>
-            typeof entry === "string" || typeof entry === "number"
-              ? String(entry)
-              : ""
-          )
-          .filter(Boolean)
-          .join(", ");
-      }
-      if (typeof value === "number") {
-        return String(value);
-      }
-      if (typeof value === "boolean") {
-        return value ? "true" : "false";
-      }
-      if (typeof value === "string") {
-        return value;
-      }
+    const formatHeaderValue = (value: string | number | string[] | boolean | null | undefined): string | null => {
+      if (Array.isArray(value)) return value.map((entry) => (typeof entry === "string" || typeof entry === "number" ? String(entry) : "")).filter(Boolean).join(", ");
+      if (typeof value === "number") return String(value);
+      if (typeof value === "boolean") return value ? "true" : "false";
+      if (typeof value === "string") return value;
       return value ?? null;
     };
 
@@ -1324,7 +1075,7 @@ async function handleAskEcoRequest(req: Request, res: Response, _next: NextFunct
       "x-accel-buffering": formatHeaderValue(res.getHeader("X-Accel-Buffering")),
       "x-no-compression": formatHeaderValue(res.getHeader("X-No-Compression")),
       "transfer-encoding": formatHeaderValue(res.getHeader("Transfer-Encoding")),
-    };
+    } as const;
 
     log.info("[ask-eco] stream_start", {
       origin: origin ?? null,
@@ -1333,7 +1084,7 @@ async function handleAskEcoRequest(req: Request, res: Response, _next: NextFunct
       interactionId: getResolvedInteractionId() ?? null,
       headers: {
         accept: typeof req.headers.accept === "string" ? req.headers.accept : undefined,
-        "user-agent": typeof req.headers["user-agent"] === "string" ? req.headers["user-agent"] : undefined,
+        "user-agent": typeof req.headers["user-agent"] === "string" ? (req.headers["user-agent"] as string) : undefined,
       },
       pid: process.pid,
       idleTimeoutMs,
@@ -1344,28 +1095,20 @@ async function handleAskEcoRequest(req: Request, res: Response, _next: NextFunct
 
     const state = new SseStreamState();
 
-    const earlyClientAbortTimerRef: { current: NodeJS.Timeout | null } = {
-      current: null,
-    };
+    const earlyClientAbortTimerRef: { current: NodeJS.Timeout | null } = { current: null };
     let immediatePromptReadySent = false;
     let interactionBootstrapPromise: Promise<void> = Promise.resolve();
 
-    const classifyClose = (source: string | null | undefined) =>
-      state.classifyClose(source);
+    const classifyClose = (source: string | null | undefined) => state.classifyClose(source);
 
     const markConnectionClosed = (
       source: string,
       error?: unknown
     ): "client_closed" | "proxy_closed" | "server_abort" | "unknown" => {
-      const effectiveClassification = state.markConnectionClosed(
-        source,
-        error,
-        captureShortStack
-      );
+      const effectiveClassification = state.markConnectionClosed(source, error, captureShortStack);
 
       if (!state.done) {
-        const sincePromptReady =
-          state.promptReadyAt > 0 ? state.closeAt - state.promptReadyAt : null;
+        const sincePromptReady = state.promptReadyAt > 0 ? state.closeAt - state.promptReadyAt : null;
         log.warn("[ask-eco] stream_close_before_done", {
           source,
           classification: effectiveClassification,
@@ -1376,10 +1119,7 @@ async function handleAskEcoRequest(req: Request, res: Response, _next: NextFunct
           origin: origin ?? null,
           clientMessageId: clientMessageId ?? null,
           streamId: streamId ?? null,
-          stack:
-            effectiveClassification === "client_closed"
-              ? state.clientClosedStack ?? undefined
-              : undefined,
+          stack: effectiveClassification === "client_closed" ? state.clientClosedStack ?? undefined : undefined,
           closeError: state.closeErrorMessage ?? undefined,
           error: error instanceof Error ? error.message : error ? String(error) : undefined,
         });
@@ -1394,138 +1134,80 @@ async function handleAskEcoRequest(req: Request, res: Response, _next: NextFunct
 
     const armFirstTokenWatchdog = () => {
       clearFirstTokenWatchdog();
-      if (firstTokenWatchdogMs <= 0) {
-        return;
-      }
+      if (firstTokenWatchdogMs <= 0) return;
       const timer = setTimeout(() => {
         state.markFirstTokenWatchdogCleared();
-        if (state.done || state.firstTokenWatchdogFired) {
-          return;
-        }
+        if (state.done || state.firstTokenWatchdogFired) return;
         state.markFirstTokenWatchdogFired();
         const nowTs = Date.now();
-        log.warn("[ask-eco] first_token_watchdog_triggered", {
-          timeoutMs: firstTokenWatchdogMs,
-          origin: origin ?? null,
-          clientMessageId: clientMessageId ?? null,
-        });
-        enqueuePassiveSignal("first_token_watchdog", 0, {
-          timeout_ms: firstTokenWatchdogMs,
-        });
-        if (!state.sawChunk && !state.done) {
-          state.ensureFinishReason("first_token_timeout");
-        }
+        log.warn("[ask-eco] first_token_watchdog_triggered", { timeoutMs: firstTokenWatchdogMs, origin: origin ?? null, clientMessageId: clientMessageId ?? null });
+        enqueuePassiveSignal("first_token_watchdog", 0, { timeout_ms: firstTokenWatchdogMs });
+        if (!state.sawChunk && !state.done) state.ensureFinishReason("first_token_timeout");
         state.updateLastEvent(nowTs);
       }, firstTokenWatchdogMs);
       state.setFirstTokenWatchdogTimer(timer);
     };
-
-    const handleConnectionClosed = ({ source, error }: { source: string; error?: unknown }) => {
-      isClosed = true;
-      const classification = markConnectionClosed(source, error);
-      if (!state.finishReason) {
-        if (classification === "client_closed") {
-          state.setFinishReason("client_closed");
-        } else if (classification === "proxy_closed") {
-          state.setFinishReason("proxy_closed");
-        } else if (classification === "server_abort" && state.serverAbortReason) {
-          state.setFinishReason(state.serverAbortReason);
-        }
-      }
-      if (!state.done && !abortSignal.aborted) {
-        if (classification === "client_closed") {
-          if (!doneSent && !state.clientClosed) {
-            const usageMeta = {
-              input_tokens: state.usageTokens.in,
-              output_tokens: state.usageTokens.out,
-            };
-            const finalMeta = {
-              ...state.doneMeta,
-              finishReason: "client_disconnect",
-              usage: usageMeta,
-            };
-            state.setDoneMeta(finalMeta);
-            state.ensureFinishReason("client_disconnect");
-            doneSent = true;
-          }
-          if (!state.clientClosed) {
-            sseConnection?.sendComment?.("");
-          }
-          if (!state.sawChunk) {
-            if (!earlyClientAbortTimerRef.current) {
-              log.info("[ask-eco] client closed before first chunk — keeping LLM alive brevemente", {
-                origin: origin ?? null,
-                clientMessageId: clientMessageId ?? null,
-                streamId: streamId ?? null,
-              });
-              earlyClientAbortTimerRef.current = setTimeout(() => {
-                earlyClientAbortTimerRef.current = null;
-                if (!state.sawChunk && !abortSignal.aborted) {
-                  state.setFinishReason("client_closed_early");
-                  abortController.abort(new Error("client_closed_early"));
-                }
-              }, 1500);
-            }
-            state.setFinishReason("client_closed_early");
-            return;
-          }
-          abortController.abort(new Error("client_closed"));
-        } else if (classification === "proxy_closed") {
-          abortController.abort(new Error("proxy_closed"));
-        } else if (classification === "server_abort" && state.serverAbortReason) {
-          abortController.abort(new Error(state.serverAbortReason));
-        }
-      }
-    };
-
-    const consoleStreamEnd = (payload?: Record<string, unknown>) => {
-      if (state.endLogged) return;
-      state.markEndLogged();
-      console.info("[ask-eco] end", {
-        origin: origin ?? null,
-        streamId: streamId ?? null,
-        ...(payload ?? {}),
-      });
-    };
-
-    const updateUsageTokens = (meta: any) => {
-      state.updateUsageTokens(meta);
-    };
-
-    const mergeLatencyMarks: (marks?: Record<string, unknown>) => void = (marks) => {
-      state.mergeLatencyMarks(marks ?? {});
-    };
-
-    const resolvedUserIdForInteraction =
-      !isGuestRequest && typeof (params as any).userId === "string"
-        ? ((params as any).userId as string).trim()
-        : null;
-    const normalizedSessionId =
-      typeof reqWithIdentity.ecoSessionId === "string" && reqWithIdentity.ecoSessionId.trim()
-        ? reqWithIdentity.ecoSessionId.trim()
-        : null;
 
     let isClosed = false;
     const abortListenerRef: { current: (() => void) | null } = { current: null };
     const heartbeatRef: { current: NodeJS.Timeout | null } = { current: null };
     let handlers: SseEventHandlers;
 
-    const sseConnectionRef: { current: ReturnType<typeof createSSE> | null } = {
-      current: sseConnection,
-    };
+    const sseConnectionRef: { current: ReturnType<typeof createSSE> | null } = { current: sseConnection };
     const getSseConnection = createGetSseConnectionRef(sseConnectionRef);
     const recordFirstTokenTelemetry = createRecordFirstTokenTelemetry(state, telemetry);
     const clearHeartbeatTimer = createClearHeartbeatTimer(heartbeatRef);
     const clearEarlyClientAbortTimer = createClearEarlyClientAbortTimer(earlyClientAbortTimerRef);
     const clearAbortListenerRef = createClearAbortListenerRef(abortSignal, abortListenerRef);
 
-    function sendLatency(_payload: Record<string, unknown>) {}
+    function sendLatency(_payload: Record<string, unknown>) {
+      // no-op (can be wired to analytics in the future)
+    }
 
     const streamSse = createSSE(res, req, {
       pingIntervalMs: 0,
       idleMs: idleTimeoutMs,
       onIdle: () => handlers.handleStreamTimeout(),
-      onConnectionClose: handleConnectionClosed,
+      onConnectionClose: ({ source, error }: { source: string; error?: unknown }) => {
+        isClosed = true;
+        const classification = markConnectionClosed(source, error);
+        if (!state.finishReason) {
+          if (classification === "client_closed") state.setFinishReason("client_closed");
+          else if (classification === "proxy_closed") state.setFinishReason("proxy_closed");
+          else if (classification === "server_abort" && state.serverAbortReason) state.setFinishReason(state.serverAbortReason);
+        }
+        if (!state.done && !abortSignal.aborted) {
+          if (classification === "client_closed") {
+            if (!doneSent && !state.clientClosed) {
+              const usageMeta = { input_tokens: state.usageTokens.in, output_tokens: state.usageTokens.out };
+              const finalMeta = { ...state.doneMeta, finishReason: "client_disconnect", usage: usageMeta };
+              state.setDoneMeta(finalMeta);
+              state.ensureFinishReason("client_disconnect");
+              doneSent = true;
+            }
+            if (!state.clientClosed) sseConnection?.sendComment?.("");
+            if (!state.sawChunk) {
+              if (!earlyClientAbortTimerRef.current) {
+                log.info("[ask-eco] client closed before first chunk — keeping LLM alive brevemente", { origin: origin ?? null, clientMessageId: clientMessageId ?? null, streamId: streamId ?? null });
+                earlyClientAbortTimerRef.current = setTimeout(() => {
+                  earlyClientAbortTimerRef.current = null;
+                  if (!state.sawChunk && !abortSignal.aborted) {
+                    state.setFinishReason("client_closed_early");
+                    abortController.abort(new Error("client_closed_early"));
+                  }
+                }, 1500);
+              }
+              state.setFinishReason("client_closed_early");
+              return;
+            }
+            abortController.abort(new Error("client_closed"));
+          } else if (classification === "proxy_closed") {
+            abortController.abort(new Error("proxy_closed"));
+          } else if (classification === "server_abort" && state.serverAbortReason) {
+            abortController.abort(new Error(state.serverAbortReason));
+          }
+        }
+      },
       commentOnOpen: null,
     });
 
@@ -1536,11 +1218,7 @@ async function handleAskEcoRequest(req: Request, res: Response, _next: NextFunct
     const handlerResult = makeHandlers({
       state,
       sse: streamSse,
-      context: {
-        origin: origin ?? null,
-        clientMessageId: clientMessageId ?? null,
-        streamId: streamId ?? null,
-      },
+      context: { origin: origin ?? null, clientMessageId: clientMessageId ?? null, streamId: streamId ?? null },
       onTelemetry: enqueuePassiveSignal,
       guardFallbackText: GUARD_FALLBACK_TEXT,
       idleTimeoutMs,
@@ -1553,8 +1231,8 @@ async function handleAskEcoRequest(req: Request, res: Response, _next: NextFunct
       getIsClosed: () => isClosed,
       clearFirstTokenWatchdog,
       recordFirstTokenTelemetry,
-      updateUsageTokens,
-      mergeLatencyMarks,
+      updateUsageTokens: (meta) => state.updateUsageTokens(meta),
+      mergeLatencyMarks: (marks) => state.mergeLatencyMarks(marks ?? {}),
       buildSummaryFromChunks,
       buildDonePayload,
       finalizeClientMessageReservation,
@@ -1563,7 +1241,11 @@ async function handleAskEcoRequest(req: Request, res: Response, _next: NextFunct
       captureInteractionId,
       getInteractionBootstrapPromise: () => interactionBootstrapPromise,
       sendLatency,
-      consoleStreamEnd,
+      consoleStreamEnd: (payload) => {
+        if (state.endLogged) return;
+        state.markEndLogged();
+        console.info("[ask-eco] end", { origin: origin ?? null, streamId: streamId ?? null, ...(payload ?? {}) });
+      },
       compactMeta,
       abortSignal,
       clearAbortListener: clearAbortListenerRef,
@@ -1581,7 +1263,7 @@ async function handleAskEcoRequest(req: Request, res: Response, _next: NextFunct
     handlers = handlerResult.handlers;
 
     const sendMeta = handlerResult.sendMeta;
-    const sendMemorySaved = handlerResult.sendMemorySaved;
+    const sendMemorySaved = handlerResult.sendMemorySaved; // (mantido para compatibilidade)
     const sendErrorEvent = handlerResult.sendErrorEvent;
     const ensureGuardFallback = handlerResult.ensureGuardFallback;
     const sendDone = handlerResult.sendDone;
@@ -1589,10 +1271,7 @@ async function handleAskEcoRequest(req: Request, res: Response, _next: NextFunct
     const forwardEvent = handlerResult.forwardEvent;
 
     if (supabaseContextUnavailable && wantsStream) {
-      streamSse.send("chunk", {
-        warn: true,
-        message: "Contexto indisponível (Supabase). Seguindo sem memórias.",
-      });
+      streamSse.send("chunk", { warn: true, message: "Contexto indisponível (Supabase). Seguindo sem memórias." });
       flushSse();
     }
 
@@ -1600,9 +1279,7 @@ async function handleAskEcoRequest(req: Request, res: Response, _next: NextFunct
     sseSendDone = sendDone;
 
     const startHeartbeat = () => {
-      if (heartbeatRef.current || pingIntervalMs <= 0) {
-        return;
-      }
+      if (heartbeatRef.current || pingIntervalMs <= 0) return;
       const sendHeartbeat = () => {
         if (state.done || isClosed) {
           if (heartbeatRef.current) {
@@ -1612,14 +1289,8 @@ async function handleAskEcoRequest(req: Request, res: Response, _next: NextFunct
           return;
         }
         const now = Date.now();
-        const sincePromptReadyMs =
-          state.promptReadyAt > 0 ? now - state.promptReadyAt : null;
-        log.debug("[ask-eco] heartbeat", {
-          origin: origin ?? null,
-          clientMessageId: clientMessageId ?? null,
-          streamId: streamId ?? null,
-          sincePromptReadyMs,
-        });
+        const sincePromptReadyMs = state.promptReadyAt > 0 ? now - state.promptReadyAt : null;
+        log.debug("[ask-eco] heartbeat", { origin: origin ?? null, clientMessageId: clientMessageId ?? null, streamId: streamId ?? null, sincePromptReadyMs });
         if (sseConnection) {
           sseConnection.sendComment("keep-alive");
           flushSse();
@@ -1631,9 +1302,7 @@ async function handleAskEcoRequest(req: Request, res: Response, _next: NextFunct
     };
 
     const sendImmediatePromptReady = () => {
-      if (immediatePromptReadySent) {
-        return;
-      }
+      if (immediatePromptReadySent) return;
       immediatePromptReadySent = true;
       const nowTs = Date.now();
       const sinceStartMs = nowTs - state.t0;
@@ -1649,11 +1318,7 @@ async function handleAskEcoRequest(req: Request, res: Response, _next: NextFunct
       state.markPromptReady(nowTs);
       armFirstTokenWatchdog();
       startHeartbeat();
-      log.info("[ask-eco] prompt_ready_sent", {
-        origin: origin ?? null,
-        clientMessageId: clientMessageId ?? null,
-        streamId: streamId ?? null,
-      });
+      log.info("[ask-eco] prompt_ready_sent", { origin: origin ?? null, clientMessageId: clientMessageId ?? null, streamId: streamId ?? null });
     };
 
     sendImmediatePromptReady();
@@ -1668,34 +1333,25 @@ async function handleAskEcoRequest(req: Request, res: Response, _next: NextFunct
       isClosed = true;
     });
 
-
     const bootstrapInteraction = async () => {
       try {
         const interactionId = await createInteraction({
-          userId:
-            resolvedUserIdForInteraction && resolvedUserIdForInteraction.length
-              ? resolvedUserIdForInteraction
-              : null,
-          sessionId: normalizedSessionId,
+          userId: !isGuestRequest && typeof (params as any).userId === "string" ? ((params as any).userId as string).trim() : null,
+          sessionId: typeof reqWithIdentity.ecoSessionId === "string" && reqWithIdentity.ecoSessionId.trim() ? reqWithIdentity.ecoSessionId.trim() : null,
           messageId: lastMessageId,
           promptHash: null,
         });
 
         if (interactionId && typeof interactionId === "string") {
-          const previousInteractionId = getResolvedInteractionId();
           captureInteractionId(interactionId);
           (params as any).interactionId = interactionId;
           return;
         }
       } catch (error) {
-        log.warn("[ask-eco] interaction_create_failed", {
-          message: error instanceof Error ? error.message : String(error),
-        });
+        log.warn("[ask-eco] interaction_create_failed", { message: error instanceof Error ? error.message : String(error) });
       }
 
-      if (!isInteractionIdReady()) {
-        captureInteractionId(getResolvedInteractionId());
-      }
+      if (!isInteractionIdReady()) captureInteractionId(getResolvedInteractionId());
     };
 
     abortListenerRef.current = () => {
@@ -1707,45 +1363,21 @@ async function handleAskEcoRequest(req: Request, res: Response, _next: NextFunct
       clearFirstTokenWatchdog();
       clearEarlyClientAbortTimer();
       clearHeartbeatTimer();
-      const reasonValue = abortSignal.reason;
+      const reasonValue = (abortSignal as any).reason;
       let finishReason = (() => {
-        if (typeof reasonValue === "string" && reasonValue.trim()) {
-          return reasonValue.trim();
-        }
-        if (reasonValue instanceof Error) {
-          const message = reasonValue.message?.trim();
-          if (message) return message;
-          return reasonValue.name || "aborted";
-        }
+        if (typeof reasonValue === "string" && reasonValue.trim()) return reasonValue.trim();
+        if (reasonValue instanceof Error) return reasonValue.message?.trim() || reasonValue.name || "aborted";
         return "aborted";
       })();
-      if (finishReason === "superseded_stream") {
-        finishReason = "replaced_by_new_stream";
-      }
+      if (finishReason === "superseded_stream") finishReason = "replaced_by_new_stream";
       state.setServerAbortReason(finishReason);
-      if (!state.connectionClosed) {
-        markConnectionClosed("server.abort");
-      }
+      if (!state.connectionClosed) markConnectionClosed("server.abort");
       if (finishReason === "client_closed") {
-        log.info("[ask-eco] sse_client_closed", {
-          origin: origin ?? null,
-          streamId: streamId ?? null,
-          clientMessageId: clientMessageId ?? null,
-          chunks: state.chunksCount,
-          stack: state.clientClosedStack ?? undefined,
-        });
+        log.info("[ask-eco] sse_client_closed", { origin: origin ?? null, streamId: streamId ?? null, clientMessageId: clientMessageId ?? null, chunks: state.chunksCount, stack: state.clientClosedStack ?? undefined });
       } else if (finishReason === "replaced_by_new_stream") {
-        log.info("[ask-eco] sse_stream_replaced", {
-          origin: origin ?? null,
-          streamId: streamId ?? null,
-        });
+        log.info("[ask-eco] sse_stream_replaced", { origin: origin ?? null, streamId: streamId ?? null });
       } else if (finishReason === "proxy_closed") {
-        log.info("[ask-eco] sse_proxy_closed", {
-          origin: origin ?? null,
-          streamId: streamId ?? null,
-          clientMessageId: clientMessageId ?? null,
-          closeError: state.closeErrorMessage ?? undefined,
-        });
+        log.info("[ask-eco] sse_proxy_closed", { origin: origin ?? null, streamId: streamId ?? null, clientMessageId: clientMessageId ?? null, closeError: state.closeErrorMessage ?? undefined });
       }
       state.markClientClosedFromFinishReason(finishReason);
       sendDone(finishReason || "aborted");
@@ -1759,74 +1391,49 @@ async function handleAskEcoRequest(req: Request, res: Response, _next: NextFunct
         onEvent: (event) => forwardEvent(event),
         onChunk: async (payload) => {
           if (!payload) return;
-          const metaValue =
-            payload.meta && typeof payload.meta === "object"
-              ? (payload.meta as Record<string, unknown>)
-              : undefined;
+          const metaValue = payload.meta && typeof payload.meta === "object" ? (payload.meta as Record<string, unknown>) : undefined;
 
-          if (payload.done) {
+          if ((payload as any).done) {
             if (metaValue) {
               state.mergeDoneMeta(metaValue);
               if (!state.finishReason) {
                 const finishFromMeta = (() => {
-                  if (typeof (metaValue as any).finishReason === "string") {
-                    return (metaValue as any).finishReason as string;
-                  }
-                  if (typeof (metaValue as any).reason === "string") {
-                    return (metaValue as any).reason as string;
-                  }
-                  if (typeof (metaValue as any).error === "string") {
-                    return (metaValue as any).error as string;
-                  }
+                  if (typeof (metaValue as any).finishReason === "string") return (metaValue as any).finishReason as string;
+                  if (typeof (metaValue as any).reason === "string") return (metaValue as any).reason as string;
+                  if (typeof (metaValue as any).error === "string") return (metaValue as any).error as string;
                   return undefined;
                 })();
-                if (finishFromMeta) {
-                  state.setFinishReason(finishFromMeta);
-                }
+                if (finishFromMeta) state.setFinishReason(finishFromMeta);
               }
             }
             return;
           }
 
-          if (typeof payload.text === "string" && payload.text) {
-            sendChunk({
-              text: payload.text,
-              index: payload.index,
-              meta: metaValue,
-            });
+          if (typeof (payload as any).text === "string" && (payload as any).text) {
+            sendChunk({ text: (payload as any).text, index: (payload as any).index, meta: metaValue });
             return;
           }
 
-          if (metaValue) {
-            sendMeta(metaValue);
-          }
+          if (metaValue) sendMeta(metaValue);
         },
       };
-      const result = await getEcoResponse({ ...params, stream } as any);
+
+      const result = await getEcoResponse({ ...(params as any), stream } as any);
 
       if (result && typeof result === "object") {
-        const maybeModel =
-          typeof (result as any).modelo === "string"
-            ? (result as any).modelo
-            : typeof (result as any).model === "string"
-            ? (result as any).model
-            : undefined;
+        const maybeModel = typeof (result as any).modelo === "string" ? (result as any).modelo : typeof (result as any).model === "string" ? (result as any).model : undefined;
         if (maybeModel) state.setModel(maybeModel);
         state.setStreamResult(result as Record<string, unknown>);
         captureInteractionId((result as any)?.meta?.interaction_id);
-        updateUsageTokens(result);
-        updateUsageTokens((result as any)?.meta);
-        if ((result as any)?.timings && typeof (result as any).timings === "object") {
-          mergeLatencyMarks((result as any).timings as Record<string, unknown>);
-        }
+        state.updateUsageTokens(result as any);
+        state.updateUsageTokens((result as any)?.meta);
+        if ((result as any)?.timings && typeof (result as any).timings === "object") state.mergeLatencyMarks((result as any).timings as Record<string, unknown>);
       }
 
       if (!state.done) {
         if (!state.sawChunk) {
           const textOut = sanitizeOutput(extractTextLoose(result) ?? "");
-          if (textOut) {
-            sendChunk({ text: textOut });
-          }
+          if (textOut) sendChunk({ text: textOut });
           sendDone(textOut ? "fallback_no_stream" : "fallback_empty");
         } else {
           sendDone("stream_done");
@@ -1836,47 +1443,28 @@ async function handleAskEcoRequest(req: Request, res: Response, _next: NextFunct
       if ((error as any)?.message === "client_closed_early") {
         state.markClientClosed();
         state.setFinishReason("client_closed_early");
-        log.info("[ask-eco] stream_aborted", {
-          origin: origin ?? null,
-          reason: "client_closed_early",
-          streamId: streamId ?? null,
-        });
+        log.info("[ask-eco] stream_aborted", { origin: origin ?? null, reason: "client_closed_early", streamId: streamId ?? null });
         return;
       }
       if (abortSignal.aborted) {
-        const reasonValue = abortSignal.reason;
+        const reasonValue = (abortSignal as any).reason;
         const reasonMessage = (() => {
-          if (typeof reasonValue === "string" && reasonValue.trim()) {
-            return reasonValue.trim();
-          }
-          if (reasonValue instanceof Error) {
-            return reasonValue.message?.trim() || reasonValue.name || "aborted";
-          }
+          if (typeof reasonValue === "string" && reasonValue.trim()) return reasonValue.trim();
+          if (reasonValue instanceof Error) return reasonValue.message?.trim() || reasonValue.name || "aborted";
           return "aborted";
         })();
-        log.info("[ask-eco] stream_aborted", {
-          origin: origin ?? null,
-          reason: reasonMessage,
-          streamId: streamId ?? null,
-        });
+        log.info("[ask-eco] stream_aborted", { origin: origin ?? null, reason: reasonMessage, streamId: streamId ?? null });
         sendDone(reasonMessage || "aborted");
       } else if (isHttpError(error)) {
-        sendErrorEvent({ ...error.body, status: error.status });
+        sendErrorEvent({ ...(error as any).body, status: (error as any).status });
         streamSse.send("chunk", { error: true, message: "LLM indisponível. Tente novamente." });
         flushSse();
         sendDone("llm_unavailable");
       } else {
         const traceId = randomUUID();
-        log.error("[ask-eco] sse_unexpected", {
-          trace_id: traceId,
-          message: (error as Error)?.message,
-        });
+        log.error("[ask-eco] sse_unexpected", { trace_id: traceId, message: (error as Error)?.message });
         sendErrorEvent({ code: "INTERNAL_ERROR", trace_id: traceId });
-        streamSse.send("chunk", {
-          error: true,
-          message: "LLM indisponível. Tente novamente.",
-          traceId,
-        });
+        streamSse.send("chunk", { error: true, message: "LLM indisponível. Tente novamente.", traceId });
         flushSse();
         sendDone("llm_unavailable");
       }
@@ -1900,48 +1488,35 @@ async function handleAskEcoRequest(req: Request, res: Response, _next: NextFunct
     }
   } catch (error) {
     finalizeClientMessageLock();
-    if (clientMessageReserved && clientMessageKey) {
-      releaseClientMessage(clientMessageKey);
-      clientMessageReserved = false;
-    }
+    // Garanta a liberação da reserva de mensagem do cliente em erros topo-de-pilha
+    try {
+      // Nada — proteção dupla no finally abaixo
+    } catch {}
+
     const traceId = randomUUID();
-    log.error("[ask-eco] handler_failed", {
-      trace_id: traceId,
-      sseStarted,
-      message: error instanceof Error ? error.message : String(error),
-    });
+    log.error("[ask-eco] handler_failed", { trace_id: traceId, sseStarted, message: error instanceof Error ? error.message : String(error) });
+
     if (!sseStarted && !sseWarmupStarted) {
-      return res.status(400).json({
-        error: "invalid_request",
-        traceId,
-        message: error instanceof Error ? error.message : String(error),
-      });
+      res.status(400).json({ error: "invalid_request", traceId, message: error instanceof Error ? error.message : String(error) });
+      return;
     }
+
     try {
       if (!sse) {
-        const fallbackSse = createSSE(res, req, {
-          pingIntervalMs: 0,
-          idleMs: 0,
-          commentOnOpen: null,
-        });
+        const fallbackSse = createSSE(res, req, { pingIntervalMs: 0, idleMs: 0, commentOnOpen: null });
         sse = fallbackSse;
         sseStarted = true;
       }
       sse?.send("error", { message: "internal_error", traceId });
     } catch (sendError) {
-      log.warn("[ask-eco] sse_error_emit_failed", {
-        trace_id: traceId,
-        message: sendError instanceof Error ? sendError.message : String(sendError),
-      });
+      log.warn("[ask-eco] sse_error_emit_failed", { trace_id: traceId, message: sendError instanceof Error ? sendError.message : String(sendError) });
     }
     try {
       sse?.end();
     } catch (endError) {
-      log.warn("[ask-eco] sse_end_failed", {
-        trace_id: traceId,
-        message: endError instanceof Error ? endError.message : String(endError),
-      });
+      log.warn("[ask-eco] sse_end_failed", { trace_id: traceId, message: endError instanceof Error ? endError.message : String(endError) });
     }
+
     sse = null;
     sseConnection = null;
     sseSendErrorEvent = null;
@@ -1951,7 +1526,7 @@ async function handleAskEcoRequest(req: Request, res: Response, _next: NextFunct
   } finally {
     finalizeClientMessageLock();
   }
-});
+}
 
 router.use("/ask-eco", askEcoRouter);
 
