@@ -28,6 +28,7 @@ export const PRIMARY_CORS_ORIGIN = CORS_ALLOWED_ORIGINS[0];
 export const CORS_ALLOWED_METHODS = ["GET", "POST", "OPTIONS"] as const;
 export const CORS_ALLOWED_HEADERS = [
   "content-type",
+  "authorization",
   "x-client-id",
   "x-eco-guest-id",
   "x-eco-session-id",
