@@ -396,8 +396,11 @@ test("SSE streaming sends heartbeats before and after first chunk", async () => 
   const fakeInterval = { ref: Symbol("interval") } as unknown as NodeJS.Timeout;
   const originalSetInterval = global.setInterval;
   const originalClearInterval = global.clearInterval;
+  const originalDateNow = Date.now;
 
   try {
+    let nowValue = 1_000;
+    Date.now = (() => nowValue) as typeof Date.now;
     (global as any).setInterval = ((fn: () => void) => {
       heartbeatCleared = false;
       heartbeatCallback = fn;
@@ -412,6 +415,18 @@ test("SSE streaming sends heartbeats before and after first chunk", async () => 
 
     let releaseChunk: (() => Promise<void>) | null = null;
     let releaseDone: (() => Promise<void>) | null = null;
+    const debugCalls: Array<any[]> = [];
+
+    const logStub = {
+      info: () => {},
+      warn: () => {},
+      error: () => {},
+      debug: (...args: any[]) => {
+        debugCalls.push(args);
+      },
+      trace: () => {},
+      withContext: () => logStub,
+    } as const;
 
     const router = await loadRouterWithStubs("../../routes/promptRoutes", {
       "../services/ConversationOrchestrator": {
@@ -438,12 +453,7 @@ test("SSE streaming sends heartbeats before and after first chunk", async () => 
         createInteraction: async () => TEST_INTERACTION_ID,
       },
       "../services/promptContext/logger": {
-        log: {
-          info: () => {},
-          warn: () => {},
-          error: () => {},
-          debug: () => {},
-        },
+        log: logStub,
       },
     });
 
@@ -474,15 +484,35 @@ test("SSE streaming sends heartbeats before and after first chunk", async () => 
     const countHeartbeats = () =>
       res.chunks.reduce((count, chunk) => count + (chunk.includes(": hb") ? 1 : 0), 0);
 
+    nowValue = 1_400;
     heartbeatCallback?.();
     assert.equal(countHeartbeats(), 1, "heartbeat callback should append hb comment");
 
+    const getHeartbeatLogs = () =>
+      debugCalls.filter((entry) => entry[0] === "[ask-eco] heartbeat");
+    let heartbeatLogs = getHeartbeatLogs();
+    assert.ok(heartbeatLogs.length >= 1, "should record heartbeat log entry");
+    const firstHeartbeatMeta = heartbeatLogs[0]?.[1] ?? {};
+    assert.equal(firstHeartbeatMeta.streamId ?? null, null, "heartbeat log should include stream id");
+    assert.equal(
+      firstHeartbeatMeta.clientMessageId ?? null,
+      null,
+      "heartbeat log should include client message id",
+    );
+    assert.equal(
+      firstHeartbeatMeta.sincePromptReadyMs,
+      400,
+      "heartbeat log should record elapsed time since prompt_ready",
+    );
+
+    nowValue = 1_600;
     await releaseChunk?.();
 
     assert.equal(heartbeatCleared, false, "heartbeat timer should remain armed after chunk");
     assert.ok(heartbeatCallback, "heartbeat callback should remain active after chunk");
 
     const beforeSecondHeartbeat = countHeartbeats();
+    nowValue = 2_100;
     heartbeatCallback?.();
     assert.equal(
       countHeartbeats(),
@@ -490,13 +520,24 @@ test("SSE streaming sends heartbeats before and after first chunk", async () => 
       "heartbeat callback should append hb comment after chunk",
     );
 
+    heartbeatLogs = getHeartbeatLogs();
+    const secondHeartbeatMeta = heartbeatLogs[1]?.[1] ?? {};
+    assert.equal(
+      secondHeartbeatMeta.sincePromptReadyMs,
+      1_100,
+      "second heartbeat log should update elapsed time",
+    );
+
+    nowValue = 2_400;
     await releaseDone?.();
+    nowValue = 2_800;
     await handlerPromise;
 
     assert.equal(heartbeatCleared, true, "heartbeat timer should clear when stream finishes");
   } finally {
     global.setInterval = originalSetInterval;
     global.clearInterval = originalClearInterval;
+    Date.now = originalDateNow;
   }
 });
 

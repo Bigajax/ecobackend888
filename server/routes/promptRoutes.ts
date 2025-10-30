@@ -1557,6 +1557,15 @@ askEcoRouter.post("/", ensureIdentity, async (req: Request, res: Response, _next
           }
           return;
         }
+        const now = Date.now();
+        const sincePromptReadyMs =
+          state.promptReadyAt > 0 ? now - state.promptReadyAt : null;
+        log.debug("[ask-eco] heartbeat", {
+          origin: origin ?? null,
+          clientMessageId: clientMessageId ?? null,
+          streamId: streamId ?? null,
+          sincePromptReadyMs,
+        });
         if (sseConnection) {
           sseConnection.sendComment("hb");
           flushSse();
