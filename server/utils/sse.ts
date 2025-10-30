@@ -81,7 +81,11 @@ export function createSSE(
       prepareSse(res, originHeader);
     }
 
-    res.write(`:ok\n\n`);
+    if (!(res as any).__ecoSseWarmupSent) {
+      res.write("\n");
+      res.write(`:ok\n\n`);
+      (res as any).__ecoSseWarmupSent = true;
+    }
   }
 
   function ensureOpen() {
