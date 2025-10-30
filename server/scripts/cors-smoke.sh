@@ -12,6 +12,6 @@ curl -sS -i -X OPTIONS "$B/api/ask-eco" \
   | sed -n '1,20p'
 
 echo
-echo "[SSE smoke]"
+echo "[SSE smoke] (includes timed heartbeats)"
 curl -sS -i -N -H "Accept: text/event-stream" "$B/api/_sse-smoke" \
-  | sed -n '1,40p'
+  | sed -n '1,80p'
