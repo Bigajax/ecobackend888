@@ -390,26 +390,48 @@ test("SSE streaming emits tokens, done and disables compression", async () => {
   );
 });
 
-test("SSE streaming sends open comment and heartbeats before first chunk", async () => {
+test("SSE streaming sends heartbeats before and after first chunk", async () => {
   let heartbeatCallback: (() => void) | null = null;
+  let heartbeatCleared = false;
   const fakeInterval = { ref: Symbol("interval") } as unknown as NodeJS.Timeout;
   const originalSetInterval = global.setInterval;
   const originalClearInterval = global.clearInterval;
 
   try {
     (global as any).setInterval = ((fn: () => void) => {
+      heartbeatCleared = false;
       heartbeatCallback = fn;
       return fakeInterval;
     }) as typeof setInterval;
-    (global as any).clearInterval = () => {};
+    (global as any).clearInterval = ((token: NodeJS.Timeout) => {
+      if (token === fakeInterval) {
+        heartbeatCleared = true;
+        heartbeatCallback = null;
+      }
+    }) as typeof clearInterval;
 
-    let releaseResponse: (() => void) | null = null;
+    let releaseChunk: (() => Promise<void>) | null = null;
+    let releaseDone: (() => Promise<void>) | null = null;
 
     const router = await loadRouterWithStubs("../../routes/promptRoutes", {
       "../services/ConversationOrchestrator": {
-        getEcoResponse: async () =>
+        getEcoResponse: async (params: any) =>
           await new Promise((resolve) => {
-            releaseResponse = () => resolve({ raw: "resultado" });
+            const finish = () => resolve({ raw: "resultado" });
+            if (params.stream?.onEvent) {
+              releaseChunk = async () => {
+                await params.stream.onEvent({ type: "chunk", delta: "primeiro" });
+              };
+              releaseDone = async () => {
+                await params.stream.onEvent({
+                  type: "done",
+                  meta: { finishReason: "stop" },
+                });
+                finish();
+              };
+            } else {
+              finish();
+            }
           }),
       },
       "../services/conversation/interactionAnalytics": {
@@ -446,16 +468,32 @@ test("SSE streaming sends open comment and heartbeats before first chunk", async
 
     assert.equal(res.chunks[0], ": open\n\n", "should send open comment immediately");
     assert.ok(heartbeatCallback, "should register heartbeat callback");
+    assert.ok(releaseChunk, "orchestrator stub should expose chunk release helper");
+    assert.ok(releaseDone, "orchestrator stub should expose done release helper");
+
+    const countHeartbeats = () =>
+      res.chunks.reduce((count, chunk) => count + (chunk.includes(": hb") ? 1 : 0), 0);
 
     heartbeatCallback?.();
+    assert.equal(countHeartbeats(), 1, "heartbeat callback should append hb comment");
 
-    assert.ok(
-      res.chunks.some((chunk, index) => index > 0 && chunk.includes(": hb")),
-      "heartbeat callback should append hb comment"
+    await releaseChunk?.();
+
+    assert.equal(heartbeatCleared, false, "heartbeat timer should remain armed after chunk");
+    assert.ok(heartbeatCallback, "heartbeat callback should remain active after chunk");
+
+    const beforeSecondHeartbeat = countHeartbeats();
+    heartbeatCallback?.();
+    assert.equal(
+      countHeartbeats(),
+      beforeSecondHeartbeat + 1,
+      "heartbeat callback should append hb comment after chunk",
     );
 
-    releaseResponse?.();
+    await releaseDone?.();
     await handlerPromise;
+
+    assert.equal(heartbeatCleared, true, "heartbeat timer should clear when stream finishes");
   } finally {
     global.setInterval = originalSetInterval;
     global.clearInterval = originalClearInterval;
