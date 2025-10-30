@@ -686,6 +686,12 @@ export class SseEventHandlers {
         index: chunkInfo.chunkIndex,
         bytes: chunkInfo.chunkBytes,
       });
+      log.info("[ask-eco] first_token", {
+        origin: this.options.origin ?? null,
+        clientMessageId: this.options.clientMessageId ?? null,
+        streamId,
+        index: chunkInfo.chunkIndex,
+      });
     }
 
     if (input.meta && isRecord(input.meta) && Object.keys(input.meta).length) {

@@ -5,7 +5,7 @@ import { createSSE } from "../utils/sse";
 
 const router = Router();
 
-const DEFAULT_HEARTBEAT_COUNT = 2;
+const DEFAULT_HEARTBEAT_COUNT = 3;
 const FINALIZE_DELAY_MS = 250;
 
 function parseHeartbeatInterval(raw: unknown): number | null {
@@ -21,9 +21,7 @@ router.get("/api/_sse-smoke", (req, res) => {
   const sse = createSSE(res, req);
   sse.open();
   sse.sendComment("warmup");
-  sse.ready({ ok: true, source: "_sse-smoke" });
-  sse.sendControl("prompt_ready");
-  sse.chunk({ msg: "smoke:chunk-1" });
+  sse.send("control", { name: "prompt_ready", type: "prompt_ready" });
 
   const requestedInterval = parseHeartbeatInterval(req.query.heartbeat_ms);
   const heartbeatInterval = requestedInterval ?? HEARTBEAT_INTERVAL_MS;
@@ -51,13 +49,14 @@ router.get("/api/_sse-smoke", (req, res) => {
   heartbeatTimer = setInterval(() => {
     if (closed) return;
     heartbeatsSent += 1;
-    sse.sendComment(`heartbeat-${heartbeatsSent}`);
+    sse.sendComment("keep-alive");
 
     if (heartbeatsSent >= DEFAULT_HEARTBEAT_COUNT) {
       if (heartbeatTimer) {
         clearInterval(heartbeatTimer);
         heartbeatTimer = null;
       }
+      sse.chunk({ msg: "smoke:chunk-1" });
       setTimeout(finalizeStream, FINALIZE_DELAY_MS);
     }
   }, heartbeatInterval);

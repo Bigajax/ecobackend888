@@ -1,6 +1,7 @@
 // server/routes/promptRoutes.ts
 import { randomUUID } from "node:crypto";
 import { Router, type Request, type Response, type NextFunction } from "express";
+import type { ParsedQs } from "qs";
 import { getPromptEcoPreview } from "../controllers/promptController";
 import { getEcoResponse } from "../services/ConversationOrchestrator";
 import { log } from "../services/promptContext/logger";
@@ -41,7 +42,7 @@ import {
   releaseClientMessage,
   reserveClientMessage,
 } from "../deduplication/clientMessageRegistry";
-import { extractStringCandidate, isUuidV4 } from "../utils/requestIdentity";
+import { extractStringCandidate } from "../utils/requestIdentity";
 
 const GUARD_FALLBACK_TEXT =
   "Não consegui responder agora. Vamos tentar de novo?";
@@ -124,6 +125,160 @@ function buildSummaryFromChunks(pieces: string[]): string {
   let normalized = summary.replace(/[ \t]*\n[ \t]*/g, "\n");
   normalized = normalized.replace(/([a-zá-ú])([A-ZÁ-Ú])/g, "$1 $2");
   return normalized;
+}
+
+function parseJsonRecord(raw: string | undefined): Record<string, unknown> | undefined {
+  if (typeof raw !== "string") {
+    return undefined;
+  }
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return parsed as Record<string, unknown>;
+    }
+  } catch {
+    /* ignore parse failure */
+  }
+  return undefined;
+}
+
+function parseJsonArray(raw: string | undefined): unknown[] | undefined {
+  if (typeof raw !== "string") {
+    return undefined;
+  }
+  try {
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) {
+      return parsed as unknown[];
+    }
+  } catch {
+    /* ignore parse failure */
+  }
+  return undefined;
+}
+
+function buildAskEcoQueryPayload(req: Request): Record<string, unknown> {
+  const query = (req.query as ParsedQs | undefined) ?? undefined;
+  if (!query) {
+    return {};
+  }
+
+  const body: Record<string, unknown> = {};
+
+  const mergeFromPayload = () => {
+    const rawPayload = extractStringCandidate(query.payload);
+    if (!rawPayload) {
+      return;
+    }
+    const parsedPayload = parseJsonRecord(rawPayload);
+    if (parsedPayload) {
+      Object.assign(body, parsedPayload);
+    }
+  };
+
+  mergeFromPayload();
+
+  const assignIfMissing = (key: string, value: unknown) => {
+    if (value === undefined || value === null) {
+      return;
+    }
+    if (!(key in body)) {
+      body[key] = value;
+    }
+  };
+
+  const resolveMessages = () => {
+    if ("messages" in body || "mensagens" in body) {
+      return;
+    }
+    const rawMessages = (query as Record<string, unknown>).messages ??
+      (query as Record<string, unknown>).mensagens;
+    if (rawMessages === undefined) {
+      return;
+    }
+    const jsonMessages = parseJsonArray(extractStringCandidate(rawMessages));
+    if (jsonMessages) {
+      body.messages = jsonMessages;
+      return;
+    }
+    if (Array.isArray(rawMessages)) {
+      body.messages = [...(rawMessages as unknown[])];
+    }
+  };
+
+  resolveMessages();
+
+  const textCandidate =
+    extractStringCandidate(query.texto) ??
+    extractStringCandidate(query.text) ??
+    extractStringCandidate(query.mensagem) ??
+    extractStringCandidate((query as Record<string, unknown>).message);
+  if (textCandidate && typeof textCandidate === "string") {
+    assignIfMissing("texto", textCandidate);
+  }
+
+  const nomeUsuarioCandidate =
+    extractStringCandidate(query.nome_usuario) ??
+    extractStringCandidate((query as Record<string, unknown>).nomeUsuario);
+  if (nomeUsuarioCandidate) {
+    assignIfMissing("nome_usuario", nomeUsuarioCandidate);
+  }
+
+  const usuarioIdCandidate =
+    extractStringCandidate(query.usuario_id) ??
+    extractStringCandidate((query as Record<string, unknown>).usuarioId) ??
+    extractStringCandidate((query as Record<string, unknown>).user_id) ??
+    extractStringCandidate((query as Record<string, unknown>).userId);
+  if (usuarioIdCandidate) {
+    assignIfMissing("usuario_id", usuarioIdCandidate);
+  }
+
+  const clientMessageCandidate =
+    extractStringCandidate(query.client_message_id) ??
+    extractStringCandidate((query as Record<string, unknown>).clientMessageId);
+  if (clientMessageCandidate) {
+    assignIfMissing("client_message_id", clientMessageCandidate);
+  }
+
+  const contextoCandidate = extractStringCandidate(query.contexto);
+  if (contextoCandidate && !("contexto" in body)) {
+    assignIfMissing("contexto", parseJsonRecord(contextoCandidate) ?? contextoCandidate);
+  }
+
+  const sessionMetaCandidate = extractStringCandidate(query.sessionMeta);
+  if (sessionMetaCandidate && !("sessionMeta" in body)) {
+    assignIfMissing("sessionMeta", parseJsonRecord(sessionMetaCandidate) ?? sessionMetaCandidate);
+  }
+
+  const isGuestCandidate = extractStringCandidate(query.isGuest);
+  if (isGuestCandidate && !("isGuest" in body)) {
+    assignIfMissing(
+      "isGuest",
+      /^(1|true|yes)$/i.test(isGuestCandidate.trim()) ? true : isGuestCandidate
+    );
+  }
+
+  const streamCandidate = extractStringCandidate(query.stream);
+  if (streamCandidate) {
+    assignIfMissing("stream", streamCandidate);
+  }
+
+  const clientHourCandidate =
+    extractStringCandidate((query as Record<string, unknown>).client_hour) ??
+    extractStringCandidate((query as Record<string, unknown>).clientHour);
+  if (clientHourCandidate && !("clientHour" in body)) {
+    const parsedHour = Number(clientHourCandidate);
+    assignIfMissing(
+      "clientHour",
+      Number.isFinite(parsedHour) ? parsedHour : clientHourCandidate
+    );
+  }
+
+  if (!("stream" in body)) {
+    body.stream = "true";
+  }
+
+  return body;
 }
 
 type SseConnection = ReturnType<typeof createSSE>;
@@ -434,39 +589,6 @@ const ASK_ECO_ALLOWED_HEADERS_VALUE =
 const ASK_ECO_ALLOWED_METHODS_VALUE = "GET,POST,OPTIONS";
 const ASK_ECO_EXPOSE_HEADERS_VALUE = "x-eco-guest-id, x-eco-session-id, x-eco-client-message-id";
 
-type QueryIdentityResult = {
-  value: string | null;
-  provided: boolean;
-  valid: boolean;
-  sourceKey: string | null;
-};
-
-function readUuidFromQuery(req: Request, keys: string[]): QueryIdentityResult {
-  const queryBag = req.query as Record<string, unknown> | undefined;
-  if (!queryBag) {
-    return { value: null, provided: false, valid: false, sourceKey: null };
-  }
-
-  for (const key of keys) {
-    if (!Object.prototype.hasOwnProperty.call(queryBag, key)) {
-      continue;
-    }
-    const candidate = extractStringCandidate(queryBag[key]);
-    if (candidate) {
-      const normalized = candidate.trim();
-      const valid = isUuidV4(normalized);
-      return {
-        value: valid ? normalized : null,
-        provided: true,
-        valid,
-        sourceKey: key,
-      };
-    }
-  }
-
-  return { value: null, provided: false, valid: false, sourceKey: null };
-}
-
 function applyAskEcoCorsHeaders(
   res: Response,
   originHeader: string | null,
@@ -527,7 +649,10 @@ router.get("/prompt-preview", async (req: Request, res: Response) => {
       res.status(500).json({ error: "Erro interno ao montar o prompt." });
     }
   }
-});
+}
+
+askEcoRouter.get("/", ensureIdentity, handleAskEcoRequest);
+askEcoRouter.post("/", ensureIdentity, handleAskEcoRequest);
 
 askEcoRouter.options("/", (req: Request, res: Response) => {
   const originHeader = typeof req.headers.origin === "string" ? req.headers.origin : null;
@@ -543,85 +668,6 @@ askEcoRouter.options("/", (req: Request, res: Response) => {
   res.status(204).end();
 });
 
-askEcoRouter.get("/", (req: Request, res: Response) => {
-  const originHeader = typeof req.headers.origin === "string" ? req.headers.origin : null;
-  const allowedOrigin = resolveCorsOrigin(originHeader);
-
-  const guestQuery = readUuidFromQuery(req, ["guest_id", "guest", "guestId"]);
-  const sessionQuery = readUuidFromQuery(req, ["session_id", "session", "sessionId"]);
-  const clientQuery = readUuidFromQuery(req, ["client_message_id", "clientMessageId"]);
-
-  log.info("[ask-eco] identity_source", {
-    path: req.path,
-    method: "GET",
-    origin: originHeader ?? null,
-    guestIdSource: guestQuery.provided ? "query" : null,
-    guestIdValid: guestQuery.valid,
-    sessionIdSource: sessionQuery.provided ? "query" : null,
-    sessionIdValid: sessionQuery.valid,
-    clientMessageIdSource: clientQuery.provided ? "query" : null,
-    clientMessageIdValid: clientQuery.valid,
-  });
-
-  if (originHeader && !allowedOrigin) {
-    log.warn("[ask-eco] origin_blocked", { method: "GET", origin: originHeader });
-    ensureVaryIncludes(res, "Origin");
-    return res.status(403).end();
-  }
-
-  const guestId = guestQuery.valid ? guestQuery.value : null;
-  const sessionId = sessionQuery.valid ? sessionQuery.value : null;
-
-  if (!guestId || !sessionId) {
-    applyAskEcoCorsHeaders(res, originHeader, allowedOrigin);
-    return res
-      .status(400)
-      .json({ error: "invalid_guest_id", message: "Envie um UUID v4 em X-Eco-Guest-Id" });
-  }
-
-  const clientMessageId = clientQuery.valid ? clientQuery.value : null;
-
-  disableCompressionForSse(res);
-  applyAskEcoCorsHeaders(res, originHeader, allowedOrigin);
-  res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
-  res.setHeader("Cache-Control", "no-cache, no-transform");
-  res.setHeader("Connection", "keep-alive");
-  res.setHeader("X-Accel-Buffering", "no");
-
-  res.setHeader("X-Eco-Guest-Id", guestId);
-  res.setHeader("X-Eco-Session-Id", sessionId);
-  if (clientMessageId) {
-    res.setHeader("X-Eco-Client-Message-Id", clientMessageId);
-  }
-
-  res.status(200);
-  (res as any).flushHeaders?.();
-
-  try {
-    res.write(`:ok\n\n`);
-    res.write(`event: ready\n`);
-    res.write(`data: ${JSON.stringify({ status: "starting" })}\n\n`);
-    (res as any).flush?.();
-  } catch (error) {
-    log.warn("[ask-eco] sse_get_write_failed", {
-      method: "GET",
-      origin: originHeader ?? null,
-      message: error instanceof Error ? error.message : String(error),
-    });
-    res.end();
-    return;
-  }
-
-  req.on("close", () => {
-    log.info("[ask-eco] sse_get_closed", {
-      method: "GET",
-      origin: originHeader ?? null,
-      guestId,
-      sessionId,
-    });
-  });
-});
-
 // Aceita headers: X-Eco-Guest-Id, X-Eco-Session-Id
 // Aceita query: ?guest_id=...&session_id=...
 // Front pode usar qualquer um dos dois.
@@ -629,26 +675,28 @@ askEcoRouter.head("/", ensureIdentity, (_req: Request, res: Response) => {
   res.status(200).end();
 });
 
-/** POST /api/ask-eco — stream SSE (ou JSON se cliente não pedir SSE) */
-askEcoRouter.post("/", ensureIdentity, async (req: Request, res: Response, _next: NextFunction) => {
+/** GET/POST /api/ask-eco — stream SSE (ou JSON se cliente não pedir SSE) */
+async function handleAskEcoRequest(req: Request, res: Response, _next: NextFunction) {
   const reqWithIdentity = req as RequestWithIdentity;
   log.info("[ask-eco] identity_resolved", {
     guestId: reqWithIdentity.guestId,
     sessionId: reqWithIdentity.ecoSessionId ?? null,
     clientMessageId: reqWithIdentity.clientMessageId ?? null,
   });
+  const method = req.method.toUpperCase();
+  const rawBody = method === "GET" ? buildAskEcoQueryPayload(req) : req.body;
   const accept = String(req.headers.accept || "").toLowerCase();
   const streamParam = (() => {
     const fromQuery = (req.query as any)?.stream;
     if (typeof fromQuery === "string") return fromQuery;
     if (Array.isArray(fromQuery)) return fromQuery[fromQuery.length - 1];
-    const bodyValue = (req.body as any)?.stream;
+    const bodyValue = (rawBody as any)?.stream;
     if (typeof bodyValue === "string") return bodyValue;
     if (typeof bodyValue === "boolean") return bodyValue ? "true" : "false";
     return undefined;
   })();
   const wantsStreamByFlag = typeof streamParam === "string" && /^(1|true|yes)$/i.test(streamParam.trim());
-  const wantsStream = wantsStreamByFlag || accept.includes("text/event-stream");
+  const wantsStream = method === "GET" ? true : wantsStreamByFlag || accept.includes("text/event-stream");
   const originHeader = typeof req.headers.origin === "string" ? req.headers.origin : null;
   const resolvedAllowedOrigin = resolveCorsOrigin(originHeader);
   const allowedOrigin = Boolean(resolvedAllowedOrigin);
@@ -689,10 +737,15 @@ askEcoRouter.post("/", ensureIdentity, async (req: Request, res: Response, _next
     if (reqWithIdentity.ecoSessionId) {
       res.setHeader("X-Eco-Session-Id", reqWithIdentity.ecoSessionId);
     }
+    if (!res.headersSent) {
+      res.setHeader("X-Stream-Id", streamId);
+    }
     const targetOrigin = resolvedAllowedOrigin ?? originHeader ?? null;
     prepareSse(res, targetOrigin);
     try {
+      res.write("\n");
       res.write(":ok\n\n");
+      (res as any).__ecoSseWarmupSent = true;
       (res as any).flushHeaders?.();
       (res as any).flush?.();
     } catch (error) {
@@ -710,7 +763,7 @@ askEcoRouter.post("/", ensureIdentity, async (req: Request, res: Response, _next
 
   warmupSse();
 
-  const validation = validateAskEcoPayload(req.body, req.headers);
+  const validation = validateAskEcoPayload(rawBody, req.headers);
 
   if (isValidationFailure(validation)) {
     const { status, message } = validation.error;
@@ -1186,8 +1239,8 @@ askEcoRouter.post("/", ensureIdentity, async (req: Request, res: Response, _next
       res.setHeader("X-Eco-Interaction-Id", initialResolvedInteractionId);
     }
 
-    res.setHeader("X-Stream-Id", streamId);
     if (!res.headersSent) {
+      res.setHeader("X-Stream-Id", streamId);
       disableCompressionForSse(res);
       log.debug("[DEBUG] About to set SSE headers", {
         origin: origin ?? null,
@@ -1567,10 +1620,10 @@ askEcoRouter.post("/", ensureIdentity, async (req: Request, res: Response, _next
           sincePromptReadyMs,
         });
         if (sseConnection) {
-          sseConnection.sendComment("hb");
+          sseConnection.sendComment("keep-alive");
           flushSse();
         } else {
-          safeEarlyWrite(": hb\n\n");
+          safeEarlyWrite(":keep-alive\n\n");
         }
       };
       heartbeatRef.current = setInterval(sendHeartbeat, pingIntervalMs);
@@ -1583,7 +1636,8 @@ askEcoRouter.post("/", ensureIdentity, async (req: Request, res: Response, _next
       immediatePromptReadySent = true;
       const nowTs = Date.now();
       const sinceStartMs = nowTs - state.t0;
-      streamSse.send("prompt_ready", {
+      streamSse.send("control", {
+        name: "prompt_ready",
         type: "prompt_ready",
         streamId,
         at: nowTs,
@@ -1594,7 +1648,7 @@ askEcoRouter.post("/", ensureIdentity, async (req: Request, res: Response, _next
       state.markPromptReady(nowTs);
       armFirstTokenWatchdog();
       startHeartbeat();
-      log.info("[ask-eco] prompt_ready_immediate", {
+      log.info("[ask-eco] prompt_ready_sent", {
         origin: origin ?? null,
         clientMessageId: clientMessageId ?? null,
         streamId: streamId ?? null,
