@@ -20,6 +20,7 @@ import {
   getConfiguredCorsOrigins,
   CORS_ALLOWED_METHODS,
   CORS_ALLOWED_HEADERS,
+  setCorsHeaders,
 } from "../../middleware/cors";
 import { corsLog } from "../../middleware/corsLog";
 import { requestLogger } from "./middlewares/logger";
@@ -124,6 +125,15 @@ export function createApp(): Express {
     res.status(204).end();
   });
   app.use(corsResponseInjector);
+
+  const headCorsHandler = (req: Request, res: Response) => {
+    const originHeader = typeof req.headers.origin === "string" ? req.headers.origin : null;
+    setCorsHeaders(res, originHeader);
+    res.status(204).end();
+  };
+
+  app.head("/api/ask-eco", headCorsHandler);
+  app.head("/api/ask-eco2", headCorsHandler);
 
   // 2) Parsers (não executam em OPTIONS)
   const standardJsonParser = express.json({ limit: "1mb" });

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import express from "express";
 import request from "supertest";
 import Module from "node:module";
+import { createApp as createHttpApp } from "../../core/http/app";
 
 type StubMap = Record<string, unknown>;
 
@@ -250,23 +251,6 @@ const createApp = async () => {
 const uuidGuest = "11111111-1111-4111-8111-111111111111";
 const uuidSession = "22222222-2222-4222-8222-222222222222";
 
-test("HEAD /api/ask-eco exige IDs", async () => {
-  const { app } = await createApp();
-
-  const missing = await request(app).head("/api/ask-eco");
-  assert.equal(missing.status, 400);
-  assert.deepEqual(missing.body ?? {}, {});
-
-  const ok = await request(app)
-    .head("/api/ask-eco")
-    .set("X-Eco-Guest-Id", uuidGuest)
-    .set("X-Eco-Session-Id", uuidSession);
-
-  assert.equal(ok.status, 200);
-  assert.equal(ok.headers["x-eco-guest-id"], uuidGuest);
-  assert.equal(ok.headers["x-eco-session-id"], uuidSession);
-});
-
 test("POST /api/ask-eco aceita IDs por query", async () => {
   const { app, logger } = await createApp();
 
@@ -306,5 +290,25 @@ test("POST /api/ask-eco aceita IDs por headers", async () => {
   );
   assert.ok(payloadLog, "esperava log payload_valid");
   assert.deepEqual(payloadLog?.args[1], { guestId: uuidGuest, sessionId: uuidSession });
+});
+
+test("HEAD /api/ask-eco responde 204 com CORS básico", async () => {
+  const app = createHttpApp();
+
+  const response = await request(app)
+    .head("/api/ask-eco")
+    .set("Origin", "https://ecofrontend888.vercel.app");
+
+  assert.equal(response.status, 204);
+  assert.equal(response.text, "");
+  assert.equal(
+    response.headers["access-control-allow-origin"],
+    "https://ecofrontend888.vercel.app",
+  );
+  assert.equal(response.headers["access-control-allow-methods"], "GET,POST,OPTIONS,HEAD");
+  assert.equal(response.headers["access-control-allow-headers"], "Content-Type, Accept");
+  assert.equal(response.headers["access-control-max-age"], "86400");
+  const varyHeader = response.headers["vary"];
+  assert.ok(typeof varyHeader === "string" && varyHeader.includes("Origin"));
 });
 

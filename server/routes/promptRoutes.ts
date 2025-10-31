@@ -523,9 +523,8 @@ function ensureVaryIncludes(response: Response, value: string) {
   }
 }
 
-const ASK_ECO_ALLOWED_HEADERS_VALUE =
-  "content-type, x-client-id, x-eco-guest-id, x-eco-session-id, x-eco-client-message-id";
-const ASK_ECO_ALLOWED_METHODS_VALUE = "GET,POST,OPTIONS";
+const ASK_ECO_ALLOWED_HEADERS_VALUE = CORS_ALLOWED_HEADERS_VALUE;
+const ASK_ECO_ALLOWED_METHODS_VALUE = CORS_ALLOWED_METHODS_VALUE;
 const ASK_ECO_EXPOSE_HEADERS_VALUE = "x-eco-guest-id, x-eco-session-id, x-eco-client-message-id";
 
 function applyAskEcoCorsHeaders(res: Response, originHeader: string | null, allowedOrigin: string | null) {
@@ -535,7 +534,6 @@ function applyAskEcoCorsHeaders(res: Response, originHeader: string | null, allo
   } else {
     res.removeHeader("Access-Control-Allow-Origin");
   }
-  res.setHeader("Access-Control-Allow-Credentials", "true");
   res.setHeader("Access-Control-Expose-Headers", ASK_ECO_EXPOSE_HEADERS_VALUE);
   res.setHeader("Access-Control-Allow-Headers", ASK_ECO_ALLOWED_HEADERS_VALUE);
   res.setHeader("Access-Control-Allow-Methods", ASK_ECO_ALLOWED_METHODS_VALUE);
@@ -606,10 +604,6 @@ askEcoRouter.options("/", (req: Request, res: Response) => {
 
 // Aceita headers: X-Eco-Guest-Id, X-Eco-Session-Id
 // Aceita query: ?guest_id=...&session_id=...
-askEcoRouter.head("/", ensureIdentity, (_req: Request, res: Response) => {
-  res.status(200).end();
-});
-
 /** GET/POST /api/ask-eco — stream SSE (ou JSON se cliente não pedir SSE) */
 async function handleAskEcoRequest(req: Request, res: Response, _next: NextFunction) {
   const reqWithIdentity = req as RequestWithIdentity;
@@ -677,8 +671,7 @@ async function handleAskEcoRequest(req: Request, res: Response, _next: NextFunct
     const targetOrigin = resolvedAllowedOrigin ?? originHeader ?? null;
     prepareSse(res, targetOrigin);
     try {
-      res.write("\n");
-      res.write(":ok\n\n");
+      res.write(":\n\n");
       (res as any).__ecoSseWarmupSent = true;
       (res as any).flushHeaders?.();
       (res as any).flush?.();
@@ -1061,7 +1054,19 @@ async function handleAskEcoRequest(req: Request, res: Response, _next: NextFunct
     };
 
     sseSafeEarlyWrite = safeEarlyWrite;
-    safeEarlyWrite(": open\n\n");
+    safeEarlyWrite(":\n\n");
+
+    if (wantsStream) {
+      try {
+        streamSse.ready({ streamId, heartbeatMs: pingIntervalMs });
+        flushSse();
+      } catch (error) {
+        log.warn("[ask-eco] sse_ready_emit_failed", {
+          origin: origin ?? null,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
 
     log.info("[ask-eco] stream_open", { origin: origin ?? null, clientMessageId: clientMessageId ?? null, streamId: streamId ?? null });
 
@@ -1300,10 +1305,10 @@ async function handleAskEcoRequest(req: Request, res: Response, _next: NextFunct
         const sincePromptReadyMs = state.promptReadyAt > 0 ? now - state.promptReadyAt : null;
         log.debug("[ask-eco] heartbeat", { origin: origin ?? null, clientMessageId: clientMessageId ?? null, streamId: streamId ?? null, sincePromptReadyMs });
         if (sseConnection) {
-          sseConnection.sendComment("keep-alive");
+          sseConnection.sendComment("keepalive");
           flushSse();
         } else {
-          safeEarlyWrite(":keep-alive\n\n");
+          safeEarlyWrite(":keepalive\n\n");
         }
       };
       heartbeatRef.current = setInterval(sendHeartbeat, pingIntervalMs);

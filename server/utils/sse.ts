@@ -1,11 +1,6 @@
 import type { Request, Response } from "express";
 
-import {
-  CORS_ALLOWED_HEADERS_VALUE,
-  CORS_ALLOWED_METHODS_VALUE,
-  PRIMARY_CORS_ORIGIN,
-  resolveCorsOrigin,
-} from "../middleware/cors";
+import { CORS_ALLOWED_HEADERS_VALUE, setCorsHeaders } from "../middleware/cors";
 
 const SSE_HEADER_CONFIG = {
   "Content-Type": "text/event-stream; charset=utf-8",
@@ -22,24 +17,15 @@ const SSE_EXPOSE_HEADERS = [
 
 export function prepareSse(res: Response, origin?: string | null): void {
   const normalizedOrigin = typeof origin === "string" ? origin.trim() : "";
-  const allowedOrigin = normalizedOrigin ? resolveCorsOrigin(normalizedOrigin) : null;
-  const headerOrigin = allowedOrigin ?? (!normalizedOrigin ? PRIMARY_CORS_ORIGIN : null);
 
   if (!res.headersSent) {
     res.removeHeader("Content-Length");
     res.removeHeader("Content-Encoding");
   }
 
-  if (headerOrigin) {
-    res.setHeader("Access-Control-Allow-Origin", headerOrigin);
-  } else {
-    res.removeHeader("Access-Control-Allow-Origin");
-  }
-  res.setHeader("Access-Control-Allow-Methods", CORS_ALLOWED_METHODS_VALUE);
-  res.setHeader("Access-Control-Allow-Headers", CORS_ALLOWED_HEADERS_VALUE);
-  res.setHeader("Access-Control-Allow-Credentials", "true");
+  setCorsHeaders(res, normalizedOrigin || null);
   res.setHeader("Access-Control-Expose-Headers", SSE_EXPOSE_HEADERS.join(", "));
-  res.setHeader("Vary", "Origin");
+  res.setHeader("Access-Control-Allow-Headers", CORS_ALLOWED_HEADERS_VALUE);
 
   for (const [header, value] of Object.entries(SSE_HEADER_CONFIG)) {
     res.setHeader(header, value);
@@ -82,8 +68,7 @@ export function createSSE(
     }
 
     if (!(res as any).__ecoSseWarmupSent) {
-      res.write("\n");
-      res.write(`:ok\n\n`);
+      res.write(`:\n\n`);
       (res as any).__ecoSseWarmupSent = true;
     }
   }

@@ -1,4 +1,3 @@
-import cors from "cors";
 import type { NextFunction, Request, Response } from "express";
 
 const DEFAULT_CORS_ALLOWLIST =
@@ -25,18 +24,13 @@ export const CORS_ALLOWED_ORIGINS = (() => {
 
 export const PRIMARY_CORS_ORIGIN = CORS_ALLOWED_ORIGINS[0];
 
-export const CORS_ALLOWED_METHODS = ["GET", "POST", "OPTIONS"] as const;
-export const CORS_ALLOWED_HEADERS = [
-  "content-type",
-  "authorization",
-  "x-client-id",
-  "x-eco-guest-id",
-  "x-eco-session-id",
-  "x-eco-client-message-id",
-] as const;
+export const CORS_ALLOWED_METHODS = ["GET", "POST", "OPTIONS", "HEAD"] as const;
+export const CORS_ALLOWED_HEADERS = ["Content-Type", "Accept"] as const;
 
 export const CORS_ALLOWED_METHODS_VALUE = CORS_ALLOWED_METHODS.join(",");
-export const CORS_ALLOWED_HEADERS_VALUE = CORS_ALLOWED_HEADERS.join(",");
+export const CORS_ALLOWED_HEADERS_VALUE = CORS_ALLOWED_HEADERS.join(", ");
+
+const CORS_MAX_AGE_SECONDS = 86_400;
 
 function requestOrigin(req: Request): string | null {
   return typeof req.headers.origin === "string" ? req.headers.origin : null;
@@ -66,22 +60,6 @@ export function isAllowedOrigin(origin?: string | null): boolean {
   return resolveCorsOrigin(origin) !== null;
 }
 
-export const corsMiddleware = cors({
-  origin(origin, callback) {
-    if (!origin) {
-      return callback(null, true);
-    }
-    if (origin && matchesAllowedOrigin(origin)) {
-      return callback(null, origin);
-    }
-    return callback(null, false);
-  },
-  methods: [...CORS_ALLOWED_METHODS],
-  allowedHeaders: [...CORS_ALLOWED_HEADERS],
-  credentials: false,
-  optionsSuccessStatus: 204,
-});
-
 function applyCorsHeaders(res: Response, origin: string | null) {
   if (origin) {
     res.setHeader("Access-Control-Allow-Origin", origin);
@@ -91,6 +69,8 @@ function applyCorsHeaders(res: Response, origin: string | null) {
   res.setHeader("Vary", "Origin");
   res.setHeader("Access-Control-Allow-Methods", CORS_ALLOWED_METHODS_VALUE);
   res.setHeader("Access-Control-Allow-Headers", CORS_ALLOWED_HEADERS_VALUE);
+  res.setHeader("Access-Control-Max-Age", String(CORS_MAX_AGE_SECONDS));
+  res.setHeader("Access-Control-Allow-Credentials", "true");
 }
 
 export function applyCorsResponseHeaders(req: Request, res: Response) {
@@ -98,6 +78,12 @@ export function applyCorsResponseHeaders(req: Request, res: Response) {
   const allowedOrigin = resolveCorsOrigin(origin);
   const headerOrigin = allowedOrigin ?? (origin ? null : PRIMARY_CORS_ORIGIN);
   applyCorsHeaders(res, headerOrigin);
+  return allowedOrigin;
+}
+
+export function corsMiddleware(req: Request, res: Response, next: NextFunction) {
+  applyCorsResponseHeaders(req, res);
+  next();
 }
 
 export function corsResponseInjector(req: Request, res: Response, next: NextFunction) {
@@ -107,4 +93,11 @@ export function corsResponseInjector(req: Request, res: Response, next: NextFunc
 
 export function getConfiguredCorsOrigins(): string[] {
   return [...CORS_ALLOWED_ORIGINS];
+}
+
+export function setCorsHeaders(res: Response, origin: string | null) {
+  const allowedOrigin = resolveCorsOrigin(origin);
+  const headerOrigin = allowedOrigin ?? (origin ? null : PRIMARY_CORS_ORIGIN);
+  applyCorsHeaders(res, headerOrigin);
+  return { allowedOrigin, headerOrigin };
 }
