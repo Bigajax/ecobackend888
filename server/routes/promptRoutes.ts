@@ -617,7 +617,24 @@ async function handleAskEcoRequest(req: Request, res: Response, _next: NextFunct
   });
 
   const method = req.method.toUpperCase();
-  const rawBody = method === "GET" ? buildAskEcoQueryPayload(req) : (req.body as any);
+  const originHeader = typeof req.headers.origin === "string" ? req.headers.origin : null;
+
+  if (method === "POST") {
+    const isJson = Boolean(req.is?.("application/json"));
+    if (!isJson) {
+      log.warn("[ask-eco] unsupported_media_type", {
+        method,
+        origin: originHeader ?? null,
+        contentType: typeof req.headers["content-type"] === "string" ? req.headers["content-type"] : null,
+      });
+      res
+        .status(415)
+        .json({ ok: false, error: "unsupported_media_type", message: "Use Content-Type: application/json" });
+      return;
+    }
+  }
+
+  const rawBody = method === "GET" ? buildAskEcoQueryPayload(req) : ((req.body as any) ?? {});
   const accept = String(req.headers.accept || "").toLowerCase();
 
   const streamParam = (() => {
@@ -631,15 +648,35 @@ async function handleAskEcoRequest(req: Request, res: Response, _next: NextFunct
   })();
 
   const wantsStreamByFlag = typeof streamParam === "string" && /^(1|true|yes)$/i.test(streamParam.trim());
-  const wantsStream = method === "GET" ? true : wantsStreamByFlag || accept.includes("text/event-stream");
+  const acceptsSse = accept.includes("text/event-stream");
+  const wantsStream = method === "GET" ? true : acceptsSse || wantsStreamByFlag;
 
-  const originHeader = typeof req.headers.origin === "string" ? req.headers.origin : null;
   const resolvedAllowedOrigin = resolveCorsOrigin(originHeader);
   const allowedOrigin = Boolean(resolvedAllowedOrigin);
   const origin = originHeader ?? undefined;
   const normalizedOriginHeader = allowedOrigin && originHeader ? originHeader : undefined;
 
   applyAskEcoCorsHeaders(res, originHeader, resolvedAllowedOrigin);
+  const identitySourceMeta =
+    typeof (res.locals as Record<string, unknown>).ecoIdentitySource === "object"
+      ? ((res.locals as Record<string, unknown>).ecoIdentitySource as {
+          guest?: unknown;
+          session?: unknown;
+          clientMessageId?: unknown;
+        })
+      : null;
+  log.info("[ask-eco] request_meta", {
+    method,
+    origin: origin ?? null,
+    wantsStream,
+    acceptsSse,
+    streamFlag: wantsStreamByFlag,
+    corsAllowed: allowedOrigin,
+    allowedOrigin: resolvedAllowedOrigin ?? null,
+    guestSource: identitySourceMeta?.guest ?? null,
+    sessionSource: identitySourceMeta?.session ?? null,
+    clientMessageIdSource: identitySourceMeta?.clientMessageId ?? null,
+  });
 
   const streamIdHeader = req.headers["x-stream-id"];
   const incomingStreamId = typeof streamIdHeader === "string" && streamIdHeader.trim() ? streamIdHeader.trim() : undefined;

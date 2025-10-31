@@ -55,7 +55,7 @@ export function isUuidV4(value: string): boolean {
   return UUID_V4_RX.test(trimmed);
 }
 
-type IdentitySource = "header" | "query";
+type IdentitySource = "header" | "body" | "query";
 
 type IdentityComponent = {
   candidate: string | "";
@@ -67,31 +67,69 @@ type IdentityComponent = {
 function resolveIdentityComponent(
   req: Request,
   headerName: string,
+  bodyKey: string | string[],
   queryKey: string | string[]
 ): IdentityComponent {
   const normalizedHeaderName = headerName.toLowerCase();
   const headerBag = req.headers as Record<string, unknown> | undefined;
+  const bodyBag =
+    req.body && typeof req.body === "object" && !Array.isArray(req.body)
+      ? (req.body as Record<string, unknown>)
+      : undefined;
   let candidate = "";
   let source: IdentitySource | null = null;
 
   const resolveCandidate = (raw: unknown): string | undefined =>
     normalizeDuplicateIdentityValue(extractStringCandidate(raw));
 
-  if (headerBag) {
-    const directHeader = resolveCandidate(headerBag[headerName]);
-    if (directHeader) {
-      candidate = directHeader;
-      source = "header";
-    } else if (headerName !== normalizedHeaderName) {
-      const normalizedHeader = resolveCandidate(headerBag[normalizedHeaderName]);
-      if (normalizedHeader) {
-        candidate = normalizedHeader;
-        source = "header";
+  const identitySources = (req as any).ecoIdentitySources as
+    | {
+        guestHeaderProvided?: boolean;
+        sessionHeaderProvided?: boolean;
       }
+    | undefined;
+
+  const method = typeof req.method === "string" ? req.method.toUpperCase() : "";
+  const allowQueryFallback = method === "GET";
+
+  const headerCandidate = (() => {
+    if (!headerBag) return undefined;
+    const directHeader = resolveCandidate(headerBag[headerName]);
+    if (directHeader) return directHeader;
+    if (headerName !== normalizedHeaderName) {
+      return resolveCandidate(headerBag[normalizedHeaderName]);
     }
+    return undefined;
+  })();
+
+  const headerOriginallyProvided = (() => {
+    if (!identitySources) return undefined;
+    if (headerName === "x-eco-guest-id") return identitySources.guestHeaderProvided;
+    if (headerName === "x-eco-session-id") return identitySources.sessionHeaderProvided;
+    return undefined;
+  })();
+
+  if (headerCandidate) {
+    candidate = headerCandidate;
+    source = "header";
   }
 
-  if (!candidate) {
+  const bodyCandidate = (() => {
+    if (!bodyBag) return undefined;
+    const keys = Array.isArray(bodyKey) ? bodyKey : [bodyKey];
+    for (const key of keys) {
+      const value = resolveCandidate(bodyBag[key]);
+      if (value) return value;
+    }
+    return undefined;
+  })();
+
+  if (bodyCandidate && (!candidate || headerOriginallyProvided === false)) {
+    candidate = bodyCandidate;
+    source = "body";
+  }
+
+  if (!candidate && allowQueryFallback) {
     const queryBag = req.query as Record<string, unknown> | undefined;
     if (queryBag) {
       const keys = Array.isArray(queryKey) ? queryKey : [queryKey];
@@ -129,12 +167,24 @@ export type IdentitySnapshot = {
 };
 
 export function readIdentity(req: Request): IdentitySnapshot {
-  const guest = resolveIdentityComponent(req, "x-eco-guest-id", ["guest", "guest_id"]);
-  const session = resolveIdentityComponent(req, "x-eco-session-id", ["session", "session_id"]);
-  const client = resolveIdentityComponent(req, "x-eco-client-message-id", [
-    "client_message_id",
-    "clientMessageId",
-  ]);
+  const guest = resolveIdentityComponent(
+    req,
+    "x-eco-guest-id",
+    ["guest_id", "guestId", "guest"],
+    ["guest", "guest_id"]
+  );
+  const session = resolveIdentityComponent(
+    req,
+    "x-eco-session-id",
+    ["session_id", "sessionId", "session"],
+    ["session", "session_id"]
+  );
+  const client = resolveIdentityComponent(
+    req,
+    "x-eco-client-message-id",
+    ["client_message_id", "clientMessageId", "clientMessageID", "message_id", "messageId"],
+    ["client_message_id", "clientMessageId"]
+  );
 
   const snapshot: IdentitySnapshot = {
     guestId: guest.value,

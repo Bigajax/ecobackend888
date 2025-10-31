@@ -23,16 +23,19 @@ export function prepareSse(res: Response, origin?: string | null): void {
     res.removeHeader("Content-Encoding");
   }
 
-  setCorsHeaders(res, normalizedOrigin || null);
-  res.setHeader("Access-Control-Expose-Headers", SSE_EXPOSE_HEADERS.join(", "));
-  res.setHeader("Access-Control-Allow-Headers", CORS_ALLOWED_HEADERS_VALUE);
+  const { headerOrigin } = setCorsHeaders(res, normalizedOrigin || null);
+  const sseHeaders: Record<string, string> = {
+    ...SSE_HEADER_CONFIG,
+    "Access-Control-Expose-Headers": SSE_EXPOSE_HEADERS.join(", "),
+    "Access-Control-Allow-Headers": CORS_ALLOWED_HEADERS_VALUE,
+  };
 
-  for (const [header, value] of Object.entries(SSE_HEADER_CONFIG)) {
-    res.setHeader(header, value);
+  if (headerOrigin) {
+    sseHeaders["Access-Control-Allow-Origin"] = headerOrigin;
   }
 
   if (!res.headersSent) {
-    res.status(200);
+    res.writeHead(200, sseHeaders);
   }
 
   (res as any).flushHeaders?.();
