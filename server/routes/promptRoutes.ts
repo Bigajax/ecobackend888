@@ -13,7 +13,12 @@ import {
   rememberInteractionGuest,
   updateInteractionGuest,
 } from "../services/conversation/interactionIdentityStore";
-import { resolveCorsOrigin, PRIMARY_CORS_ORIGIN } from "../middleware/cors";
+import {
+  resolveCorsOrigin,
+  PRIMARY_CORS_ORIGIN,
+  ASK_ECO_ALLOWED_HEADERS_VALUE,
+  ASK_ECO_ALLOWED_METHODS_VALUE,
+} from "../middleware/cors";
 import {
   ensureIdentity,
   type RequestWithIdentity as RequestWithEcoIdentity,
@@ -523,8 +528,6 @@ function ensureVaryIncludes(response: Response, value: string) {
   }
 }
 
-const ASK_ECO_ALLOWED_HEADERS_VALUE = CORS_ALLOWED_HEADERS_VALUE;
-const ASK_ECO_ALLOWED_METHODS_VALUE = CORS_ALLOWED_METHODS_VALUE;
 const ASK_ECO_EXPOSE_HEADERS_VALUE = "x-eco-guest-id, x-eco-session-id, x-eco-client-message-id";
 
 function applyAskEcoCorsHeaders(res: Response, originHeader: string | null, allowedOrigin: string | null) {
@@ -1056,18 +1059,6 @@ async function handleAskEcoRequest(req: Request, res: Response, _next: NextFunct
     sseSafeEarlyWrite = safeEarlyWrite;
     safeEarlyWrite(":\n\n");
 
-    if (wantsStream) {
-      try {
-        streamSse.ready({ streamId, heartbeatMs: pingIntervalMs });
-        flushSse();
-      } catch (error) {
-        log.warn("[ask-eco] sse_ready_emit_failed", {
-          origin: origin ?? null,
-          message: error instanceof Error ? error.message : String(error),
-        });
-      }
-    }
-
     log.info("[ask-eco] stream_open", { origin: origin ?? null, clientMessageId: clientMessageId ?? null, streamId: streamId ?? null });
 
     const formatHeaderValue = (value: string | number | string[] | boolean | null | undefined): string | null => {
@@ -1227,6 +1218,18 @@ async function handleAskEcoRequest(req: Request, res: Response, _next: NextFunct
     sse = streamSse;
     sseConnection = streamSse;
     sseConnectionRef.current = streamSse;
+
+    if (wantsStream) {
+      try {
+        streamSse.ready({ streamId, heartbeatMs: pingIntervalMs });
+        flushSse();
+      } catch (error) {
+        log.warn("[ask-eco] sse_ready_emit_failed", {
+          origin: origin ?? null,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
 
     const handlerResult = makeHandlers({
       state,
@@ -1535,7 +1538,7 @@ async function handleAskEcoRequest(req: Request, res: Response, _next: NextFunct
     sseSendDone = null;
     sseSafeEarlyWrite = null;
   }
-}); // fecha o askEcoRouter.post('/')
+} // fecha handleAskEcoRequest
 
 router.use("/ask-eco", askEcoRouter);
 export default router;
