@@ -27,7 +27,7 @@ async function closeServer(server: Server) {
   });
 }
 
-test("OPTIONS /api/ask-eco responde 200 com allowlist padrão", async () => {
+test("OPTIONS /api/ask-eco responde 204 com allowlist padrão", async () => {
   const app = createApp();
   const server = app.listen(0);
 
@@ -41,11 +41,11 @@ test("OPTIONS /api/ask-eco responde 200 com allowlist padrão", async () => {
       headers: {
         Origin: "https://ecofrontend888.vercel.app",
         "Access-Control-Request-Method": "POST",
-        "Access-Control-Request-Headers": "Content-Type, X-Eco-Guest-Id, X-Eco-Session-Id",
+        "Access-Control-Request-Headers": "Content-Type, Accept",
       },
     });
 
-    assert.equal(response.status, 200, "preflight deve responder 200");
+    assert.equal(response.status, 204, "preflight deve responder 204");
     assert.equal(
       response.headers.get("access-control-allow-origin"),
       "https://ecofrontend888.vercel.app",
@@ -62,27 +62,13 @@ test("OPTIONS /api/ask-eco responde 200 com allowlist padrão", async () => {
       .map((value) => value.trim().toLowerCase())
       .filter(Boolean);
     assert.ok(Array.isArray(allowHeaders) && allowHeaders.length > 0, "preflight deve informar allow-headers");
-    const allowHeadersSet = new Set(allowHeaders);
-    const requiredHeaders = [
-      "content-type",
-      "x-client-id",
-      "x-eco-guest-id",
-      "x-eco-session-id",
-      "x-eco-client-message-id",
-    ];
-    for (const header of requiredHeaders) {
-      assert.ok(allowHeadersSet.has(header), `allow-headers deve conter ${header}`);
-    }
+    assert.deepEqual(allowHeaders, ["content-type", "accept"], "allow-headers deve seguir especificação");
     assert.equal(
       response.headers.get("access-control-allow-methods"),
-      "GET,POST,OPTIONS",
+      "GET,POST,OPTIONS,HEAD",
       "deve aplicar a lista padrão de métodos",
     );
-    assert.equal(
-      response.headers.get("access-control-expose-headers"),
-      "Content-Type, X-Request-Id, X-Eco-Interaction-Id",
-      "deve expor os headers permitidos",
-    );
+    assert.equal(response.headers.get("access-control-max-age"), "86400");
   } finally {
     await closeServer(server);
   }
@@ -112,11 +98,9 @@ test("GET /api/health responde payload esperado com headers CORS", async () => {
       "true",
       "deve permitir credenciais",
     );
-    assert.equal(
-      response.headers.get("access-control-expose-headers"),
-      "content-type, x-request-id",
-      "deve expor os headers padrão",
-    );
+    assert.equal(response.headers.get("access-control-allow-methods"), "GET,POST,OPTIONS,HEAD");
+    assert.equal(response.headers.get("access-control-allow-headers"), "Content-Type, Accept");
+    assert.equal(response.headers.get("access-control-max-age"), "86400");
 
     const payload = (await response.json()) as Record<string, unknown>;
     assert.equal(payload.ok, false, "ok deve ser false quando prompts ausentes");
@@ -162,11 +146,9 @@ test("POST /api/ask-eco com payload inválido responde 400 com headers CORS", as
       "true",
       "deve permitir credenciais",
     );
-    assert.equal(
-      response.headers.get("access-control-expose-headers"),
-      "content-type, x-request-id",
-      "deve expor os headers padrão",
-    );
+    assert.equal(response.headers.get("access-control-allow-methods"), "GET,POST,OPTIONS,HEAD");
+    assert.equal(response.headers.get("access-control-allow-headers"), "Content-Type, Accept");
+    assert.equal(response.headers.get("access-control-max-age"), "86400");
 
     const payload = (await response.json()) as Record<string, unknown>;
     assert.equal(payload.ok, false, "payload deve sinalizar falha");
@@ -202,11 +184,9 @@ test("GET /api/memorias/similares_v2 existe sob /api e aplica headers CORS", asy
       "true",
       "deve permitir credenciais",
     );
-    assert.equal(
-      response.headers.get("access-control-expose-headers"),
-      "content-type, x-request-id",
-      "deve expor os headers padrão",
-    );
+    assert.equal(response.headers.get("access-control-allow-methods"), "GET,POST,OPTIONS,HEAD");
+    assert.equal(response.headers.get("access-control-allow-headers"), "Content-Type, Accept");
+    assert.equal(response.headers.get("access-control-max-age"), "86400");
 
     await response.json();
   } finally {
@@ -238,11 +218,9 @@ test("GET /api/rota_inexistente responde 404 com headers CORS", async () => {
       "true",
       "deve permitir credenciais",
     );
-    assert.equal(
-      response.headers.get("access-control-expose-headers"),
-      "content-type, x-request-id",
-      "deve expor os headers padrão",
-    );
+    assert.equal(response.headers.get("access-control-allow-methods"), "GET,POST,OPTIONS,HEAD");
+    assert.equal(response.headers.get("access-control-allow-headers"), "Content-Type, Accept");
+    assert.equal(response.headers.get("access-control-max-age"), "86400");
 
     const payload = (await response.json()) as Record<string, unknown>;
     assert.equal(payload.error, "Rota não encontrada", "deve indicar rota inexistente");
@@ -290,11 +268,9 @@ test("Erros 500 também aplicam headers CORS", async () => {
       "true",
       "deve permitir credenciais",
     );
-    assert.equal(
-      response.headers.get("access-control-expose-headers"),
-      "content-type, x-request-id",
-      "deve expor os headers padrão",
-    );
+    assert.equal(response.headers.get("access-control-allow-methods"), "GET,POST,OPTIONS,HEAD");
+    assert.equal(response.headers.get("access-control-allow-headers"), "Content-Type, Accept");
+    assert.equal(response.headers.get("access-control-max-age"), "86400");
 
     const payload = (await response.json()) as Record<string, unknown>;
     assert.deepEqual(payload, { ok: false, error: "boom" }, "payload deve refletir erro propagado");
