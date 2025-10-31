@@ -596,12 +596,20 @@ askEcoRouter.options("/", (req: Request, res: Response) => {
 
   if (originHeader && !allowedOrigin) {
     log.warn("[ask-eco] origin_blocked", { method: "OPTIONS", origin: originHeader });
+    log.info("[ask-eco] preflight", {
+      origin: originHeader ?? null,
+      preflight_allowed: false,
+    });
     ensureVaryIncludes(res, "Origin");
     res.status(403).end();
     return;
   }
 
   applyAskEcoCorsHeaders(res, originHeader, allowedOrigin);
+  log.info("[ask-eco] preflight", {
+    origin: originHeader ?? null,
+    preflight_allowed: true,
+  });
   res.status(204).end();
 });
 
@@ -687,6 +695,9 @@ async function handleAskEcoRequest(req: Request, res: Response, _next: NextFunct
   const pingIntervalMs = streamPingIntervalMs;
   const firstTokenTimeoutMs = firstTokenWatchdogMs;
 
+  let readyEmitted = false;
+  let streamSummaryLogged = false;
+
   let sse: ReturnType<typeof createSSE> | null = null;
   let sseConnection: ReturnType<typeof createSSE> | null = null;
   let sseStarted = false;
@@ -711,7 +722,7 @@ async function handleAskEcoRequest(req: Request, res: Response, _next: NextFunct
     const targetOrigin = resolvedAllowedOrigin ?? originHeader ?? null;
     prepareSse(res, targetOrigin);
     try {
-      res.write(":ok\n\n");
+      res.write(":\n\n");
       (res as any).__ecoSseWarmupSent = true;
       (res as any).flushHeaders?.();
       (res as any).flush?.();
@@ -1133,6 +1144,19 @@ async function handleAskEcoRequest(req: Request, res: Response, _next: NextFunct
 
     const state = new SseStreamState();
 
+    const logStreamSummary = (reason?: string | null) => {
+      if (streamSummaryLogged) return;
+      streamSummaryLogged = true;
+      log.info("[ask-eco] sse_summary", {
+        origin: origin ?? null,
+        clientMessageId: clientMessageId ?? null,
+        streamId,
+        ready_emitted: readyEmitted,
+        chunks_emitted: state.chunksCount,
+        finish_reason: reason ?? state.finishReason ?? null,
+      });
+    };
+
     const earlyClientAbortTimerRef: { current: NodeJS.Timeout | null } = { current: null };
     let immediatePromptReadySent = false;
     let interactionBootstrapPromise: Promise<void> = Promise.resolve();
@@ -1258,7 +1282,19 @@ async function handleAskEcoRequest(req: Request, res: Response, _next: NextFunct
 
     if (wantsStream) {
       try {
-        streamSse.ready({ streamId, heartbeatMs: pingIntervalMs });
+        const readyPayload = {
+          server_ts: new Date().toISOString(),
+          client_message_id: clientMessageId ?? null,
+          stream_id: streamId,
+        };
+        streamSse.ready(readyPayload);
+        readyEmitted = true;
+        log.info("[ask-eco] sse_ready", {
+          origin: origin ?? null,
+          clientMessageId: clientMessageId ?? null,
+          streamId,
+          ready_emitted: true,
+        });
         flushSse();
       } catch (error) {
         log.warn("[ask-eco] sse_ready_emit_failed", {
@@ -1319,7 +1355,11 @@ async function handleAskEcoRequest(req: Request, res: Response, _next: NextFunct
     const sendMemorySaved = handlerResult.sendMemorySaved; // (mantido para compatibilidade)
     const sendErrorEvent = handlerResult.sendErrorEvent;
     const ensureGuardFallback = handlerResult.ensureGuardFallback;
-    const sendDone = handlerResult.sendDone;
+    const originalSendDone = handlerResult.sendDone;
+    const sendDone = (reason?: string | null) => {
+      originalSendDone(reason);
+      logStreamSummary(reason ?? null);
+    };
     const sendChunk = handlerResult.sendChunk;
     const forwardEvent = handlerResult.forwardEvent;
 
@@ -1527,16 +1567,32 @@ async function handleAskEcoRequest(req: Request, res: Response, _next: NextFunct
         clientMessageReserved = false;
       }
       if (!state.done) {
-        clearAbortListenerRef();
-        releaseActiveStream();
-        clearHeartbeatTimer();
-        streamSse.end();
-        sseConnection = null;
-        sseConnectionRef.current = null;
-        sseSendErrorEvent = null;
-        sseSendDone = null;
-        sseSafeEarlyWrite = null;
+        try {
+          sendDone("server_cleanup");
+        } catch (error) {
+          log.warn("[ask-eco] send_done_cleanup_failed", {
+            origin: origin ?? null,
+            message: error instanceof Error ? error.message : String(error),
+          });
+        }
       }
+      try {
+        clearAbortListenerRef();
+      } catch {}
+      try {
+        releaseActiveStream();
+      } catch {}
+      try {
+        clearHeartbeatTimer();
+      } catch {}
+      try {
+        streamSse.end();
+      } catch {}
+      sseConnection = null;
+      if (sseConnectionRef) sseConnectionRef.current = null;
+      sseSendErrorEvent = null;
+      sseSendDone = null;
+      sseSafeEarlyWrite = null;
       sse = null;
     }
   } catch (error) {

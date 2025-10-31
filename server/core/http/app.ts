@@ -121,7 +121,17 @@ export function createApp(): Express {
   // 1) CORS global antes de qualquer rota
   app.use(corsLog);
   app.use(corsMiddleware);
-  app.options("*", corsMiddleware, (_req, res) => {
+  app.options("*", (req, res) => {
+    const origin =
+      typeof req.headers.origin === "string" && req.headers.origin.trim()
+        ? req.headers.origin.trim()
+        : null;
+    const allowedOrigin = applyCorsResponseHeaders(req, res);
+    log.info("[cors] preflight", {
+      path: req.path,
+      origin,
+      preflight_allowed: allowedOrigin !== null,
+    });
     res.status(204).end();
   });
   app.use(corsResponseInjector);

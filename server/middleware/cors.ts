@@ -65,13 +65,10 @@ export const CORS_ALLOWED_METHODS = ["GET", "POST", "OPTIONS", "HEAD"] as const;
 export const CORS_ALLOWED_HEADERS = [
   "content-type",
   "accept",
-  "authorization",
-  "x-requested-with",
+  "x-client-id",
+  "x-eco-client-message-id",
   "x-eco-guest-id",
   "x-eco-session-id",
-  "x-eco-client-message-id",
-  "x-eco-interaction-id",
-  "x-client-id",
 ] as const;
 
 export const CORS_ALLOWED_METHODS_VALUE = CORS_ALLOWED_METHODS.join(",");
@@ -105,7 +102,27 @@ function applyCorsHeaders(res: Response, origin: string | null) {
   } else {
     res.removeHeader("Access-Control-Allow-Origin");
   }
-  res.setHeader("Vary", "Origin");
+  const varyRequired = [
+    "Origin",
+    "Access-Control-Request-Method",
+    "Access-Control-Request-Headers",
+  ];
+  const currentVary = res.getHeader("Vary");
+  const varySet = new Set<string>();
+  if (typeof currentVary === "string") {
+    for (const entry of currentVary.split(",")) {
+      const trimmed = entry.trim();
+      if (trimmed) varySet.add(trimmed);
+    }
+  } else if (Array.isArray(currentVary)) {
+    for (const entry of currentVary) {
+      if (typeof entry !== "string") continue;
+      const trimmed = entry.trim();
+      if (trimmed) varySet.add(trimmed);
+    }
+  }
+  for (const required of varyRequired) varySet.add(required);
+  res.setHeader("Vary", Array.from(varySet).join(", "));
   res.setHeader("Access-Control-Allow-Methods", CORS_ALLOWED_METHODS_VALUE);
   res.setHeader("Access-Control-Allow-Headers", CORS_ALLOWED_HEADERS_VALUE);
   res.setHeader("Access-Control-Max-Age", String(CORS_MAX_AGE_SECONDS));

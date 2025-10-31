@@ -325,7 +325,13 @@ export class SseEventHandlers {
         : typeof payload.code === "string" && payload.code.trim()
         ? payload.code.trim()
         : message ?? "unknown_error";
-    log.error("[ask-eco] sse_error", { ...payload, reason });
+    const envelope = {
+      ...payload,
+      reason,
+    };
+    this.sendEvent("error", envelope);
+    this.state.errorEmitted = true;
+    log.error("[ask-eco] sse_error", envelope);
   }
 
   ensureGuardFallback(reason: string) {
@@ -408,6 +414,13 @@ export class SseEventHandlers {
     }
 
     if (!this.state.sawChunk && !clientClosed) {
+      if (!this.state.errorEmitted) {
+        this.sendErrorEvent({
+          code: "NO_CHUNKS_EMITTED",
+          message: "Nenhum chunk emitido antes do encerramento",
+          finishReason: finishReason ?? this.state.finishReason ?? "unknown",
+        });
+      }
       const interactionId = this.options.getResolvedInteractionId?.() ?? null;
       log.error("[ask-eco] guard_fallback_missing_chunk", {
         origin: this.options.origin ?? null,

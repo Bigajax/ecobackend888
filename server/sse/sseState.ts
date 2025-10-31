@@ -55,6 +55,7 @@ export class SseStreamState {
   doneAt = 0;
   guardFallbackSent = false;
   guardFallbackReason: string | null = null;
+  errorEmitted = false;
 
   constructor() {
     const now = Date.now();
