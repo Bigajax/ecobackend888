@@ -660,6 +660,10 @@ async function handleAskEcoRequest(req: Request, res: Response, _next: NextFunct
   let sseSendErrorEvent: ((payload: Record<string, unknown>) => void) | null = null;
   let sseSendDone: ((reason?: string | null) => void) | null = null;
   let sseSafeEarlyWrite: ((chunk: string) => boolean) | null = null;
+  let clearHeartbeatTimerFn: (() => void) | null = null;
+  let clearAbortListenerRefFn: (() => void) | null = null;
+  let releaseActiveStreamFn: (() => void) | null = null;
+  let sseConnectionRefGlobal: { current: ReturnType<typeof createSSE> | null } | null = null;
   let supabaseContextUnavailable = false;
 
   const warmupSse = () => {
@@ -931,6 +935,7 @@ async function handleAskEcoRequest(req: Request, res: Response, _next: NextFunct
       const current = activeStreamSessions.get(streamContextKey);
       if (current && current.controller === abortController) activeStreamSessions.delete(streamContextKey);
     };
+    releaseActiveStreamFn = releaseActiveStream;
 
     if (streamContextKey) {
       const existing = activeStreamSessions.get(streamContextKey);
@@ -1154,11 +1159,14 @@ async function handleAskEcoRequest(req: Request, res: Response, _next: NextFunct
     let handlers: SseEventHandlers;
 
     const sseConnectionRef: { current: ReturnType<typeof createSSE> | null } = { current: sseConnection };
+    sseConnectionRefGlobal = sseConnectionRef;
     const getSseConnection = createGetSseConnectionRef(sseConnectionRef);
     const recordFirstTokenTelemetry = createRecordFirstTokenTelemetry(state, telemetry);
     const clearHeartbeatTimer = createClearHeartbeatTimer(heartbeatRef);
+    clearHeartbeatTimerFn = clearHeartbeatTimer;
     const clearEarlyClientAbortTimer = createClearEarlyClientAbortTimer(earlyClientAbortTimerRef);
     const clearAbortListenerRef = createClearAbortListenerRef(abortSignal, abortListenerRef);
+    clearAbortListenerRefFn = clearAbortListenerRef;
 
     function sendLatency(_payload: Record<string, unknown>) {
       // no-op (can be wired to analytics in the future)
@@ -1487,47 +1495,42 @@ async function handleAskEcoRequest(req: Request, res: Response, _next: NextFunct
       sse = null;
     }
   } catch (error) {
-    finalizeClientMessageLock();
-    // Garanta a liberação da reserva de mensagem do cliente em erros topo-de-pilha
-    try {
-      // Nada — proteção dupla no finally abaixo
-    } catch {}
-
     const traceId = randomUUID();
-    log.error("[ask-eco] handler_failed", { trace_id: traceId, sseStarted, message: error instanceof Error ? error.message : String(error) });
+    log.error("[ask-eco] handler_failed", {
+      trace_id: traceId,
+      sseStarted,
+      message: error instanceof Error ? error.message : String(error),
+    });
 
     if (!sseStarted && !sseWarmupStarted) {
-      res.status(400).json({ error: "invalid_request", traceId, message: error instanceof Error ? error.message : String(error) });
-      return;
+      return res.status(400).json({
+        error: "invalid_request",
+        traceId,
+        message: error instanceof Error ? error.message : String(error),
+      });
     }
 
     try {
-      if (!sse) {
-        const fallbackSse = createSSE(res, req, { pingIntervalMs: 0, idleMs: 0, commentOnOpen: null });
-        sse = fallbackSse;
-        sseStarted = true;
-      }
       sse?.send("error", { message: "internal_error", traceId });
-    } catch (sendError) {
-      log.warn("[ask-eco] sse_error_emit_failed", { trace_id: traceId, message: sendError instanceof Error ? sendError.message : String(sendError) });
-    }
+    } catch {}
     try {
       sse?.end();
-    } catch (endError) {
-      log.warn("[ask-eco] sse_end_failed", { trace_id: traceId, message: endError instanceof Error ? endError.message : String(endError) });
-    }
+    } catch {}
+  } finally {
+    try { finalizeClientMessageLock(); } catch {}
+    try { clearAbortListenerRefFn?.(); } catch {}
+    try { releaseActiveStreamFn?.(); } catch {}
+    try { clearHeartbeatTimerFn?.(); } catch {}
 
     sse = null;
     sseConnection = null;
+    if (sseConnectionRefGlobal) sseConnectionRefGlobal.current = null;
+    sseConnectionRefGlobal = null;
     sseSendErrorEvent = null;
     sseSendDone = null;
     sseSafeEarlyWrite = null;
-    return;
-  } finally {
-    finalizeClientMessageLock();
   }
-}
+}); // fecha o askEcoRouter.post('/')
 
 router.use("/ask-eco", askEcoRouter);
-
 export default router;
