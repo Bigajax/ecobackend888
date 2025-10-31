@@ -8,7 +8,7 @@ import type { EcoStreamHandler, EcoStreamEvent } from "../services/conversation/
 import { createHttpError, isHttpError } from "../utils/http";
 import { getSupabaseAdmin } from "../lib/supabaseAdmin";
 import { createSSE, prepareSse } from "../utils/sse";
-import { smartJoin as smartStreamJoin } from "../utils/streamJoin";
+import { smartJoin } from "../utils/streamJoin";
 import {
   rememberInteractionGuest,
   updateInteractionGuest,
@@ -126,7 +126,9 @@ const askEcoRouter = Router();
 
 function buildSummaryFromChunks(pieces: string[]): string {
   if (!Array.isArray(pieces) || pieces.length === 0) return "";
-  const summary = pieces.reduce<string>((acc, piece) => (acc ? smartStreamJoin(acc, piece) : piece), "");
+  const summary = smartJoin(
+    pieces.filter((piece): piece is string => typeof piece === "string")
+  );
   if (!summary) return "";
   let normalized = summary.replace(/[ \t]*\n[ \t]*/g, "\n");
   normalized = normalized.replace(/([a-zá-ú])([A-ZÁ-Ú])/g, "$1 $2");

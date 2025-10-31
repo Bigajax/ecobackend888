@@ -175,7 +175,11 @@ export function streamConversation({
           lastChunkIndex += 1;
         }
         callbacks.onEvent?.(event);
-        aggregated = smartJoin(aggregated, chunkText);
+        aggregated = smartJoin(
+          [aggregated, chunkText].filter(
+            (entry): entry is string => typeof entry === "string"
+          )
+        );
         // LATENCY: repassa o texto parcial para atualizar o UI em tempo real.
         callbacks.onText?.(aggregated);
         return;

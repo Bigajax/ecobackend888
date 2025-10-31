@@ -112,7 +112,7 @@ const loadAskEcoRouter = async () => {
       }),
       prepareSse: () => {},
     },
-    "../utils/streamJoin": { smartJoin: (a: string, b: string) => `${a}${b}` },
+    "../utils/streamJoin": { smartJoin: (parts: string[]) => parts.join("") },
     "../services/conversation/interactionIdentityStore": {
       rememberInteractionGuest: () => {},
       updateInteractionGuest: () => {},
