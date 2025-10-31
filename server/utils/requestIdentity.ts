@@ -18,6 +18,29 @@ export function extractStringCandidate(value: unknown): string | undefined {
   return undefined;
 }
 
+function normalizeDuplicateIdentityValue(raw: string | undefined): string | undefined {
+  if (typeof raw !== "string") {
+    return undefined;
+  }
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+  if (!trimmed.includes(",")) {
+    return trimmed;
+  }
+  const pieces = trimmed
+    .split(",")
+    .map((piece) => piece.trim())
+    .filter(Boolean);
+  if (!pieces.length) {
+    return undefined;
+  }
+  const first = pieces[0];
+  const allSame = pieces.every((piece) => piece.toLowerCase() === first.toLowerCase());
+  return allSame ? first : trimmed;
+}
+
 const UUID_V4_RX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -51,13 +74,16 @@ function resolveIdentityComponent(
   let candidate = "";
   let source: IdentitySource | null = null;
 
+  const resolveCandidate = (raw: unknown): string | undefined =>
+    normalizeDuplicateIdentityValue(extractStringCandidate(raw));
+
   if (headerBag) {
-    const directHeader = extractStringCandidate(headerBag[headerName]);
+    const directHeader = resolveCandidate(headerBag[headerName]);
     if (directHeader) {
       candidate = directHeader;
       source = "header";
     } else if (headerName !== normalizedHeaderName) {
-      const normalizedHeader = extractStringCandidate(headerBag[normalizedHeaderName]);
+      const normalizedHeader = resolveCandidate(headerBag[normalizedHeaderName]);
       if (normalizedHeader) {
         candidate = normalizedHeader;
         source = "header";
@@ -70,7 +96,7 @@ function resolveIdentityComponent(
     if (queryBag) {
       const keys = Array.isArray(queryKey) ? queryKey : [queryKey];
       for (const key of keys) {
-        const queryCandidate = extractStringCandidate(queryBag[key]);
+        const queryCandidate = resolveCandidate(queryBag[key]);
         if (queryCandidate) {
           candidate = queryCandidate;
           source = "query";

@@ -56,24 +56,53 @@ export function ensureIdentity(req: Request, res: Response, next: NextFunction) 
 
   if (isAskEcoPost && !isAuthenticated) {
     if (!guestHeaderProvided) {
+      log.warn("[ensureIdentity] missing_guest_id_header", {
+        path: req.path,
+        method,
+        origin: origin ?? null,
+      });
       return res
         .status(400)
         .json({ error: "missing_guest_id", message: "Informe X-Eco-Guest-Id" });
     }
     if (!guest.valid) {
+      log.warn("[ensureIdentity] invalid_guest_id_header", {
+        path: req.path,
+        method,
+        origin: origin ?? null,
+        value: guest.candidate || null,
+      });
       return res
         .status(400)
         .json({ error: "invalid_guest_id", message: "Envie um UUID v4 em X-Eco-Guest-Id" });
     }
     if (!sessionHeaderProvided) {
+      log.warn("[ensureIdentity] missing_session_id_header", {
+        path: req.path,
+        method,
+        origin: origin ?? null,
+      });
       return res.status(400).json({ error: "missing_session_id", message: "Informe X-Eco-Session-Id" });
     }
     if (!session.valid) {
+      log.warn("[ensureIdentity] invalid_session_id_header", {
+        path: req.path,
+        method,
+        origin: origin ?? null,
+        value: session.candidate || null,
+      });
       return res.status(400).json({ error: "missing_session_id", message: "Informe X-Eco-Session-Id" });
     }
   }
 
   if (!sessionId) {
+    log.warn("[ensureIdentity] missing_session_id", {
+      path: req.path,
+      method,
+      origin: origin ?? null,
+      source: session.source ?? null,
+      candidate: session.candidate || null,
+    });
     return res
       .status(400)
       .json({ error: "missing_session_id", message: "Informe X-Eco-Session-Id" });

@@ -68,7 +68,7 @@ export function createSSE(
     }
 
     if (!(res as any).__ecoSseWarmupSent) {
-      res.write(`:\n\n`);
+      res.write(`:ok\n\n`);
       (res as any).__ecoSseWarmupSent = true;
     }
   }

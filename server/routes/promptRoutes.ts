@@ -674,7 +674,7 @@ async function handleAskEcoRequest(req: Request, res: Response, _next: NextFunct
     const targetOrigin = resolvedAllowedOrigin ?? originHeader ?? null;
     prepareSse(res, targetOrigin);
     try {
-      res.write(":\n\n");
+      res.write(":ok\n\n");
       (res as any).__ecoSseWarmupSent = true;
       (res as any).flushHeaders?.();
       (res as any).flush?.();
