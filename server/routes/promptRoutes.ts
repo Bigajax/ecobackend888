@@ -1526,14 +1526,41 @@ async function handleAskEcoRequest(req: Request, res: Response, _next: NextFunct
       }
 
       if (!state.done) {
-        if (!state.sawChunk) {
-          const textOut = sanitizeOutput(extractTextLoose(result) ?? "");
-          if (textOut) sendChunk({ text: textOut });
-          sendDone(textOut ? "fallback_no_stream" : "fallback_empty");
-        } else {
-          sendDone("stream_done");
-        }
-      }
+  if (!state.sawChunk) {
+    // Tenta extrair texto do resultado
+    const textOut = sanitizeOutput(extractTextLoose(result) ?? "");
+    
+    if (textOut) {
+      // ✅ Tem texto: envia como chunk
+      sendChunk({ text: textOut });
+      sendDone("fallback_no_stream");
+    } else {
+      // ✅ SEM texto: envia chunk de erro/fallback antes do done
+      log.error("[ask-eco] sse_error", {
+        code: "NO_CHUNKS_EMITTED",
+        message: "Nenhum chunk emitido antes do encerramento",
+        finishReason: "done",
+        reason: "NO_CHUNKS_EMITTED"
+      });
+      
+      // Envia chunk de fallback obrigatório
+      sendChunk({ text: GUARD_FALLBACK_TEXT });
+      
+      // Registra o fallback nos logs
+      log.error("[ask-eco] guard_fallback_missing_chunk", {
+        origin: origin ?? null,
+        clientMessageId: clientMessageId ?? null,
+        interactionId: getResolvedInteractionId() ?? null,
+        finishReason: "done",
+        streamId: streamId ?? null,
+      });
+      
+      sendDone("fallback_empty");
+    }
+  } else {
+    sendDone("stream_done");
+  }
+}
     } catch (error) {
       if ((error as any)?.message === "client_closed_early") {
         state.markClientClosed();
