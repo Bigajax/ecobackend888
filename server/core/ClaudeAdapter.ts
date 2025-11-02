@@ -345,7 +345,7 @@ export async function streamClaudeChatCompletion(
         throw err;
       }
 
-      const decoder = new TextDecoder();
+      const decoder = new TextDecoder("utf-8", { fatal: false });
       let buffer = "";
       let reconnectAttempt = 0;
       let doneEmitted = false;

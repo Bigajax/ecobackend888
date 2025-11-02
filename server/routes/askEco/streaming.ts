@@ -373,11 +373,7 @@ export class StreamSession {
       const at = now();
       this.emitLatency("ttfb", at, this.latestTimings);
     }
-    this.aggregatedText = smartJoin(
-      [this.aggregatedText, content].filter(
-        (entry): entry is string => typeof entry === "string"
-      )
-    );
+    this.aggregatedText += content;
     this.chunkReceived = true;
     this.lastChunkIndex = resolvedIndex;
     this.clearTimeoutGuard();
