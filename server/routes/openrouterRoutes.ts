@@ -387,33 +387,15 @@ router.post("/ask-eco", async (req: GuestAwareRequest, res: Response) => {
         : [];
       const doneEvent = [...events].reverse().find((entry) => entry.type === "done");
 
+      if (doneEvent) {
+        res.status(200).json({ done: true });
+        return;
+      }
+
       const finalRaw =
         simulatedRaw && simulatedRaw.length > 0
           ? simulatedRaw
           : streamSession.aggregatedText || STREAM_TIMEOUT_MESSAGE;
-
-      if (doneEvent) {
-        const baseMeta = streamSession.cacheCandidateMeta
-          ? { ...streamSession.cacheCandidateMeta }
-          : simulatedMeta;
-
-        const doneAt = now();
-        const fallbackDone: Record<string, unknown> = {
-          type: "done",
-          meta: baseMeta ?? {},
-          content: finalRaw,
-          at: doneAt,
-          sinceStartMs: doneAt - t0,
-          timings:
-            streamSession.cacheCandidateTimings ?? streamSession.latestTimings ?? null,
-        };
-
-        if (debugRequested) {
-          fallbackDone.trace = activationTracer.snapshot();
-        }
-        res.status(200).json({ ...fallbackDone, done: true, message: finalRaw });
-        return;
-      }
 
       const baseMeta = streamSession.cacheCandidateMeta
         ? { ...streamSession.cacheCandidateMeta }
