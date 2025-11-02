@@ -1289,7 +1289,7 @@ async function handleAskEcoRequest(req: Request, res: Response, _next: NextFunct
           client_message_id: clientMessageId ?? null,
           stream_id: streamId,
         };
-        streamSse.ready(readyPayload);
+        streamSse.prompt_ready(readyPayload);
         readyEmitted = true;
         log.info("[ask-eco] sse_ready", {
           origin: origin ?? null,

@@ -76,6 +76,9 @@ export async function askEcoHandler(req: Request, res: Response) {
   let chunkCounter = 0;
   let firstTokenTime: number | null = null;
 
+  const ac = new AbortController();
+  req.on("close", () => ac.abort());
+
   try {
     // await buildPromptContext(...) - Simulação de contexto
 
@@ -119,7 +122,7 @@ export async function askEcoHandler(req: Request, res: Response) {
           });
         },
       },
-      { signal: req.signal } // Propaga o AbortSignal do cliente
+      { signal: ac.signal } // Propaga o AbortSignal do cliente
     );
   } catch (error) {
     console.error("[ask-eco] internal_error", {
