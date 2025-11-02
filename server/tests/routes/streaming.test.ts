@@ -1,43 +1,39 @@
 import { StreamSession } from "../../routes/askEco/streaming";
-import { Writable } from "stream";
 
-class MockResponse extends Writable {
-  _write(chunk: any, encoding: BufferEncoding, callback: (error?: Error | null) => void): void {
-    // Suppress console output
-    callback();
-  }
-}
+const createMockResponse = () => ({
+  headers: new Map<string, string>(),
+  write: () => {},
+  end: () => {},
+  setHeader(name: string, value: string) {
+    this.headers.set(name.toLowerCase(), value);
+  },
+  flush: () => {},
+  flushHeaders: () => {},
+});
 
-test("StreamSession should handle out-of-order, duplicate, and empty chunks gracefully", () => {
-  const req = {};
-  const res = new MockResponse();
-  const streamId = "test-stream-123";
-  const session = new StreamSession(req, res, streamId);
+test("StreamSession aggregates text and records offline events when not streaming", () => {
+  const req = { headers: {} } as any;
+  const res = createMockResponse();
+  const session = new StreamSession({
+    req,
+    res: res as any,
+    respondAsStream: false,
+    activationTracer: null,
+    startTime: 0,
+    streamId: "test-stream-123",
+  });
 
-  const chunks = [
-    { id: 1, data: "Hello" },
-    { id: 0, data: "Hi" },
-    { id: 3, data: "World" },
-    { id: 2, data: " " },
-    { id: 1, data: "Hello" },
-    { data: "[DONE]" },
-  ];
+  session.initialize(false);
 
-  const originalSend = (session as any).send;
-  const sentData: string[] = [];
-  (session as any).send = (payload: string) => {
-    sentData.push(payload);
-  };
+  session.dispatchEvent({ type: "message", index: 0, text: "Olá" });
+  session.dispatchEvent({ type: "message", text: " mundo" });
+  session.dispatchEvent({ type: "done" });
 
-  chunks.forEach((chunk) => session.handleChunk(chunk));
+  expect(session.aggregatedText).toBe("Olá mundo");
+  expect(session.chunkReceived).toBe(true);
+  expect(session.lastChunkIndex).toBe(1);
 
-  const expectedOrder = [
-    "id: 0\ndata: Hi\n\n",
-    "id: 1\ndata: Hello\n\n",
-    "id: 2\ndata:  \n\n",
-    "id: 3\ndata: World\n\n",
-    "data: [DONE]\n\n",
-  ];
-
-  expect(sentData).toEqual(expectedOrder);
+  const eventTypes = session.offlineEvents.map((event) => event.type);
+  expect(eventTypes).toContain("message");
+  expect(eventTypes[eventTypes.length - 1]).toBe("done");
 });
