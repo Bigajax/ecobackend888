@@ -4,9 +4,11 @@ const config: Config.InitialOptions = {
   preset: "ts-jest",
   testEnvironment: "node",
   rootDir: __dirname,
-  roots: ["<rootDir>/tests/contract"],
-  testMatch: ["**/*.spec.ts"],
-  setupFilesAfterEnv: ["<rootDir>/tests/contract/setup.ts"],
+  roots: ["<rootDir>/tests/routes"],
+  testMatch: ["**/*.test.ts", "**/*.test.ts"],
+  moduleNameMapper: {
+    "^node-fetch$": "node-fetch",
+  },
   collectCoverage: false,
   verbose: false,
   globals: {
