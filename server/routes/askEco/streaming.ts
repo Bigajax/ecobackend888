@@ -323,6 +323,18 @@ export class StreamSession {
       };
       this.writeSse("done", payload);
     }
+  }
+
+  private startHeartbeat(): void {
+    if (this.heartbeatTimer) return;
+    this.heartbeatTimer = setInterval(() => this.sendHeartbeat(), HEARTBEAT_INTERVAL_MS);
+  }
+
+  private stopHeartbeat(): void {
+    if (!this.heartbeatTimer) return;
+    clearInterval(this.heartbeatTimer);
+    this.heartbeatTimer = null;
+  }
 
     this.activationTracer?.addError?.("timeout", STREAM_TIMEOUT_MESSAGE);
     this.activationTracer?.markTotal?.();
