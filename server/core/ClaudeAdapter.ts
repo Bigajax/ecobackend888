@@ -63,6 +63,7 @@ export interface ClaudeStreamCallbacks {
   onChunk?: (chunk: { content: string; raw: ORStreamChunk }) => void | Promise<void>;
   onControl?: (event: ClaudeStreamControlEvent) => void | Promise<void>;
   onError?: (error: Error) => void | Promise<void>;
+  onFallback?: (model: string) => void | Promise<void>;
 }
 
 export interface ClaudeStreamOptions {
@@ -392,7 +393,7 @@ export async function streamClaudeChatCompletion(
           continue;
         }
         if (line.startsWith("data:")) {
-          dataLines.push(line.slice(5).trim());
+          dataLines.push(line.slice(5));
         }
       }
 
@@ -550,6 +551,7 @@ export async function streamClaudeChatCompletion(
       }
       const isTimeout = err instanceof ClaudeTimeoutError;
       const label = isTimeout ? "⏱️" : "⚠️";
+      callbacks.onFallback?.(modelsToTry[i + 1]!);
       console.warn(
         `${label} Claude ${currentModel} falhou, tentando fallback ${modelsToTry[i + 1]}`,
         err

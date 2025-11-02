@@ -1,4 +1,5 @@
 import type { Request, Response } from "express";
+import { randomUUID } from "crypto";
 
 import { CORS_ALLOWED_HEADERS_VALUE, setCorsHeaders } from "../middleware/cors";
 
@@ -59,7 +60,9 @@ export function createSSE(
   req?: Request,
   _opts?: AnyRecord
 ) {
+  const interaction_id = randomUUID();
   let opened = false;
+  let heartbeatInterval: NodeJS.Timeout | null = null;
 
   function open() {
     if (opened) return;
@@ -74,6 +77,10 @@ export function createSSE(
       res.write(`:ok\n\n`);
       (res as any).__ecoSseWarmupSent = true;
     }
+
+    heartbeatInterval = setInterval(() => {
+      sendComment("heartbeat");
+    }, 2000);
   }
 
   function ensureOpen() {
@@ -82,7 +89,15 @@ export function createSSE(
     }
   }
 
+  function stopHeartbeat() {
+    if (heartbeatInterval) {
+      clearInterval(heartbeatInterval);
+      heartbeatInterval = null;
+    }
+  }
+
   function end() {
+    stopHeartbeat();
     if (!res.writableEnded) {
       res.end();
     }
@@ -122,14 +137,37 @@ export function createSSE(
 
   return {
     open,
-    ready: (data: unknown) => send("ready", data),
-    chunk: (data: unknown) => send("chunk", data),
-    done: (data: unknown) => send("done", data),
+    prompt_ready: (data: { client_message_id: string })
+      =>
+      send("prompt_ready", { ...data, interaction_id }),
+    chunk: (data: unknown) => {
+      stopHeartbeat();
+      return send("chunk", data);
+    },
+    done: (data: { ok: boolean; reason?: string; guardFallback?: boolean })
+      => {
+      const payload = {
+        ...data,
+        interaction_id,
+        guardFallback: data.guardFallback ?? false,
+      };
+      return send("done", payload);
+    },
+    stream_done: (data: { ok: boolean; reason?: string; guardFallback?: boolean })
+      => {
+        const payload = {
+          ...data,
+          interaction_id,
+          guardFallback: data.guardFallback ?? false,
+        };
+        return sendControl("stream_done", payload);
+      },
     end,
     send,
     sendControl,
     sendComment,
     write,
+    interaction_id,
   };
 }
 
