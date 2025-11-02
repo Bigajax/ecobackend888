@@ -96,13 +96,16 @@ export async function registrarSignal(req: Request, res: Response) {
 
   const headerGuestRaw = req.get("X-Eco-Guest-Id");
   const headersGuest = normalizeGuestIdValue(headerGuestRaw);
-  if (!headersGuest) {
+  if (!headersGuest || headersGuest.length < 8) {
     logger.warn("signal.missing_guest_header", {
       provided: typeof headerGuestRaw === "string" ? headerGuestRaw : null,
     });
     return res
       .status(400)
-      .json({ error: "missing_guest_id", message: "Informe X-Eco-Guest-Id" });
+      .json({
+        error: "invalid_guest_id",
+        message: "X-Eco-Guest-Id deve ter no mínimo 8 caracteres",
+      });
   }
 
   const headersSession = normalizeString(req.get("X-Eco-Session-Id"));
