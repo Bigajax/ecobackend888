@@ -16,33 +16,6 @@ type LatencyTimings =
   | null
   | undefined;
 
-function normalizeTimings(
-  timings: LatencyTimings,
-): Record<string, number | null> | null {
-  if (!timings || typeof timings !== "object") {
-    return null;
-  }
-
-  const entries = Object.entries(timings).reduce<Record<string, number | null>>(
-    (accumulator, [key, value]) => {
-      if (value === undefined || value === null) {
-        accumulator[key] = null;
-        return accumulator;
-      }
-
-      if (typeof value === "number" && Number.isFinite(value)) {
-        accumulator[key] = value;
-        return accumulator;
-      }
-
-      return accumulator;
-    },
-    {},
-  );
-
-  return Object.keys(entries).length > 0 ? entries : null;
-}
-
 type StreamSessionOptions = {
   req: Request | Record<string, unknown>;
   res: Response | { [key: string]: any };
@@ -53,7 +26,36 @@ type StreamSessionOptions = {
   streamId: string;
 };
 
-type StreamEventPayload = Record<string, unknown> & { type: string };
+type StreamMessageEvent = {
+  type: "message";
+  index?: number;
+  text?: string;
+  delta?: unknown;
+  content?: unknown;
+  timings?: Record<string, number | null | undefined> | null;
+  [key: string]: unknown;
+};
+
+type StreamDoneEvent = {
+  type: "done";
+  message?: string;
+  timings?: Record<string, number | null | undefined> | null;
+  [key: string]: unknown;
+};
+
+type StreamErrorEvent = {
+  type: "error";
+  message: string;
+  timings?: Record<string, number | null | undefined> | null;
+  [key: string]: unknown;
+};
+
+type DispatchableEvent = StreamMessageEvent | StreamDoneEvent | StreamErrorEvent;
+
+type OfflineEvent = (DispatchableEvent | { type: string; [key: string]: unknown }) & {
+  at?: number;
+  sinceStartMs?: number;
+};
 
 const HEARTBEAT_INTERVAL_DEFAULT_MS = 2_000;
 const STREAM_TIMEOUT_DEFAULT_MS = 60_000;
@@ -70,13 +72,13 @@ function resolveTimeoutGuardMs(): number {
   return parsed;
 }
 
-export const HEARTBEAT_INTERVAL_MS = HEARTBEAT_INTERVAL_DEFAULT_MS;
-export const STREAM_TIMEOUT_GUARD_MS = resolveTimeoutGuardMs();
-export const STREAM_TIMEOUT_MESSAGE = STREAM_TIMEOUT_FALLBACK_MESSAGE;
+const HEARTBEAT_INTERVAL_MS = HEARTBEAT_INTERVAL_DEFAULT_MS;
+const STREAM_TIMEOUT_GUARD_MS = resolveTimeoutGuardMs();
+const STREAM_TIMEOUT_MESSAGE = STREAM_TIMEOUT_FALLBACK_MESSAGE;
 
 const NOW = () => Date.now();
 
-export class StreamSession {
+class StreamSession {
   public readonly streamId: string;
   public readonly startedAt: number;
   public readonly respondAsStream: boolean;
@@ -84,7 +86,7 @@ export class StreamSession {
   public aggregatedText = "";
   public chunkReceived = false;
   public lastChunkIndex = -1;
-  public offlineEvents: StreamEventPayload[] = [];
+  public offlineEvents: OfflineEvent[] = [];
   public latestTimings: Record<string, number | null> | null = null;
   public cacheCandidateMeta: Record<string, unknown> | null = null;
   public cacheCandidateTimings: Record<string, number | null> | null = null;
@@ -96,6 +98,7 @@ export class StreamSession {
 
   private heartbeatTimer: NodeJS.Timeout | null = null;
   private timeoutGuard: NodeJS.Timeout | null = null;
+  private timeoutGuardHandler: (() => void) | null = null;
   private ended = false;
   private sseOpened = false;
   private nextEventId = 0;
@@ -112,111 +115,99 @@ export class StreamSession {
     this.streamId = options.streamId;
   }
 
-  public initialize(promptReadyImmediate: boolean): void {
+  public initialize(atOnce: boolean): void {
     if (this.respondAsStream) {
       this.openSseChannel();
-      this.startHeartbeat();
+      this.ensureHeartbeat();
     }
 
-    this.armTimeoutGuard();
+    this.ensureTimeoutGuard();
 
-    if (promptReadyImmediate) {
+    if (atOnce && this.respondAsStream) {
+      this.sendPromptReadyControl();
+    }
+
+    if (atOnce) {
       const timestamp = NOW();
       this.emitLatency("prompt_ready", timestamp, null);
     }
   }
 
-  public emitLatency(name: string, at: number, timings: LatencyTimings): void {
+  public emitLatency(
+    stage: string,
+    at: number,
+    timings?: LatencyTimings,
+  ): void {
     const timestamp = Number.isFinite(at) ? at : NOW();
     const sinceStartMs = Math.max(0, timestamp - this.startedAt);
-    const payload: StreamEventPayload = {
+    const payload: OfflineEvent = {
       type: "latency",
-      name,
+      stage,
       at: timestamp,
       sinceStartMs,
-      timings: normalizeTimings(timings),
+      timings: this.toTimingRecord(
+        (timings as Record<string, number | null | undefined> | null) ?? null,
+      ),
     };
 
     if (this.respondAsStream) {
-      this.writeSse("latency", payload);
+      this.writeSseEvent("latency", payload);
     }
 
     this.offlineEvents.push(payload);
   }
 
-  public markLatestTimings(timings: LatencyTimings): void {
-    if (!timings) {
-      this.latestTimings = null;
-      return;
+  public end(reason?: "done" | "timeout" | "abort" | "error"): void {
+    if (this.ended) return;
+    this.ended = true;
+    this.stopHeartbeat();
+    this.clearTimeoutGuard();
+
+    if (reason && reason !== "done" && reason !== "timeout") {
+      this.activationTracer?.addError?.(reason, STREAM_TIMEOUT_MESSAGE);
     }
 
-    const normalized = normalizeTimings(timings);
-    this.latestTimings = normalized;
+    if (this.respondAsStream && typeof (this.res as any).end === "function") {
+      try {
+        (this.res as any).end();
+      } catch (error) {
+        log.warn("[stream-session] failed to end response", {
+          streamId: this.streamId,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
   }
 
-  public dispatchEvent(event: StreamEventPayload): void {
+  public dispatchEvent(event: DispatchableEvent): void {
     if (!event || typeof event !== "object") return;
 
     const timestamp = NOW();
     const sinceStartMs = Math.max(0, timestamp - this.startedAt);
-    const normalized: StreamEventPayload = {
-      ...event,
-      at: timestamp,
-      sinceStartMs,
-    };
+    const normalized: OfflineEvent = { ...event, at: timestamp, sinceStartMs };
 
-    this.offlineEvents.push(normalized);
-
-    if (!this.respondAsStream) {
-      this.trackOfflineAggregation(normalized);
-      return;
-    }
-
-    switch (normalized.type) {
+    switch (event.type) {
       case "message": {
-        this.trackOfflineAggregation(normalized);
-        const chunkIndex = this.lastChunkIndex;
-        const text = this.resolveChunkText(normalized);
-        const payload = {
-          ...normalized,
-          streamId: this.streamId,
-          index: chunkIndex,
-          delta: text,
-          text,
-        };
-        this.writeSse("chunk", payload);
+        const chunk = this.processChunk(event);
+        if (!chunk) break;
+
+        this.handleChunk(chunk, normalized);
         break;
       }
       case "done": {
-        const payload = {
-          ...normalized,
-          streamId: this.streamId,
-          done: true,
-          index: this.lastChunkIndex + 1,
-          aggregatedText: this.aggregatedText || undefined,
-          timings: normalized.timings ?? this.latestTimings ?? null,
-        };
-        this.writeSse("done", payload);
-        this.clearTimeoutGuard();
+        this.handleDoneEvent(normalized);
         break;
       }
-      case "prompt_ready": {
-        const payload = {
-          ...normalized,
-          streamId: this.streamId,
-        };
-        this.writeSse("prompt_ready", payload);
+      case "error": {
+        this.handleErrorEvent(normalized);
         break;
       }
       default: {
-        const payload = {
-          ...normalized,
-          streamId: this.streamId,
-        };
-        this.writeSse(normalized.type, payload);
         break;
       }
     }
+
+    this.offlineEvents.push(normalized);
   }
 
   public clearTimeoutGuard(): void {
@@ -224,23 +215,20 @@ export class StreamSession {
       clearTimeout(this.timeoutGuard);
       this.timeoutGuard = null;
     }
+    this.timeoutGuardHandler = null;
   }
 
-  public end(): void {
-    if (this.ended) return;
-    this.ended = true;
-    this.stopHeartbeat();
-    this.clearTimeoutGuard();
+  public markLatestTimings(timings: LatencyTimings): void {
+    this.latestTimings = this.toTimingRecord(
+      (timings as Record<string, number | null | undefined> | null) ?? null,
+    );
+  }
 
-    if (this.respondAsStream && typeof (this.res as any).end === "function") {
-      try {
-        (this.res as any).end();
-      } catch (error) {
-        log.warn("[stream-session] failed to end response", {
-          message: error instanceof Error ? error.message : String(error),
-        });
-      }
-    }
+  public cacheCandidateTimingsFrom(event: { timings?: LatencyTimings | undefined }): void {
+    this.cacheCandidateTimings = this.toTimingRecord(
+      (event.timings as Record<string, number | null | undefined> | null) ??
+        (this.latestTimings as Record<string, number | null | undefined> | null),
+    );
   }
 
   private openSseChannel(): void {
@@ -252,19 +240,21 @@ export class StreamSession {
 
     try {
       res.setHeader?.("X-Stream-Id", this.streamId);
-      const originHeader = typeof req?.headers?.origin === "string" ? req.headers.origin : null;
+      const originHeader =
+        typeof req?.headers?.origin === "string" ? req.headers.origin : null;
       prepareSse(res, originHeader);
       res.flush?.();
       res.flushHeaders?.();
     } catch (error) {
       log.warn("[stream-session] failed to open SSE channel", {
+        streamId: this.streamId,
         message: error instanceof Error ? error.message : String(error),
       });
     }
   }
 
-  private startHeartbeat(): void {
-    if (this.heartbeatTimer) return;
+  private ensureHeartbeat(): void {
+    if (this.heartbeatTimer || !this.respondAsStream) return;
     this.heartbeatTimer = setInterval(() => this.sendHeartbeat(), HEARTBEAT_INTERVAL_MS);
   }
 
@@ -276,17 +266,25 @@ export class StreamSession {
 
   private sendHeartbeat(): void {
     if (!this.respondAsStream || this.ended) return;
-    const payload: StreamEventPayload = {
+    const timestamp = NOW();
+    const sinceStartMs = Math.max(0, timestamp - this.startedAt);
+    const payload = {
       type: "ping",
-      streamId: this.streamId,
-      at: NOW(),
+      at: timestamp,
+      sinceStartMs,
     };
-    this.writeSse("control", payload);
+    this.writeSseControl("ping", payload);
   }
 
-  private armTimeoutGuard(): void {
+  private ensureTimeoutGuard(): void {
     if (this.timeoutGuard || STREAM_TIMEOUT_GUARD_MS <= 0) return;
-    this.timeoutGuard = setTimeout(() => this.handleTimeoutGuard(), STREAM_TIMEOUT_GUARD_MS);
+    this.setTimeoutGuardHandler(() => this.handleTimeoutGuard());
+    if (!this.timeoutGuardHandler) return;
+    this.timeoutGuard = setTimeout(this.timeoutGuardHandler, STREAM_TIMEOUT_GUARD_MS);
+  }
+
+  private setTimeoutGuardHandler(handler: () => void): void {
+    this.timeoutGuardHandler = handler;
   }
 
   private handleTimeoutGuard(): void {
@@ -301,7 +299,7 @@ export class StreamSession {
       debugRequested: this.debugRequested,
     });
 
-    const timeoutEvent: StreamEventPayload = {
+    const timeoutEvent: OfflineEvent = {
       type: "timeout",
       at: timestamp,
       sinceStartMs,
@@ -313,36 +311,25 @@ export class StreamSession {
     this.aggregatedText = STREAM_TIMEOUT_MESSAGE;
     this.chunkReceived = true;
     this.lastChunkIndex = Math.max(this.lastChunkIndex, 0);
-
-    if (this.respondAsStream) {
-      const payload = {
-        ...timeoutEvent,
-        streamId: this.streamId,
-        done: true,
-        index: this.lastChunkIndex + 1,
-      };
-      this.writeSse("done", payload);
-    }
-  }
-
-  private startHeartbeat(): void {
-    if (this.heartbeatTimer) return;
-    this.heartbeatTimer = setInterval(() => this.sendHeartbeat(), HEARTBEAT_INTERVAL_MS);
-  }
-
-  private stopHeartbeat(): void {
-    if (!this.heartbeatTimer) return;
-    clearInterval(this.heartbeatTimer);
-    this.heartbeatTimer = null;
-  }
-
     this.activationTracer?.addError?.("timeout", STREAM_TIMEOUT_MESSAGE);
     this.activationTracer?.markTotal?.();
 
-    this.end();
+    if (this.respondAsStream) {
+      const donePayload: OfflineEvent = {
+        type: "done",
+        message: STREAM_TIMEOUT_MESSAGE,
+        done: true,
+        index: this.lastChunkIndex + 1,
+        aggregatedText: this.aggregatedText || undefined,
+        timings: this.latestTimings ?? null,
+      };
+      this.writeSseEvent("done", donePayload);
+    }
+
+    this.end("timeout");
   }
 
-  private writeSse(eventName: string, data: Record<string, unknown>): void {
+  private writeSseEvent(eventName: string, data: Record<string, unknown>): void {
     if (!this.respondAsStream || this.ended) {
       return;
     }
@@ -364,25 +351,120 @@ export class StreamSession {
       serialized = JSON.stringify({ type: "invalid_payload" });
     }
 
-    const idLine = `id: ${this.nextEventId}\n`;
-    const eventLine = `event: ${eventName}\n`;
-    const dataLine = `data: ${serialized}\n\n`;
-    this.nextEventId += 1;
+    const frame =
+      `id: ${this.nextEventId}\n` +
+      `event: ${eventName}\n` +
+      `data: ${serialized}\n\n`;
 
-    res.write(idLine);
-    res.write(eventLine);
-    res.write(dataLine);
+    this.logSseWrite(eventName, payload);
+
+    try {
+      res.write(frame);
+      this.nextEventId += 1;
+      res.__sseNextId = this.nextEventId;
+    } catch (error) {
+      log.warn("[stream-session] failed to write SSE", {
+        streamId: this.streamId,
+        eventName,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
-  private trackOfflineAggregation(event: StreamEventPayload): void {
-    if (event.type !== "message") {
-      return;
-    }
+  private writeSseControl(controlName: string, data: Record<string, unknown>): void {
+    const payload = { ...data, control: controlName };
+    this.writeSseEvent("control", payload);
+  }
 
-    const text = this.resolveChunkText(event);
+  private sendPromptReadyControl(): void {
+    if (!this.respondAsStream || this.ended) return;
+    const timestamp = NOW();
+    const sinceStartMs = Math.max(0, timestamp - this.startedAt);
+    const payload = {
+      type: "prompt_ready",
+      at: timestamp,
+      sinceStartMs,
+    };
+    this.writeSseControl("prompt_ready", payload);
+  }
+
+  private logSseWrite(eventName: string, payload: unknown): void {
+    if (!this.debugRequested) return;
+    log.debug("[stream-session] SSE write", {
+      streamId: this.streamId,
+      eventName,
+      payload,
+    });
+  }
+
+  private handleChunk(
+    chunk: { index: number; text: string },
+    normalizedEvent: OfflineEvent,
+  ): void {
+    const { index, text } = chunk;
+
     if (text) {
       this.aggregatedText = this.aggregatedText ? `${this.aggregatedText}${text}` : text;
       this.chunkReceived = true;
+    }
+
+    this.lastChunkIndex = index;
+
+    Object.assign(normalizedEvent, {
+      index,
+      text,
+      delta: text,
+    });
+
+    if (!this.respondAsStream) {
+      return;
+    }
+
+    const payload: OfflineEvent = {
+      ...normalizedEvent,
+      type: "message",
+    };
+
+    this.writeSseEvent("message", payload);
+  }
+
+  private handleDoneEvent(normalizedEvent: OfflineEvent): void {
+    this.cacheCandidateTimings = this.toTimingRecord(
+      (normalizedEvent.timings as Record<string, number | null | undefined> | null) ??
+        (this.latestTimings as Record<string, number | null | undefined> | null),
+    );
+
+    Object.assign(normalizedEvent, {
+      done: true,
+      index: this.lastChunkIndex + 1,
+      aggregatedText: this.aggregatedText || undefined,
+      timings: this.cacheCandidateTimings ?? this.latestTimings ?? null,
+    });
+
+    if (this.respondAsStream) {
+      const payload: OfflineEvent = {
+        ...normalizedEvent,
+        type: "done",
+      };
+      this.writeSseEvent("done", payload);
+    }
+
+    this.clearTimeoutGuard();
+  }
+
+  private handleErrorEvent(normalizedEvent: OfflineEvent): void {
+    if (this.respondAsStream) {
+      this.writeSseEvent("error", normalizedEvent);
+    }
+    this.clearTimeoutGuard();
+  }
+
+  private processChunk(event: StreamMessageEvent):
+    | { index: number; text: string }
+    | null {
+    const text = this.pickChunkText(event);
+    if (!text) {
+      return null;
     }
 
     const nextIndex =
@@ -390,23 +472,33 @@ export class StreamSession {
         ? event.index
         : this.lastChunkIndex + 1;
 
-    this.lastChunkIndex = nextIndex;
+    return { index: nextIndex, text };
   }
 
-  private resolveChunkText(event: StreamEventPayload): string {
-    const delta = event.delta;
-    if (typeof delta === "string" && delta) {
-      return delta;
-    }
-    const text = event.text;
-    if (typeof text === "string" && text) {
-      return text;
-    }
-    const content = event.content;
-    if (typeof content === "string" && content) {
-      return content;
+  private pickChunkText(event: StreamMessageEvent): string {
+    const candidates = [event.text, event.delta, event.content];
+    for (const value of candidates) {
+      if (typeof value === "string" && value) {
+        return value;
+      }
     }
     return "";
   }
+
+  private toTimingRecord(
+    t?: Record<string, number | null | undefined> | null,
+  ): Record<string, number | null> | null {
+    if (!t) return null;
+    const out: Record<string, number | null> = {};
+    for (const [k, v] of Object.entries(t)) out[k] = v == null ? null : v;
+    return out;
+  }
 }
+
+export {
+  HEARTBEAT_INTERVAL_MS,
+  STREAM_TIMEOUT_GUARD_MS,
+  STREAM_TIMEOUT_MESSAGE,
+  StreamSession,
+};
 
