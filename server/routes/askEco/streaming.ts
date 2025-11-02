@@ -16,6 +16,33 @@ type LatencyTimings =
   | null
   | undefined;
 
+function normalizeTimings(
+  timings: LatencyTimings,
+): Record<string, number | null> | null {
+  if (!timings || typeof timings !== "object") {
+    return null;
+  }
+
+  const entries = Object.entries(timings).reduce<Record<string, number | null>>(
+    (accumulator, [key, value]) => {
+      if (value === undefined || value === null) {
+        accumulator[key] = null;
+        return accumulator;
+      }
+
+      if (typeof value === "number" && Number.isFinite(value)) {
+        accumulator[key] = value;
+        return accumulator;
+      }
+
+      return accumulator;
+    },
+    {},
+  );
+
+  return Object.keys(entries).length > 0 ? entries : null;
+}
+
 type StreamSessionOptions = {
   req: Request | Record<string, unknown>;
   res: Response | { [key: string]: any };
@@ -107,7 +134,7 @@ export class StreamSession {
       name,
       at: timestamp,
       sinceStartMs,
-      timings: timings ?? null,
+      timings: normalizeTimings(timings),
     };
 
     if (this.respondAsStream) {
@@ -118,10 +145,13 @@ export class StreamSession {
   }
 
   public markLatestTimings(timings: LatencyTimings): void {
-    if (!timings || typeof timings !== "object") {
+    if (!timings) {
+      this.latestTimings = null;
       return;
     }
-    this.latestTimings = { ...timings };
+
+    const normalized = normalizeTimings(timings);
+    this.latestTimings = normalized;
   }
 
   public dispatchEvent(event: StreamEventPayload): void {
@@ -293,6 +323,18 @@ export class StreamSession {
       };
       this.writeSse("done", payload);
     }
+  }
+
+  private startHeartbeat(): void {
+    if (this.heartbeatTimer) return;
+    this.heartbeatTimer = setInterval(() => this.sendHeartbeat(), HEARTBEAT_INTERVAL_MS);
+  }
+
+  private stopHeartbeat(): void {
+    if (!this.heartbeatTimer) return;
+    clearInterval(this.heartbeatTimer);
+    this.heartbeatTimer = null;
+  }
 
     this.activationTracer?.addError?.("timeout", STREAM_TIMEOUT_MESSAGE);
     this.activationTracer?.markTotal?.();
