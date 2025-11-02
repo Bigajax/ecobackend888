@@ -1284,12 +1284,8 @@ async function handleAskEcoRequest(req: Request, res: Response, _next: NextFunct
 
     if (wantsStream) {
       try {
-        const readyPayload = {
-          server_ts: new Date().toISOString(),
-          client_message_id: clientMessageId ?? null,
-          stream_id: streamId,
-        };
-        streamSse.prompt_ready(readyPayload);
+        streamSse.prompt_ready({ client_message_id: promptReadyClientMessageId });
+        streamSse.sendControl("stream_metadata", { server_ts: new Date().toISOString(), stream_id: streamId });
         readyEmitted = true;
         log.info("[ask-eco] sse_ready", {
           origin: origin ?? null,
