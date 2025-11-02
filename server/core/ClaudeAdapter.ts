@@ -398,9 +398,12 @@ export async function streamClaudeChatCompletion(
       }
 
       const dataPayload = dataLines.join("\n");
-      if (!dataPayload) return;
+      const trimmedData = dataPayload.trim();
 
-      if (dataPayload === "[DONE]") {
+      if (!trimmedData) return;
+
+      if (trimmedData === "[DONE]") {
+        console.debug("[ClaudeAdapter] Stream completed ([DONE] received)");
         doneEmitted = true;
         await safeCallbacks.onControl?.({
           type: "done",
@@ -411,12 +414,16 @@ export async function streamClaudeChatCompletion(
         return;
       }
 
+      if (!trimmedData.startsWith("{")) {
+        console.warn("[ClaudeAdapter] Ignoring non-JSON line:", dataPayload);
+        return;
+      }
+
       let parsed: ORStreamChunk | null = null;
       try {
-        parsed = JSON.parse(dataPayload) as ORStreamChunk;
+        parsed = JSON.parse(trimmedData) as ORStreamChunk;
       } catch (error) {
-        const err = error instanceof Error ? error : new Error(String(error));
-        await safeCallbacks.onError?.(err);
+        console.warn("[ClaudeAdapter] Ignoring non-JSON line:", dataPayload);
         return;
       }
 
