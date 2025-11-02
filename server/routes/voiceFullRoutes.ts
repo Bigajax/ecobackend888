@@ -143,7 +143,14 @@ router.post("/transcribe-and-respond", (req: Request, res: Response, next: NextF
     const audioDurationMs = extractAudioDurationMs(req.body);
     const audioBytes = audioFile.buffer.length;
 
-    const userText = await transcribeWithWhisper(audioFile.buffer);
+    let userText;
+    try {
+      userText = await transcribeWithWhisper(audioFile.buffer);
+    } catch (transcriptionError) {
+      console.error("[/transcribe-and-respond] erro na transcrição:", transcriptionError);
+      return res.status(500).json({ error: "Erro ao transcrever o áudio." });
+    }
+
     const normalizedUserText = userText ?? "";
 
     trackMensagemRecebida({
