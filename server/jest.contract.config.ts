@@ -5,7 +5,7 @@ const config: Config.InitialOptions = {
   testEnvironment: "node",
   rootDir: __dirname,
   roots: ["<rootDir>/tests/routes"],
-  testMatch: ["**/*.test.ts"],
+  testMatch: ["**/*.test.ts", "**/*.test.ts"],
   moduleNameMapper: {
     "^node-fetch$": "node-fetch",
   },
