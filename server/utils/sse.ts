@@ -1,3 +1,4 @@
+// utils/sse.ts
 import type { Request, Response } from "express";
 import { randomUUID } from "crypto";
 
@@ -45,9 +46,7 @@ export function prepareSse(res: Response, origin?: string | null): void {
 type AnyRecord = Record<string, unknown>;
 
 function serializeData(data: unknown): string {
-  if (typeof data === "string") {
-    return data;
-  }
+  if (typeof data === "string") return data;
   try {
     return JSON.stringify(data ?? null);
   } catch {
@@ -64,7 +63,7 @@ export function createSSE(
   let opened = false;
   let heartbeatInterval: NodeJS.Timeout | null = null;
 
-  function open() {
+  function open(): void {
     if (opened) return;
     opened = true;
 
@@ -73,6 +72,7 @@ export function createSSE(
       prepareSse(res, originHeader);
     }
 
+    // warm-up para liberar buffers do proxy
     if (!(res as any).__ecoSseWarmupSent) {
       res.write(`:ok\n\n`);
       (res as any).__ecoSseWarmupSent = true;
@@ -83,27 +83,25 @@ export function createSSE(
     }, 2000);
   }
 
-  function ensureOpen() {
-    if (!opened) {
-      open();
-    }
+  function ensureOpen(): void {
+    if (!opened) open();
   }
 
-  function stopHeartbeat() {
+  function stopHeartbeat(): void {
     if (heartbeatInterval) {
       clearInterval(heartbeatInterval);
       heartbeatInterval = null;
     }
   }
 
-  function end() {
+  function end(): void {
     stopHeartbeat();
     if (!res.writableEnded) {
       res.end();
     }
   }
 
-  function send(event: string, data: unknown) {
+  function send(event: string, data: unknown): number | undefined {
     ensureOpen();
     if (res.writableEnded) return;
     const payload = serializeData(data);
@@ -114,7 +112,7 @@ export function createSSE(
     return Buffer.byteLength(eventLine) + Buffer.byteLength(dataLine);
   }
 
-  function sendComment(comment: string) {
+  function sendComment(comment: string): number | undefined {
     ensureOpen();
     if (res.writableEnded) return;
     const chunk = `:${comment}\n\n`;
@@ -122,11 +120,11 @@ export function createSSE(
     return Buffer.byteLength(chunk);
   }
 
-  function sendControl(name: string, payload?: Record<string, unknown>) {
+  function sendControl(name: string, payload?: Record<string, unknown>): number | undefined {
     return send("control", payload ? { name, ...payload } : { name });
   }
 
-  function write(data: unknown) {
+  function write(data: unknown): number | undefined {
     ensureOpen();
     if (res.writableEnded) return;
     const payload = serializeData(data);
@@ -137,15 +135,14 @@ export function createSSE(
 
   return {
     open,
-    prompt_ready: (data: { client_message_id: string })
-      =>
+    // <-- CORREÇÃO do TS1200: não quebrar linha antes do "=>"
+    prompt_ready: (data: { client_message_id: string }) =>
       send("prompt_ready", { ...data, interaction_id }),
     chunk: (data: unknown) => {
       stopHeartbeat();
       return send("chunk", data);
     },
-    done: (data: { ok: boolean; reason?: string; guardFallback?: boolean })
-      => {
+    done: (data: { ok: boolean; reason?: string; guardFallback?: boolean }) => {
       const payload = {
         ...data,
         interaction_id,
@@ -153,15 +150,14 @@ export function createSSE(
       };
       return send("done", payload);
     },
-    stream_done: (data: { ok: boolean; reason?: string; guardFallback?: boolean })
-      => {
-        const payload = {
-          ...data,
-          interaction_id,
-          guardFallback: data.guardFallback ?? false,
-        };
-        return sendControl("stream_done", payload);
-      },
+    stream_done: (data: { ok: boolean; reason?: string; guardFallback?: boolean }) => {
+      const payload = {
+        ...data,
+        interaction_id,
+        guardFallback: data.guardFallback ?? false,
+      };
+      return sendControl("stream_done", payload);
+    },
     end,
     send,
     sendControl,
