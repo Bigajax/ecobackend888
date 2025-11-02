@@ -124,13 +124,6 @@ export async function executeStreamingLLM({
       promptHash: resolvedPromptHash,
     });
   }
-  const summarizeDelta = (input: string) => {
-    const safe = input ?? "";
-    const normalized = safe.replace(/\s+/g, " ").trim();
-    if (normalized.length <= 60) return normalized;
-    return `${normalized.slice(0, 57)}...`;
-  };
-
   const chunkDispatcher =
     streamHandler && typeof streamHandler.onChunk === "function"
       ? streamHandler.onChunk.bind(streamHandler)
@@ -141,7 +134,7 @@ export async function executeStreamingLLM({
   const emitStream = async (event: EcoStreamEvent) => {
     const payloadForLog: Record<string, unknown> = { type: event.type };
     if (event.type === "chunk") {
-      payloadForLog.delta = summarizeDelta(event.delta);
+      payloadForLog.delta = event.delta;
       if (typeof event.index === "number") {
         payloadForLog.index = event.index;
       }
@@ -187,6 +180,7 @@ export async function executeStreamingLLM({
   let streamFailure: Error | null = null;
   let ignoreStreamEvents = false;
   let fallbackResult: EcoStreamingResult | null = null;
+  let fallbackEmitted = false;
 
   const onChunk = async (payload: EcoStreamChunkPayload) => {
     if (chunkDispatcher) {
@@ -377,6 +371,7 @@ export async function executeStreamingLLM({
     if (fallbackResult) {
       return fallbackResult;
     }
+    fallbackEmitted = true;
 
     await onChunk({ index: 0, text: "Processando...", meta: { fallback: true } });
 
@@ -539,6 +534,9 @@ export async function executeStreamingLLM({
           modelFromStream = event.model ?? modelFromStream;
         }
       },
+      onFallback: () => {
+        fallbackEmitted = true;
+      },
       async onError(error) {
         if (ignoreStreamEvents) return;
         streamFailure = error;
@@ -667,15 +665,20 @@ export async function executeStreamingLLM({
 
   const finalize = () => computeFinalization();
 
-  let interactionIdForMeta: string | null = analyticsInteractionId ?? null;
   try {
     const finalized = await computeFinalization();
     const metaFromResult = finalized?.meta as Record<string, unknown> | null | undefined;
-    const maybeInteraction =
+    const interactionIdFromResult =
       typeof metaFromResult?.interaction_id === "string"
         ? metaFromResult.interaction_id.trim()
-        : "";
-    interactionIdForMeta = maybeInteraction ? maybeInteraction : null;
+        : null;
+
+    if (interactionIdFromResult && interactionIdFromResult !== analyticsInteractionId) {
+      log.debug("[StreamingLLM] interaction_id_mismatch", {
+        source: analyticsInteractionId,
+        fromFinalize: interactionIdFromResult,
+      });
+    }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     log.warn("[StreamingLLM] finalize_failed_before_done", { message });
@@ -693,7 +696,8 @@ export async function executeStreamingLLM({
     usage: usageFromStream,
     modelo: modelFromStream ?? principalModel,
     length: raw.length,
-    interaction_id: interactionIdForMeta,
+    interaction_id: analyticsInteractionId,
+    guardFallback: fallbackEmitted,
   };
   await emitStream({
     type: "control",
