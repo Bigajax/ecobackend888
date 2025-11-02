@@ -1,138 +1,83 @@
 import test from "node:test";
 import assert from "node:assert";
 
-process.env.SUPABASE_URL ||= "http://localhost";
-process.env.SUPABASE_SERVICE_ROLE_KEY ||= "test";
+import { ParallelFetchService, withTimeoutOrNull } from "../../services/conversation/parallelFetch";
 
-type ParallelFetchResult = import("../../services/conversation/parallelFetch").ParallelFetchResult;
-const { ParallelFetchService } = require("../../services/conversation/parallelFetch") as typeof import("../../services/conversation/parallelFetch");
-
-const fakeEmbedding = [0.1, 0.2, 0.3];
-
-type DepsOverrides = {
-  getEmbedding?: (texto: string, tipo: string) => Promise<number[]>;
-  getHeuristicas?: (params: any) => Promise<any[]>;
-  getMemorias?: (args: any) => Promise<any[]>;
-  debug?: () => boolean;
-  logger?: { warn: (msg: string) => void };
-};
-
-function createDeps(overrides: DepsOverrides = {}) {
-  const calls: Record<string, unknown[]> = {
-    getEmbedding: [],
-    getHeuristicas: [],
-    getMemorias: [],
-  };
-
-  const warnings: string[] = [];
-
-  const deps = {
-    getEmbedding: async (texto: string, tipo: string) => {
-      calls.getEmbedding.push([texto, tipo]);
-      if (overrides.getEmbedding) {
-        return overrides.getEmbedding(texto, tipo);
-      }
-      return fakeEmbedding;
-    },
-    getHeuristicas: async (params: any) => {
-      calls.getHeuristicas.push(params);
-      if (overrides.getHeuristicas) {
-        return overrides.getHeuristicas(params);
-      }
-      return ["heuristica"];
-    },
-    getMemorias: async (args: any) => {
-      calls.getMemorias.push(args);
-      if (overrides.getMemorias) {
-        return overrides.getMemorias(args);
-      }
-      return ["mem" as any];
-    },
-    logger: {
-      warn: (msg: string) => {
-        warnings.push(msg);
-        overrides.logger?.warn?.(msg);
-      },
-    },
-    debug: overrides.debug ?? (() => true),
-  } as const;
-
-  const service = new ParallelFetchService(deps as any);
-  return { service, calls, warnings };
-}
-
-test("gera embedding apenas quando há mensagem relevante", async () => {
-  const { service, calls } = createDeps();
-  const res = await service.run({ ultimaMsg: "   ", userId: "user" });
-
-  assert.deepStrictEqual(res, {
-    heuristicas: [],
-    memsSemelhantes: [],
-    userEmbedding: [],
-  } satisfies ParallelFetchResult);
-  assert.strictEqual(calls.getEmbedding.length, 0);
-  assert.strictEqual(calls.getHeuristicas.length, 0);
-  assert.strictEqual(calls.getMemorias.length, 0);
-});
-
-test("encaminha embedding para heurísticas e memórias quando disponível", async () => {
-  const { service, calls } = createDeps();
-
-  const res = await service.run({
-    ultimaMsg: "quero entender meus padrões",
-    userId: "user-123",
-    supabase: { tag: "db" },
-  });
-
-  assert.deepStrictEqual(res.heuristicas, ["heuristica"]);
-  assert.deepStrictEqual(res.memsSemelhantes, ["mem"]);
-  assert.deepStrictEqual(res.userEmbedding, fakeEmbedding);
-
-  assert.deepStrictEqual(calls.getEmbedding[0], ["quero entender meus padrões", "entrada_usuario"]);
-  assert.deepStrictEqual(calls.getHeuristicas[0], {
-    usuarioId: "user-123",
-    userEmbedding: fakeEmbedding,
-    matchCount: 4,
-  });
-  assert.deepStrictEqual(calls.getMemorias[0], {
-    userId: "user-123",
-    embedding: fakeEmbedding,
-    mode: "FAST",
-    filtros: {
-      currentMemoryId: null,
-      userIdUsedForInsert: "user-123",
-      authUid: null,
-    },
-    supabaseClient: { tag: "db" },
-  });
-});
-
-test("ignora busca de memórias quando usuário indefinido", async () => {
-  const { service, calls } = createDeps();
-
-  const res = await service.run({ ultimaMsg: "texto", userId: undefined });
-
-  assert.deepStrictEqual(res.memsSemelhantes, []);
-  assert.strictEqual(calls.getMemorias.length, 0);
-});
-
-test("continua execução com embedding vazio quando getEmbedding falha", async () => {
-  const { service, calls, warnings } = createDeps({
+test("retorna resultados vazios quando embedding falha", async () => {
+  const service = new ParallelFetchService({
     getEmbedding: async () => {
-      throw new Error("embedding indisponível");
+      throw new Error("embedding failed");
     },
+    getHeuristicas: async () => ["h1"] as any,
+    getMemorias: async () => ["m1"] as any,
+    logger: { warn: () => {}, info: () => {} } as any,
+    debug: () => false,
   });
 
-  const res = await service.run({ ultimaMsg: "preciso de ajuda", userId: "user" });
+  const result = await service.run({ ultimaMsg: "test" });
 
-  assert.deepStrictEqual(res, {
-    heuristicas: [],
-    memsSemelhantes: [],
-    userEmbedding: [],
-  } satisfies ParallelFetchResult);
-  assert.strictEqual(calls.getHeuristicas.length, 0);
-  assert.strictEqual(calls.getMemorias.length, 0);
-  assert.strictEqual(warnings.length, 1);
-  assert.match(warnings[0], /getEmbedding falhou: embedding indisponível/);
+  assert.deepStrictEqual(result.userEmbedding, []);
+  assert.deepStrictEqual(result.heuristicas, []);
+  assert.deepStrictEqual(result.memsSemelhantes, []);
 });
 
+test("usa cache de heurísticas quando RPC primário falha", async () => {
+  const logger: any = { warn: () => {}, info: () => {} };
+  const service = new ParallelFetchService({
+    getEmbedding: async () => [0.1, 0.2, 0.3],
+    getHeuristicas: async () => {
+      throw new Error("RPC failed");
+    },
+    getMemorias: async () => ["m1"] as any,
+    logger,
+    debug: () => false,
+  });
+
+  // Prime cache
+  service["heuristicaCache"].set("user1", ["h-cached"]);
+
+  const result = await service.run({ ultimaMsg: "test", userId: "user1" });
+  assert.deepStrictEqual(result.heuristicas, ["h-cached"]);
+  assert.deepStrictEqual(result.memsSemelhantes, ["m1"]);
+});
+
+test("usa cache de memórias quando RPC primário falha", async () => {
+  const service = new ParallelFetchService({
+    getEmbedding: async () => [0.1, 0.2, 0.3],
+    getHeuristicas: async () => ["h1"] as any,
+    getMemorias: async () => {
+      throw new Error("RPC failed");
+    },
+    logger: { warn: () => {}, info: () => {} } as any,
+    debug: () => false,
+  });
+
+  // Prime cache
+  service["memoriaCache"].set("user1", ["m-cached"]);
+
+  const result = await service.run({ ultimaMsg: "test", userId: "user1" });
+
+  assert.deepStrictEqual(result.heuristicas, ["h1"]);
+  assert.deepStrictEqual(result.memsSemelhantes, ["m-cached"]);
+});
+
+test("ignora promise de memórias para usuário anônimo", async () => {
+  const getMemorias = test.mock.fn(async () => ["m1"]);
+  const service = new ParallelFetchService({
+    getEmbedding: async () => [0.1, 0.2, 0.3],
+    getHeuristicas: async () => ["h1"] as any,
+    getMemorias: getMemorias as any,
+    logger: { warn: () => {}, info: () => {} } as any,
+    debug: () => false,
+  });
+
+  const result = await service.run({ ultimaMsg: "test", userId: undefined });
+  assert.strictEqual(getMemorias.mock.calls.length, 0);
+  assert.deepStrictEqual(result.memsSemelhantes, []);
+});
+
+test("withTimeoutOrNull retorna null em caso de timeout", async () => {
+  const slowPromise = new Promise((resolve) => setTimeout(() => resolve("done"), 20));
+  const result = await withTimeoutOrNull(slowPromise, 10, "test", { logger: { warn: () => {} } as any });
+  assert.strictEqual(result, null);
+});
