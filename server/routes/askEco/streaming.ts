@@ -418,12 +418,11 @@ export class StreamSession {
     const payload = `data: ${JSON.stringify({ type: "ping" })}\n\n`;
     this.res.write(payload);
     this.res.flush?.();
-    this.logSseWrite("heartbeat", payload);
   }
 
   private logSseWrite(type: string, payload: string) {
     const bytes = Buffer.byteLength(payload, "utf8");
-    console.log("[SSE] Sent event", { type, bytes, timestamp: Date.now() });
+    log.debug("[SSE] Sent event", { type, bytes, timestamp: Date.now() });
   }
 
   private stopHeartbeat() {
