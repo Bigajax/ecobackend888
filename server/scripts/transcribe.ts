@@ -10,7 +10,7 @@ export async function transcribeWithWhisper(buffer: Buffer): Promise<string> {
   await fs.promises.writeFile(audioPath, buffer);
 
   return new Promise((resolve, reject) => {
-    const python = spawn('python3', ['scripts/whisper_runner.py', audioPath]);
+    const python = spawn('python', ['scripts/whisper_runner.py', audioPath]);
 
     let output = '';
     let errorOutput = '';
