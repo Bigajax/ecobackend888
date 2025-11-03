@@ -22,6 +22,19 @@ import type { EcoHints } from "../../utils/types";
 const BLOCO_DEADLINE_MS = Number(process.env.ECO_BLOCO_DEADLINE_MS ?? 5000);
 const BLOCO_PENDING_MS = Number(process.env.ECO_BLOCO_PENDING_MS ?? 1000);
 const STREAM_GUARD_MS = Number(process.env.ECO_STREAM_GUARD_MS ?? 2000);
+const FIRST_TOKEN_TIMEOUT_MS = Number(process.env.ECO_FIRST_TOKEN_TIMEOUT_MS ?? 15000);
+
+function once<T extends (...args: any[]) => any>(fn: T): T {
+  let hasBeenCalled = false;
+  let result: any;
+  return ((...args: any[]) => {
+    if (!hasBeenCalled) {
+      hasBeenCalled = true;
+      result = fn(...args);
+    }
+    return result;
+  }) as T;
+}
 
 function normalizeBlocoForMeta(
   bloco: any,
@@ -172,6 +185,47 @@ export async function executeStreamingLLM({
   let ignoreStreamEvents = false;
   let fallbackResult: EcoStreamingResult | null = null;
   let fallbackEmitted = false;
+  let sawChunk = false;
+
+  const emitFallbackOnce = once(async () => {
+    try {
+      const fallbackTimings: EcoLatencyMarks = { ...timings };
+      const fullResult = await executeFullLLM({
+        prompt,
+        maxTokens,
+        principalModel,
+        ultimaMsg,
+        basePrompt,
+        basePromptHash: resolvedPromptHash,
+        userName,
+        decision,
+        ecoDecision,
+        userId,
+        supabase,
+        lastMessageId,
+        sessionMeta,
+        timings: fallbackTimings,
+        thread,
+        isGuest,
+        guestId,
+        interactionId: analyticsInteractionId ?? undefined,
+        calHints,
+        memsSemelhantes,
+        contextFlags,
+        contextMeta,
+        continuity,
+      });
+      const text = buildFinalizedStreamText(fullResult);
+      if (text?.trim()) {
+        await emitStream({ type: "chunk", content: text, index: 0 });
+        await emitStream({ type: "control", name: "done", meta: { finish_reason: "fallback" } });
+        return true;
+      }
+      return false;
+    } catch (error) {
+      return false;
+    }
+  });
 
   const onChunk = async (payload: EcoStreamChunkPayload) => {
     if (chunkDispatcher) {
@@ -486,6 +540,14 @@ export async function executeStreamingLLM({
         : undefined,
   });
 
+  const firstTokenTimer = setTimeout(async () => {
+    if (!sawChunk) {
+      log.warn("[first_token_guard_triggered]", { sawChunk, chunksCount: chunkIndex });
+      await emitFallbackOnce();
+    }
+  }, FIRST_TOKEN_TIMEOUT_MS);
+
+
   const streamPromise = streamClaudeChatCompletion(
     {
       messages: prompt,
@@ -497,6 +559,7 @@ export async function executeStreamingLLM({
       async onChunk({ content }) {
         if (!content) return;
         if (ignoreStreamEvents) return;
+        sawChunk = true;
         streamedChunks.push(content);
         if (streamGuardTimer) {
           clearStreamGuard(streamGuardTimer);
@@ -519,6 +582,10 @@ export async function executeStreamingLLM({
           if (streamGuardTimer) {
             clearStreamGuard(streamGuardTimer);
             streamGuardTimer = null;
+          }
+          if (!sawChunk) {
+            log.warn("[first_token_guard_triggered]", { sawChunk, chunksCount: chunkIndex });
+            await emitFallbackOnce();
           }
           usageFromStream = event.usage ?? usageFromStream;
           finishReason = event.finishReason ?? finishReason;
@@ -575,6 +642,7 @@ export async function executeStreamingLLM({
       streamCompleted = true;
     }
   } finally {
+    clearTimeout(firstTokenTimer);
     if (!streamGuardTimer) {
       // already cleared
     } else {
@@ -677,6 +745,8 @@ export async function executeStreamingLLM({
 
   const doneSnapshot = { ...timings };
   const finalFinishReason = finishReason ?? "stream_done";
+  if (chunkIndex === 0 && !sawChunk) return fallbackResult ?? (await deliverFallbackFull());
+
   log.info("[StreamingLLM] stream_done", {
     length: raw.length,
     chunks: chunkIndex,

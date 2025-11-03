@@ -3,6 +3,7 @@
 import { Readable } from "node:stream";
 
 import { httpAgent, httpsAgent } from "../adapters/OpenRouterAdapter";
+import { log } from "../services/promptContext/logger";
 
 export type Msg = { role: "system" | "user" | "assistant"; content: string; name?: string };
 
@@ -281,6 +282,7 @@ export async function streamClaudeChatCompletion(
   const headers = {
     Authorization: `Bearer ${apiKey}`,
     "Content-Type": "application/json",
+    Accept: "text/event-stream",
     "HTTP-Referer": process.env.PUBLIC_APP_URL || "http://localhost:5173",
     "X-Title": "Eco App - ClaudeAdapter",
   };
@@ -309,6 +311,8 @@ export async function streamClaudeChatCompletion(
     const linked = linkAbortSignals(controller.signal, externalSignal);
     const requestSignal: AbortSignal = linked.signal ?? controller.signal;
 
+    log.debug("[provider_request]", { stream: payload.stream, model: payload.model });
+
     try {
       const request = async () =>
         fetch("https://openrouter.ai/api/v1/chat/completions", {
@@ -322,6 +326,26 @@ export async function streamClaudeChatCompletion(
       let resp: Awaited<ReturnType<typeof fetch>>;
       try {
         resp = await request();
+        log.debug("[provider_response]", { contentType: resp.headers.get("content-type") });
+
+        const isSse = /^text\/event-stream/i.test(resp.headers.get("content-type") || "");
+        if (!isSse) {
+          const json = await resp.json().catch(() => null);
+          const text =
+            json?.choices?.[0]?.message?.content ||
+            (json?.content?.[0] && json?.content?.[0].text) ||
+            "";
+
+          log.warn("[non_sse_fallback]", { used: !!text, contentLength: text?.length || 0 });
+
+          if (text) {
+            await callbacks.onChunk?.({ content: text, raw: json });
+            await callbacks.onControl?.({ type: "done", finishReason: "fallback" });
+            return;
+          } else {
+            throw new Error("NON_SSE_EMPTY");
+          }
+        }
       } catch (error) {
         if ((error as Error)?.name === "AbortError") {
           const abortError = resolveAbortError(timeoutReason, requestSignal, controller.signal, externalSignal);
