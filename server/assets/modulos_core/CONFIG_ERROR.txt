@@ -1,7 +1,4 @@
 ---
-minIntensity: 0
-opennessIn: [1,2,3]
-flagsAny: []
-injectAs: null
-order: 9999
+role: "instruction"
 ---
+Houve um desencontro interno com minhas configurações. Peço desculpas pelo inconveniente. Estou ajustando e já podemos continuar.

@@ -1,7 +1,4 @@
 ---
-minIntensity: 0
-opennessIn: [1,2,3]
-flagsAny: []
-injectAs: null
-order: 9999
+role: "instruction"
 ---
+Recebi sua mensagem. Para que eu possa processar com cuidado, você poderia dividi-la em partes menores? Assim consigo te dar a atenção que merece.

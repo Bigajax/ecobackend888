@@ -1,16 +1,38 @@
 import json
 import os
 import re
-import yaml # Using pyyaml for safer and more robust frontmatter parsing
+import yaml
+import unidecode
+
+def to_camel_case(snake_str):
+    """Converts a snake_case string to camelCase."""
+    components = snake_str.split('_')
+    return components[0] + ''.join(x.title() for x in components[1:])
+
+def normalize_meta_keys(meta):
+    """Recursively converts all keys in a dictionary to camelCase."""
+    new_meta = {}
+    if isinstance(meta, dict):
+        for key, value in meta.items():
+            new_key = to_camel_case(key)
+            new_meta[new_key] = normalize_meta_keys(value)
+        return new_meta
+    elif isinstance(meta, list):
+        return [normalize_meta_keys(item) for item in meta]
+    else:
+        return meta
 
 def estimate_tokens(content):
-    """Estimates the number of tokens in a string."""
-    return round(len(content) / 4)
+    """Estimates tokens. If content exists but calculation is 0, return 1."""
+    if not content:
+        return 1 # User rule: no module with 0 tokens.
+    tokens = round(len(content) / 4)
+    return tokens if tokens > 0 else 1
 
 def get_size(tokens):
     """Determines the size category based on the number of tokens."""
     if not isinstance(tokens, (int, float)) or tokens < 0:
-        return 'S' # Default for invalid token counts
+        return 'S'
     if tokens <= 400:
         return 'S'
     elif tokens <= 1200:
@@ -27,28 +49,29 @@ def get_role_from_id(file_id):
 def parse_frontmatter(content):
     """Parses frontmatter from the file content using regex and yaml."""
     meta = {}
-    main_content = content
+    main_content = content.strip()
     match = re.match(r'^---\s*\n(.*?)\n---\s*\n(.*)', content, re.DOTALL)
     if match:
         frontmatter_str = match.group(1)
         main_content = match.group(2).strip()
         try:
-            # Using yaml.safe_load for robust parsing of the frontmatter
             parsed_yaml = yaml.safe_load(frontmatter_str)
             if isinstance(parsed_yaml, dict):
                 meta = parsed_yaml
         except yaml.YAMLError as e:
             print(f"Warning: Could not parse YAML frontmatter. Error: {e}")
-            # Fallback to simple key-value parsing if yaml fails
-            for line in frontmatter_str.split('\n'):
-                if ':' in line:
-                    key, value = line.split(':', 1)
-                    meta[key.strip()] = value.strip()
     return meta, main_content
 
 def main():
-    """Main function to migrate the manifest."""
-    # Pre-defined module data from the prompt (highest priority)
+    """Main function to migrate and normalize the manifest."""
+    # Modules to be completely removed from the manifest
+    SECRET_MODULES = {
+        "OPENROUTER_API_KEY.txt",
+        "SUPABASE_URL.txt",
+        "SUPABASE_ANON_KEY.txt"
+    }
+
+    # Pre-defined module data (highest priority)
     predefined_modules = {
         "developer_prompt.txt": {"family": "core", "role": "instruction", "size": "L", "tokens_avg": 3222},
         "ANTISALDO_MIN.txt": {"family": "core", "role": "instruction", "size": "M", "tokens_avg": 617},
@@ -57,97 +80,109 @@ def main():
         "eco_estrutura_de_resposta.txt": {"family": "core", "role": "instruction", "size": "S", "tokens_avg": 325},
         "usomemorias.txt": {"family": "core", "role": "instruction", "size": "S", "tokens_avg": 34},
         "escala_abertura_1a3.txt": {"family": "extra", "role": "context", "size": "S", "tokens_avg": 169},
-        "bloco_tecnico_memoria.txt": {"family": "extra", "role": "instruction", "size": "S", "tokens_avg": 116, "meta": {"activate_if": "intensity>=7"}},
+        "bloco_tecnico_memoria.txt": {"family": "extra", "role": "instruction", "size": "S", "tokens_avg": 116, "meta": {"activateIf": "intensity>=7"}},
         "metodo_viva_enxuto.txt": {"family": "extra", "role": "instruction", "size": "S", "tokens_avg": 302}
     }
 
-    new_manifest = {
-        "version": 2,
-        "modules": []
-    }
+    new_manifest = {"version": 2, "modules": []}
+    module_dirs = {"core": "server/assets/modulos_core", "extra": "server/assets/modulos_extras"}
+    all_module_files = set()
 
-    module_dirs = {
-        "core": "server/assets/modulos_core",
-        "extra": "server/assets/modulos_extras"
-    }
+    for dir_path in module_dirs.values():
+        if os.path.isdir(dir_path):
+            for filename in os.listdir(dir_path):
+                if filename.endswith(".txt"):
+                    all_module_files.add(filename)
 
     for family, dir_path in module_dirs.items():
         if not os.path.isdir(dir_path):
-            print(f"Directory not found: {dir_path}")
             continue
 
-        for filename in sorted(os.listdir(dir_path)): # Sort for consistent order
-            if filename.endswith(".txt"):
-                file_path = os.path.join(dir_path, filename)
-                with open(file_path, 'r', encoding='utf-8') as f:
-                    content = f.read()
+        for filename in sorted(os.listdir(dir_path)):
+            if not filename.endswith(".txt") or filename in SECRET_MODULES:
+                continue
 
-                frontmatter, main_content = parse_frontmatter(content)
+            # Normalize filename: remove accents
+            normalized_filename = unidecode.unidecode(filename)
 
-                module_data = {
-                    "id": filename,
-                    "family": family,
-                }
+            file_path = os.path.join(dir_path, filename)
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
 
-                # Logic refinement based on code review feedback
-                # Priority Order: Predefined > Frontmatter > Heuristic
+            frontmatter, main_content = parse_frontmatter(content)
 
-                if filename in predefined_modules:
-                    # 1. Apply predefined data (highest priority)
-                    predefined = predefined_modules[filename]
-                    module_data.update({
-                        "role": predefined.get("role"),
-                        "size": predefined.get("size"),
-                        "tokens_avg": predefined.get("tokens_avg")
-                    })
-                    # Merge meta, with predefined meta taking precedence
-                    merged_meta = frontmatter
-                    if "meta" in predefined:
-                        merged_meta.update(predefined["meta"])
-                    module_data["meta"] = merged_meta
+            module_data = {"id": normalized_filename, "family": family}
 
-                else:
-                    # 2. Use frontmatter data if available
-                    tokens_from_fm = frontmatter.get('tokens_avg')
-                    try:
-                        tokens = int(tokens_from_fm) if tokens_from_fm is not None else None
-                    except (ValueError, TypeError):
-                        tokens = None
+            # 1. Get data from predefined list or frontmatter/heuristics
+            if normalized_filename in predefined_modules:
+                predefined = predefined_modules[normalized_filename]
+                module_data.update({
+                    "role": predefined.get("role"),
+                    "size": predefined.get("size"),
+                    "tokens_avg": predefined.get("tokens_avg")
+                })
+                meta = frontmatter
+                if "meta" in predefined:
+                    meta.update(predefined["meta"])
+            else:
+                tokens_from_fm = frontmatter.get('tokens_avg')
+                try:
+                    tokens = int(tokens_from_fm) if tokens_from_fm is not None else None
+                except (ValueError, TypeError):
+                    tokens = None
 
-                    if tokens is None:
-                        # 3. Heuristic calculation as fallback
-                        tokens = estimate_tokens(main_content)
+                if tokens is None:
+                    tokens = estimate_tokens(main_content)
 
-                    module_data.update({
-                        "role": frontmatter.get('role', get_role_from_id(filename)),
-                        "size": frontmatter.get('size', get_size(tokens)),
-                        "tokens_avg": tokens
-                    })
-                    module_data["meta"] = frontmatter
+                module_data.update({
+                    "role": frontmatter.get('role', get_role_from_id(normalized_filename)),
+                    "size": frontmatter.get('size', get_size(tokens)),
+                    "tokens_avg": tokens
+                })
+                meta = frontmatter
 
-                # Clean up meta by removing top-level fields
-                for key in ['role', 'size', 'tokens_avg', 'family', 'id']:
-                    if key in module_data["meta"]:
-                        del module_data["meta"][key]
+            # 2. Normalize and standardize meta
+            normalized_meta = normalize_meta_keys(meta)
 
-                if not module_data.get("meta"): # Ensure meta is not included if empty
-                    module_data.pop("meta", None)
+            # Ensure dependsOn values are full filenames
+            if 'dependsOn' in normalized_meta and isinstance(normalized_meta['dependsOn'], list):
+                normalized_meta['dependsOn'] = [
+                    f"{dep}.txt" if not dep.endswith(".txt") else dep for dep in normalized_meta['dependsOn']
+                ]
+                # Check for existence and set disabled flag
+                for dep in normalized_meta['dependsOn']:
+                    if dep not in all_module_files:
+                        normalized_meta['disabled'] = True
+                        print(f"Warning: Dependency '{dep}' for module '{normalized_filename}' not found. Disabling module.")
+                        break
 
-                new_manifest["modules"].append(module_data)
+            # 3. Clean up meta by removing top-level fields that are managed separately
+            for key in ['role', 'size', 'tokensAvg', 'family', 'id']:
+                if key in normalized_meta:
+                    del normalized_meta[key]
+
+            if normalized_meta:
+                module_data["meta"] = normalized_meta
+
+            new_manifest["modules"].append(module_data)
 
     output_path = "server/assets/modules.manifest.json"
     with open(output_path, 'w', encoding='utf-8') as f:
         json.dump(new_manifest, f, indent=2, ensure_ascii=False)
 
-    print(f"New manifest written to {output_path}")
+    print(f"Normalized manifest written to {output_path}")
 
 if __name__ == "__main__":
-    # Ensure pyyaml is installed
     try:
         import yaml
     except ImportError:
         print("PyYAML not found. Installing...")
-        import subprocess
-        import sys
+        import subprocess, sys
         subprocess.check_call([sys.executable, "-m", "pip", "install", "pyyaml"])
+    try:
+        import unidecode
+    except ImportError:
+        print("unidecode not found. Installing...")
+        import subprocess, sys
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "unidecode"])
     main()

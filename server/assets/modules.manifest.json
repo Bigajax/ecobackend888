@@ -10,11 +10,11 @@
       "meta": {
         "type": "core",
         "order": 5,
-        "inject_as": "inline",
+        "injectAs": "inline",
         "when": {
-          "min_intensity": 0,
-          "max_intensity": 10,
-          "openness_in": [
+          "minIntensity": 0,
+          "maxIntensity": 10,
+          "opennessIn": [
             1,
             2,
             3
@@ -27,25 +27,14 @@
       "family": "core",
       "role": "instruction",
       "size": "S",
-      "tokens_avg": 0,
-      "meta": {
-        "minIntensity": 0,
-        "opennessIn": [
-          1,
-          2,
-          3
-        ],
-        "flagsAny": [],
-        "injectAs": null,
-        "order": 9999
-      }
+      "tokens_avg": 36
     },
     {
       "id": "BASE_PROMPT.txt",
       "family": "core",
       "role": "instruction",
       "size": "S",
-      "tokens_avg": 0,
+      "tokens_avg": 1,
       "meta": {
         "minIntensity": 0,
         "opennessIn": [
@@ -63,7 +52,7 @@
       "family": "core",
       "role": "instruction",
       "size": "S",
-      "tokens_avg": 0,
+      "tokens_avg": 1,
       "meta": {
         "minIntensity": 0,
         "opennessIn": [
@@ -81,25 +70,14 @@
       "family": "core",
       "role": "instruction",
       "size": "S",
-      "tokens_avg": 0,
-      "meta": {
-        "minIntensity": 0,
-        "opennessIn": [
-          1,
-          2,
-          3
-        ],
-        "flagsAny": [],
-        "injectAs": null,
-        "order": 9999
-      }
+      "tokens_avg": 32
     },
     {
       "id": "DR_DISPENZA_BENCAO_CENTROS_LITE.txt",
       "family": "core",
       "role": "instruction",
       "size": "S",
-      "tokens_avg": 0,
+      "tokens_avg": 1,
       "meta": {
         "minIntensity": 0,
         "opennessIn": [
@@ -117,7 +95,7 @@
       "family": "core",
       "role": "instruction",
       "size": "S",
-      "tokens_avg": 0,
+      "tokens_avg": 1,
       "meta": {
         "minIntensity": 0,
         "opennessIn": [
@@ -135,7 +113,7 @@
       "family": "core",
       "role": "instruction",
       "size": "S",
-      "tokens_avg": 0,
+      "tokens_avg": 1,
       "meta": {
         "minIntensity": 0,
         "opennessIn": [
@@ -153,7 +131,7 @@
       "family": "core",
       "role": "instruction",
       "size": "S",
-      "tokens_avg": 0,
+      "tokens_avg": 1,
       "meta": {
         "minIntensity": 0,
         "opennessIn": [
@@ -171,7 +149,7 @@
       "family": "core",
       "role": "context",
       "size": "S",
-      "tokens_avg": 0,
+      "tokens_avg": 1,
       "meta": {
         "minIntensity": 0,
         "opennessIn": [
@@ -191,12 +169,12 @@
       "size": "M",
       "tokens_avg": 310,
       "meta": {
-        "depends_on": [
-          "IDENTIDADE"
+        "dependsOn": [
+          "IDENTIDADE.txt"
         ],
         "gate": {
           "signal": "open",
-          "min_open": 1
+          "minOpen": 1
         }
       }
     },
@@ -205,7 +183,7 @@
       "family": "core",
       "role": "instruction",
       "size": "S",
-      "tokens_avg": 0,
+      "tokens_avg": 1,
       "meta": {
         "minIntensity": 0,
         "opennessIn": [
@@ -225,12 +203,12 @@
       "size": "S",
       "tokens_avg": 180,
       "meta": {
-        "depends_on": [
-          "IDENTIDADE"
+        "dependsOn": [
+          "IDENTIDADE.txt"
         ],
         "gate": {
           "signal": "open",
-          "min_open": 1
+          "minOpen": 1
         }
       }
     },
@@ -239,7 +217,7 @@
       "family": "core",
       "role": "instruction",
       "size": "S",
-      "tokens_avg": 0,
+      "tokens_avg": 1,
       "meta": {
         "minIntensity": 0,
         "opennessIn": [
@@ -257,7 +235,7 @@
       "family": "core",
       "role": "instruction",
       "size": "S",
-      "tokens_avg": 0,
+      "tokens_avg": 1,
       "meta": {
         "minIntensity": 0,
         "opennessIn": [
@@ -275,7 +253,7 @@
       "family": "core",
       "role": "instruction",
       "size": "S",
-      "tokens_avg": 0,
+      "tokens_avg": 1,
       "meta": {
         "minIntensity": 0,
         "opennessIn": [
@@ -293,7 +271,7 @@
       "family": "core",
       "role": "instruction",
       "size": "S",
-      "tokens_avg": 0,
+      "tokens_avg": 1,
       "meta": {
         "minIntensity": 0,
         "opennessIn": [
@@ -309,27 +287,16 @@
     {
       "id": "ECO_HINTS.txt",
       "family": "core",
-      "role": "instruction",
+      "role": "toolhint",
       "size": "S",
-      "tokens_avg": 0,
-      "meta": {
-        "minIntensity": 0,
-        "opennessIn": [
-          1,
-          2,
-          3
-        ],
-        "flagsAny": [],
-        "injectAs": null,
-        "order": 9999
-      }
+      "tokens_avg": 56
     },
     {
       "id": "ECO_HYPOTHESIS_AS_OFFERING.txt",
       "family": "core",
       "role": "instruction",
       "size": "S",
-      "tokens_avg": 0,
+      "tokens_avg": 1,
       "meta": {
         "minIntensity": 0,
         "opennessIn": [
@@ -347,7 +314,7 @@
       "family": "core",
       "role": "instruction",
       "size": "S",
-      "tokens_avg": 0,
+      "tokens_avg": 1,
       "meta": {
         "minIntensity": 0,
         "opennessIn": [
@@ -365,7 +332,7 @@
       "family": "core",
       "role": "instruction",
       "size": "S",
-      "tokens_avg": 0,
+      "tokens_avg": 1,
       "meta": {
         "minIntensity": 0,
         "opennessIn": [
@@ -383,7 +350,7 @@
       "family": "core",
       "role": "instruction",
       "size": "S",
-      "tokens_avg": 0,
+      "tokens_avg": 1,
       "meta": {
         "minIntensity": 0,
         "opennessIn": [
@@ -401,7 +368,7 @@
       "family": "core",
       "role": "instruction",
       "size": "S",
-      "tokens_avg": 0,
+      "tokens_avg": 1,
       "meta": {
         "minIntensity": 0,
         "opennessIn": [
@@ -419,7 +386,7 @@
       "family": "core",
       "role": "instruction",
       "size": "S",
-      "tokens_avg": 0,
+      "tokens_avg": 1,
       "meta": {
         "minIntensity": 0,
         "opennessIn": [
@@ -437,7 +404,7 @@
       "family": "core",
       "role": "instruction",
       "size": "S",
-      "tokens_avg": 0,
+      "tokens_avg": 1,
       "meta": {
         "minIntensity": 0,
         "opennessIn": [
@@ -455,7 +422,7 @@
       "family": "core",
       "role": "instruction",
       "size": "S",
-      "tokens_avg": 0,
+      "tokens_avg": 1,
       "meta": {
         "minIntensity": 0,
         "opennessIn": [
@@ -473,25 +440,14 @@
       "family": "core",
       "role": "instruction",
       "size": "S",
-      "tokens_avg": 0,
-      "meta": {
-        "minIntensity": 0,
-        "opennessIn": [
-          1,
-          2,
-          3
-        ],
-        "flagsAny": [],
-        "injectAs": null,
-        "order": 9999
-      }
+      "tokens_avg": 46
     },
     {
       "id": "ECO_QUESTION_TYPOLOGY.txt",
       "family": "core",
       "role": "instruction",
       "size": "S",
-      "tokens_avg": 0,
+      "tokens_avg": 1,
       "meta": {
         "minIntensity": 0,
         "opennessIn": [
@@ -509,7 +465,7 @@
       "family": "core",
       "role": "instruction",
       "size": "S",
-      "tokens_avg": 0,
+      "tokens_avg": 1,
       "meta": {
         "minIntensity": 0,
         "opennessIn": [
@@ -527,7 +483,7 @@
       "family": "core",
       "role": "instruction",
       "size": "S",
-      "tokens_avg": 0,
+      "tokens_avg": 1,
       "meta": {
         "minIntensity": 0,
         "opennessIn": [
@@ -545,7 +501,7 @@
       "family": "core",
       "role": "instruction",
       "size": "S",
-      "tokens_avg": 0,
+      "tokens_avg": 1,
       "meta": {
         "minIntensity": 0,
         "opennessIn": [
@@ -563,7 +519,7 @@
       "family": "core",
       "role": "instruction",
       "size": "S",
-      "tokens_avg": 0,
+      "tokens_avg": 1,
       "meta": {
         "minIntensity": 0,
         "opennessIn": [
@@ -581,25 +537,14 @@
       "family": "core",
       "role": "instruction",
       "size": "S",
-      "tokens_avg": 0,
-      "meta": {
-        "minIntensity": 0,
-        "opennessIn": [
-          1,
-          2,
-          3
-        ],
-        "flagsAny": [],
-        "injectAs": null,
-        "order": 9999
-      }
+      "tokens_avg": 36
     },
     {
       "id": "ECO_RULE_WEIGHTS.txt",
       "family": "core",
       "role": "instruction",
       "size": "S",
-      "tokens_avg": 0,
+      "tokens_avg": 1,
       "meta": {
         "minIntensity": 0,
         "opennessIn": [
@@ -617,7 +562,7 @@
       "family": "core",
       "role": "instruction",
       "size": "S",
-      "tokens_avg": 0,
+      "tokens_avg": 1,
       "meta": {
         "minIntensity": 0,
         "opennessIn": [
@@ -635,7 +580,7 @@
       "family": "core",
       "role": "instruction",
       "size": "S",
-      "tokens_avg": 0,
+      "tokens_avg": 1,
       "meta": {
         "minIntensity": 0,
         "opennessIn": [
@@ -674,7 +619,7 @@
       "family": "core",
       "role": "instruction",
       "size": "S",
-      "tokens_avg": 0,
+      "tokens_avg": 1,
       "meta": {
         "minIntensity": 0,
         "opennessIn": [
@@ -692,7 +637,7 @@
       "family": "core",
       "role": "instruction",
       "size": "S",
-      "tokens_avg": 0,
+      "tokens_avg": 1,
       "meta": {
         "minIntensity": 0,
         "opennessIn": [
@@ -710,7 +655,7 @@
       "family": "core",
       "role": "instruction",
       "size": "S",
-      "tokens_avg": 0,
+      "tokens_avg": 1,
       "meta": {
         "minIntensity": 0,
         "opennessIn": [
@@ -730,12 +675,12 @@
       "size": "S",
       "tokens_avg": 170,
       "meta": {
-        "depends_on": [
-          "IDENTIDADE"
+        "dependsOn": [
+          "IDENTIDADE.txt"
         ],
         "gate": {
           "signal": "open",
-          "min_open": 1
+          "minOpen": 1
         }
       }
     },
@@ -746,12 +691,12 @@
       "size": "S",
       "tokens_avg": 180,
       "meta": {
-        "depends_on": [
-          "IDENTIDADE"
+        "dependsOn": [
+          "IDENTIDADE.txt"
         ],
         "gate": {
           "signal": "open",
-          "min_open": 1
+          "minOpen": 1
         }
       }
     },
@@ -760,18 +705,7 @@
       "family": "core",
       "role": "instruction",
       "size": "S",
-      "tokens_avg": 0,
-      "meta": {
-        "minIntensity": 0,
-        "opennessIn": [
-          1,
-          2,
-          3
-        ],
-        "flagsAny": [],
-        "injectAs": null,
-        "order": 9999
-      }
+      "tokens_avg": 36
     },
     {
       "id": "IDENTIDADE.txt",
@@ -800,7 +734,7 @@
       "family": "core",
       "role": "instruction",
       "size": "S",
-      "tokens_avg": 0,
+      "tokens_avg": 1,
       "meta": {
         "minIntensity": 0,
         "opennessIn": [
@@ -818,25 +752,14 @@
       "family": "core",
       "role": "instruction",
       "size": "S",
-      "tokens_avg": 0,
-      "meta": {
-        "minIntensity": 0,
-        "opennessIn": [
-          1,
-          2,
-          3
-        ],
-        "flagsAny": [],
-        "injectAs": null,
-        "order": 9999
-      }
+      "tokens_avg": 30
     },
     {
       "id": "LIMIT_FILE_SIZE.txt",
       "family": "core",
       "role": "instruction",
       "size": "S",
-      "tokens_avg": 0,
+      "tokens_avg": 1,
       "meta": {
         "minIntensity": 0,
         "opennessIn": [
@@ -854,7 +777,7 @@
       "family": "core",
       "role": "instruction",
       "size": "S",
-      "tokens_avg": 0,
+      "tokens_avg": 1,
       "meta": {
         "minIntensity": 0,
         "opennessIn": [
@@ -872,7 +795,7 @@
       "family": "core",
       "role": "instruction",
       "size": "S",
-      "tokens_avg": 0,
+      "tokens_avg": 1,
       "meta": {
         "minIntensity": 0,
         "opennessIn": [
@@ -892,12 +815,12 @@
       "size": "M",
       "tokens_avg": 320,
       "meta": {
-        "depends_on": [
-          "IDENTIDADE"
+        "dependsOn": [
+          "IDENTIDADE.txt"
         ],
         "gate": {
           "signal": "open",
-          "min_open": 1
+          "minOpen": 1
         }
       }
     },
@@ -908,12 +831,12 @@
       "size": "S",
       "tokens_avg": 190,
       "meta": {
-        "depends_on": [
-          "IDENTIDADE"
+        "dependsOn": [
+          "IDENTIDADE.txt"
         ],
         "gate": {
           "signal": "open",
-          "min_open": 1
+          "minOpen": 1
         }
       }
     },
@@ -922,7 +845,7 @@
       "family": "core",
       "role": "instruction",
       "size": "S",
-      "tokens_avg": 0,
+      "tokens_avg": 1,
       "meta": {
         "minIntensity": 0,
         "opennessIn": [
@@ -940,7 +863,7 @@
       "family": "core",
       "role": "instruction",
       "size": "S",
-      "tokens_avg": 0,
+      "tokens_avg": 1,
       "meta": {
         "minIntensity": 0,
         "opennessIn": [
@@ -960,12 +883,12 @@
       "size": "M",
       "tokens_avg": 300,
       "meta": {
-        "depends_on": [
-          "IDENTIDADE"
+        "dependsOn": [
+          "IDENTIDADE.txt"
         ],
         "gate": {
           "signal": "open",
-          "min_open": 1
+          "minOpen": 1
         }
       }
     },
@@ -988,7 +911,7 @@
       "family": "core",
       "role": "instruction",
       "size": "S",
-      "tokens_avg": 0,
+      "tokens_avg": 1,
       "meta": {
         "minIntensity": 0,
         "opennessIn": [
@@ -1006,7 +929,7 @@
       "family": "core",
       "role": "instruction",
       "size": "S",
-      "tokens_avg": 0,
+      "tokens_avg": 1,
       "meta": {
         "minIntensity": 0,
         "opennessIn": [
@@ -1046,7 +969,7 @@
       "family": "core",
       "role": "instruction",
       "size": "S",
-      "tokens_avg": 0,
+      "tokens_avg": 1,
       "meta": {
         "minIntensity": 0,
         "opennessIn": [
@@ -1064,7 +987,7 @@
       "family": "core",
       "role": "instruction",
       "size": "S",
-      "tokens_avg": 0,
+      "tokens_avg": 1,
       "meta": {
         "minIntensity": 0,
         "opennessIn": [
@@ -1082,7 +1005,7 @@
       "family": "core",
       "role": "instruction",
       "size": "S",
-      "tokens_avg": 0,
+      "tokens_avg": 1,
       "meta": {
         "minIntensity": 0,
         "opennessIn": [
@@ -1102,12 +1025,12 @@
       "size": "M",
       "tokens_avg": 250,
       "meta": {
-        "depends_on": [
-          "IDENTIDADE"
+        "dependsOn": [
+          "IDENTIDADE.txt"
         ],
         "gate": {
           "signal": "open",
-          "min_open": 1
+          "minOpen": 1
         }
       }
     },
@@ -1118,31 +1041,13 @@
       "size": "S",
       "tokens_avg": 190,
       "meta": {
-        "depends_on": [
-          "IDENTIDADE"
+        "dependsOn": [
+          "IDENTIDADE.txt"
         ],
         "gate": {
           "signal": "open",
-          "min_open": 1
+          "minOpen": 1
         }
-      }
-    },
-    {
-      "id": "OPENROUTER_API_KEY.txt",
-      "family": "core",
-      "role": "instruction",
-      "size": "S",
-      "tokens_avg": 0,
-      "meta": {
-        "minIntensity": 0,
-        "opennessIn": [
-          1,
-          2,
-          3
-        ],
-        "flagsAny": [],
-        "injectAs": null,
-        "order": 9999
       }
     },
     {
@@ -1150,7 +1055,7 @@
       "family": "core",
       "role": "instruction",
       "size": "S",
-      "tokens_avg": 0,
+      "tokens_avg": 1,
       "meta": {
         "minIntensity": 0,
         "opennessIn": [
@@ -1190,7 +1095,7 @@
       "family": "core",
       "role": "instruction",
       "size": "S",
-      "tokens_avg": 0,
+      "tokens_avg": 1,
       "meta": {
         "minIntensity": 0,
         "opennessIn": [
@@ -1223,58 +1128,11 @@
       }
     },
     {
-      "id": "SUPABASE_ANON_KEY.txt",
-      "family": "core",
-      "role": "instruction",
-      "size": "S",
-      "tokens_avg": 0,
-      "meta": {
-        "minIntensity": 0,
-        "opennessIn": [
-          1,
-          2,
-          3
-        ],
-        "flagsAny": [],
-        "injectAs": null,
-        "order": 9999
-      }
-    },
-    {
-      "id": "SUPABASE_URL.txt",
-      "family": "core",
-      "role": "instruction",
-      "size": "S",
-      "tokens_avg": 0,
-      "meta": {
-        "minIntensity": 0,
-        "opennessIn": [
-          1,
-          2,
-          3
-        ],
-        "flagsAny": [],
-        "injectAs": null,
-        "order": 9999
-      }
-    },
-    {
       "id": "UPSTREAM_ERROR.txt",
       "family": "core",
       "role": "instruction",
       "size": "S",
-      "tokens_avg": 0,
-      "meta": {
-        "minIntensity": 0,
-        "opennessIn": [
-          1,
-          2,
-          3
-        ],
-        "flagsAny": [],
-        "injectAs": null,
-        "order": 9999
-      }
+      "tokens_avg": 34
     },
     {
       "id": "developer_prompt.txt",
@@ -1285,7 +1143,7 @@
       "meta": {
         "type": "system",
         "order": 0,
-        "inject_as": "system",
+        "injectAs": "system",
         "immutable": true
       }
     },
@@ -1294,7 +1152,7 @@
       "family": "core",
       "role": "instruction",
       "size": "S",
-      "tokens_avg": 0,
+      "tokens_avg": 1,
       "meta": {
         "minIntensity": 0,
         "opennessIn": [
@@ -1334,7 +1192,7 @@
       "family": "core",
       "role": "instruction",
       "size": "S",
-      "tokens_avg": 0,
+      "tokens_avg": 1,
       "meta": {
         "minIntensity": 0,
         "opennessIn": [
@@ -1352,7 +1210,7 @@
       "family": "core",
       "role": "instruction",
       "size": "S",
-      "tokens_avg": 0,
+      "tokens_avg": 1,
       "meta": {
         "minIntensity": 0,
         "opennessIn": [
@@ -1370,7 +1228,7 @@
       "family": "core",
       "role": "instruction",
       "size": "S",
-      "tokens_avg": 0,
+      "tokens_avg": 1,
       "meta": {
         "minIntensity": 0,
         "opennessIn": [
@@ -1388,7 +1246,7 @@
       "family": "core",
       "role": "instruction",
       "size": "S",
-      "tokens_avg": 0,
+      "tokens_avg": 1,
       "meta": {
         "minIntensity": 0,
         "opennessIn": [
@@ -1406,7 +1264,7 @@
       "family": "core",
       "role": "instruction",
       "size": "S",
-      "tokens_avg": 0,
+      "tokens_avg": 1,
       "meta": {
         "minIntensity": 0,
         "opennessIn": [
@@ -1496,7 +1354,7 @@
       }
     },
     {
-      "id": "DETECÇÃOCRISE.txt",
+      "id": "DETECCAOCRISE.txt",
       "family": "extra",
       "role": "instruction",
       "size": "S",
@@ -1548,7 +1406,7 @@
       }
     },
     {
-      "id": "PEDIDOPRÁTICO.txt",
+      "id": "PEDIDOPRATICO.txt",
       "family": "extra",
       "role": "instruction",
       "size": "S",
@@ -1586,7 +1444,7 @@
         ],
         "injectAs": "footer",
         "dedupeKey": "blocoTecnicoMemoria",
-        "activate_if": "intensity>=7"
+        "activateIf": "intensity>=7"
       }
     },
     {

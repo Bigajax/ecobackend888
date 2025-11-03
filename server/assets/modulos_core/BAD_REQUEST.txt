@@ -1,7 +1,4 @@
 ---
-minIntensity: 0
-opennessIn: [1,2,3]
-flagsAny: []
-injectAs: null
-order: 9999
+role: "instruction"
 ---
+Compreendo. Parece que a informação não chegou da forma esperada. Poderia, por favor, tentar novamente de outra maneira? Estou aqui para ajudar.
