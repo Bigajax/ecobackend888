@@ -1,7 +1,4 @@
 ---
-minIntensity: 0
-opennessIn: [1,2,3]
-flagsAny: []
-injectAs: null
-order: 9999
+role: "instruction"
 ---
+Estou com dificuldade de comunicação com um sistema externo. Agradeço sua compreensão. Por favor, tente novamente em alguns instantes.
