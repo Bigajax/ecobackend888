@@ -39,7 +39,6 @@ interface SseEventHandlerOptions {
   recordFirstTokenTelemetry: (chunkBytes: number) => void;
   updateUsageTokens: (meta: any) => void;
   mergeLatencyMarks: (marks?: Record<string, unknown>) => void;
-  buildSummaryFromChunks: (pieces: string[]) => string;
   buildDonePayload: BuildDonePayload;
   finalizeClientMessageReservation: (finishReason?: string | null) => void;
   getResolvedInteractionId: () => string | null | undefined;
@@ -170,13 +169,11 @@ export class SseEventHandlers {
     timings?: Record<string, unknown> | null;
   }) {
     const { finalMeta, donePayload, timings } = options;
-    const summaryText = (() => {
-      if (typeof (donePayload as any)?.content === "string") {
-        return (donePayload as any).content as string;
-      }
-      const fallback = this.options.buildSummaryFromChunks(this.state.contentPieces);
-      return typeof fallback === "string" ? fallback : "";
-    })();
+    const aggregated = this.state.getAggregatedContent();
+    const summaryText =
+      typeof (donePayload as any)?.content === "string"
+        ? ((donePayload as any).content as string)
+        : aggregated;
     const streamId = this.getStreamId();
     const response = {
       messages: [
@@ -342,6 +339,19 @@ export class SseEventHandlers {
     ) {
       return;
     }
+    const normalizedReason = typeof reason === "string" ? reason.trim().toLowerCase() : "";
+    const finishReasonNormalized =
+      typeof this.state.finishReason === "string"
+        ? this.state.finishReason.trim().toLowerCase()
+        : normalizedReason;
+    if (
+      this.state.sawChunk &&
+      (normalizedReason === "stop" || finishReasonNormalized === "stop")
+    ) {
+      this.state.guardFallbackSent = false;
+      this.state.guardFallbackReason = null;
+      return;
+    }
     this.state.markGuardFallback(reason);
     const connection = resolveSseConnection(this.sse, this.options.getSseConnection);
     const canEmitGuard =
@@ -371,8 +381,9 @@ export class SseEventHandlers {
         finishReason: reason || this.state.finishReason || "guard_fallback",
         usage: usageMeta,
       };
+      const summaryText = this.state.getAggregatedContent();
       const donePayload = this.options.buildDonePayload({
-        content: this.options.buildSummaryFromChunks(this.state.contentPieces),
+        content: summaryText.length ? summaryText : null,
         interactionId: this.options.getResolvedInteractionId?.() ?? null,
         tokens: this.state.usageTokens,
         meta: finalMeta,
@@ -514,7 +525,7 @@ export class SseEventHandlers {
           this.options.sendLatency(latencyPayload);
         }
 
-        const summaryText = this.options.buildSummaryFromChunks(this.state.contentPieces);
+        const summaryText = this.state.getAggregatedContent();
         const streamMetaInteractionId =
           streamMeta?.meta && isRecord(streamMeta.meta)
             ? ((streamMeta.meta as Record<string, unknown>).interaction_id as string | undefined) ?? null

@@ -33,6 +33,21 @@ const DEFAULT_PRIMARY_THRESHOLD = 0.72;
 const DEFAULT_FALLBACK_THRESHOLD = 0.65;
 const DAYS_BACK = 365;
 const SELF_MIN_AGE_MS = 2 * 60 * 1000;
+const UUID_V4_REGEX =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+const ENV_PRIMARY_THRESHOLD = Number(
+  process.env.SEMANTIC_MEMORY_PRIMARY_THRESHOLD ?? Number.NaN
+);
+const ENV_FALLBACK_THRESHOLD = Number(
+  process.env.SEMANTIC_MEMORY_FALLBACK_THRESHOLD ?? Number.NaN
+);
+const ENV_DAYS_BACK_OVERRIDE = Number(
+  process.env.SEMANTIC_MEMORY_DAYS_BACK_OVERRIDE ?? Number.NaN
+);
+const ENV_EMBEDDING_DIMENSION = Number(
+  process.env.SEMANTIC_MEMORY_EMBEDDING_DIMENSION ?? Number.NaN
+);
 
 function isDebugEnabled(): boolean {
   return process.env.DEBUG_SEMANTICA === "true";
@@ -47,6 +62,17 @@ function safeSliceIds(rows: SemanticMemoryRow[]): string[] {
 
 function normalizeId(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
+}
+
+function canonicalGuestUserId(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (trimmed.startsWith("guest_")) {
+    const suffix = trimmed.slice(6);
+    return UUID_V4_REGEX.test(suffix) ? `guest_${suffix}` : trimmed;
+  }
+  return UUID_V4_REGEX.test(trimmed) ? `guest_${trimmed}` : null;
 }
 
 function parseCreatedAt(row: SemanticMemoryRow): number | null {
@@ -106,18 +132,26 @@ export async function buscarMemoriasSemelhantesV2({
   const resolvedPrimaryThreshold =
     typeof primaryThreshold === "number" && Number.isFinite(primaryThreshold)
       ? primaryThreshold
+      : Number.isFinite(ENV_PRIMARY_THRESHOLD)
+      ? ENV_PRIMARY_THRESHOLD
       : DEFAULT_PRIMARY_THRESHOLD;
   const resolvedFallbackThreshold =
     typeof fallbackThreshold === "number" && Number.isFinite(fallbackThreshold)
       ? fallbackThreshold
+      : Number.isFinite(ENV_FALLBACK_THRESHOLD)
+      ? ENV_FALLBACK_THRESHOLD
       : DEFAULT_FALLBACK_THRESHOLD;
+  const resolvedDaysBack =
+    Number.isFinite(ENV_DAYS_BACK_OVERRIDE) && ENV_DAYS_BACK_OVERRIDE > 0
+      ? Math.floor(ENV_DAYS_BACK_OVERRIDE)
+      : DAYS_BACK;
 
   if (!Array.isArray(queryEmbedding) || queryEmbedding.length === 0) {
     return { rows: [], thresholdUsed: resolvedPrimaryThreshold };
   }
 
-  const normalizedUserId = normalizeId(userId);
-  const normalizedInsertId = normalizeId(userIdUsedForInsert ?? userId);
+  let normalizedUserId = normalizeId(userId);
+  let normalizedInsertId = normalizeId(userIdUsedForInsert ?? userId);
   const normalizedAuthUid = normalizeId(authUid);
 
   const logSummary = (
@@ -140,18 +174,81 @@ export async function buscarMemoriasSemelhantesV2({
     console.log("[semantic_memory] recall_result", payload);
   };
 
-  if (!normalizedUserId) {
+  const resolvedUserId = (() => {
+    if (normalizedAuthUid) {
+      return normalizedUserId || normalizedInsertId || normalizedAuthUid || null;
+    }
+
+    const candidateUser = normalizedUserId;
+    const candidateInsert = normalizedInsertId;
+
+    if (!candidateUser && !candidateInsert) {
+      return null;
+    }
+
+    if (candidateUser && candidateInsert && candidateUser === candidateInsert) {
+      return candidateUser;
+    }
+
+    const canonicalUser = canonicalGuestUserId(candidateUser);
+    const canonicalInsert = canonicalGuestUserId(candidateInsert);
+
+    if (canonicalUser && canonicalInsert && canonicalUser === canonicalInsert) {
+      return canonicalUser;
+    }
+
+    if (!candidateInsert && canonicalUser) {
+      return canonicalUser;
+    }
+
+    if (!candidateUser && canonicalInsert) {
+      return canonicalInsert;
+    }
+
+    if (!candidateUser && candidateInsert) {
+      return canonicalInsert ?? candidateInsert;
+    }
+
+    if (!candidateInsert && candidateUser) {
+      return canonicalUser ?? candidateUser;
+    }
+
+    if (canonicalUser && candidateInsert && canonicalUser === candidateInsert) {
+      return canonicalUser;
+    }
+
+    if (canonicalInsert && candidateUser && canonicalInsert === candidateUser) {
+      return canonicalInsert;
+    }
+
+    return null;
+  })();
+
+  if (!resolvedUserId) {
+    const mismatchPayload = {
+      auth_uid: normalizedAuthUid || null,
+      user_id_input: normalizedUserId || null,
+      user_id_do_insert: normalizedInsertId || null,
+    };
+    console.warn("[semantic_memory] identity_mismatch", mismatchPayload);
     logSummary(0, { threshold: resolvedPrimaryThreshold, skipped: true, latency: 0 });
     return { rows: [], thresholdUsed: resolvedPrimaryThreshold };
   }
 
-  if (normalizedInsertId && normalizedInsertId !== normalizedUserId) {
-    const mismatchPayload = {
-      auth_uid: normalizedAuthUid || null,
-      user_id_input: normalizedUserId,
-      user_id_do_insert: normalizedInsertId,
-    };
-    console.warn("[semantic_memory] identity_mismatch", mismatchPayload);
+  normalizedUserId = resolvedUserId;
+  normalizedInsertId = resolvedUserId;
+
+  if (
+    Number.isFinite(ENV_EMBEDDING_DIMENSION) &&
+    ENV_EMBEDDING_DIMENSION > 0 &&
+    queryEmbedding.length !== ENV_EMBEDDING_DIMENSION
+  ) {
+    if (isDebugEnabled()) {
+      console.warn("[semantic_memory] embedding_dimension_mismatch", {
+        expected: ENV_EMBEDDING_DIMENSION,
+        received: queryEmbedding.length,
+      });
+    }
     logSummary(0, { threshold: resolvedPrimaryThreshold, skipped: true, latency: 0 });
     return { rows: [], thresholdUsed: resolvedPrimaryThreshold };
   }
@@ -174,7 +271,7 @@ export async function buscarMemoriasSemelhantesV2({
         user_id_input: normalizedUserId,
         match_count: MATCH_COUNT,
         match_threshold: threshold,
-        days_back: DAYS_BACK,
+        days_back: resolvedDaysBack,
       } as const;
       if (isDebugEnabled()) {
         console.debug("[semantic_memory] rpc_call", { functionName, payload });

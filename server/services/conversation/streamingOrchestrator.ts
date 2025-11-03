@@ -1,7 +1,7 @@
 import { streamClaudeChatCompletion, type Msg } from "../../core/ClaudeAdapter";
 import { log } from "../promptContext/logger";
 import { now } from "../../utils";
-import { createInteraction, sha1Hash } from "./interactionAnalytics";
+import { sha1Hash } from "./interactionAnalytics";
 
 import {
   EcoStreamHandler,
@@ -114,16 +114,7 @@ export async function executeStreamingLLM({
     typeof basePromptHash === "string" && basePromptHash
       ? basePromptHash
       : sha1Hash(basePrompt);
-  let analyticsInteractionId = interactionId ?? null;
-
-  if (!analyticsInteractionId) {
-    analyticsInteractionId = await createInteraction({
-      userId: !isGuest ? userId : null,
-      sessionId: typeof sessionMeta?.sessaoId === "string" ? sessionMeta.sessaoId : null,
-      messageId: lastMessageId ?? null,
-      promptHash: resolvedPromptHash,
-    });
-  }
+  const analyticsInteractionId = interactionId ?? null;
   const chunkDispatcher =
     streamHandler && typeof streamHandler.onChunk === "function"
       ? streamHandler.onChunk.bind(streamHandler)

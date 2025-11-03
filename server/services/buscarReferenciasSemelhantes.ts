@@ -3,6 +3,7 @@ import { ensureSupabaseConfigured } from "../lib/supabaseAdmin";
 import { prepareQueryEmbedding } from "./prepareQueryEmbedding";
 
 export interface ReferenciaTemporaria {
+  id?: string;
   resumo_eco: string;
   tags?: string[];
   emocao_principal?: string;
@@ -19,7 +20,10 @@ type BuscarRefsOpts = {
   threshold?: number;  // default 0.80 (0..1)
 };
 
-const EMB_DIM = 1536; // ✅ coloque aqui a dimensão real do seu embedding (ou deixe undefined se não fixou)
+const EMB_DIM = (() => {
+  const raw = Number(process.env.SEMANTIC_MEMORY_EMBEDDING_DIMENSION ?? Number.NaN);
+  return Number.isFinite(raw) && raw > 0 ? Number(raw) : 1536;
+})(); // Ajusta dinamicamente a dimensão esperada do embedding e mantém compatibilidade com o índice vetorial
 
 export async function buscarReferenciasSemelhantes(
   userId: string,
@@ -100,6 +104,12 @@ export async function buscarReferenciasSemelhantes(
             : undefined;
 
         return {
+          id:
+            typeof d.id === "string" && d.id.trim().length
+              ? d.id.trim()
+              : typeof d.referencia_id === "string" && d.referencia_id.trim().length
+              ? d.referencia_id.trim()
+              : undefined,
           resumo_eco: d.resumo_eco as string,
           tags: d.tags ?? undefined,
           emocao_principal: d.emocao_principal ?? undefined,

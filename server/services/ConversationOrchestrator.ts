@@ -396,6 +396,7 @@ async function maybeRunFastLane({
   ecoDecision,
   activationTracer,
   retrieveDecision,
+  interactionId,
 }: {
   routeDecision: ReturnType<typeof decideRoute>;
   streamHandler: EcoStreamHandler | null;
@@ -411,6 +412,7 @@ async function maybeRunFastLane({
   ecoDecision: EcoDecisionResult;
   activationTracer?: ActivationTracer;
   retrieveDecision: RetrieveDecision;
+  interactionId?: string | null;
 }): Promise<GetEcoResult | null> {
   if (!shouldUseFastLane({ routeDecision, streamHandler })) {
     return null;
@@ -435,6 +437,7 @@ async function maybeRunFastLane({
     isGuest,
     guestId: guestId ?? undefined,
     ecoDecision,
+    interactionId,
   });
 
   await persistAnalyticsSafe({
@@ -472,6 +475,7 @@ export async function getEcoResponse({
   metaFromBuilder,
   sessionMeta,
   stream,
+  interactionId,
   activationTracer,
   isGuest = false,
   guestId = null,
@@ -571,6 +575,7 @@ export async function getEcoResponse({
       ecoDecision,
       activationTracer: normalizedActivationTracer,
       retrieveDecision,
+      interactionId,
     });
     if (fastLaneResult) {
       return fastLaneResult;
@@ -648,6 +653,7 @@ export async function getEcoResponse({
           basePrompt: systemPrompt,
           basePromptHash,
           abortSignal,
+          interactionId: interactionId ?? undefined,
         },
         analytics: {
           retrieveMode: retrieveDecision.mode,
@@ -681,6 +687,7 @@ export async function getEcoResponse({
         contextFlags: context.flags,
         contextMeta: context.meta,
         continuity: context.continuity,
+        interactionId: interactionId ?? undefined,
       },
       analytics: {
         retrieveMode: retrieveDecision.mode,

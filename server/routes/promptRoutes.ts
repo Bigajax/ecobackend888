@@ -8,7 +8,7 @@ import type { EcoStreamHandler, EcoStreamEvent } from "../services/conversation/
 import { createHttpError, isHttpError } from "../utils/http";
 import { getSupabaseAdmin } from "../lib/supabaseAdmin";
 import { createSSE, prepareSse } from "../utils/sse";
-import { smartJoin } from "../utils/streamJoin";
+import { UUID_V4 } from "../core/http/guestIdentity";
 import {
   rememberInteractionGuest,
   updateInteractionGuest,
@@ -126,13 +126,9 @@ const askEcoRouter = Router();
 
 function buildSummaryFromChunks(pieces: string[]): string {
   if (!Array.isArray(pieces) || pieces.length === 0) return "";
-  const summary = smartJoin(
-    pieces.filter((piece): piece is string => typeof piece === "string")
-  );
-  if (!summary) return "";
-  let normalized = summary.replace(/[ \t]*\n[ \t]*/g, "\n");
-  normalized = normalized.replace(/([a-zá-ú])([A-ZÁ-Ú])/g, "$1 $2");
-  return normalized;
+  return pieces
+    .filter((piece): piece is string => typeof piece === "string")
+    .join("");
 }
 
 function parseJsonRecord(raw: string | undefined): Record<string, unknown> | undefined {
@@ -317,7 +313,6 @@ type MakeHandlersParams = {
   recordFirstTokenTelemetry: (chunkBytes: number) => void;
   updateUsageTokens: (meta: any) => void;
   mergeLatencyMarks: (marks?: Record<string, unknown>) => void;
-  buildSummaryFromChunks: typeof buildSummaryFromChunks;
   buildDonePayload: typeof buildDonePayload;
   finalizeClientMessageReservation: (finishReason?: string | null) => void;
   getResolvedInteractionId: () => string | undefined;
@@ -365,7 +360,6 @@ function makeHandlers(params: MakeHandlersParams): MakeHandlersResult {
     recordFirstTokenTelemetry,
     updateUsageTokens,
     mergeLatencyMarks,
-    buildSummaryFromChunks: buildSummary,
     buildDonePayload: buildDone,
     finalizeClientMessageReservation,
     getResolvedInteractionId,
@@ -401,7 +395,6 @@ function makeHandlers(params: MakeHandlersParams): MakeHandlersResult {
     recordFirstTokenTelemetry,
     updateUsageTokens,
     mergeLatencyMarks,
-    buildSummaryFromChunks: buildSummary,
     buildDonePayload: buildDone,
     finalizeClientMessageReservation,
     getResolvedInteractionId,
@@ -809,6 +802,15 @@ async function handleAskEcoRequest(req: Request, res: Response, _next: NextFunct
     guestIdFromRequest,
     guestIdFromSession
   );
+  const canonicalGuestUserId = (() => {
+    if (typeof guestIdResolved !== "string" || !guestIdResolved.trim()) return null;
+    const trimmed = guestIdResolved.trim();
+    if (trimmed.startsWith("guest_")) {
+      const suffix = trimmed.slice(6);
+      return UUID_V4.test(suffix) ? `guest_${suffix}` : trimmed;
+    }
+    return UUID_V4.test(trimmed) ? `guest_${trimmed}` : null;
+  })();
 
   log.info("[ask-eco] payload_valid", {
     guestId: reqWithIdentity.guestId ?? null,
@@ -876,12 +878,26 @@ async function handleAskEcoRequest(req: Request, res: Response, _next: NextFunct
     if (typeof clientHour === "number" && Number.isFinite(clientHour)) (params as any).clientHour = clientHour;
     if (sessionMetaObject) (params as any).sessionMeta = sessionMetaObject;
     if (typeof nome_usuario === "string" && nome_usuario.trim()) (params as any).userName = nome_usuario.trim();
-    if (typeof usuario_id === "string" && usuario_id.trim()) (params as any).userId = usuario_id.trim();
     if (typeof reqWithIdentity.guestId === "string" && reqWithIdentity.guestId.trim()) (params as any).guestId = reqWithIdentity.guestId.trim();
     else if (guestIdResolved) (params as any).guestId = guestIdResolved;
 
+    const bodyUserId =
+      typeof usuario_id === "string" && usuario_id.trim().length ? usuario_id.trim() : null;
+    const normalizedAuthUid = typeof authUid === "string" && authUid.trim().length ? authUid.trim() : null;
+    const memoryUserId =
+      normalizedAuthUid ??
+      bodyUserId ??
+      (typeof reqWithIdentity.user?.id === "string" && reqWithIdentity.user.id.trim().length
+        ? reqWithIdentity.user.id.trim()
+        : null) ??
+      canonicalGuestUserId ??
+      (identityKey && identityKey.trim().length ? identityKey.trim() : null);
+
+    if (memoryUserId) {
+      (params as any).userId = memoryUserId;
+    }
+
     if (identityKey && typeof (params as any).distinctId !== "string") (params as any).distinctId = identityKey;
-    if (identityKey && typeof (params as any).userId !== "string") (params as any).userId = identityKey;
 
     // JSON mode
     if (!wantsStream) {
@@ -1012,12 +1028,11 @@ async function handleAskEcoRequest(req: Request, res: Response, _next: NextFunct
 
     const telemetry = new SseTelemetry(telemetryClient, { origin: origin ?? undefined, clientMessageId: clientMessageId ?? undefined });
 
-    const fallbackInteractionId = randomUUID();
-    (params as any).interactionId = fallbackInteractionId;
+    const requestInteractionId = randomUUID();
+    (params as any).interactionId = requestInteractionId;
     (params as any).abortSignal = abortSignal;
 
-    registerActiveInteractionKey(buildActiveInteractionKey("interaction", fallbackInteractionId));
-    telemetry.setFallbackInteractionId(fallbackInteractionId);
+    telemetry.setFallbackInteractionId(requestInteractionId);
 
     const getResolvedInteractionId = createGetResolvedInteractionId(telemetry);
     const isInteractionIdReady = () => telemetry.isInteractionIdReady();
@@ -1060,6 +1075,8 @@ async function handleAskEcoRequest(req: Request, res: Response, _next: NextFunct
         log.warn("[ask-eco] active_interaction_conflict", { interactionId, clientMessageId: clientMessageId ?? null, origin: origin ?? null });
       }
     };
+
+    captureInteractionId(requestInteractionId);
 
     const enqueuePassiveSignal = (signal: string, value?: number | null, meta?: Record<string, unknown>) => {
       telemetry.enqueuePassiveSignal(signal, value ?? null, meta);
@@ -1320,7 +1337,6 @@ async function handleAskEcoRequest(req: Request, res: Response, _next: NextFunct
       recordFirstTokenTelemetry,
       updateUsageTokens: (meta) => state.updateUsageTokens(meta),
       mergeLatencyMarks: (marks) => state.mergeLatencyMarks(marks ?? {}),
-      buildSummaryFromChunks,
       buildDonePayload,
       finalizeClientMessageReservation,
       getResolvedInteractionId,
@@ -1426,23 +1442,32 @@ async function handleAskEcoRequest(req: Request, res: Response, _next: NextFunct
 
     const bootstrapInteraction = async () => {
       try {
-        const interactionId = await createInteraction({
-          userId: !isGuestRequest && typeof (params as any).userId === "string" ? ((params as any).userId as string).trim() : null,
-          sessionId: typeof reqWithIdentity.ecoSessionId === "string" && reqWithIdentity.ecoSessionId.trim() ? reqWithIdentity.ecoSessionId.trim() : null,
+        const createdInteractionId = await createInteraction({
+          id: requestInteractionId,
+          userId:
+            !isGuestRequest && typeof (params as any).userId === "string"
+              ? ((params as any).userId as string).trim()
+              : null,
+          sessionId:
+            typeof reqWithIdentity.ecoSessionId === "string" && reqWithIdentity.ecoSessionId.trim()
+              ? reqWithIdentity.ecoSessionId.trim()
+              : null,
           messageId: lastMessageId,
           promptHash: null,
         });
 
-        if (interactionId && typeof interactionId === "string") {
-          captureInteractionId(interactionId);
-          (params as any).interactionId = interactionId;
+        if (typeof createdInteractionId === "string" && createdInteractionId.trim()) {
+          captureInteractionId(createdInteractionId);
+          (params as any).interactionId = createdInteractionId;
           return;
         }
       } catch (error) {
-        log.warn("[ask-eco] interaction_create_failed", { message: error instanceof Error ? error.message : String(error) });
+        log.warn("[ask-eco] interaction_create_failed", {
+          message: error instanceof Error ? error.message : String(error),
+        });
       }
 
-      if (!isInteractionIdReady()) captureInteractionId(getResolvedInteractionId());
+      if (!isInteractionIdReady()) captureInteractionId(requestInteractionId);
     };
 
     abortListenerRef.current = () => {
