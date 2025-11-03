@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 
 import { PROMPT_CACHE } from "../CacheService";
+import ModuleStore from "../promptContext/ModuleStore";
 import { ContextBuilder } from "../promptContext";
 import { derivarNivel, detectarSaudacaoBreve } from "../promptContext/Selector";
 import type { EcoDecisionResult } from "./ecoDecisionHub";
@@ -37,6 +38,9 @@ interface ContextCacheDeps {
 }
 
 export class ContextCache {
+  private manifestHash: string | null = null;
+  private manifestHashInitialized = false;
+
   constructor(
     private readonly deps: ContextCacheDeps = {
       cache: PROMPT_CACHE,
@@ -46,7 +50,50 @@ export class ContextCache {
     }
   ) {}
 
+  private async maybeBustCacheOnManifestChange(): Promise<void> {
+    const flag = process.env.ECO_CONTEXT_CACHE_BUST_ON_MANIFEST ?? "1";
+    if (flag === "0" || flag.toLowerCase() === "false") {
+      return;
+    }
+
+    try {
+      const snapshot = await ModuleStore.getManifestSnapshot();
+      const hash = snapshot?.hash ?? null;
+      if (!this.manifestHashInitialized) {
+        this.manifestHash = hash;
+        this.manifestHashInitialized = true;
+        return;
+      }
+
+      if (hash && this.manifestHash && hash !== this.manifestHash) {
+        this.deps.cache.clear();
+        this.deps.logger.info("[manifest] cache_bust", {
+          reason: "hash_changed",
+          prev: this.manifestHash,
+          next: hash,
+        });
+      } else if (!hash && this.manifestHash) {
+        this.deps.cache.clear();
+        this.deps.logger.info("[manifest] cache_bust", {
+          reason: "manifest_missing",
+          prev: this.manifestHash,
+          next: null,
+        });
+      }
+
+      this.manifestHash = hash;
+    } catch (error) {
+      if (this.deps.debug()) {
+        this.deps.logger.debug("[manifest] cache_bust_check_failed", {
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+  }
+
   async build(params: ContextCacheParams) {
+    await this.maybeBustCacheOnManifestChange();
+
     const entrada = String(params.texto ?? "");
     const saudacaoBreve = detectarSaudacaoBreve(entrada);
     const decision = params.decision;

@@ -9,6 +9,7 @@ export type ActivationTraceMemoryDecision = {
   reason: string | null;
 } | null;
 export type ActivationTraceError = { where: string; message: string };
+export type ActivationTraceMetadata = Record<string, unknown>;
 
 export interface ActivationTraceSnapshot {
   traceId: string;
@@ -25,6 +26,7 @@ export interface ActivationTraceSnapshot {
     totalMs?: number | null;
   };
   errors: ActivationTraceError[];
+  metadata: ActivationTraceMetadata;
   startedAt: string;
   finishedAt?: string | null;
 }
@@ -48,6 +50,7 @@ export class ActivationTracer {
       memoryDecision: null,
       latency: {},
       errors: [],
+      metadata: {},
       startedAt: new Date(startAt).toISOString(),
       finishedAt: null,
     };
@@ -133,6 +136,11 @@ export class ActivationTracer {
     const normalizedWhere = typeof where === "string" && where.trim().length ? where : "unknown";
     const normalizedMessage = typeof message === "string" ? message : String(message);
     this.data.errors.push({ where: normalizedWhere, message: normalizedMessage });
+  }
+
+  mergeMetadata(extra: ActivationTraceMetadata | null | undefined) {
+    if (!extra || typeof extra !== "object") return;
+    this.data.metadata = { ...this.data.metadata, ...extra };
   }
 
   snapshot(): ActivationTraceSnapshot {
