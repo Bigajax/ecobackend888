@@ -1,5 +1,3 @@
-// core/ClaudeAdapter.ts
-
 import { Readable } from "node:stream";
 
 import { httpAgent, httpsAgent } from "../adapters/OpenRouterAdapter";
@@ -61,7 +59,7 @@ export type ClaudeStreamControlEvent =
   | { type: "done"; finishReason?: string | null; usage?: ORUsage; model?: string | null };
 
 export interface ClaudeStreamCallbacks {
-  onChunk?: (chunk: { content: string; raw: ORStreamChunk }) => void | Promise<void>;
+  onChunk?: (chunk: { content: string; raw: ORStreamChunk | ORChatCompletion }) => void | Promise<void>;
   onControl?: (event: ClaudeStreamControlEvent) => void | Promise<void>;
   onError?: (error: Error) => void | Promise<void>;
   onFallback?: (model: string) => void | Promise<void>;
@@ -88,40 +86,22 @@ function resolveTimeoutMs() {
   return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_TIMEOUT_MS;
 }
 
+/**
+ * Helpers de normalização (KISS) — evitam acessos inseguros a fields opcionais
+ */
 function flattenContentPieces(input: unknown): string[] {
-  if (!input) {
-    return [];
-  }
-
-  if (typeof input === "string") {
-    return [input];
-  }
-
-  if (Array.isArray(input)) {
-    return input.flatMap((entry) => flattenContentPieces(entry));
-  }
-
+  if (!input) return [];
+  if (typeof input === "string") return [input];
+  if (Array.isArray(input)) return input.flatMap((entry) => flattenContentPieces(entry));
   if (typeof input === "object") {
     const obj = input as Record<string, unknown>;
     const pieces: string[] = [];
-
-    if (typeof obj.text === "string") {
-      pieces.push(obj.text);
-    }
-
-    if (typeof obj.value === "string") {
-      pieces.push(obj.value);
-    }
-
-    if (typeof obj.content === "string") {
-      pieces.push(obj.content);
-    } else if (Array.isArray(obj.content)) {
-      pieces.push(...flattenContentPieces(obj.content));
-    }
-
+    if (typeof obj.text === "string") pieces.push(obj.text);
+    if (typeof obj.value === "string") pieces.push(obj.value);
+    if (typeof obj.content === "string") pieces.push(obj.content);
+    else if (Array.isArray(obj.content)) pieces.push(...flattenContentPieces(obj.content));
     return pieces;
   }
-
   return [];
 }
 
@@ -130,25 +110,50 @@ function normalizeOpenRouterText(input: unknown): string {
   return pieces.length ? pieces.join("") : "";
 }
 
-function asNonStream(chunk: ORStreamChunk | ORChatCompletion): chunk is ORChatCompletion {
-  return "choices" in chunk && Array.isArray(chunk.choices) && chunk.choices[0] && "message" in chunk.choices[0];
+function isObject(x: unknown): x is Record<string, unknown> {
+  return typeof x === "object" && x !== null;
+}
+
+function hasChoices(x: unknown): x is { choices: unknown[] } {
+  return isObject(x) && Array.isArray((x as any).choices);
+}
+
+function pickContentFromChoice(choice: unknown): string | null {
+  if (!isObject(choice)) return null;
+  const c = choice as ORChoice;
+  const payload = c?.message?.content;
+  if (typeof payload === "string") return payload;
+  if (Array.isArray(payload)) return normalizeOpenRouterText(payload) || null;
+  return null;
+}
+
+function pickDeltaFromStreamChunk(raw: unknown): string {
+  if (!isObject(raw)) return "";
+  const chunk = raw as ORStreamChunk;
+  const ch0 = Array.isArray(chunk.choices) ? chunk.choices[0] : undefined;
+  const d = ch0?.delta;
+  if (d) {
+    if (typeof d.text === "string" && d.text) return d.text;
+    const content = (d as any).content;
+    const norm = normalizeOpenRouterText(content);
+    if (norm) return norm;
+  }
+  return "";
+}
+
+function isNonStreamCompletion(x: unknown): x is ORChatCompletion {
+  if (!hasChoices(x)) return false;
+  const first = (x as any).choices[0];
+  return isObject(first) && "message" in first;
 }
 
 function pickContent(chunk: ORStreamChunk | ORChatCompletion): string {
-  if (asNonStream(chunk)) {
-    return normalizeOpenRouterText(chunk.choices[0]?.message?.content);
+  if (isNonStreamCompletion(chunk)) {
+    const first = chunk.choices?.[0];
+    return (first ? pickContentFromChoice(first) : null) ?? "";
   }
-  const choice = chunk.choices?.[0];
-  if (!choice?.delta) {
-    return "";
-  }
-  if (typeof choice.delta.text === "string" && choice.delta.text) {
-    return choice.delta.text;
-  }
-  return normalizeOpenRouterText(choice.delta.content);
+  return pickDeltaFromStreamChunk(chunk);
 }
-
-
 
 export async function claudeChatCompletion({
   messages,
@@ -164,9 +169,7 @@ export async function claudeChatCompletion({
   maxTokens?: number;
 }) {
   const apiKey = process.env.OPENROUTER_API_KEY;
-  if (!apiKey) {
-    throw new Error("OPENROUTER_API_KEY ausente no ambiente.");
-  }
+  if (!apiKey) throw new Error("OPENROUTER_API_KEY ausente no ambiente.");
 
   const systemMessages = messages.filter((m) => m.role === "system");
   const system = systemMessages.map((m) => m.content).join("\n\n");
@@ -179,7 +182,7 @@ export async function claudeChatCompletion({
     "Content-Type": "application/json",
     "HTTP-Referer": process.env.PUBLIC_APP_URL || "http://localhost:5173",
     "X-Title": "Eco App - ClaudeAdapter",
-  };
+  } as const;
 
   async function call(modelToUse: string) {
     const payload = {
@@ -195,10 +198,7 @@ export async function claudeChatCompletion({
     const timeoutMs = resolveTimeoutMs();
     const controller = new AbortController();
     const timeoutReason = new ClaudeTimeoutError(timeoutMs);
-    const timeoutHandle: NodeJS.Timeout = setTimeout(
-      () => controller.abort(timeoutReason),
-      timeoutMs
-    );
+    const timeoutHandle: NodeJS.Timeout = setTimeout(() => controller.abort(timeoutReason), timeoutMs);
 
     try {
       const resp = await fetch("https://openrouter.ai/api/v1/chat/completions", {
@@ -206,37 +206,30 @@ export async function claudeChatCompletion({
         headers,
         body: JSON.stringify(payload),
         signal: controller.signal,
-        agent: (parsedURL: URL) =>
-          parsedURL.protocol === "http:" ? httpAgent : httpsAgent,
+        agent: (parsedURL: URL) => (parsedURL.protocol === "http:" ? httpAgent : httpsAgent),
       } as any);
 
-      if (!resp.ok) {
-        throw new Error(`OpenRouter error: ${resp.status} ${resp.statusText}`);
-      }
+      if (!resp.ok) throw new Error(`OpenRouter error: ${resp.status} ${resp.statusText}`);
 
-      const data = (await resp.json()) as unknown as ORChatCompletion;
+      const data: unknown = await resp.json();
+      const json = (isObject(data) ? (data as ORChatCompletion) : ({} as ORChatCompletion));
 
-      if (data.error?.message) {
-        throw new Error(`OpenRouter API error: ${data.error.message}`);
-      }
+      if (json.error?.message) throw new Error(`OpenRouter API error: ${json.error.message}`);
 
-      const text = pickContent(data);
-
+      const text = pickContent(json);
 
       return {
         content: text,
-        model: data.model ?? modelToUse,
+        model: json.model ?? modelToUse,
         usage: {
-          total_tokens: data.usage?.total_tokens,
-          prompt_tokens: data.usage?.prompt_tokens,
-          completion_tokens: data.usage?.completion_tokens,
+          total_tokens: json.usage?.total_tokens,
+          prompt_tokens: json.usage?.prompt_tokens,
+          completion_tokens: json.usage?.completion_tokens,
         },
-        raw: data,
+        raw: json,
       };
     } catch (err) {
-      if ((err as Error)?.name === "AbortError") {
-        throw resolveAbortError(timeoutReason, controller.signal);
-      }
+      if ((err as Error)?.name === "AbortError") throw resolveAbortError(timeoutReason, controller.signal);
       throw err;
     } finally {
       clearTimeout(timeoutHandle);
@@ -274,9 +267,7 @@ export async function streamClaudeChatCompletion(
   options: ClaudeStreamOptions = {}
 ): Promise<void> {
   const apiKey = process.env.OPENROUTER_API_KEY;
-  if (!apiKey) {
-    throw new Error("OPENROUTER_API_KEY ausente no ambiente.");
-  }
+  if (!apiKey) throw new Error("OPENROUTER_API_KEY ausente no ambiente.");
 
   const systemMessages = messages.filter((m) => m.role === "system");
   const system = systemMessages.map((m) => m.content).join("\n\n");
@@ -290,7 +281,7 @@ export async function streamClaudeChatCompletion(
     Accept: "text/event-stream",
     "HTTP-Referer": process.env.PUBLIC_APP_URL || "http://localhost:5173",
     "X-Title": "Eco App - ClaudeAdapter",
-  };
+  } as const;
 
   const externalSignal = options.externalSignal ?? options.signal;
 
@@ -309,10 +300,7 @@ export async function streamClaudeChatCompletion(
     const timeoutMs = resolveTimeoutMs();
     const controller = new AbortController();
     const timeoutReason = new ClaudeTimeoutError(timeoutMs);
-    const timeoutHandle: NodeJS.Timeout = setTimeout(
-      () => controller.abort(timeoutReason),
-      timeoutMs
-    );
+    const timeoutHandle: NodeJS.Timeout = setTimeout(() => controller.abort(timeoutReason), timeoutMs);
     const linked = linkAbortSignals(controller.signal, externalSignal);
     const requestSignal: AbortSignal = linked.signal ?? controller.signal;
 
@@ -335,7 +323,8 @@ export async function streamClaudeChatCompletion(
 
         const isSse = /^text\/event-stream/i.test(resp.headers.get("content-type") || "");
         if (!isSse) {
-          const json = (await resp.json().catch(() => null)) as ORChatCompletion | null;
+          const data: unknown = await resp.json().catch(() => null);
+          const json = (isObject(data) ? (data as ORChatCompletion) : null);
           const text = json ? pickContent(json) : "";
 
           log.warn("[non_sse_fallback]", { used: !!text, contentLength: text?.length || 0 });
@@ -386,17 +375,13 @@ export async function streamClaudeChatCompletion(
           await callbacks.onChunk?.(chunk);
         },
         onControl: async (event) => {
-          if (event.type !== "reconnect") {
-            deliveredAnyEvents = true;
-          }
+          if (event.type !== "reconnect") deliveredAnyEvents = true;
           await callbacks.onControl?.(event);
         },
         onError: async (error) => {
           const hadDelivered = deliveredAnyEvents;
           deliveredAnyEvents = true;
-          if (emitErrorEvents || hadDelivered) {
-            await callbacks.onError?.(error);
-          }
+          if (emitErrorEvents || hadDelivered) await callbacks.onError?.(error);
         },
       };
 
@@ -406,90 +391,71 @@ export async function streamClaudeChatCompletion(
 
         const lines = trimmed.split(/\r?\n/);
         let eventName = "message";
-      const dataLines: string[] = [];
+        const dataLines: string[] = [];
 
-      for (const line of lines) {
-        if (!line) continue;
-        if (line.startsWith(":")) {
-          // LATENCY: ignora heartbeats imediatos sem gerar carga.
-          continue;
+        for (const line of lines) {
+          if (!line) continue;
+          if (line.startsWith(":")) continue; // heartbeats
+          if (line.startsWith("event:")) { eventName = line.slice(6).trim(); continue; }
+          if (line.startsWith("data:")) { dataLines.push(line.slice(5)); }
         }
-        if (line.startsWith("event:")) {
-          eventName = line.slice(6).trim();
-          continue;
+
+        const dataPayload = dataLines.join("\n");
+        const trimmedData = dataPayload.trim();
+        if (!trimmedData) return;
+
+        if (trimmedData === "[DONE]") {
+          console.debug("[ClaudeAdapter] Stream completed ([DONE] received)");
+          doneEmitted = true;
+          await safeCallbacks.onControl?.({
+            type: "done",
+            finishReason: latestFinish,
+            usage: latestUsage,
+            model: latestModel ?? modelToUse,
+          });
+          return;
         }
-        if (line.startsWith("data:")) {
-          dataLines.push(line.slice(5));
+
+        if (!trimmedData.startsWith("{")) {
+          console.warn("[ClaudeAdapter] Ignoring non-JSON line:", dataPayload);
+          return;
         }
-      }
 
-      const dataPayload = dataLines.join("\n");
-      const trimmedData = dataPayload.trim();
+        let parsed: ORStreamChunk | null = null;
+        try {
+          parsed = JSON.parse(trimmedData) as ORStreamChunk;
+        } catch (error) {
+          console.warn("[ClaudeAdapter] Ignoring non-JSON line:", dataPayload);
+          return;
+        }
 
-      if (!trimmedData) return;
+        if (parsed?.error?.message) {
+          const err = new Error(parsed.error.message);
+          await safeCallbacks.onError?.(err);
+          return;
+        }
 
-      if (trimmedData === "[DONE]") {
-        console.debug("[ClaudeAdapter] Stream completed ([DONE] received)");
-        doneEmitted = true;
-        await safeCallbacks.onControl?.({
-          type: "done",
-          finishReason: latestFinish,
-          usage: latestUsage,
-          model: latestModel ?? modelToUse,
-        });
-        return;
-      }
+        if (eventName && eventName.toLowerCase().includes("reconnect")) {
+          reconnectAttempt += 1;
+          await safeCallbacks.onControl?.({ type: "reconnect", attempt: reconnectAttempt, raw: parsed });
+          return;
+        }
 
-      if (!trimmedData.startsWith("{")) {
-        console.warn("[ClaudeAdapter] Ignoring non-JSON line:", dataPayload);
-        return;
-      }
+        if ((parsed as any)?.type === "heartbeat") return; // mantém a conexão viva
 
-      let parsed: ORStreamChunk | null = null;
-      try {
-        parsed = JSON.parse(trimmedData) as ORStreamChunk;
-      } catch (error) {
-        console.warn("[ClaudeAdapter] Ignoring non-JSON line:", dataPayload);
-        return;
-      }
+        const choice = Array.isArray(parsed?.choices) ? parsed!.choices![0] : undefined;
+        const deltaText = pickDeltaFromStreamChunk(parsed);
+        const finishReason =
+          (choice?.finishReason ?? choice?.delta?.finishReason ?? choice?.delta?.stop_reason ?? null) || null;
 
-      if (parsed?.error?.message) {
-        const err = new Error(parsed.error.message);
-        await safeCallbacks.onError?.(err);
-        return;
-      }
+        if (parsed?.usage) latestUsage = parsed.usage;
+        if (parsed?.model) latestModel = parsed.model;
+        if (finishReason) latestFinish = finishReason;
 
-      if (eventName && eventName.toLowerCase().includes("reconnect")) {
-        reconnectAttempt += 1;
-        await safeCallbacks.onControl?.({ type: "reconnect", attempt: reconnectAttempt, raw: parsed });
-        return;
-      }
-
-      if ((parsed as any)?.type === "heartbeat") {
-        // LATENCY: heartbeat recebido — apenas mantém a conexão viva.
-        return;
-      }
-
-      const choice = parsed?.choices?.[0];
-      const deltaText = pickContent(parsed);
-      const finishReason =
-        choice?.finishReason ?? choice?.delta?.finishReason ?? choice?.delta?.stop_reason ?? null;
-
-      if (parsed?.usage) {
-        latestUsage = parsed.usage;
-      }
-      if (parsed?.model) {
-        latestModel = parsed.model;
-      }
-      if (finishReason) {
-        latestFinish = finishReason;
-      }
-
-      if (deltaText) {
-        // LATENCY: entrega incremental do token renderizável.
-        await safeCallbacks.onChunk?.({ content: deltaText, raw: parsed });
-      }
-    };
+        if (deltaText) {
+          await safeCallbacks.onChunk?.({ content: deltaText, raw: parsed });
+        }
+      };
 
       const flushBuffer = async (force = false) => {
         let separatorIndex = buffer.indexOf("\n\n");
@@ -499,16 +465,13 @@ export async function streamClaudeChatCompletion(
           await handleEvent(rawEvent);
           separatorIndex = buffer.indexOf("\n\n");
         }
-
         if (force && buffer.trim()) {
           await handleEvent(buffer);
           buffer = "";
         }
       };
 
-      const reader = (body as any).getReader?.() as
-        | ReadableStreamDefaultReader<Uint8Array>
-        | undefined;
+      const reader = (body as any).getReader?.() as ReadableStreamDefaultReader<Uint8Array> | undefined;
 
       try {
         if (reader) {
@@ -516,24 +479,19 @@ export async function streamClaudeChatCompletion(
             const { value, done } = await reader.read();
             if (done) break;
             if (value) {
-              // LATENCY: decodifica chunk SSE imediatamente.
               buffer += decoder.decode(value, { stream: true });
               await flushBuffer();
             }
           }
         } else {
           const nodeStream =
-            typeof Readable.fromWeb === "function"
-              ? Readable.fromWeb(body as any)
-              : Readable.from(body as any);
+            typeof Readable.fromWeb === "function" ? Readable.fromWeb(body as any) : Readable.from(body as any);
           for await (const chunk of nodeStream) {
             if (!chunk) continue;
-            // LATENCY: decodifica chunk SSE imediatamente (fallback Node stream).
             buffer += decoder.decode(chunk as Buffer, { stream: true });
             await flushBuffer();
           }
         }
-
         buffer += decoder.decode(new Uint8Array(), { stream: false });
         await flushBuffer(true);
       } catch (error) {
@@ -542,9 +500,7 @@ export async function streamClaudeChatCompletion(
           throw abortError;
         }
         const err = error instanceof Error ? error : new Error(String(error));
-        if (emitErrorEvents || deliveredAnyEvents) {
-          await callbacks.onError?.(err);
-        }
+        if (emitErrorEvents || deliveredAnyEvents) await callbacks.onError?.(err);
         (err as any).__claudeStreamDelivered = deliveredAnyEvents;
         throw err;
       }
@@ -564,9 +520,7 @@ export async function streamClaudeChatCompletion(
   };
 
   const modelsToTry = [model];
-  if (fallbackModel && fallbackModel !== model) {
-    modelsToTry.push(fallbackModel);
-  }
+  if (fallbackModel && fallbackModel !== model) modelsToTry.push(fallbackModel);
 
   let lastError: Error | null = null;
   for (let i = 0; i < modelsToTry.length; i += 1) {
@@ -579,34 +533,22 @@ export async function streamClaudeChatCompletion(
       const err = error instanceof Error ? error : new Error(String(error));
       lastError = err;
       const delivered = (err as any).__claudeStreamDelivered === true;
-      if (isFinalAttempt || delivered) {
-        throw err;
-      }
+      if (isFinalAttempt || delivered) throw err;
       const isTimeout = err instanceof ClaudeTimeoutError;
       const label = isTimeout ? "⏱️" : "⚠️";
       callbacks.onFallback?.(modelsToTry[i + 1]!);
-      console.warn(
-        `${label} Claude ${currentModel} falhou, tentando fallback ${modelsToTry[i + 1]}`,
-        err
-      );
+      console.warn(`${label} Claude ${currentModel} falhou, tentando fallback ${modelsToTry[i + 1]}`, err);
     }
   }
 
-  if (lastError) {
-    throw lastError;
-  }
+  if (lastError) throw lastError;
 }
 
-function resolveAbortError(
-  timeoutReason: Error,
-  ...signals: (AbortSignal | undefined)[]
-): Error {
+function resolveAbortError(timeoutReason: Error, ...signals: (AbortSignal | undefined)[]): Error {
   for (const signal of signals) {
     if (!signal) continue;
     const reason = (signal as any).reason;
-    if (reason instanceof Error) {
-      return reason;
-    }
+    if (reason instanceof Error) return reason;
     if (typeof reason === "string" && reason.trim()) {
       const err = new Error(reason.trim());
       err.name = "AbortError";
@@ -625,24 +567,17 @@ function linkAbortSignals(
   ...maybeSignals: (AbortSignal | undefined)[]
 ): { signal: AbortSignal | undefined; teardown?: () => void } {
   const signals = maybeSignals.filter(Boolean) as AbortSignal[];
-  if (signals.length === 0) {
-    return { signal: undefined, teardown: undefined };
-  }
+  if (signals.length === 0) return { signal: undefined, teardown: undefined };
 
   const anyFn = (AbortSignal as any).any;
-  if (typeof anyFn === "function") {
-    return { signal: anyFn(signals), teardown: undefined };
-  }
+  if (typeof anyFn === "function") return { signal: anyFn(signals), teardown: undefined };
 
   const controller = new AbortController();
   const listeners = signals.map((signal) => {
     const handler = () => {
       const reason = (signal as any).reason;
-      if (reason !== undefined) {
-        controller.abort(reason);
-      } else {
-        controller.abort();
-      }
+      if (reason !== undefined) controller.abort(reason);
+      else controller.abort();
     };
     signal.addEventListener("abort", handler, { once: true });
     return { signal, handler } as const;
@@ -651,9 +586,7 @@ function linkAbortSignals(
   return {
     signal: controller.signal,
     teardown: () => {
-      for (const { signal, handler } of listeners) {
-        signal.removeEventListener("abort", handler);
-      }
+      for (const { signal, handler } of listeners) signal.removeEventListener("abort", handler);
     },
   };
 }
