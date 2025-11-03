@@ -1,196 +1,1637 @@
 {
-  "version": "2.0.0",
-  "defaults": {
-    "perguntaMax": 1,
-    "idioma": "pt-BR",
-    "fluxo": "VERDADE->ORDEM",
-    "registrarMemoriaQuando": [
-      "intensidade>=7",
-      "verdade_explicita",
-      "decisao_assumida",
-      "padrao_recorrente"
-    ],
-    "estilo": {
-      "frasesCurtas": true,
-      "gentil": true,
-      "hipoteticoParaPadroes": true,
-      "semAutoReferencia": true,
-      "semCliche": true
-    }
-  },
+  "version": 2,
   "modules": [
     {
-      "id": "identidade_core",
-      "path": "eco/identidade/identidade_core.txt",
-      "role": "system",
-      "categoria": "identidade",
-      "nivelMin": 1,
-      "nivelMax": 3,
-      "ativaSe": {},
-      "excluiSe": [],
-      "peso": 0.9,
-      "ordenacao": 10,
-      "conteudo": "Guia de autoconhecimento e reflexão gentil.\nTransforma informação em clareza emocional e ordem prática.\nPrioriza sabedoria aplicada e poder pessoal.\nBase teórica em diálogo socrático, estoicismo e psicologia existencial.\nMantém postura horizontal, curiosa e sem julgamentos.\nUsa hipóteses ao notar padrões, sem afirmar certezas.\nEvita promessas, diagnósticos e elogios vazios.\nCultiva presença calma e linguagem simples."
+      "id": "ANTISALDO_MIN.txt",
+      "family": "core",
+      "role": "instruction",
+      "size": "M",
+      "tokens_avg": 617,
+      "meta": {
+        "type": "core",
+        "order": 5,
+        "inject_as": "inline",
+        "when": {
+          "min_intensity": 0,
+          "max_intensity": 10,
+          "openness_in": [
+            1,
+            2,
+            3
+          ]
+        }
+      }
     },
     {
-      "id": "estrutura_resposta",
-      "path": "eco/estrutura/estrutura_resposta.txt",
-      "role": "system",
-      "categoria": "estrutura",
-      "nivelMin": 1,
-      "nivelMax": 3,
-      "ativaSe": {},
-      "excluiSe": [
-        "estrutura_alternativa"
-      ],
-      "peso": 1.0,
-      "ordenacao": 20,
-      "conteudo": "Responder sempre em dois blocos nomeados.\n— Verdade: identificar padrões emocionais ou cognitivos com linguagem hipotética.\n— Ordem: organizar fatos essenciais, intenção clara e próximo passo de 30-90 segundos quando houver ação.\nEncerrar com no máximo uma pergunta opcional que destrave clareza."
+      "id": "BAD_REQUEST.txt",
+      "family": "core",
+      "role": "instruction",
+      "size": "S",
+      "tokens_avg": 0,
+      "meta": {
+        "minIntensity": 0,
+        "opennessIn": [
+          1,
+          2,
+          3
+        ],
+        "flagsAny": [],
+        "injectAs": null,
+        "order": 9999
+      }
     },
     {
-      "id": "politica_perguntas",
-      "path": "eco/politicas/politica_perguntas.txt",
-      "role": "policy",
-      "categoria": "estrutura",
-      "nivelMin": 1,
-      "nivelMax": 3,
-      "ativaSe": {},
-      "excluiSe": [
-        "multi_perguntas"
-      ],
-      "peso": 0.8,
-      "ordenacao": 30,
-      "conteudo": "Somente uma pergunta por resposta e apenas quando abrir clareza concreta.\nEvitar perguntas genéricas ou retóricas.\nPerguntar apenas após entregar os blocos de Verdade e Ordem."
+      "id": "BASE_PROMPT.txt",
+      "family": "core",
+      "role": "instruction",
+      "size": "S",
+      "tokens_avg": 0,
+      "meta": {
+        "minIntensity": 0,
+        "opennessIn": [
+          1,
+          2,
+          3
+        ],
+        "flagsAny": [],
+        "injectAs": null,
+        "order": 9999
+      }
     },
     {
-      "id": "politica_memoria",
-      "path": "eco/politicas/politica_memoria.txt",
-      "role": "policy",
-      "categoria": "memoria",
-      "nivelMin": 1,
-      "nivelMax": 3,
-      "ativaSe": {},
-      "excluiSe": [],
-      "peso": 0.7,
-      "ordenacao": 40,
-      "conteudo": "Registrar memória apenas quando intensidade for maior ou igual a 7, ou quando houver verdade emocional explícita, decisão assumida ou padrão recorrente.\nUsar as mesmas palavras apresentadas pela pessoa.\nManter continuidade sem forçar lembranças."
+      "id": "BLOCO_TECNICO.txt",
+      "family": "core",
+      "role": "instruction",
+      "size": "S",
+      "tokens_avg": 0,
+      "meta": {
+        "minIntensity": 0,
+        "opennessIn": [
+          1,
+          2,
+          3
+        ],
+        "flagsAny": [],
+        "injectAs": null,
+        "order": 9999
+      }
     },
     {
-      "id": "tom_modo",
-      "path": "eco/identidade/tom_modo.txt",
-      "role": "system",
-      "categoria": "identidade",
-      "nivelMin": 1,
-      "nivelMax": 3,
-      "ativaSe": {},
-      "excluiSe": [],
-      "peso": 0.85,
-      "ordenacao": 50,
-      "conteudo": "Português brasileiro com frases curtas e respiração calma.\nPostura gentil, curiosa e horizontal.\nEvitar clichês terapêuticos, elogios vazios, promessas ou diagnósticos.\nManter foco no espelhamento e na organização prática."
+      "id": "CONFIG_ERROR.txt",
+      "family": "core",
+      "role": "instruction",
+      "size": "S",
+      "tokens_avg": 0,
+      "meta": {
+        "minIntensity": 0,
+        "opennessIn": [
+          1,
+          2,
+          3
+        ],
+        "flagsAny": [],
+        "injectAs": null,
+        "order": 9999
+      }
     },
     {
-      "id": "limites_clinicos",
-      "path": "eco/politicas/limites_clinicos.txt",
-      "role": "policy",
-      "categoria": "clinico_limite",
-      "nivelMin": 1,
-      "nivelMax": 3,
-      "ativaSe": {
-        "crise": true
-      },
-      "excluiSe": [],
-      "peso": 0.75,
-      "ordenacao": 60,
-      "conteudo": "Ao notar fronteiras clínicas ou risco, reconhecer o limite com cuidado.\nSugerir buscar apoio profissional qualificado, sem prescrever soluções específicas.\nManter postura respeitosa e estável."
+      "id": "DR_DISPENZA_BENCAO_CENTROS_LITE.txt",
+      "family": "core",
+      "role": "instruction",
+      "size": "S",
+      "tokens_avg": 0,
+      "meta": {
+        "minIntensity": 0,
+        "opennessIn": [
+          1,
+          2,
+          3
+        ],
+        "flagsAny": [],
+        "injectAs": null,
+        "order": 9999
+      }
     },
     {
-      "id": "heuristicas",
-      "path": "eco/heuristicas/dialogo_socratico.txt",
-      "role": "system",
-      "categoria": "heuristica",
-      "nivelMin": 2,
-      "nivelMax": 3,
-      "ativaSe": {
-        "qualquer": [
-          {
-            "vulnerabilidade": true
-          },
-          {
-            "intensidadeMin": 5
-          }
-        ]
-      },
-      "excluiSe": [],
-      "peso": 0.6,
-      "ordenacao": 70,
-      "conteudo": "Aplicar diálogo socrático com curiosidade focada.\nUsar hipóteses ao refletir padrões, evitando certezas rígidas.\nConvidar a pessoa a examinar significados e escolhas sem moralizar."
+      "id": "ECO_CONTEMPLATIVE_PRACTICES.txt",
+      "family": "core",
+      "role": "instruction",
+      "size": "S",
+      "tokens_avg": 0,
+      "meta": {
+        "minIntensity": 0,
+        "opennessIn": [
+          1,
+          2,
+          3
+        ],
+        "flagsAny": [],
+        "injectAs": null,
+        "order": 9999
+      }
     },
     {
-      "id": "mod_estoico",
-      "path": "eco/heuristicas/modo_estoico.txt",
-      "role": "system",
-      "categoria": "estoico",
-      "nivelMin": 2,
-      "nivelMax": 3,
-      "ativaSe": {
-        "qualquer": [
-          {
-            "vulnerabilidade": true
-          },
-          {
-            "intensidadeMin": 5
-          }
-        ]
-      },
-      "excluiSe": [],
-      "peso": 0.55,
-      "ordenacao": 80,
-      "conteudo": "Oferecer perspectivas estoicas de forma prática e enxuta.\nConectar foco ao que está sob controle e ao preparo para incertezas.\nEvitar tom moralista ou determinista."
+      "id": "ECO_CREATIVE_WINDOWS.txt",
+      "family": "core",
+      "role": "instruction",
+      "size": "S",
+      "tokens_avg": 0,
+      "meta": {
+        "minIntensity": 0,
+        "opennessIn": [
+          1,
+          2,
+          3
+        ],
+        "flagsAny": [],
+        "injectAs": null,
+        "order": 9999
+      }
+    },
+    {
+      "id": "ECO_CURIOSITY_FRAMEWORK.txt",
+      "family": "core",
+      "role": "instruction",
+      "size": "S",
+      "tokens_avg": 0,
+      "meta": {
+        "minIntensity": 0,
+        "opennessIn": [
+          1,
+          2,
+          3
+        ],
+        "flagsAny": [],
+        "injectAs": null,
+        "order": 9999
+      }
+    },
+    {
+      "id": "ECO_EMOTION_LEXICON_EXPANDED.txt",
+      "family": "core",
+      "role": "context",
+      "size": "S",
+      "tokens_avg": 0,
+      "meta": {
+        "minIntensity": 0,
+        "opennessIn": [
+          1,
+          2,
+          3
+        ],
+        "flagsAny": [],
+        "injectAs": null,
+        "order": 9999
+      }
+    },
+    {
+      "id": "ECO_ESTRUTURA_com_exemplos.txt",
+      "family": "core",
+      "role": "instruction",
+      "size": "M",
+      "tokens_avg": 310,
+      "meta": {
+        "depends_on": [
+          "IDENTIDADE"
+        ],
+        "gate": {
+          "signal": "open",
+          "min_open": 1
+        }
+      }
+    },
+    {
+      "id": "ECO_ESTRUTURA_min.txt",
+      "family": "core",
+      "role": "instruction",
+      "size": "S",
+      "tokens_avg": 0,
+      "meta": {
+        "minIntensity": 0,
+        "opennessIn": [
+          1,
+          2,
+          3
+        ],
+        "flagsAny": [],
+        "injectAs": null,
+        "order": 9999
+      }
+    },
+    {
+      "id": "ECO_ESTRUTURA_ultra_min.txt",
+      "family": "core",
+      "role": "instruction",
+      "size": "S",
+      "tokens_avg": 180,
+      "meta": {
+        "depends_on": [
+          "IDENTIDADE"
+        ],
+        "gate": {
+          "signal": "open",
+          "min_open": 1
+        }
+      }
+    },
+    {
+      "id": "ECO_ETHICAL_FOUNDATION.txt",
+      "family": "core",
+      "role": "instruction",
+      "size": "S",
+      "tokens_avg": 0,
+      "meta": {
+        "minIntensity": 0,
+        "opennessIn": [
+          1,
+          2,
+          3
+        ],
+        "flagsAny": [],
+        "injectAs": null,
+        "order": 9999
+      }
+    },
+    {
+      "id": "ECO_FORMAT_NV1.txt",
+      "family": "core",
+      "role": "instruction",
+      "size": "S",
+      "tokens_avg": 0,
+      "meta": {
+        "minIntensity": 0,
+        "opennessIn": [
+          1,
+          2,
+          3
+        ],
+        "flagsAny": [],
+        "injectAs": null,
+        "order": 9999
+      }
+    },
+    {
+      "id": "ECO_FORMAT_NV2.txt",
+      "family": "core",
+      "role": "instruction",
+      "size": "S",
+      "tokens_avg": 0,
+      "meta": {
+        "minIntensity": 0,
+        "opennessIn": [
+          1,
+          2,
+          3
+        ],
+        "flagsAny": [],
+        "injectAs": null,
+        "order": 9999
+      }
+    },
+    {
+      "id": "ECO_FORMAT_NV3.txt",
+      "family": "core",
+      "role": "instruction",
+      "size": "S",
+      "tokens_avg": 0,
+      "meta": {
+        "minIntensity": 0,
+        "opennessIn": [
+          1,
+          2,
+          3
+        ],
+        "flagsAny": [],
+        "injectAs": null,
+        "order": 9999
+      }
+    },
+    {
+      "id": "ECO_HINTS.txt",
+      "family": "core",
+      "role": "instruction",
+      "size": "S",
+      "tokens_avg": 0,
+      "meta": {
+        "minIntensity": 0,
+        "opennessIn": [
+          1,
+          2,
+          3
+        ],
+        "flagsAny": [],
+        "injectAs": null,
+        "order": 9999
+      }
+    },
+    {
+      "id": "ECO_HYPOTHESIS_AS_OFFERING.txt",
+      "family": "core",
+      "role": "instruction",
+      "size": "S",
+      "tokens_avg": 0,
+      "meta": {
+        "minIntensity": 0,
+        "opennessIn": [
+          1,
+          2,
+          3
+        ],
+        "flagsAny": [],
+        "injectAs": null,
+        "order": 9999
+      }
+    },
+    {
+      "id": "ECO_INSTRUCOES_FINAIS.txt",
+      "family": "core",
+      "role": "instruction",
+      "size": "S",
+      "tokens_avg": 0,
+      "meta": {
+        "minIntensity": 0,
+        "opennessIn": [
+          1,
+          2,
+          3
+        ],
+        "flagsAny": [],
+        "injectAs": null,
+        "order": 9999
+      }
+    },
+    {
+      "id": "ECO_KNAPSACK_BUDGET_TOKENS.txt",
+      "family": "core",
+      "role": "instruction",
+      "size": "S",
+      "tokens_avg": 0,
+      "meta": {
+        "minIntensity": 0,
+        "opennessIn": [
+          1,
+          2,
+          3
+        ],
+        "flagsAny": [],
+        "injectAs": null,
+        "order": 9999
+      }
+    },
+    {
+      "id": "ECO_LANGUAGE_PRECISION.txt",
+      "family": "core",
+      "role": "instruction",
+      "size": "S",
+      "tokens_avg": 0,
+      "meta": {
+        "minIntensity": 0,
+        "opennessIn": [
+          1,
+          2,
+          3
+        ],
+        "flagsAny": [],
+        "injectAs": null,
+        "order": 9999
+      }
+    },
+    {
+      "id": "ECO_METAPHOR_POLICY.txt",
+      "family": "core",
+      "role": "instruction",
+      "size": "S",
+      "tokens_avg": 0,
+      "meta": {
+        "minIntensity": 0,
+        "opennessIn": [
+          1,
+          2,
+          3
+        ],
+        "flagsAny": [],
+        "injectAs": null,
+        "order": 9999
+      }
+    },
+    {
+      "id": "ECO_MICRO_INQUIRIES.txt",
+      "family": "core",
+      "role": "instruction",
+      "size": "S",
+      "tokens_avg": 0,
+      "meta": {
+        "minIntensity": 0,
+        "opennessIn": [
+          1,
+          2,
+          3
+        ],
+        "flagsAny": [],
+        "injectAs": null,
+        "order": 9999
+      }
+    },
+    {
+      "id": "ECO_NAVIGATION_MAPS.txt",
+      "family": "core",
+      "role": "instruction",
+      "size": "S",
+      "tokens_avg": 0,
+      "meta": {
+        "minIntensity": 0,
+        "opennessIn": [
+          1,
+          2,
+          3
+        ],
+        "flagsAny": [],
+        "injectAs": null,
+        "order": 9999
+      }
+    },
+    {
+      "id": "ECO_PHILOSOPHICAL_STANCE.txt",
+      "family": "core",
+      "role": "instruction",
+      "size": "S",
+      "tokens_avg": 0,
+      "meta": {
+        "minIntensity": 0,
+        "opennessIn": [
+          1,
+          2,
+          3
+        ],
+        "flagsAny": [],
+        "injectAs": null,
+        "order": 9999
+      }
+    },
+    {
+      "id": "ECO_QUALITY_CHECKLIST.txt",
+      "family": "core",
+      "role": "instruction",
+      "size": "S",
+      "tokens_avg": 0,
+      "meta": {
+        "minIntensity": 0,
+        "opennessIn": [
+          1,
+          2,
+          3
+        ],
+        "flagsAny": [],
+        "injectAs": null,
+        "order": 9999
+      }
+    },
+    {
+      "id": "ECO_QUESTION_TYPOLOGY.txt",
+      "family": "core",
+      "role": "instruction",
+      "size": "S",
+      "tokens_avg": 0,
+      "meta": {
+        "minIntensity": 0,
+        "opennessIn": [
+          1,
+          2,
+          3
+        ],
+        "flagsAny": [],
+        "injectAs": null,
+        "order": 9999
+      }
+    },
+    {
+      "id": "ECO_RESPONSE_PLAN_COACH.txt",
+      "family": "core",
+      "role": "instruction",
+      "size": "S",
+      "tokens_avg": 0,
+      "meta": {
+        "minIntensity": 0,
+        "opennessIn": [
+          1,
+          2,
+          3
+        ],
+        "flagsAny": [],
+        "injectAs": null,
+        "order": 9999
+      }
+    },
+    {
+      "id": "ECO_RESPONSE_PLAN_ESPELHO.txt",
+      "family": "core",
+      "role": "instruction",
+      "size": "S",
+      "tokens_avg": 0,
+      "meta": {
+        "minIntensity": 0,
+        "opennessIn": [
+          1,
+          2,
+          3
+        ],
+        "flagsAny": [],
+        "injectAs": null,
+        "order": 9999
+      }
+    },
+    {
+      "id": "ECO_RESPONSE_PLAN_EXPLORACAO.txt",
+      "family": "core",
+      "role": "instruction",
+      "size": "S",
+      "tokens_avg": 0,
+      "meta": {
+        "minIntensity": 0,
+        "opennessIn": [
+          1,
+          2,
+          3
+        ],
+        "flagsAny": [],
+        "injectAs": null,
+        "order": 9999
+      }
+    },
+    {
+      "id": "ECO_RESPONSE_PLAN_PARADOXO.txt",
+      "family": "core",
+      "role": "instruction",
+      "size": "S",
+      "tokens_avg": 0,
+      "meta": {
+        "minIntensity": 0,
+        "opennessIn": [
+          1,
+          2,
+          3
+        ],
+        "flagsAny": [],
+        "injectAs": null,
+        "order": 9999
+      }
+    },
+    {
+      "id": "ECO_RHYTHM_AND_PACING.txt",
+      "family": "core",
+      "role": "instruction",
+      "size": "S",
+      "tokens_avg": 0,
+      "meta": {
+        "minIntensity": 0,
+        "opennessIn": [
+          1,
+          2,
+          3
+        ],
+        "flagsAny": [],
+        "injectAs": null,
+        "order": 9999
+      }
+    },
+    {
+      "id": "ECO_RULE_WEIGHTS.txt",
+      "family": "core",
+      "role": "instruction",
+      "size": "S",
+      "tokens_avg": 0,
+      "meta": {
+        "minIntensity": 0,
+        "opennessIn": [
+          1,
+          2,
+          3
+        ],
+        "flagsAny": [],
+        "injectAs": null,
+        "order": 9999
+      }
+    },
+    {
+      "id": "ECO_STYLE_GUIDE.txt",
+      "family": "core",
+      "role": "instruction",
+      "size": "S",
+      "tokens_avg": 0,
+      "meta": {
+        "minIntensity": 0,
+        "opennessIn": [
+          1,
+          2,
+          3
+        ],
+        "flagsAny": [],
+        "injectAs": null,
+        "order": 9999
+      }
+    },
+    {
+      "id": "ECO_WISDOM_PRINCIPLES.txt",
+      "family": "core",
+      "role": "instruction",
+      "size": "S",
+      "tokens_avg": 0,
+      "meta": {
+        "minIntensity": 0,
+        "opennessIn": [
+          1,
+          2,
+          3
+        ],
+        "flagsAny": [],
+        "injectAs": null,
+        "order": 9999
+      }
+    },
+    {
+      "id": "ENCERRAMENTO_SENSIVEL.txt",
+      "family": "core",
+      "role": "instruction",
+      "size": "S",
+      "tokens_avg": 69,
+      "meta": {
+        "type": "core",
+        "order": 95,
+        "injectAs": "footer",
+        "when": {
+          "minIntensity": 0,
+          "maxIntensity": 10,
+          "opennessIn": [
+            2,
+            3
+          ]
+        },
+        "dedupeKey": "encerramentoSensivel"
+      }
+    },
+    {
+      "id": "ENCERRAMENTO_SENSIVEL_full.txt",
+      "family": "core",
+      "role": "instruction",
+      "size": "S",
+      "tokens_avg": 0,
+      "meta": {
+        "minIntensity": 0,
+        "opennessIn": [
+          1,
+          2,
+          3
+        ],
+        "flagsAny": [],
+        "injectAs": null,
+        "order": 9999
+      }
+    },
+    {
+      "id": "ENCERRAMENTO_SENSIVEL_mini.txt",
+      "family": "core",
+      "role": "instruction",
+      "size": "S",
+      "tokens_avg": 0,
+      "meta": {
+        "minIntensity": 0,
+        "opennessIn": [
+          1,
+          2,
+          3
+        ],
+        "flagsAny": [],
+        "injectAs": null,
+        "order": 9999
+      }
+    },
+    {
+      "id": "ENCERRAMENTO_SENSIVEL_rules.txt",
+      "family": "core",
+      "role": "instruction",
+      "size": "S",
+      "tokens_avg": 0,
+      "meta": {
+        "minIntensity": 0,
+        "opennessIn": [
+          1,
+          2,
+          3
+        ],
+        "flagsAny": [],
+        "injectAs": null,
+        "order": 9999
+      }
+    },
+    {
+      "id": "ENCERRAMENTO_mini_acao.txt",
+      "family": "core",
+      "role": "instruction",
+      "size": "S",
+      "tokens_avg": 170,
+      "meta": {
+        "depends_on": [
+          "IDENTIDADE"
+        ],
+        "gate": {
+          "signal": "open",
+          "min_open": 1
+        }
+      }
+    },
+    {
+      "id": "ENCERRAMENTO_soft_prompt.txt",
+      "family": "core",
+      "role": "instruction",
+      "size": "S",
+      "tokens_avg": 180,
+      "meta": {
+        "depends_on": [
+          "IDENTIDADE"
+        ],
+        "gate": {
+          "signal": "open",
+          "min_open": 1
+        }
+      }
+    },
+    {
+      "id": "GUEST_MESSAGE_TOO_LONG.txt",
+      "family": "core",
+      "role": "instruction",
+      "size": "S",
+      "tokens_avg": 0,
+      "meta": {
+        "minIntensity": 0,
+        "opennessIn": [
+          1,
+          2,
+          3
+        ],
+        "flagsAny": [],
+        "injectAs": null,
+        "order": 9999
+      }
+    },
+    {
+      "id": "IDENTIDADE.txt",
+      "family": "core",
+      "role": "instruction",
+      "size": "S",
+      "tokens_avg": 275,
+      "meta": {
+        "type": "core",
+        "order": 2,
+        "injectAs": "section",
+        "when": {
+          "minIntensity": 0,
+          "maxIntensity": 10,
+          "opennessIn": [
+            1,
+            2,
+            3
+          ]
+        },
+        "dedupeKey": "identidadeCore"
+      }
+    },
+    {
+      "id": "IDENTIDADE_min.txt",
+      "family": "core",
+      "role": "instruction",
+      "size": "S",
+      "tokens_avg": 0,
+      "meta": {
+        "minIntensity": 0,
+        "opennessIn": [
+          1,
+          2,
+          3
+        ],
+        "flagsAny": [],
+        "injectAs": null,
+        "order": 9999
+      }
+    },
+    {
+      "id": "INTERNAL_ERROR.txt",
+      "family": "core",
+      "role": "instruction",
+      "size": "S",
+      "tokens_avg": 0,
+      "meta": {
+        "minIntensity": 0,
+        "opennessIn": [
+          1,
+          2,
+          3
+        ],
+        "flagsAny": [],
+        "injectAs": null,
+        "order": 9999
+      }
+    },
+    {
+      "id": "LIMIT_FILE_SIZE.txt",
+      "family": "core",
+      "role": "instruction",
+      "size": "S",
+      "tokens_avg": 0,
+      "meta": {
+        "minIntensity": 0,
+        "opennessIn": [
+          1,
+          2,
+          3
+        ],
+        "flagsAny": [],
+        "injectAs": null,
+        "order": 9999
+      }
+    },
+    {
+      "id": "LINGUAGEM_NATURAL.txt",
+      "family": "core",
+      "role": "instruction",
+      "size": "S",
+      "tokens_avg": 0,
+      "meta": {
+        "minIntensity": 0,
+        "opennessIn": [
+          1,
+          2,
+          3
+        ],
+        "flagsAny": [],
+        "injectAs": null,
+        "order": 9999
+      }
+    },
+    {
+      "id": "LINGUAGEM_NATURAL_full.txt",
+      "family": "core",
+      "role": "instruction",
+      "size": "S",
+      "tokens_avg": 0,
+      "meta": {
+        "minIntensity": 0,
+        "opennessIn": [
+          1,
+          2,
+          3
+        ],
+        "flagsAny": [],
+        "injectAs": null,
+        "order": 9999
+      }
+    },
+    {
+      "id": "LINGUAGEM_NATURAL_guided.txt",
+      "family": "core",
+      "role": "instruction",
+      "size": "M",
+      "tokens_avg": 320,
+      "meta": {
+        "depends_on": [
+          "IDENTIDADE"
+        ],
+        "gate": {
+          "signal": "open",
+          "min_open": 1
+        }
+      }
+    },
+    {
+      "id": "LINGUAGEM_NATURAL_micro.txt",
+      "family": "core",
+      "role": "instruction",
+      "size": "S",
+      "tokens_avg": 190,
+      "meta": {
+        "depends_on": [
+          "IDENTIDADE"
+        ],
+        "gate": {
+          "signal": "open",
+          "min_open": 1
+        }
+      }
+    },
+    {
+      "id": "LINGUAGEM_NATURAL_mini.txt",
+      "family": "core",
+      "role": "instruction",
+      "size": "S",
+      "tokens_avg": 0,
+      "meta": {
+        "minIntensity": 0,
+        "opennessIn": [
+          1,
+          2,
+          3
+        ],
+        "flagsAny": [],
+        "injectAs": null,
+        "order": 9999
+      }
+    },
+    {
+      "id": "LINGUAGEM_NATURAL_rules.txt",
+      "family": "core",
+      "role": "instruction",
+      "size": "S",
+      "tokens_avg": 0,
+      "meta": {
+        "minIntensity": 0,
+        "opennessIn": [
+          1,
+          2,
+          3
+        ],
+        "flagsAny": [],
+        "injectAs": null,
+        "order": 9999
+      }
+    },
+    {
+      "id": "LINGUAGEM_NATURAL_rules_v2.txt",
+      "family": "core",
+      "role": "instruction",
+      "size": "M",
+      "tokens_avg": 300,
+      "meta": {
+        "depends_on": [
+          "IDENTIDADE"
+        ],
+        "gate": {
+          "signal": "open",
+          "min_open": 1
+        }
+      }
+    },
+    {
+      "id": "MEMORIA_COSTURA_REGRAS.txt",
+      "family": "core",
+      "role": "instruction",
+      "size": "S",
+      "tokens_avg": 112,
+      "meta": {
+        "flagsAny": [
+          "useMemories"
+        ],
+        "injectAs": "footer",
+        "dedupeKey": "memoriaCosturaRegras"
+      }
+    },
+    {
+      "id": "METODO_VIVA_ENXUTO_min.txt",
+      "family": "core",
+      "role": "instruction",
+      "size": "S",
+      "tokens_avg": 0,
+      "meta": {
+        "minIntensity": 0,
+        "opennessIn": [
+          1,
+          2,
+          3
+        ],
+        "flagsAny": [],
+        "injectAs": null,
+        "order": 9999
+      }
+    },
+    {
+      "id": "MISSING_GUEST_ID.txt",
+      "family": "core",
+      "role": "instruction",
+      "size": "S",
+      "tokens_avg": 0,
+      "meta": {
+        "minIntensity": 0,
+        "opennessIn": [
+          1,
+          2,
+          3
+        ],
+        "flagsAny": [],
+        "injectAs": null,
+        "order": 9999
+      }
+    },
+    {
+      "id": "MODULACAO_TOM_REGISTRO.txt",
+      "family": "core",
+      "role": "instruction",
+      "size": "S",
+      "tokens_avg": 224,
+      "meta": {
+        "type": "core",
+        "order": 35,
+        "injectAs": "inline",
+        "when": {
+          "minIntensity": 0,
+          "maxIntensity": 10,
+          "opennessIn": [
+            1,
+            2,
+            3
+          ]
+        },
+        "dedupeKey": "modulacaoTom"
+      }
+    },
+    {
+      "id": "MODULACAO_TOM_REGISTRO_full.txt",
+      "family": "core",
+      "role": "instruction",
+      "size": "S",
+      "tokens_avg": 0,
+      "meta": {
+        "minIntensity": 0,
+        "opennessIn": [
+          1,
+          2,
+          3
+        ],
+        "flagsAny": [],
+        "injectAs": null,
+        "order": 9999
+      }
+    },
+    {
+      "id": "MODULACAO_TOM_REGISTRO_mini.txt",
+      "family": "core",
+      "role": "instruction",
+      "size": "S",
+      "tokens_avg": 0,
+      "meta": {
+        "minIntensity": 0,
+        "opennessIn": [
+          1,
+          2,
+          3
+        ],
+        "flagsAny": [],
+        "injectAs": null,
+        "order": 9999
+      }
+    },
+    {
+      "id": "MODULACAO_TOM_REGISTRO_rules.txt",
+      "family": "core",
+      "role": "instruction",
+      "size": "S",
+      "tokens_avg": 0,
+      "meta": {
+        "minIntensity": 0,
+        "opennessIn": [
+          1,
+          2,
+          3
+        ],
+        "flagsAny": [],
+        "injectAs": null,
+        "order": 9999
+      }
+    },
+    {
+      "id": "MODULACAO_calma_objetiva.txt",
+      "family": "core",
+      "role": "instruction",
+      "size": "M",
+      "tokens_avg": 250,
+      "meta": {
+        "depends_on": [
+          "IDENTIDADE"
+        ],
+        "gate": {
+          "signal": "open",
+          "min_open": 1
+        }
+      }
+    },
+    {
+      "id": "MODULACAO_direta_brief.txt",
+      "family": "core",
+      "role": "instruction",
+      "size": "S",
+      "tokens_avg": 190,
+      "meta": {
+        "depends_on": [
+          "IDENTIDADE"
+        ],
+        "gate": {
+          "signal": "open",
+          "min_open": 1
+        }
+      }
+    },
+    {
+      "id": "OPENROUTER_API_KEY.txt",
+      "family": "core",
+      "role": "instruction",
+      "size": "S",
+      "tokens_avg": 0,
+      "meta": {
+        "minIntensity": 0,
+        "opennessIn": [
+          1,
+          2,
+          3
+        ],
+        "flagsAny": [],
+        "injectAs": null,
+        "order": 9999
+      }
+    },
+    {
+      "id": "ORIENTACAO_GROUNDING.txt",
+      "family": "core",
+      "role": "instruction",
+      "size": "S",
+      "tokens_avg": 0,
+      "meta": {
+        "minIntensity": 0,
+        "opennessIn": [
+          1,
+          2,
+          3
+        ],
+        "flagsAny": [],
+        "injectAs": null,
+        "order": 9999
+      }
+    },
+    {
+      "id": "PRINCIPIOS_CHAVE.txt",
+      "family": "core",
+      "role": "instruction",
+      "size": "S",
+      "tokens_avg": 196,
+      "meta": {
+        "type": "core",
+        "order": 3,
+        "injectAs": "inline",
+        "when": {
+          "minIntensity": 0,
+          "maxIntensity": 10,
+          "opennessIn": [
+            1,
+            2,
+            3
+          ]
+        },
+        "dedupeKey": "principiosChave"
+      }
+    },
+    {
+      "id": "RESPIRACAO_GUIADA_BOX.txt",
+      "family": "core",
+      "role": "instruction",
+      "size": "S",
+      "tokens_avg": 0,
+      "meta": {
+        "minIntensity": 0,
+        "opennessIn": [
+          1,
+          2,
+          3
+        ],
+        "flagsAny": [],
+        "injectAs": null,
+        "order": 9999
+      }
+    },
+    {
+      "id": "SINTETIZADOR_PADRAO.txt",
+      "family": "core",
+      "role": "instruction",
+      "size": "S",
+      "tokens_avg": 46,
+      "meta": {
+        "minIntensity": 5,
+        "opennessIn": [
+          2,
+          3
+        ],
+        "flagsAny": [
+          "patternSynthesis"
+        ],
+        "injectAs": "footer",
+        "dedupeKey": "sintetizadorPadrao"
+      }
+    },
+    {
+      "id": "SUPABASE_ANON_KEY.txt",
+      "family": "core",
+      "role": "instruction",
+      "size": "S",
+      "tokens_avg": 0,
+      "meta": {
+        "minIntensity": 0,
+        "opennessIn": [
+          1,
+          2,
+          3
+        ],
+        "flagsAny": [],
+        "injectAs": null,
+        "order": 9999
+      }
+    },
+    {
+      "id": "SUPABASE_URL.txt",
+      "family": "core",
+      "role": "instruction",
+      "size": "S",
+      "tokens_avg": 0,
+      "meta": {
+        "minIntensity": 0,
+        "opennessIn": [
+          1,
+          2,
+          3
+        ],
+        "flagsAny": [],
+        "injectAs": null,
+        "order": 9999
+      }
+    },
+    {
+      "id": "UPSTREAM_ERROR.txt",
+      "family": "core",
+      "role": "instruction",
+      "size": "S",
+      "tokens_avg": 0,
+      "meta": {
+        "minIntensity": 0,
+        "opennessIn": [
+          1,
+          2,
+          3
+        ],
+        "flagsAny": [],
+        "injectAs": null,
+        "order": 9999
+      }
+    },
+    {
+      "id": "developer_prompt.txt",
+      "family": "core",
+      "role": "instruction",
+      "size": "L",
+      "tokens_avg": 3222,
+      "meta": {
+        "type": "system",
+        "order": 0,
+        "inject_as": "system",
+        "immutable": true
+      }
+    },
+    {
+      "id": "eco_bandit_arms.txt",
+      "family": "core",
+      "role": "instruction",
+      "size": "S",
+      "tokens_avg": 0,
+      "meta": {
+        "minIntensity": 0,
+        "opennessIn": [
+          1,
+          2,
+          3
+        ],
+        "flagsAny": [],
+        "injectAs": null,
+        "order": 9999
+      }
+    },
+    {
+      "id": "eco_estrutura_de_resposta.txt",
+      "family": "core",
+      "role": "instruction",
+      "size": "S",
+      "tokens_avg": 325,
+      "meta": {
+        "type": "core",
+        "order": 30,
+        "injectAs": "section",
+        "when": {
+          "minIntensity": 0,
+          "maxIntensity": 10,
+          "opennessIn": [
+            1,
+            2,
+            3
+          ]
+        },
+        "dedupeKey": "estruturaBase"
+      }
+    },
+    {
+      "id": "eco_feedback.txt",
+      "family": "core",
+      "role": "instruction",
+      "size": "S",
+      "tokens_avg": 0,
+      "meta": {
+        "minIntensity": 0,
+        "opennessIn": [
+          1,
+          2,
+          3
+        ],
+        "flagsAny": [],
+        "injectAs": null,
+        "order": 9999
+      }
+    },
+    {
+      "id": "eco_interactions.txt",
+      "family": "core",
+      "role": "instruction",
+      "size": "S",
+      "tokens_avg": 0,
+      "meta": {
+        "minIntensity": 0,
+        "opennessIn": [
+          1,
+          2,
+          3
+        ],
+        "flagsAny": [],
+        "injectAs": null,
+        "order": 9999
+      }
+    },
+    {
+      "id": "eco_module_usages.txt",
+      "family": "core",
+      "role": "instruction",
+      "size": "S",
+      "tokens_avg": 0,
+      "meta": {
+        "minIntensity": 0,
+        "opennessIn": [
+          1,
+          2,
+          3
+        ],
+        "flagsAny": [],
+        "injectAs": null,
+        "order": 9999
+      }
+    },
+    {
+      "id": "eco_passive_signals.txt",
+      "family": "core",
+      "role": "instruction",
+      "size": "S",
+      "tokens_avg": 0,
+      "meta": {
+        "minIntensity": 0,
+        "opennessIn": [
+          1,
+          2,
+          3
+        ],
+        "flagsAny": [],
+        "injectAs": null,
+        "order": 9999
+      }
+    },
+    {
+      "id": "eco_policy_config.txt",
+      "family": "core",
+      "role": "instruction",
+      "size": "S",
+      "tokens_avg": 0,
+      "meta": {
+        "minIntensity": 0,
+        "opennessIn": [
+          1,
+          2,
+          3
+        ],
+        "flagsAny": [],
+        "injectAs": null,
+        "order": 9999
+      }
+    },
+    {
+      "id": "identidade_mini.txt",
+      "family": "core",
+      "role": "instruction",
+      "size": "M",
+      "tokens_avg": 467,
+      "meta": {
+        "type": "core",
+        "order": 2,
+        "injectAs": "section",
+        "when": {
+          "minIntensity": 0,
+          "maxIntensity": 10,
+          "opennessIn": [
+            1,
+            2,
+            3
+          ]
+        },
+        "dedupeKey": "identidadeMini"
+      }
+    },
+    {
+      "id": "nv1_core.txt",
+      "family": "core",
+      "role": "instruction",
+      "size": "S",
+      "tokens_avg": 211,
+      "meta": {
+        "type": "core",
+        "order": 20,
+        "injectAs": "section",
+        "when": {
+          "minIntensity": 0,
+          "maxIntensity": 4,
+          "opennessIn": [
+            1
+          ]
+        },
+        "dedupeKey": "nv1CoreTone"
+      }
+    },
+    {
+      "id": "usomemorias.txt",
+      "family": "core",
+      "role": "instruction",
+      "size": "S",
+      "tokens_avg": 34,
+      "meta": {
+        "minIntensity": 0,
+        "opennessIn": [
+          1,
+          2,
+          3
+        ],
+        "flagsAny": [],
+        "injectAs": null,
+        "order": 9999
+      }
+    },
+    {
+      "id": "BLOCO_REFERENCIA_LEVE.txt",
+      "family": "extra",
+      "role": "instruction",
+      "size": "S",
+      "tokens_avg": 52,
+      "meta": {
+        "maxIntensity": 6,
+        "opennessIn": [
+          1,
+          2
+        ],
+        "injectAs": "footer",
+        "dedupeKey": "blocoReferenciaLeve"
+      }
+    },
+    {
+      "id": "DETECÇÃOCRISE.txt",
+      "family": "extra",
+      "role": "instruction",
+      "size": "S",
+      "tokens_avg": 115,
+      "meta": {
+        "type": "extra",
+        "order": 5,
+        "injectAs": "footer",
+        "when": {
+          "minIntensity": 8,
+          "maxIntensity": 10,
+          "opennessIn": [
+            1,
+            2,
+            3
+          ]
+        },
+        "requireVulnerability": true,
+        "flagsAny": [
+          "crise",
+          "ideacao",
+          "desespero",
+          "vazio",
+          "autodesvalorizacao"
+        ],
+        "dedupeKey": "protocoloCrise"
+      }
+    },
+    {
+      "id": "ESCALA_INTENSIDADE_0a10.txt",
+      "family": "extra",
+      "role": "context",
+      "size": "S",
+      "tokens_avg": 96,
+      "meta": {
+        "type": "extra",
+        "order": 12,
+        "injectAs": "inline",
+        "when": {
+          "minIntensity": 0,
+          "maxIntensity": 10,
+          "opennessIn": [
+            1,
+            2,
+            3
+          ]
+        },
+        "dedupeKey": "escalaIntensidade"
+      }
+    },
+    {
+      "id": "PEDIDOPRÁTICO.txt",
+      "family": "extra",
+      "role": "instruction",
+      "size": "S",
+      "tokens_avg": 42,
+      "meta": {
+        "type": "extra",
+        "order": 45,
+        "injectAs": "inline",
+        "when": {
+          "minIntensity": 0,
+          "maxIntensity": 6,
+          "opennessIn": [
+            1,
+            2
+          ]
+        },
+        "dedupeKey": "pedidoPratico"
+      }
+    },
+    {
+      "id": "bloco_tecnico_memoria.txt",
+      "family": "extra",
+      "role": "instruction",
+      "size": "S",
+      "tokens_avg": 116,
+      "meta": {
+        "minIntensity": 7,
+        "opennessIn": [
+          2,
+          3
+        ],
+        "flagsAny": [
+          "hasTechBlock",
+          "saveMemory"
+        ],
+        "injectAs": "footer",
+        "dedupeKey": "blocoTecnicoMemoria",
+        "activate_if": "intensity>=7"
+      }
+    },
+    {
+      "id": "escala_abertura_1a3.txt",
+      "family": "extra",
+      "role": "context",
+      "size": "S",
+      "tokens_avg": 169,
+      "meta": {
+        "type": "extra",
+        "order": 10,
+        "injectAs": "inline",
+        "when": {
+          "minIntensity": 0,
+          "maxIntensity": 10,
+          "opennessIn": [
+            1,
+            2,
+            3
+          ]
+        },
+        "dedupeKey": "escalaAbertura"
+      }
+    },
+    {
+      "id": "metodo_viva_enxuto.txt",
+      "family": "extra",
+      "role": "instruction",
+      "size": "S",
+      "tokens_avg": 302,
+      "meta": {
+        "type": "extra",
+        "order": 40,
+        "injectAs": "section",
+        "when": {
+          "minIntensity": 0,
+          "maxIntensity": 10,
+          "opennessIn": [
+            1,
+            2,
+            3
+          ]
+        },
+        "dedupeKey": "metodoVivaEnxuto"
+      }
     }
-  ],
-  "niveis": {
-    "1": {
-      "nome": "Superficie",
-      "descricao": "Primeiro contato com foco em acolhimento enxuto.",
-      "maxModulos": 6,
-      "modulos": [
-        "identidade_core",
-        "estrutura_resposta",
-        "politica_perguntas",
-        "politica_memoria",
-        "tom_modo",
-        "limites_clinicos"
-      ]
-    },
-    "2": {
-      "nome": "Reflexao",
-      "descricao": "Aprofunda a escuta quando há vulnerabilidade ou intensidade moderada.",
-      "maxModulos": 8,
-      "modulos": [
-        "identidade_core",
-        "estrutura_resposta",
-        "politica_perguntas",
-        "politica_memoria",
-        "tom_modo",
-        "limites_clinicos",
-        "heuristicas",
-        "mod_estoico"
-      ]
-    },
-    "3": {
-      "nome": "Profundidade",
-      "descricao": "Prioriza espelhamento preciso e organização prática sem prolixidade.",
-      "maxModulos": 7,
-      "modulos": [
-        "identidade_core",
-        "estrutura_resposta",
-        "politica_perguntas",
-        "politica_memoria",
-        "tom_modo",
-        "heuristicas",
-        "mod_estoico",
-        "limites_clinicos"
-      ]
-    }
-  }
+  ]
 }
