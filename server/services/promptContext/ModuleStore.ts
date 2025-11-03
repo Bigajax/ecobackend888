@@ -91,6 +91,28 @@ type FileMetadata = {
   rel: string;
 };
 
+/** -------------------------- Helpers de tipo -------------------------- */
+
+/** Converte um valor potencialmente desconhecido em array de strings limpas. */
+const asStringArray = (value: unknown): string[] => {
+  if (!Array.isArray(value)) return [];
+  return (value as unknown[])
+    .map((item: unknown) => (typeof item === "string" ? item.trim() : ""))
+    .filter((s: string) => s.length > 0);
+};
+
+/** Garante array de condições normalizadas. */
+const asNormalizedCondArray = (
+  arr: unknown,
+  normalizer: (v: unknown) => EcoManifestActivationCondition | undefined
+): EcoManifestActivationCondition[] | undefined => {
+  if (!Array.isArray(arr)) return undefined;
+  const out = (arr as unknown[])
+    .map((child: unknown) => normalizer(child))
+    .filter((child): child is EcoManifestActivationCondition => Boolean(child));
+  return out.length ? out : undefined;
+};
+
 /** -------------------------- Helpers de path -------------------------- */
 
 /** Retorna apenas diretórios que existem. */
@@ -457,18 +479,13 @@ export class ModuleStore {
     if (typeof input.vulnerabilidade === "boolean") condition.vulnerabilidade = input.vulnerabilidade;
     if (typeof input.continuidade === "boolean") condition.continuidade = input.continuidade;
     if (typeof input.crise === "boolean") condition.crise = input.crise;
-    if (Array.isArray(input.todas)) {
-      const nested = (input.todas as unknown[])
-        .map((child: unknown) => this.normalizeActivationCondition(child))
-        .filter((child): child is EcoManifestActivationCondition => Boolean(child));
-      if (nested.length) condition.todas = nested;
-    }
-    if (Array.isArray(input.qualquer)) {
-      const nested = (input.qualquer as unknown[])
-        .map((child: unknown) => this.normalizeActivationCondition(child))
-        .filter((child): child is EcoManifestActivationCondition => Boolean(child));
-      if (nested.length) condition.qualquer = nested;
-    }
+
+    const todas = asNormalizedCondArray(input.todas, (c) => this.normalizeActivationCondition(c));
+    if (todas) condition.todas = todas;
+
+    const qualquer = asNormalizedCondArray(input.qualquer, (c) => this.normalizeActivationCondition(c));
+    if (qualquer) condition.qualquer = qualquer;
+
     const keys = Object.keys(condition);
     return keys.length ? condition : undefined;
   }
@@ -489,9 +506,7 @@ export class ModuleStore {
     if (typeof defaultsRaw.idioma === "string") defaults.idioma = defaultsRaw.idioma;
     if (typeof defaultsRaw.fluxo === "string") defaults.fluxo = defaultsRaw.fluxo;
     if (Array.isArray(defaultsRaw.registrarMemoriaQuando)) {
-      defaults.registrarMemoriaQuando = defaultsRaw.registrarMemoriaQuando
-        .map((item: unknown) => (typeof item === "string" ? item : null))
-        .filter((item): item is string => Boolean(item));
+      defaults.registrarMemoriaQuando = asStringArray(defaultsRaw.registrarMemoriaQuando);
     }
     if (defaultsRaw.estilo && typeof defaultsRaw.estilo === "object") {
       defaults.estilo = defaultsRaw.estilo as Record<string, unknown>;
@@ -524,11 +539,7 @@ export class ModuleStore {
         continue;
       }
 
-      const excluiSe = Array.isArray(entry.excluiSe)
-        ? (entry.excluiSe as unknown[])
-            .map((item: unknown) => (typeof item === "string" ? item.trim() : ""))
-            .filter((item: string) => item.length > 0)
-        : [];
+      const excluiSe = asStringArray(entry.excluiSe);
 
       const conteudo = typeof entry.conteudo === "string" ? entry.conteudo : undefined;
 
@@ -563,11 +574,7 @@ export class ModuleStore {
         const rawLevel = (parsed.niveis as Record<string, unknown>)[key];
         if (!rawLevel || typeof rawLevel !== "object") continue;
         const levelRecord = rawLevel as Record<string, unknown>;
-        const modulos = Array.isArray(levelRecord.modulos)
-          ? (levelRecord.modulos as unknown[])
-              .map((item: unknown) => (typeof item === "string" ? item.trim() : ""))
-              .filter((item: string) => item.length > 0)
-          : [];
+        const modulos = asStringArray(levelRecord.modulos);
         const maxRaw = levelRecord.maxModulos;
         const maxModulos = Number.isFinite(Number(maxRaw)) ? Number(maxRaw) : modulos.length || (nivelNumber === 1 ? 6 : 8);
         const nome = typeof levelRecord.nome === "string" ? levelRecord.nome : undefined;
