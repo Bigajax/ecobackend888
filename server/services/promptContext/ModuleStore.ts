@@ -281,7 +281,7 @@ export class ModuleStore {
 
   async listNames(): Promise<string[]> {
     await this.buildFileIndexOnce();
-    return Array.from(this.uniqueFiles.values()).map((item) => item.name);
+    return Array.from(this.uniqueFiles.values()).map((item: FileMetadata) => item.name);
   }
 
   /** Invalida caches (tudo ou só um módulo). */
@@ -458,14 +458,14 @@ export class ModuleStore {
     if (typeof input.continuidade === "boolean") condition.continuidade = input.continuidade;
     if (typeof input.crise === "boolean") condition.crise = input.crise;
     if (Array.isArray(input.todas)) {
-      const nested = input.todas
-        .map((child) => this.normalizeActivationCondition(child))
+      const nested = (input.todas as unknown[])
+        .map((child: unknown) => this.normalizeActivationCondition(child))
         .filter((child): child is EcoManifestActivationCondition => Boolean(child));
       if (nested.length) condition.todas = nested;
     }
     if (Array.isArray(input.qualquer)) {
-      const nested = input.qualquer
-        .map((child) => this.normalizeActivationCondition(child))
+      const nested = (input.qualquer as unknown[])
+        .map((child: unknown) => this.normalizeActivationCondition(child))
         .filter((child): child is EcoManifestActivationCondition => Boolean(child));
       if (nested.length) condition.qualquer = nested;
     }
@@ -525,9 +525,9 @@ export class ModuleStore {
       }
 
       const excluiSe = Array.isArray(entry.excluiSe)
-        ? entry.excluiSe
-            .map((item) => (typeof item === "string" ? item.trim() : ""))
-            .filter((item) => item.length > 0)
+        ? (entry.excluiSe as unknown[])
+            .map((item: unknown) => (typeof item === "string" ? item.trim() : ""))
+            .filter((item: string) => item.length > 0)
         : [];
 
       const conteudo = typeof entry.conteudo === "string" ? entry.conteudo : undefined;
@@ -564,9 +564,9 @@ export class ModuleStore {
         if (!rawLevel || typeof rawLevel !== "object") continue;
         const levelRecord = rawLevel as Record<string, unknown>;
         const modulos = Array.isArray(levelRecord.modulos)
-          ? levelRecord.modulos
-              .map((item) => (typeof item === "string" ? item.trim() : ""))
-              .filter((item) => item.length > 0)
+          ? (levelRecord.modulos as unknown[])
+              .map((item: unknown) => (typeof item === "string" ? item.trim() : ""))
+              .filter((item: string) => item.length > 0)
           : [];
         const maxRaw = levelRecord.maxModulos;
         const maxModulos = Number.isFinite(Number(maxRaw)) ? Number(maxRaw) : modulos.length || (nivelNumber === 1 ? 6 : 8);
