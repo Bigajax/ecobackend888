@@ -19,7 +19,7 @@ type ORContentPiece =
     };
 
 interface ORMessage { role: ORole; content?: string | ORContentPiece[] }
-interface ORChoice { index?: number; message?: ORMessage; finish_reason?: string }
+interface ORChoice { index?: number; message?: ORMessage; finishReason?: string }
 export interface ORUsage {
   prompt_tokens?: number;
   completion_tokens?: number;
@@ -42,9 +42,9 @@ interface ORDeltaChoice {
     text?: string;
     role?: ORole;
     stop_reason?: string;
-    finish_reason?: string;
+    finishReason?: string;
   };
-  finish_reason?: string | null;
+  finishReason?: string | null;
 }
 
 interface ORStreamChunk {
@@ -130,17 +130,25 @@ function normalizeOpenRouterText(input: unknown): string {
   return pieces.length ? pieces.join("") : "";
 }
 
-function extractDeltaText(delta: ORDeltaChoice["delta"] | undefined): string {
-  if (!delta) {
+function asNonStream(chunk: ORStreamChunk | ORChatCompletion): chunk is ORChatCompletion {
+  return "choices" in chunk && Array.isArray(chunk.choices) && chunk.choices[0] && "message" in chunk.choices[0];
+}
+
+function pickContent(chunk: ORStreamChunk | ORChatCompletion): string {
+  if (asNonStream(chunk)) {
+    return normalizeOpenRouterText(chunk.choices[0]?.message?.content);
+  }
+  const choice = chunk.choices?.[0];
+  if (!choice?.delta) {
     return "";
   }
-
-  if (typeof delta.text === "string" && delta.text) {
-    return delta.text;
+  if (typeof choice.delta.text === "string" && choice.delta.text) {
+    return choice.delta.text;
   }
-
-  return normalizeOpenRouterText(delta.content);
+  return normalizeOpenRouterText(choice.delta.content);
 }
+
+
 
 export async function claudeChatCompletion({
   messages,
@@ -212,11 +220,8 @@ export async function claudeChatCompletion({
         throw new Error(`OpenRouter API error: ${data.error.message}`);
       }
 
-      const primaryChoice = data.choices?.[0];
-      const text =
-        normalizeOpenRouterText(primaryChoice?.message?.content) ||
-        normalizeOpenRouterText((primaryChoice as any)?.message) ||
-        ""; // segura contra undefined
+      const text = pickContent(data);
+
 
       return {
         content: text,
@@ -330,16 +335,13 @@ export async function streamClaudeChatCompletion(
 
         const isSse = /^text\/event-stream/i.test(resp.headers.get("content-type") || "");
         if (!isSse) {
-          const json = await resp.json().catch(() => null);
-          const text =
-            json?.choices?.[0]?.message?.content ||
-            (json?.content?.[0] && json?.content?.[0].text) ||
-            "";
+          const json = (await resp.json().catch(() => null)) as ORChatCompletion | null;
+          const text = json ? pickContent(json) : "";
 
           log.warn("[non_sse_fallback]", { used: !!text, contentLength: text?.length || 0 });
 
           if (text) {
-            await callbacks.onChunk?.({ content: text, raw: json });
+            await callbacks.onChunk?.({ content: text, raw: json as any });
             await callbacks.onControl?.({ type: "done", finishReason: "fallback" });
             return;
           } else {
@@ -469,9 +471,9 @@ export async function streamClaudeChatCompletion(
       }
 
       const choice = parsed?.choices?.[0];
-      const deltaText = extractDeltaText(choice?.delta);
+      const deltaText = pickContent(parsed);
       const finishReason =
-        choice?.finish_reason ?? choice?.delta?.finish_reason ?? choice?.delta?.stop_reason ?? null;
+        choice?.finishReason ?? choice?.delta?.finishReason ?? choice?.delta?.stop_reason ?? null;
 
       if (parsed?.usage) {
         latestUsage = parsed.usage;

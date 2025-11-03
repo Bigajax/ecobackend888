@@ -217,8 +217,8 @@ export async function executeStreamingLLM({
       });
       const text = buildFinalizedStreamText(fullResult);
       if (text?.trim()) {
-        await emitStream({ type: "chunk", content: text, index: 0 });
-        await emitStream({ type: "control", name: "done", meta: { finish_reason: "fallback" } });
+        await emitStream({ type: "chunk", delta: text, content: text, index: 0 });
+        await emitStream({ type: "control", name: "done", meta: { finishReason: "fallback" } });
         return true;
       }
       return false;
@@ -472,7 +472,7 @@ export async function executeStreamingLLM({
       }
       const currentIndex = chunkIndex;
       chunkIndex += 1;
-      await emitStream({ type: "chunk", delta: text, index: currentIndex });
+      await emitStream({ type: "chunk", delta: text, index: currentIndex, content: text });
 
       const doneSnapshot = { ...fallbackTimings };
       fallbackResult = {
