@@ -1,657 +1,196 @@
 {
-  "version": "1.0.0",
+  "version": "2.0.0",
   "defaults": {
-    "window_days": 14,
-    "alpha_prior": 1.5,
-    "beta_prior": 1.5,
-    "max_aux_tokens": 350,
-    "cold_start_boost": 0.35
-  },
-  "families": {
-    "linguagem": {
-      "reward_key": "clarity_engagement",
-      "baseline": "LINGUAGEM_NATURAL.txt",
-      "enabled": true
-    },
-    "encerramento": {
-      "reward_key": "dialogue_continuation",
-      "baseline": "ENCERRAMENTO_SENSIVEL.txt",
-      "enabled": true
-    },
-    "modulacao": {
-      "reward_key": "like_bias",
-      "baseline": "MODULACAO_TOM_REGISTRO.txt",
-      "enabled": true
-    },
-    "estrutura_resposta": {
-      "reward_key": "clarity_engagement",
-      "baseline": "eco_estrutura_de_resposta.txt",
-      "enabled": true
-    },
-    "vulnerabilidade": {
-      "reward_key": "emotional_engagement",
-      "baseline": "eco_vulnerabilidade_defesas.txt",
-      "enabled": true
-    },
-    "heuristica": {
-      "reward_key": "clarity_engagement",
-      "enabled": true
+    "perguntaMax": 1,
+    "idioma": "pt-BR",
+    "fluxo": "VERDADE->ORDEM",
+    "registrarMemoriaQuando": [
+      "intensidade>=7",
+      "verdade_explicita",
+      "decisao_assumida",
+      "padrao_recorrente"
+    ],
+    "estilo": {
+      "frasesCurtas": true,
+      "gentil": true,
+      "hipoteticoParaPadroes": true,
+      "semAutoReferencia": true,
+      "semCliche": true
     }
   },
   "modules": [
     {
-      "id": "LINGUAGEM_NATURAL.txt",
-      "family": "linguagem",
-      "role": "instruction",
-      "size": "M",
-      "tokens_avg": 420,
-      "gate": {
-        "signal": "open",
-        "min_open": 1
-      },
-      "excludes": [],
-      "depends_on": [],
-      "reward_key": "clarity_engagement",
-      "path_hint": "modulos_core/LINGUAGEM_NATURAL.txt",
-      "enabled": true
+      "id": "identidade_core",
+      "path": "eco/identidade/identidade_core.txt",
+      "role": "system",
+      "categoria": "identidade",
+      "nivelMin": 1,
+      "nivelMax": 3,
+      "ativaSe": {},
+      "excluiSe": [],
+      "peso": 0.9,
+      "ordenacao": 10,
+      "conteudo": "Guia de autoconhecimento e reflexão gentil.\nTransforma informação em clareza emocional e ordem prática.\nPrioriza sabedoria aplicada e poder pessoal.\nBase teórica em diálogo socrático, estoicismo e psicologia existencial.\nMantém postura horizontal, curiosa e sem julgamentos.\nUsa hipóteses ao notar padrões, sem afirmar certezas.\nEvita promessas, diagnósticos e elogios vazios.\nCultiva presença calma e linguagem simples."
     },
     {
-      "id": "LINGUAGEM_NATURAL_full.txt",
-      "family": "linguagem",
-      "role": "instruction",
-      "size": "L",
-      "tokens_avg": 560,
-      "gate": {
-        "signal": "open",
-        "min_open": 2
-      },
-      "excludes": [],
-      "depends_on": [],
-      "reward_key": "clarity_engagement",
-      "path_hint": "modulos_core/LINGUAGEM_NATURAL_full.txt",
-      "enabled": true
-    },
-    {
-      "id": "LINGUAGEM_NATURAL_mini.txt",
-      "family": "linguagem",
-      "role": "instruction",
-      "size": "S",
-      "tokens_avg": 260,
-      "gate": {
-        "signal": "open",
-        "min_open": 1
-      },
-      "excludes": [],
-      "depends_on": [],
-      "reward_key": "clarity_engagement",
-      "path_hint": "modulos_core/LINGUAGEM_NATURAL_mini.txt",
-      "enabled": true
-    },
-    {
-      "id": "LINGUAGEM_NATURAL_rules.txt",
-      "family": "linguagem",
-      "role": "instruction",
-      "size": "M",
-      "tokens_avg": 410,
-      "gate": {
-        "signal": "open",
-        "min_open": 2
-      },
-      "excludes": [],
-      "depends_on": [],
-      "reward_key": "clarity_engagement",
-      "path_hint": "modulos_core/LINGUAGEM_NATURAL_rules.txt",
-      "enabled": true
-    },
-    {
-      "id": "LINGUAGEM_NATURAL_guided.txt",
-      "family": "linguagem",
-      "role": "instruction",
-      "size": "M",
-      "tokens_avg": 320,
-      "gate": {
-        "signal": "open",
-        "min_open": 1
-      },
-      "excludes": [],
-      "depends_on": [
-        "IDENTIDADE"
+      "id": "estrutura_resposta",
+      "path": "eco/estrutura/estrutura_resposta.txt",
+      "role": "system",
+      "categoria": "estrutura",
+      "nivelMin": 1,
+      "nivelMax": 3,
+      "ativaSe": {},
+      "excluiSe": [
+        "estrutura_alternativa"
       ],
-      "reward_key": "clarity_engagement",
-      "path_hint": "modulos_core/LINGUAGEM_NATURAL_guided.txt",
-      "enabled": true
+      "peso": 1.0,
+      "ordenacao": 20,
+      "conteudo": "Responder sempre em dois blocos nomeados.\n— Verdade: identificar padrões emocionais ou cognitivos com linguagem hipotética.\n— Ordem: organizar fatos essenciais, intenção clara e próximo passo de 30-90 segundos quando houver ação.\nEncerrar com no máximo uma pergunta opcional que destrave clareza."
     },
     {
-      "id": "LINGUAGEM_NATURAL_micro.txt",
-      "family": "linguagem",
-      "role": "instruction",
-      "size": "S",
-      "tokens_avg": 190,
-      "gate": {
-        "signal": "open",
-        "min_open": 1
-      },
-      "excludes": [],
-      "depends_on": [
-        "IDENTIDADE"
+      "id": "politica_perguntas",
+      "path": "eco/politicas/politica_perguntas.txt",
+      "role": "policy",
+      "categoria": "estrutura",
+      "nivelMin": 1,
+      "nivelMax": 3,
+      "ativaSe": {},
+      "excluiSe": [
+        "multi_perguntas"
       ],
-      "reward_key": "clarity_engagement",
-      "path_hint": "modulos_core/LINGUAGEM_NATURAL_micro.txt",
-      "enabled": true
+      "peso": 0.8,
+      "ordenacao": 30,
+      "conteudo": "Somente uma pergunta por resposta e apenas quando abrir clareza concreta.\nEvitar perguntas genéricas ou retóricas.\nPerguntar apenas após entregar os blocos de Verdade e Ordem."
     },
     {
-      "id": "LINGUAGEM_NATURAL_rules_v2.txt",
-      "family": "linguagem",
-      "role": "instruction",
-      "size": "M",
-      "tokens_avg": 300,
-      "gate": {
-        "signal": "open",
-        "min_open": 1
-      },
-      "excludes": [],
-      "depends_on": [
-        "IDENTIDADE"
-      ],
-      "reward_key": "clarity_engagement",
-      "path_hint": "modulos_core/LINGUAGEM_NATURAL_rules_v2.txt",
-      "enabled": true
+      "id": "politica_memoria",
+      "path": "eco/politicas/politica_memoria.txt",
+      "role": "policy",
+      "categoria": "memoria",
+      "nivelMin": 1,
+      "nivelMax": 3,
+      "ativaSe": {},
+      "excluiSe": [],
+      "peso": 0.7,
+      "ordenacao": 40,
+      "conteudo": "Registrar memória apenas quando intensidade for maior ou igual a 7, ou quando houver verdade emocional explícita, decisão assumida ou padrão recorrente.\nUsar as mesmas palavras apresentadas pela pessoa.\nManter continuidade sem forçar lembranças."
     },
     {
-      "id": "ENCERRAMENTO_SENSIVEL.txt",
-      "family": "encerramento",
-      "role": "instruction",
-      "size": "M",
-      "tokens_avg": 280,
-      "gate": {
-        "signal": "open",
-        "min_open": 1
-      },
-      "excludes": [],
-      "depends_on": [],
-      "reward_key": "dialogue_continuation",
-      "path_hint": "modulos_core/ENCERRAMENTO_SENSIVEL.txt",
-      "enabled": true
+      "id": "tom_modo",
+      "path": "eco/identidade/tom_modo.txt",
+      "role": "system",
+      "categoria": "identidade",
+      "nivelMin": 1,
+      "nivelMax": 3,
+      "ativaSe": {},
+      "excluiSe": [],
+      "peso": 0.85,
+      "ordenacao": 50,
+      "conteudo": "Português brasileiro com frases curtas e respiração calma.\nPostura gentil, curiosa e horizontal.\nEvitar clichês terapêuticos, elogios vazios, promessas ou diagnósticos.\nManter foco no espelhamento e na organização prática."
     },
     {
-      "id": "ENCERRAMENTO_SENSIVEL_full.txt",
-      "family": "encerramento",
-      "role": "instruction",
-      "size": "L",
-      "tokens_avg": 360,
-      "gate": {
-        "signal": "open",
-        "min_open": 2
+      "id": "limites_clinicos",
+      "path": "eco/politicas/limites_clinicos.txt",
+      "role": "policy",
+      "categoria": "clinico_limite",
+      "nivelMin": 1,
+      "nivelMax": 3,
+      "ativaSe": {
+        "crise": true
       },
-      "excludes": [],
-      "depends_on": [],
-      "reward_key": "dialogue_continuation",
-      "path_hint": "modulos_core/ENCERRAMENTO_SENSIVEL_full.txt",
-      "enabled": true
+      "excluiSe": [],
+      "peso": 0.75,
+      "ordenacao": 60,
+      "conteudo": "Ao notar fronteiras clínicas ou risco, reconhecer o limite com cuidado.\nSugerir buscar apoio profissional qualificado, sem prescrever soluções específicas.\nManter postura respeitosa e estável."
     },
     {
-      "id": "ENCERRAMENTO_SENSIVEL_mini.txt",
-      "family": "encerramento",
-      "role": "instruction",
-      "size": "S",
-      "tokens_avg": 160,
-      "gate": {
-        "signal": "open",
-        "min_open": 1
+      "id": "heuristicas",
+      "path": "eco/heuristicas/dialogo_socratico.txt",
+      "role": "system",
+      "categoria": "heuristica",
+      "nivelMin": 2,
+      "nivelMax": 3,
+      "ativaSe": {
+        "qualquer": [
+          {
+            "vulnerabilidade": true
+          },
+          {
+            "intensidadeMin": 5
+          }
+        ]
       },
-      "excludes": [],
-      "depends_on": [],
-      "reward_key": "dialogue_continuation",
-      "path_hint": "modulos_core/ENCERRAMENTO_SENSIVEL_mini.txt",
-      "enabled": true
+      "excluiSe": [],
+      "peso": 0.6,
+      "ordenacao": 70,
+      "conteudo": "Aplicar diálogo socrático com curiosidade focada.\nUsar hipóteses ao refletir padrões, evitando certezas rígidas.\nConvidar a pessoa a examinar significados e escolhas sem moralizar."
     },
     {
-      "id": "ENCERRAMENTO_SENSIVEL_rules.txt",
-      "family": "encerramento",
-      "role": "instruction",
-      "size": "M",
-      "tokens_avg": 300,
-      "gate": {
-        "signal": "open",
-        "min_open": 2
+      "id": "mod_estoico",
+      "path": "eco/heuristicas/modo_estoico.txt",
+      "role": "system",
+      "categoria": "estoico",
+      "nivelMin": 2,
+      "nivelMax": 3,
+      "ativaSe": {
+        "qualquer": [
+          {
+            "vulnerabilidade": true
+          },
+          {
+            "intensidadeMin": 5
+          }
+        ]
       },
-      "excludes": [],
-      "depends_on": [],
-      "reward_key": "dialogue_continuation",
-      "path_hint": "modulos_core/ENCERRAMENTO_SENSIVEL_rules.txt",
-      "enabled": true
-    },
-    {
-      "id": "ENCERRAMENTO_mini_acao.txt",
-      "family": "encerramento",
-      "role": "instruction",
-      "size": "S",
-      "tokens_avg": 170,
-      "gate": {
-        "signal": "open",
-        "min_open": 1
-      },
-      "excludes": [],
-      "depends_on": [
-        "IDENTIDADE"
-      ],
-      "reward_key": "dialogue_continuation",
-      "path_hint": "modulos_core/ENCERRAMENTO_mini_acao.txt",
-      "enabled": true
-    },
-    {
-      "id": "ENCERRAMENTO_soft_prompt.txt",
-      "family": "encerramento",
-      "role": "instruction",
-      "size": "S",
-      "tokens_avg": 180,
-      "gate": {
-        "signal": "open",
-        "min_open": 1
-      },
-      "excludes": [],
-      "depends_on": [
-        "IDENTIDADE"
-      ],
-      "reward_key": "dialogue_continuation",
-      "path_hint": "modulos_core/ENCERRAMENTO_soft_prompt.txt",
-      "enabled": true
-    },
-    {
-      "id": "MODULACAO_TOM_REGISTRO.txt",
-      "family": "modulacao",
-      "role": "instruction",
-      "size": "M",
-      "tokens_avg": 260,
-      "gate": {
-        "signal": "open",
-        "min_open": 1
-      },
-      "excludes": [],
-      "depends_on": [],
-      "reward_key": "like_bias",
-      "path_hint": "modulos_core/MODULACAO_TOM_REGISTRO.txt",
-      "enabled": true
-    },
-    {
-      "id": "MODULACAO_TOM_REGISTRO_full.txt",
-      "family": "modulacao",
-      "role": "instruction",
-      "size": "L",
-      "tokens_avg": 330,
-      "gate": {
-        "signal": "open",
-        "min_open": 2
-      },
-      "excludes": [],
-      "depends_on": [],
-      "reward_key": "like_bias",
-      "path_hint": "modulos_core/MODULACAO_TOM_REGISTRO_full.txt",
-      "enabled": true
-    },
-    {
-      "id": "MODULACAO_TOM_REGISTRO_mini.txt",
-      "family": "modulacao",
-      "role": "instruction",
-      "size": "S",
-      "tokens_avg": 190,
-      "gate": {
-        "signal": "open",
-        "min_open": 1
-      },
-      "excludes": [],
-      "depends_on": [],
-      "reward_key": "like_bias",
-      "path_hint": "modulos_core/MODULACAO_TOM_REGISTRO_mini.txt",
-      "enabled": true
-    },
-    {
-      "id": "MODULACAO_TOM_REGISTRO_rules.txt",
-      "family": "modulacao",
-      "role": "instruction",
-      "size": "M",
-      "tokens_avg": 270,
-      "gate": {
-        "signal": "open",
-        "min_open": 2
-      },
-      "excludes": [],
-      "depends_on": [],
-      "reward_key": "like_bias",
-      "path_hint": "modulos_core/MODULACAO_TOM_REGISTRO_rules.txt",
-      "enabled": true
-    },
-    {
-      "id": "MODULACAO_calma_objetiva.txt",
-      "family": "modulacao",
-      "role": "instruction",
-      "size": "M",
-      "tokens_avg": 250,
-      "gate": {
-        "signal": "open",
-        "min_open": 1
-      },
-      "excludes": [],
-      "depends_on": [
-        "IDENTIDADE"
-      ],
-      "reward_key": "like_bias",
-      "path_hint": "modulos_core/MODULACAO_calma_objetiva.txt",
-      "enabled": true
-    },
-    {
-      "id": "MODULACAO_direta_brief.txt",
-      "family": "modulacao",
-      "role": "instruction",
-      "size": "S",
-      "tokens_avg": 190,
-      "gate": {
-        "signal": "open",
-        "min_open": 1
-      },
-      "excludes": [],
-      "depends_on": [
-        "IDENTIDADE"
-      ],
-      "reward_key": "like_bias",
-      "path_hint": "modulos_core/MODULACAO_direta_brief.txt",
-      "enabled": true
-    },
-    {
-      "id": "eco_estrutura_de_resposta.txt",
-      "family": "estrutura_resposta",
-      "role": "instruction",
-      "size": "M",
-      "tokens_avg": 340,
-      "gate": {
-        "signal": "open",
-        "min_open": 1
-      },
-      "excludes": [],
-      "depends_on": [],
-      "reward_key": "clarity_engagement",
-      "path_hint": "modulos_core/eco_estrutura_de_resposta.txt",
-      "enabled": true
-    },
-    {
-      "id": "ECO_ESTRUTURA_min.txt",
-      "family": "estrutura_resposta",
-      "role": "instruction",
-      "size": "S",
-      "tokens_avg": 200,
-      "gate": {
-        "signal": "open",
-        "min_open": 1
-      },
-      "excludes": [],
-      "depends_on": [],
-      "reward_key": "clarity_engagement",
-      "path_hint": "modulos_core/ECO_ESTRUTURA_min.txt",
-      "enabled": true
-    },
-    {
-      "id": "ECO_ESTRUTURA_com_exemplos.txt",
-      "family": "estrutura_resposta",
-      "role": "instruction",
-      "size": "M",
-      "tokens_avg": 310,
-      "gate": {
-        "signal": "open",
-        "min_open": 1
-      },
-      "excludes": [],
-      "depends_on": [
-        "IDENTIDADE"
-      ],
-      "reward_key": "clarity_engagement",
-      "path_hint": "modulos_core/ECO_ESTRUTURA_com_exemplos.txt",
-      "enabled": true
-    },
-    {
-      "id": "ECO_ESTRUTURA_ultra_min.txt",
-      "family": "estrutura_resposta",
-      "role": "instruction",
-      "size": "S",
-      "tokens_avg": 180,
-      "gate": {
-        "signal": "open",
-        "min_open": 1
-      },
-      "excludes": [],
-      "depends_on": [
-        "IDENTIDADE"
-      ],
-      "reward_key": "clarity_engagement",
-      "path_hint": "modulos_core/ECO_ESTRUTURA_ultra_min.txt",
-      "enabled": true
-    },
-    {
-      "id": "eco_vulnerabilidade_defesas.txt",
-      "family": "vulnerabilidade",
-      "role": "context",
-      "size": "M",
-      "tokens_avg": 220,
-      "gate": {
-        "signal": "vulnerability",
-        "min_open": 2
-      },
-      "excludes": [],
-      "depends_on": [],
-      "reward_key": "emotional_engagement",
-      "path_hint": "modulos_emocionais/eco_vulnerabilidade_defesas.txt",
-      "enabled": true
-    },
-    {
-      "id": "eco_vulnerabilidade_mitos.txt",
-      "family": "vulnerabilidade",
-      "role": "context",
-      "size": "M",
-      "tokens_avg": 210,
-      "gate": {
-        "signal": "vulnerability",
-        "min_open": 2
-      },
-      "excludes": [],
-      "depends_on": [],
-      "reward_key": "emotional_engagement",
-      "path_hint": "modulos_emocionais/eco_vulnerabilidade_mitos.txt",
-      "enabled": true
-    },
-    {
-      "id": "eco_emo_vergonha_combate.txt",
-      "family": "vulnerabilidade",
-      "role": "context",
-      "size": "S",
-      "tokens_avg": 180,
-      "gate": {
-        "signal": "vulnerability",
-        "min_open": 2
-      },
-      "excludes": [],
-      "depends_on": [],
-      "reward_key": "emotional_engagement",
-      "path_hint": "modulos_emocionais/eco_emo_vergonha_combate.txt",
-      "enabled": true
-    },
-    {
-      "id": "eco_vulnerabilidade_micro_presenca.txt",
-      "family": "vulnerabilidade",
-      "role": "context",
-      "size": "S",
-      "tokens_avg": 180,
-      "gate": {
-        "signal": "vulnerability",
-        "min_open": 2
-      },
-      "excludes": [],
-      "depends_on": [
-        "IDENTIDADE"
-      ],
-      "reward_key": "emotional_engagement",
-      "path_hint": "modulos_emocionais/eco_vulnerabilidade_micro_presenca.txt",
-      "enabled": true
-    },
-    {
-      "id": "eco_vulnerabilidade_micro_reframe.txt",
-      "family": "vulnerabilidade",
-      "role": "context",
-      "size": "S",
-      "tokens_avg": 180,
-      "gate": {
-        "signal": "vulnerability",
-        "min_open": 2
-      },
-      "excludes": [],
-      "depends_on": [
-        "IDENTIDADE"
-      ],
-      "reward_key": "emotional_engagement",
-      "path_hint": "modulos_emocionais/eco_vulnerabilidade_micro_reframe.txt",
-      "enabled": true
-    },
-    {
-      "id": "eco_heuristica_ancoragem.txt",
-      "family": "heuristica",
-      "role": "context",
-      "size": "S",
-      "tokens_avg": 180,
-      "gate": {
-        "signal": "bias:ancoragem",
-        "min_open": 1
-      },
-      "excludes": [],
-      "depends_on": [],
-      "reward_key": "clarity_engagement",
-      "path_hint": "modulos_cognitivos/eco_heuristica_ancoragem.txt",
-      "enabled": true
-    },
-    {
-      "id": "eco_heuristica_causas_superam_estatisticas.txt",
-      "family": "heuristica",
-      "role": "context",
-      "size": "S",
-      "tokens_avg": 180,
-      "gate": {
-        "signal": "bias:causas_superam_estatisticas",
-        "min_open": 1
-      },
-      "excludes": [],
-      "depends_on": [],
-      "reward_key": "clarity_engagement",
-      "path_hint": "modulos_cognitivos/eco_heuristica_causas_superam_estatisticas.txt",
-      "enabled": true
-    },
-    {
-      "id": "eco_heuristica_certeza_emocional.txt",
-      "family": "heuristica",
-      "role": "context",
-      "size": "S",
-      "tokens_avg": 180,
-      "gate": {
-        "signal": "bias:certeza_emocional",
-        "min_open": 1
-      },
-      "excludes": [],
-      "depends_on": [],
-      "reward_key": "clarity_engagement",
-      "path_hint": "modulos_cognitivos/eco_heuristica_certeza_emocional.txt",
-      "enabled": true
-    },
-    {
-      "id": "eco_heuristica_disponibilidade.txt",
-      "family": "heuristica",
-      "role": "context",
-      "size": "S",
-      "tokens_avg": 180,
-      "gate": {
-        "signal": "bias:disponibilidade",
-        "min_open": 1
-      },
-      "excludes": [],
-      "depends_on": [],
-      "reward_key": "clarity_engagement",
-      "path_hint": "modulos_cognitivos/eco_heuristica_disponibilidade.txt",
-      "enabled": true
-    },
-    {
-      "id": "eco_heuristica_excesso_confianca.txt",
-      "family": "heuristica",
-      "role": "context",
-      "size": "S",
-      "tokens_avg": 180,
-      "gate": {
-        "signal": "bias:excesso_confianca",
-        "min_open": 1
-      },
-      "excludes": [],
-      "depends_on": [],
-      "reward_key": "clarity_engagement",
-      "path_hint": "modulos_cognitivos/eco_heuristica_excesso_confianca.txt",
-      "enabled": true
-    },
-    {
-      "id": "eco_heuristica_ilusao_compreensao_passado.txt",
-      "family": "heuristica",
-      "role": "context",
-      "size": "S",
-      "tokens_avg": 180,
-      "gate": {
-        "signal": "bias:ilusao_compreensao",
-        "min_open": 1
-      },
-      "excludes": [],
-      "depends_on": [],
-      "reward_key": "clarity_engagement",
-      "path_hint": "modulos_cognitivos/eco_heuristica_ilusao_compreensao_passado.txt",
-      "enabled": true
-    },
-    {
-      "id": "eco_heuristica_ilusao_validade.txt",
-      "family": "heuristica",
-      "role": "context",
-      "size": "S",
-      "tokens_avg": 180,
-      "gate": {
-        "signal": "bias:ilusao_validade",
-        "min_open": 1
-      },
-      "excludes": [],
-      "depends_on": [],
-      "reward_key": "clarity_engagement",
-      "path_hint": "modulos_cognitivos/eco_heuristica_ilusao_validade.txt",
-      "enabled": true
-    },
-    {
-      "id": "eco_heuristica_intuicao_especialista.txt",
-      "family": "heuristica",
-      "role": "context",
-      "size": "S",
-      "tokens_avg": 180,
-      "gate": {
-        "signal": "bias:intuicao_especialista",
-        "min_open": 1
-      },
-      "excludes": [],
-      "depends_on": [],
-      "reward_key": "clarity_engagement",
-      "path_hint": "modulos_cognitivos/eco_heuristica_intuicao_especialista.txt",
-      "enabled": true
-    },
-    {
-      "id": "eco_heuristica_regressao_media.txt",
-      "family": "heuristica",
-      "role": "context",
-      "size": "S",
-      "tokens_avg": 180,
-      "gate": {
-        "signal": "bias:regressao_media",
-        "min_open": 1
-      },
-      "excludes": [],
-      "depends_on": [],
-      "reward_key": "clarity_engagement",
-      "path_hint": "modulos_cognitivos/eco_heuristica_regressao_media.txt",
-      "enabled": true
+      "excluiSe": [],
+      "peso": 0.55,
+      "ordenacao": 80,
+      "conteudo": "Oferecer perspectivas estoicas de forma prática e enxuta.\nConectar foco ao que está sob controle e ao preparo para incertezas.\nEvitar tom moralista ou determinista."
     }
-  ]
+  ],
+  "niveis": {
+    "1": {
+      "nome": "Superficie",
+      "descricao": "Primeiro contato com foco em acolhimento enxuto.",
+      "maxModulos": 6,
+      "modulos": [
+        "identidade_core",
+        "estrutura_resposta",
+        "politica_perguntas",
+        "politica_memoria",
+        "tom_modo",
+        "limites_clinicos"
+      ]
+    },
+    "2": {
+      "nome": "Reflexao",
+      "descricao": "Aprofunda a escuta quando há vulnerabilidade ou intensidade moderada.",
+      "maxModulos": 8,
+      "modulos": [
+        "identidade_core",
+        "estrutura_resposta",
+        "politica_perguntas",
+        "politica_memoria",
+        "tom_modo",
+        "limites_clinicos",
+        "heuristicas",
+        "mod_estoico"
+      ]
+    },
+    "3": {
+      "nome": "Profundidade",
+      "descricao": "Prioriza espelhamento preciso e organização prática sem prolixidade.",
+      "maxModulos": 7,
+      "modulos": [
+        "identidade_core",
+        "estrutura_resposta",
+        "politica_perguntas",
+        "politica_memoria",
+        "tom_modo",
+        "heuristicas",
+        "mod_estoico",
+        "limites_clinicos"
+      ]
+    }
+  }
 }

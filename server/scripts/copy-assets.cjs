@@ -67,6 +67,23 @@ async function main() {
 
   try {
     await copyRecursive(sourceDir, targetDir);
+    const manifestName = "modules.manifest.json";
+    const manifestSource = path.join(sourceDir, manifestName);
+    const manifestTarget = path.join(targetDir, manifestName);
+    const manifestExists = await fs.pathExists(manifestSource);
+    if (!manifestExists) {
+      console.warn("[copy-assets] manifest_missing_source", { manifest: manifestSource });
+    } else {
+      const manifestCopied = await fs.pathExists(manifestTarget);
+      if (!manifestCopied) {
+        console.error("[copy-assets] manifest_copy_failed", {
+          source: manifestSource,
+          target: manifestTarget,
+        });
+        process.exitCode = 1;
+        return;
+      }
+    }
     const filesCopied = await countFiles(targetDir);
     console.info("[copy-assets] completed", {
       sourceDir,
