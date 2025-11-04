@@ -1,5 +1,6 @@
 {
   "scripts": {
+    "clean": "rm -rf dist server/dist node_modules",
     "build": "tsc --noEmit -p tsconfig.json",
     "test": "jest --config jest.contract.config.ts --passWithNoTests",
     "test:contract": "jest --config server/jest.contract.config.ts",

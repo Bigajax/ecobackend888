@@ -11,3 +11,20 @@ server/dist/
 
 # Ignora virtualenv (caso use Python em algum script)
 venv/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Editor directories and files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
