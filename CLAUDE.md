@@ -494,6 +494,383 @@ server/
 4. **Health Monitoring**: Uptime checks configured
 5. **Log Aggregation**: Centralized logging setup
 
+## Frontend Architecture
+
+### Application Entry & Bootstrap
+
+#### Main Entry Point
+```typescript
+// src/main.tsx
+1. Install instrumented AbortController for debugging
+2. Initialize guest/session IDs
+3. Activate Facebook Pixel
+4. Render App in StrictMode with RootProviders
+```
+
+The bootstrap sequence ensures identity is established before any API calls, with telemetry initialized for tracking user journeys from the first interaction.
+
+#### App Structure
+```typescript
+// src/App.tsx routing structure
+<AppChrome>                  // Health checks & banners
+  <Routes>
+    <Route path="/app/*">    // Protected routes
+      <MainLayout>
+        <ChatPage />         // Primary experience
+        <VoicePage />        // Audio interface
+        <MemoryRoutes />     // Memory management
+      </MainLayout>
+    </Route>
+    <Route path="/*">        // Public routes
+  </Routes>
+</AppChrome>
+```
+
+### Frontend Organization
+
+```
+src/
+├── pages/              # Route-level components
+│   ├── ChatPage.tsx    # Main chat interface
+│   ├── VoicePage.tsx   # Voice interaction
+│   └── memory/         # Memory & profile pages
+├── components/         # Reusable UI components
+│   ├── ChatInput.tsx   # Message composition
+│   ├── ChatMessage.tsx # Message rendering
+│   └── AudioPlayer/    # Audio components
+├── contexts/           # Global state management
+│   ├── AuthContext.tsx # Supabase auth
+│   └── ChatContext.tsx # Message persistence
+├── hooks/              # Custom React hooks
+│   ├── useEcoStream/   # SSE orchestration
+│   ├── useEcoActivity  # Activity tracking
+│   └── useFeedback     # Feedback prompts
+├── api/                # API client layer
+│   ├── ecoApi.ts       # Main chat endpoint
+│   ├── memoriaApi.ts   # Memory CRUD
+│   └── voiceApi.ts     # Voice services
+└── utils/              # Helper functions
+```
+
+### Provider Architecture
+
+```typescript
+// src/providers/RootProviders.tsx
+<AuthProvider>           // Supabase authentication
+  <ChatProvider>         // Message state & persistence
+    {children}           // App routes
+  </ChatProvider>
+</AuthProvider>
+```
+
+The provider hierarchy ensures authentication state is available before chat initialization, with automatic cleanup on auth changes.
+
+## Frontend API Clients
+
+### Main Chat Client (`ecoApi`)
+- **Endpoint**: `POST /api/ask-eco` (SSE or JSON fallback)
+- **Identity Headers**: `x-eco-guest-id`, `x-eco-session-id`, `x-eco-client-message-id`
+- **Error Handling**: Custom `EcoApiError` with user-friendly messages
+- **Retry Logic**: Conditional retry on network errors with health ping
+
+### Memory API (`memoriaApi`)
+- **Operations**: CRUD + semantic search
+- **Normalization**: Converts various payload formats to consistent `Memoria` type
+- **Error Recovery**: Differentiates network vs HTTP errors for fallback
+
+### Voice Services (`voiceApi`)
+- **TTS Endpoint**: `POST /api/voice/tts` - Text to audio conversion
+- **Transcribe Flow**: WebM upload → AssemblyAI → ElevenLabs → ECO response
+- **Bias Hints**: Contextual voice personalization based on conversation
+
+### Profile API (`perfilApi`)
+- **Caching**: 60-second TTL in-memory cache
+- **Flexible Parsing**: Handles various response formats
+- **Timeout**: Configurable with 12s default
+
+## Stream Orchestration System
+
+### Core Components
+
+#### 1. useEcoStream Hook
+```typescript
+// Primary interface for components
+{
+  handleSendMessage,  // Send user message
+  pending,           // Request in flight
+  streaming,         // SSE active
+  digitando,         // ECO typing indicator
+  erroApi           // Error state
+}
+```
+
+#### 2. StreamOrchestrator
+Central engine managing:
+- URL resolution with security checks
+- StreamSession lifecycle
+- SSE event processing
+- Fallback coordination
+- Metadata injection
+
+#### 3. StreamSession
+Encapsulates connection state:
+- Abort controller management
+- Duplicate prevention by clientMessageId
+- Watchdog timers (first token, heartbeat)
+- Reference tracking for cleanup
+
+#### 4. ChunkProcessor
+SSE event interpreter:
+- Normalizes event types (`chunk`, `control`, `done`)
+- Extracts text and indices
+- Delegates to appropriate handlers
+
+### SSE Event Contract
+
+| Event | Purpose | Handler | UI Impact |
+|-------|---------|---------|-----------|
+| `prompt_ready` | Stream initialized | `handlePromptReady` | Show typing indicator |
+| `chunk` | Text fragment | `appendAssistantDelta` | Render incremental text |
+| `control` | Metadata/commands | `handleControl` | Update telemetry/state |
+| `done` | Stream complete | `handleStreamDone` | Enable new messages |
+| `error` | Error condition | Error handler | Show error, enable retry |
+
+### Fallback Strategy
+
+```mermaid
+flowchart LR
+    A[Start Stream] --> B{First Chunk?}
+    B -->|Timeout| C[JSON Fallback]
+    B -->|Received| D[Continue SSE]
+    C --> E[Display Response]
+    D --> F{More Chunks?}
+    F -->|Yes| D
+    F -->|No| E
+```
+
+## UI/UX Design System
+
+### Design Principles
+
+#### Glassmorphism Architecture
+- **Background**: Radial gradients with translucent overlays
+- **Blend Modes**: `mix-blend-mode: screen` for light diffusion
+- **Blur Effects**: `backdrop-blur-md` on interactive elements
+- **Apple-inspired**: Clean, minimal, with subtle depth
+
+#### Color System
+```css
+:root {
+  --eco-blue: #007AFF;
+  --color-glass-tint: rgba(255, 255, 255, 0.7);
+  --bubble-user: #007AFF;
+  --bubble-assistant: white;
+}
+```
+
+#### Typography
+- **Primary**: SF Pro, system fonts fallback
+- **Body Size**: 15px for optimal readability
+- **Letter Spacing**: Subtle adjustments for refinement
+- **Markdown Support**: Styled `.markdown-body` for formatted content
+
+### Component Styling
+
+#### Chat Interface
+- **Input Field**: Glass border with blue focus ring
+- **Message Bubbles**: Rounded corners with subtle shadows
+- **Typing Indicator**: Animated dots with `aria-live`
+- **Feedback States**: Color-coded finish reasons
+
+#### Voice Experience
+- **Triple Gradients**: Layered backgrounds for depth
+- **Circular Controls**: Glass buttons with icon states
+- **Visual Feedback**: State-based bubble animations
+- **Icon Library**: Lucide React for consistent thin strokes
+
+### Accessibility Features
+
+```css
+/* High Contrast Mode */
+@media (prefers-contrast: high) {
+  /* Replace glass with solid surfaces */
+}
+
+/* Reduced Motion */
+@media (prefers-reduced-motion) {
+  /* Minimize animations */
+}
+
+/* Transparency Settings */
+@media (prefers-reduced-transparency) {
+  /* Opaque backgrounds */
+}
+```
+
+## Environment Configuration
+
+### Core Variables
+
+| Variable | Purpose | Default/Fallback |
+|----------|---------|------------------|
+| `VITE_APP_URL` | OAuth redirect base | `window.location.origin` |
+| `VITE_SUPABASE_URL/KEY` | Database connection | Required |
+| `VITE_API_URL` | Backend endpoint | Current host |
+| `VITE_MIXPANEL_TOKEN` | Analytics | Optional |
+| `VITE_FB_PIXEL_ID` | Marketing tracking | Optional |
+
+### Stream Configuration
+
+| Variable | Purpose | Default |
+|----------|---------|---------|
+| `VITE_ECO_STREAM_GUARD_TIMEOUT_MS` | SSE fallback timer | 15000ms |
+| `VITE_ENABLE_PASSIVE_SIGNALS` | Telemetry toggle | true |
+| `VITE_ENABLE_MODULE_USAGE` | Module metrics | true |
+
+## Data Flow & State Management
+
+### Message Persistence
+
+```mermaid
+flowchart TB
+    A[User Types] --> B[ChatInput]
+    B --> C[useEcoStream]
+    C --> D[StreamOrchestrator]
+    D --> E[Backend API]
+    E --> F[SSE Response]
+    F --> G[ChunkProcessor]
+    G --> H[ChatContext]
+    H --> I[LocalStorage]
+    H --> J[UI Update]
+```
+
+### Context Synchronization
+
+1. **ChatContext** maintains messages per authenticated user
+2. **LocalStorage** provides persistence across sessions
+3. **Index Maps** (`byId`, `interaction`) enable efficient updates
+4. **Incremental Updates** during streaming prevent full re-renders
+
+### Identity Management
+
+```typescript
+// Identity flow
+1. Generate guest_id (UUID v4)
+2. Create session_id
+3. Include in all API requests
+4. Persist across page reloads
+5. Clear on authentication change
+```
+
+## Performance Optimizations (Frontend)
+
+### Code Splitting
+- Lazy loading for routes
+- Dynamic imports for heavy components
+- Chunk optimization via Vite
+
+### Caching Strategies
+- Profile API: 60s in-memory cache
+- API responses: Conditional caching
+- Static assets: Long-term browser cache
+
+### Stream Optimizations
+- Debounced typing indicators
+- Throttled chunk processing
+- Efficient DOM updates via React keys
+- Virtual scrolling for long conversations
+
+## Security Considerations
+
+### Frontend Security
+- **HTTPS Enforcement**: Blocks insecure API connections
+- **CORS Validation**: Strict origin checking
+- **XSS Prevention**: Input sanitization
+- **CSP Headers**: Content Security Policy
+
+### Authentication Flow
+```mermaid
+sequenceDiagram
+    participant User
+    participant Frontend
+    participant Supabase
+    participant Backend
+
+    User->>Frontend: Login request
+    Frontend->>Supabase: OAuth redirect
+    Supabase-->>Frontend: JWT token
+    Frontend->>Backend: API call + JWT
+    Backend->>Supabase: Validate JWT
+    Backend-->>Frontend: Authorized response
+```
+
+## Monitoring & Analytics
+
+### Frontend Telemetry
+
+#### Mixpanel Events
+- User interactions: `message_sent`, `voice_played`
+- Performance: `stream_latency`, `first_paint`
+- Errors: `api_error`, `stream_timeout`
+- Navigation: `page_view`, `route_change`
+
+#### Facebook Pixel
+- Conversion tracking
+- Retargeting audiences
+- Custom events for engagement
+
+### Error Tracking
+```typescript
+// Error boundary hierarchy
+<ErrorBoundary>          // App-level
+  <RouteErrorBoundary>   // Route-level
+    <ComponentBoundary>  // Component-level
+```
+
+## Development Workflow
+
+### Local Development
+```bash
+# Frontend
+npm install
+npm run dev              # Vite dev server
+
+# Backend
+npm install
+npm run dev              # Node.js with nodemon
+
+# Database
+supabase start          # Local Supabase
+```
+
+### Testing Approach
+- **Unit Tests**: Vitest for utilities
+- **Component Tests**: React Testing Library
+- **E2E Tests**: Playwright for critical paths
+- **Visual Regression**: Chromatic/Percy
+
+### Deployment Pipeline
+1. **Build**: Vite production build
+2. **Optimize**: Asset compression, tree shaking
+3. **Deploy**: CDN for static assets
+4. **Monitor**: Real User Monitoring (RUM)
+
 ## Conclusion
 
-The ECO backend represents a sophisticated emotional AI system that combines real-time streaming, semantic memory, and adaptive context generation. Its layered architecture ensures scalability, maintainability, and user privacy while delivering emotionally intelligent responses. The system's ability to persist and retrieve contextually relevant memories, combined with its dynamic prompt assembly, creates a uniquely personalized conversational experience that deepens over time.
+The ECO system represents a sophisticated full-stack emotional AI platform that seamlessly integrates:
+
+**Backend Excellence**:
+- Adaptive emotional intelligence with 3-tier openness levels
+- Persistent semantic memory with vector search
+- Real-time SSE streaming with resilient fallbacks
+- Modular prompt assembly with dynamic context
+
+**Frontend Innovation**:
+- Glassmorphic UI with accessibility-first design
+- Robust stream orchestration with automatic recovery
+- Efficient state management with local persistence
+- Comprehensive telemetry and error tracking
+
+The architecture's strength lies in its careful balance of technical sophistication and user experience, creating an emotionally aware AI assistant that learns and adapts while maintaining performance, security, and privacy. The system's modular design enables continuous improvement while its robust error handling ensures reliability even under adverse conditions.
+
+This bidirectional streaming architecture, combined with intelligent caching and fallback mechanisms, delivers a responsive, personalized experience that deepens with each interaction, making ECO a truly unique conversational AI platform.
