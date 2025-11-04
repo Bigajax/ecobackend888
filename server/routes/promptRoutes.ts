@@ -61,6 +61,24 @@ import { extractStringCandidate } from "../utils/requestIdentity";
 const GUARD_FALLBACK_TEXT = "Não consegui responder agora. Vamos tentar de novo?";
 const INVALID_INPUT_MESSAGE = "Entrada inválida. Escreva uma mensagem para o Eco.";
 
+// === Benign finish reasons (não devem ser tratados como erros) ===
+const BENIGN_FINISH_REASONS = new Set([
+  "stop",
+  "end",
+  "completed",
+  "greeting",
+  "shortcut",
+  "filtered",
+  "stream_done",
+  "fallback_no_stream",
+]);
+
+function isBenignFinishReason(reason: string | null | undefined): boolean {
+  if (!reason) return false;
+  const normalized = reason.trim().toLowerCase();
+  return BENIGN_FINISH_REASONS.has(normalized);
+}
+
 // === Tipos utilitários ===
 
 type DonePayload = {
@@ -1548,35 +1566,65 @@ async function handleAskEcoRequest(req: Request, res: Response, _next: NextFunct
 
       if (!state.done) {
   if (!state.sawChunk) {
-    // Tenta extrair texto do resultado
+    // Extrair texto final e finishReason do resultado
     const textOut = sanitizeOutput(extractTextLoose(result) ?? "");
-    
+    const resultMeta = (result as any)?.meta;
+    const finishReasonFromResult =
+      (resultMeta as any)?.finishReason ??
+      (result as any)?.finishReason ??
+      state.finishReason ??
+      "done";
+
+    const finalTextLen = textOut.length;
+    const isBenign = isBenignFinishReason(finishReasonFromResult);
+
+    // Telemetria: registrar finishReason, finalTextLen, sawChunk
+    enqueuePassiveSignal("no_chunks_emitted_handling", 1, {
+      finishReason: finishReasonFromResult,
+      finalTextLen,
+      sawChunk: false,
+      isBenign,
+    });
+
     if (textOut) {
-      // ✅ Tem texto: envia como chunk
+      // ✅ Tem finalText: envia como chunk (não é erro)
       sendChunk({ text: textOut });
-      sendDone("fallback_no_stream");
-    } else {
-      // ✅ SEM texto: envia chunk de erro/fallback antes do done
-      log.error("[ask-eco] sse_error", {
-        code: "NO_CHUNKS_EMITTED",
-        message: "Nenhum chunk emitido antes do encerramento",
-        finishReason: "done",
-        reason: "NO_CHUNKS_EMITTED"
+      log.info("[ask-eco] final_text_sent", {
+        origin: origin ?? null,
+        clientMessageId: clientMessageId ?? null,
+        finishReason: finishReasonFromResult,
+        textLen: finalTextLen,
+        isBenign,
       });
-      
-      // Envia chunk de fallback obrigatório
-      sendChunk({ text: GUARD_FALLBACK_TEXT });
-      
-      // Registra o fallback nos logs
-      log.error("[ask-eco] guard_fallback_missing_chunk", {
+      sendDone(finishReasonFromResult);
+    } else if (isBenign) {
+      // ✅ Caso benigno sem texto: envia control event no_content
+      streamSse.sendControl("no_content", {
+        finishReason: finishReasonFromResult,
+        message: "Resposta vazia (caso benigno)"
+      });
+      log.info("[ask-eco] benign_no_content", {
+        origin: origin ?? null,
+        clientMessageId: clientMessageId ?? null,
+        finishReason: finishReasonFromResult,
+        streamId: streamId ?? null,
+      });
+      sendDone(finishReasonFromResult);
+    } else {
+      // ❌ Caso NÃO benigno sem texto: erro real
+      log.error("[ask-eco] no_chunks_emitted_error", {
+        code: "NO_CHUNKS_EMITTED",
+        message: "Nenhum chunk emitido (não benigno)",
+        finishReason: finishReasonFromResult,
         origin: origin ?? null,
         clientMessageId: clientMessageId ?? null,
         interactionId: getResolvedInteractionId() ?? null,
-        finishReason: "done",
         streamId: streamId ?? null,
       });
-      
-      sendDone("fallback_empty");
+
+      // Envia chunk de fallback obrigatório
+      sendChunk({ text: GUARD_FALLBACK_TEXT });
+      sendDone("no_chunks_emitted");
     }
   } else {
     sendDone("stream_done");

@@ -4,6 +4,24 @@ import { extractEventText, sanitizeOutput } from "../utils/textExtractor";
 import type { SSEConnection } from "../utils/sse";
 import { SseStreamState } from "./sseState";
 
+// Benign finish reasons (não devem ser tratados como erros)
+const BENIGN_FINISH_REASONS = new Set([
+  "stop",
+  "end",
+  "completed",
+  "greeting",
+  "shortcut",
+  "filtered",
+  "stream_done",
+  "fallback_no_stream",
+]);
+
+function isBenignFinishReason(reason: string | null | undefined): boolean {
+  if (!reason) return false;
+  const normalized = reason.trim().toLowerCase();
+  return BENIGN_FINISH_REASONS.has(normalized);
+}
+
 type TelemetryFn = (
   signal: string,
   value?: number,
@@ -425,21 +443,36 @@ export class SseEventHandlers {
     }
 
     if (!this.state.sawChunk && !clientClosed) {
-      if (!this.state.errorEmitted) {
-        this.sendErrorEvent({
-          code: "NO_CHUNKS_EMITTED",
-          message: "Nenhum chunk emitido antes do encerramento",
-          finishReason: finishReason ?? this.state.finishReason ?? "unknown",
+      const resolvedFinishReason = finishReason ?? this.state.finishReason ?? "unknown";
+      const isBenign = isBenignFinishReason(resolvedFinishReason);
+
+      if (isBenign) {
+        // Caso benigno: não emitir erro, apenas log informativo
+        log.info("[ask-eco] benign_no_chunks", {
+          origin: this.options.origin ?? null,
+          clientMessageId: this.options.clientMessageId ?? null,
+          interactionId: this.options.getResolvedInteractionId?.() ?? null,
+          finishReason: resolvedFinishReason,
+          streamId: this.getStreamId(),
+        });
+      } else {
+        // Caso não benigno: emitir erro como antes
+        if (!this.state.errorEmitted) {
+          this.sendErrorEvent({
+            code: "NO_CHUNKS_EMITTED",
+            message: "Nenhum chunk emitido antes do encerramento",
+            finishReason: resolvedFinishReason,
+          });
+        }
+        const interactionId = this.options.getResolvedInteractionId?.() ?? null;
+        log.error("[ask-eco] guard_fallback_missing_chunk", {
+          origin: this.options.origin ?? null,
+          clientMessageId: this.options.clientMessageId ?? null,
+          interactionId,
+          finishReason: this.state.finishReason,
+          streamId: this.getStreamId(),
         });
       }
-      const interactionId = this.options.getResolvedInteractionId?.() ?? null;
-      log.error("[ask-eco] guard_fallback_missing_chunk", {
-        origin: this.options.origin ?? null,
-        clientMessageId: this.options.clientMessageId ?? null,
-        interactionId,
-        finishReason: this.state.finishReason,
-        streamId: this.getStreamId(),
-      });
     }
 
     const finalizeStream = async () => {
@@ -574,19 +607,39 @@ export class SseEventHandlers {
               });
             }
           } else {
-            const errorPayload = this.buildNoChunkErrorPayload();
-            this.options.setDoneSent(true);
-            this.sendEvent("error", {
-              message: "no_chunks_emitted",
-              details: errorPayload,
-            });
-            log.warn("[ask-eco] sse_no_chunk_ended", {
-              origin: this.options.origin ?? null,
-              clientMessageId: this.options.clientMessageId ?? null,
-              streamId,
-              finishReason: clientFinishReason,
-              providerStatus: (errorPayload as { providerStatus?: number }).providerStatus ?? null,
-            });
+            // Verificar se é caso benigno antes de enviar erro
+            const isBenign = isBenignFinishReason(clientFinishReason);
+
+            if (isBenign) {
+              // Caso benigno: enviar control event em vez de erro
+              this.options.setDoneSent(true);
+              this.sendEvent("control", {
+                name: "no_content",
+                finishReason: clientFinishReason,
+                message: "Nenhum conteúdo retornado (caso benigno)",
+              });
+              log.info("[ask-eco] sse_benign_no_chunk_ended", {
+                origin: this.options.origin ?? null,
+                clientMessageId: this.options.clientMessageId ?? null,
+                streamId,
+                finishReason: clientFinishReason,
+              });
+            } else {
+              // Caso não benigno: enviar erro como antes
+              const errorPayload = this.buildNoChunkErrorPayload();
+              this.options.setDoneSent(true);
+              this.sendEvent("error", {
+                message: "no_chunks_emitted",
+                details: errorPayload,
+              });
+              log.warn("[ask-eco] sse_no_chunk_ended", {
+                origin: this.options.origin ?? null,
+                clientMessageId: this.options.clientMessageId ?? null,
+                streamId,
+                finishReason: clientFinishReason,
+                providerStatus: (errorPayload as { providerStatus?: number }).providerStatus ?? null,
+              });
+            }
           }
         }
 
@@ -635,6 +688,9 @@ export class SseEventHandlers {
         this.options.consoleStreamEnd(Object.keys(endPayload).length ? endPayload : undefined);
 
         const doneValue = clientFinishReason === "completed" ? 1 : 0;
+        const summaryText = this.state.getAggregatedContent();
+        const finalTextLen = summaryText.length;
+
         this.options.onTelemetry(
           "done",
           doneValue,
@@ -646,6 +702,8 @@ export class SseEventHandlers {
             total_latency_ms: totalLatency,
             model: this.state.model ?? undefined,
             saw_chunk: this.state.sawChunk,
+            final_text_len: finalTextLen,
+            is_benign: isBenignFinishReason(clientFinishReason),
           })
         );
       } finally {
