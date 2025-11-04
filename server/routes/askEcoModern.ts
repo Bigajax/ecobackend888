@@ -64,6 +64,16 @@ export async function askEcoHandler(req: Request, res: Response) {
 
   sse.open();
 
+  // KISS FIX: Garantir chunk inicial vazio para evitar "no chunks emitted"
+  // Emite evento de inicialização imediatamente após abrir SSE
+  try {
+    (res as any).write('event: start\n');
+    (res as any).write('data: {"status":"initialized"}\n\n');
+    if ((res as any).flush) (res as any).flush();
+  } catch (flushError) {
+    console.warn('[ask-eco] Failed to flush initial chunk', { error: flushError });
+  }
+
   const { clientMessageId, userText } = normalizePayload(req.body ?? {}, req.headers);
   sse.prompt_ready({ client_message_id: clientMessageId });
 
@@ -129,9 +139,28 @@ export async function askEcoHandler(req: Request, res: Response) {
       interaction_id: sse.interaction_id,
       error,
     });
+
+    // KISS FIX: Sempre garantir que enviamos pelo menos um chunk antes do done
+    if (chunkCounter === 0) {
+      console.warn('[ask-eco] No chunks emitted, sending fallback chunk');
+      sse.chunk({ text: "" }); // Chunk vazio para evitar "no chunks emitted"
+      chunkCounter++;
+    }
+
     sse.chunk({ error: true, message: "Falha interna ao processar a resposta da IA." });
     sse.done({ ok: false, reason: "internal_error", guardFallback: fallbackEmitted });
   } finally {
+    // KISS FIX: Verificação final antes de encerrar
+    if (chunkCounter === 0) {
+      console.warn('[ask-eco] Finally block - no chunks emitted, sending empty chunk');
+      try {
+        (res as any).write('event: empty\n');
+        (res as any).write('data: {"message":"no data"}\n\n');
+        if ((res as any).flush) (res as any).flush();
+      } catch (finalFlushError) {
+        console.error('[ask-eco] Failed to send final empty chunk', { error: finalFlushError });
+      }
+    }
     sse.end();
   }
 }
