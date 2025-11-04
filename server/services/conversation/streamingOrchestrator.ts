@@ -216,14 +216,21 @@ export async function executeStreamingLLM({
         continuity,
       });
       const text = buildFinalizedStreamText(fullResult);
-      if (text?.trim()) {
-        // use o mesmo caminho do streaming normal para manter flags/contadores
-        await onChunk({ index: chunkIndex, text });
-        await onChunk({ done: true, meta: { finishReason: "fallback" } });
-        return true;
-      }
-      return false;
+      const fallbackText = text?.trim() || "Estou processando sua mensagem...";
+      // Sempre emite pelo menos um chunk
+      await onChunk({ index: chunkIndex, text: fallbackText });
+      sawChunk = true;
+      chunkIndex += 1;
+      await onChunk({ done: true, meta: { finishReason: "fallback" } });
+      return true;
     } catch (error) {
+      // Mesmo em caso de erro, emitir um chunk antes de retornar
+      const errorText = "Desculpe, tive dificuldade para processar. Pode tentar novamente?";
+      if (!sawChunk) {
+        await onChunk({ index: chunkIndex, text: errorText });
+        sawChunk = true;
+        chunkIndex += 1;
+      }
       return false;
     }
   });
@@ -252,6 +259,23 @@ export async function executeStreamingLLM({
       } as EcoStreamEvent);
     }
     if (payload.done) {
+      // Garantir que pelo menos um chunk foi emitido antes de enviar done
+      if (!sawChunk && !text) {
+        log.warn("[onChunk] emitindo chunk padrão antes de done", {
+          sawChunk,
+          chunkIndex,
+        });
+        const defaultText = "Estou aqui para você.";
+        sawChunk = true;
+        streamedChunks.push(defaultText);
+        await streamHandler.onEvent({
+          type: "chunk",
+          delta: defaultText,
+          index: chunkIndex,
+          content: defaultText,
+        } as EcoStreamEvent);
+        chunkIndex += 1;
+      }
       await streamHandler.onEvent({
         type: "control",
         name: "done",
@@ -499,6 +523,13 @@ export async function executeStreamingLLM({
 
       return fallbackResult;
     } catch (error) {
+      // Garantir que pelo menos um chunk seja emitido antes do done
+      const errorMessage = "Desculpe, houve um problema ao processar sua mensagem.";
+      if (!sawChunk) {
+        await onChunk({ index: chunkIndex, text: errorMessage });
+        sawChunk = true;
+        chunkIndex += 1;
+      }
       await onChunk({ done: true, meta: { error: "fallback_failed" } });
       throw error;
     }
@@ -748,6 +779,25 @@ export async function executeStreamingLLM({
   const doneSnapshot = { ...timings };
   const finalFinishReason = finishReason ?? "stream_done";
   if (chunkIndex === 0 && !sawChunk) return fallbackResult ?? (await deliverFallbackFull());
+
+  // Garantir que pelo menos um chunk foi emitido antes de enviar done
+  if (!sawChunk || chunkIndex === 0) {
+    log.warn("[StreamingLLM] garantindo emissão de chunk antes de done", {
+      sawChunk,
+      chunkIndex,
+      rawLength: raw.length,
+    });
+
+    const fallbackText = raw?.trim() || "Processando sua mensagem...";
+    await emitStream({
+      type: "chunk",
+      delta: fallbackText,
+      index: chunkIndex,
+      content: fallbackText,
+    });
+    sawChunk = true;
+    chunkIndex += 1;
+  }
 
   log.info("[StreamingLLM] stream_done", {
     length: raw.length,
