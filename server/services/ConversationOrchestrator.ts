@@ -230,7 +230,47 @@ async function runPreLLMPipeline({
     userId: !isGuest ? userId : null,
   };
 
+  // --- STREAMING SHIM PARA SAUDAÇÃO/ATALHOS ---
+  // Se o preLLM retornou um resultado final (não-streaming) e temos streamHandler,
+  // emita 1 chunk + done para evitar "Nenhum chunk emitido" na primeira mensagem.
   if (preLLM.kind === "final") {
+    const result = preLLM.result as GetEcoResult;
+
+    if (streamHandler) {
+      const text = (result as any)?.raw ?? (result as any)?.text ?? "";
+      const finishReason = (result as any)?.meta?.finishReason ?? "greeting";
+
+      // prompt_ready
+      await streamHandler.onEvent({ type: "control", name: "prompt_ready", timings: {} });
+      // único chunk
+      if (text && text.length) {
+        await streamHandler.onEvent({
+          type: "chunk",
+          delta: text,
+          index: 0,
+          content: text,
+        });
+      }
+      // done
+      await streamHandler.onEvent({
+        type: "control",
+        name: "done",
+        meta: { finishReason },
+      });
+
+      await persistAnalyticsSafe({ ...analyticsContext, result });
+
+      const timings: EcoLatencyMarks = {};
+      const streamingResult: EcoStreamingResult = {
+        raw: text,
+        modelo: (result as any)?.modelo ?? "prellm_greeting",
+        usage: (result as any)?.usage,
+        finalize: async () => result,
+        timings,
+      };
+      return streamingResult;
+    }
+
     await persistAnalyticsSafe({ ...analyticsContext, result: preLLM.result });
     return preLLM.result;
   }

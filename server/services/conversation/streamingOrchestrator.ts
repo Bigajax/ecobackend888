@@ -217,8 +217,9 @@ export async function executeStreamingLLM({
       });
       const text = buildFinalizedStreamText(fullResult);
       if (text?.trim()) {
-        await emitStream({ type: "chunk", delta: text, content: text, index: 0 });
-        await emitStream({ type: "control", name: "done", meta: { finishReason: "fallback" } });
+        // use o mesmo caminho do streaming normal para manter flags/contadores
+        await onChunk({ index: chunkIndex, text });
+        await onChunk({ done: true, meta: { finishReason: "fallback" } });
         return true;
       }
       return false;
@@ -234,10 +235,15 @@ export async function executeStreamingLLM({
     }
     const text = typeof payload.text === "string" ? payload.text : "";
     if (text) {
+      // marca que houve chunk
+      sawChunk = true;
       const resolvedIndex =
         typeof payload.index === "number" && Number.isFinite(payload.index)
           ? payload.index
           : chunkIndex;
+      // garante consistência de index e contagem global
+      chunkIndex = Math.max(chunkIndex, (resolvedIndex ?? 0)) + 1;
+      streamedChunks.push(text);
       await streamHandler.onEvent({
         type: "chunk",
         delta: text,
@@ -418,7 +424,7 @@ export async function executeStreamingLLM({
     }
     fallbackEmitted = true;
 
-    await onChunk({ index: 0, text: "Processando...", meta: { fallback: true } });
+    await onChunk({ index: chunkIndex, text: "Processando...", meta: { fallback: true } });
 
     try {
       ignoreStreamEvents = true;
@@ -470,9 +476,8 @@ export async function executeStreamingLLM({
       if (!firstTokenSent) {
         firstTokenSent = true;
       }
-      const currentIndex = chunkIndex;
-      chunkIndex += 1;
-      await emitStream({ type: "chunk", delta: text, index: currentIndex, content: text });
+      // Emite via onChunk para manter contadores e flags
+      await onChunk({ index: chunkIndex, text });
 
       const doneSnapshot = { ...fallbackTimings };
       fallbackResult = {
@@ -483,15 +488,13 @@ export async function executeStreamingLLM({
         timings: doneSnapshot,
       };
 
-      await emitStream({
-        type: "control",
-        name: "done",
+      await onChunk({
+        done: true,
         meta: {
           finishReason: "fallback_full",
           length: text.length,
           modelo: "fallback_full",
         },
-        timings: doneSnapshot,
       });
 
       return fallbackResult;
@@ -546,7 +549,6 @@ export async function executeStreamingLLM({
       await emitFallbackOnce();
     }
   }, FIRST_TOKEN_TIMEOUT_MS);
-
 
   const streamPromise = streamClaudeChatCompletion(
     {
