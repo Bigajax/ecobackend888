@@ -422,7 +422,7 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
       const memoriesResult = await buscarMemoriasSemanticas({
         usuarioId: userId,
         queryText: texto,
-        bearerToken: params.bearerToken,
+        bearerToken: params.bearerToken ?? undefined,
         topK: 10,
         minScore: 0.30,
         includeRefs: ecoDecision.openness >= 2,
