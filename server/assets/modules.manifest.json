@@ -5,36 +5,217 @@
       "id": "SISTEMA_IDENTIDADE",
       "family": "core",
       "role": "instruction",
-      "size": "S",
       "tokens_avg": 414
     },
     {
       "id": "ABERTURA_SUPERFICIE",
       "family": "core",
       "role": "instruction",
-      "size": "S",
       "tokens_avg": 177
     },
     {
       "id": "FORMATO_RESPOSTA",
       "family": "core",
       "role": "instruction",
-      "size": "S",
       "tokens_avg": 268
     },
     {
       "id": "INSTRUCOES_SISTEMA",
       "family": "core",
       "role": "instruction",
-      "size": "M",
       "tokens_avg": 712
     },
     {
       "id": "TECNICO_BLOCO_MEMORIA",
       "family": "core",
       "role": "instruction",
-      "size": "S",
       "tokens_avg": 85
+    },
+    {
+      "id": "ECO_EMO_VERGONHA_COMBATE",
+      "family": "extra",
+      "role": "instruction",
+      "tokens_avg": 595
+    },
+    {
+      "id": "ECO_MEMORIA_REVISITAR_PASSADO",
+      "family": "extra",
+      "role": "instruction",
+      "tokens_avg": 621
+    },
+    {
+      "id": "ECO_VULNERABILIDADE_DEFESAS",
+      "family": "extra",
+      "role": "instruction",
+      "tokens_avg": 637
+    },
+    {
+      "id": "ECO_VULNERABILIDADE_MICRO_PRESENCA",
+      "family": "extra",
+      "role": "instruction",
+      "tokens_avg": 124
+    },
+    {
+      "id": "ECO_VULNERABILIDADE_MICRO_REFRAME",
+      "family": "extra",
+      "role": "instruction",
+      "tokens_avg": 125
+    },
+    {
+      "id": "ECO_VULNERABILIDADE_MITOS",
+      "family": "extra",
+      "role": "instruction",
+      "tokens_avg": 648
+    },
+    {
+      "id": "ECO_CORPO_EMOCAO",
+      "family": "extra",
+      "role": "instruction",
+      "tokens_avg": 639
+    },
+    {
+      "id": "ECO_CORPO_SENSACAO",
+      "family": "extra",
+      "role": "instruction",
+      "tokens_avg": 22
+    },
+    {
+      "id": "ECO_FIM_DO_SOFRIMENTO",
+      "family": "extra",
+      "role": "instruction",
+      "tokens_avg": 619
+    },
+    {
+      "id": "ECO_IDENTIFICACAO_MENTE",
+      "family": "extra",
+      "role": "instruction",
+      "tokens_avg": 602
+    },
+    {
+      "id": "ECO_OBSERVADOR_PRESENTE",
+      "family": "extra",
+      "role": "instruction",
+      "tokens_avg": 22
+    },
+    {
+      "id": "ECO_PRESENCA_RACIONAL",
+      "family": "extra",
+      "role": "instruction",
+      "tokens_avg": 22
+    },
+    {
+      "id": "ECO_OBSERVADOR_PRESENTE",
+      "family": "extra",
+      "role": "instruction",
+      "tokens_avg": 607
+    },
+    {
+      "id": "ECO_PRESENCA_RACIONAL",
+      "family": "extra",
+      "role": "instruction",
+      "tokens_avg": 573
+    },
+    {
+      "id": "ECO_HEURISTICA_ANCORAGEM",
+      "family": "extra",
+      "role": "instruction",
+      "tokens_avg": 150
+    },
+    {
+      "id": "ECO_HEURISTICA_CAUSAS_SUPERAM_ESTATISTICAS",
+      "family": "extra",
+      "role": "instruction",
+      "tokens_avg": 160
+    },
+    {
+      "id": "ECO_HEURISTICA_CERTEZA_EMOCIONAL",
+      "family": "extra",
+      "role": "instruction",
+      "tokens_avg": 158
+    },
+    {
+      "id": "ECO_HEURISTICA_DISPONIBILIDADE",
+      "family": "extra",
+      "role": "instruction",
+      "tokens_avg": 162
+    },
+    {
+      "id": "ECO_HEURISTICA_EXCESSO_CONFIANCA",
+      "family": "extra",
+      "role": "instruction",
+      "tokens_avg": 153
+    },
+    {
+      "id": "ECO_HEURISTICA_ILUSAO_COMPREENSAO_PASSADO",
+      "family": "extra",
+      "role": "instruction",
+      "tokens_avg": 161
+    },
+    {
+      "id": "ECO_HEURISTICA_ILUSAO_VALIDADE",
+      "family": "extra",
+      "role": "instruction",
+      "tokens_avg": 159
+    },
+    {
+      "id": "ECO_HEURISTICA_INTUICAO_ESPECIALISTA",
+      "family": "extra",
+      "role": "instruction",
+      "tokens_avg": 160
+    },
+    {
+      "id": "ECO_HEURISTICA_REGRESSAO_MEDIA",
+      "family": "extra",
+      "role": "instruction",
+      "tokens_avg": 158
+    },
+    {
+      "id": "HEURISTICA_ILUSAO_COMPREENSAO",
+      "family": "extra",
+      "role": "instruction",
+      "tokens_avg": 670
+    },
+    {
+      "id": "BLOCO_REFERENCIA_LEVE",
+      "family": "extra",
+      "role": "instruction",
+      "tokens_avg": 78
+    },
+    {
+      "id": "DETECÇÃOCRISE",
+      "family": "extra",
+      "role": "instruction",
+      "tokens_avg": 185
+    },
+    {
+      "id": "ESCALA_INTENSIDADE_0A10",
+      "family": "extra",
+      "role": "instruction",
+      "tokens_avg": 150
+    },
+    {
+      "id": "PEDIDOPRÁTICO",
+      "family": "extra",
+      "role": "instruction",
+      "tokens_avg": 85
+    },
+    {
+      "id": "BLOCO_TECNICO_MEMORIA",
+      "family": "extra",
+      "role": "instruction",
+      "tokens_avg": 89
+    },
+    {
+      "id": "ESCALA_ABERTURA_1A3",
+      "family": "extra",
+      "role": "instruction",
+      "tokens_avg": 131
+    },
+    {
+      "id": "METODO_VIVA_ENXUTO",
+      "family": "extra",
+      "role": "instruction",
+      "tokens_avg": 246
     }
   ]
 }

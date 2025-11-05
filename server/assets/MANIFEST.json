@@ -24,6 +24,161 @@
       "path": "modulos_core/tecnico_bloco_memoria.txt",
       "bytes": 343,
       "mtime": "2025-11-05T16:11:37.667Z"
+    },
+    {
+      "path": "modulos_emocionais/eco_emo_vergonha_combate.txt",
+      "bytes": 2382,
+      "mtime": "2025-10-15T00:40:00.892Z"
+    },
+    {
+      "path": "modulos_emocionais/eco_memoria_revisitar_passado.txt",
+      "bytes": 2485,
+      "mtime": "2025-10-15T00:40:00.910Z"
+    },
+    {
+      "path": "modulos_emocionais/eco_vulnerabilidade_defesas.txt",
+      "bytes": 2549,
+      "mtime": "2025-10-15T00:40:00.922Z"
+    },
+    {
+      "path": "modulos_emocionais/eco_vulnerabilidade_micro_presenca.txt",
+      "bytes": 496,
+      "mtime": "2025-10-20T10:18:10.450Z"
+    },
+    {
+      "path": "modulos_emocionais/eco_vulnerabilidade_micro_reframe.txt",
+      "bytes": 503,
+      "mtime": "2025-10-20T10:18:10.457Z"
+    },
+    {
+      "path": "modulos_emocionais/eco_vulnerabilidade_mitos.txt",
+      "bytes": 2592,
+      "mtime": "2025-10-15T00:40:00.932Z"
+    },
+    {
+      "path": "modulos_filosoficos/eco_corpo_emocao.txt",
+      "bytes": 2559,
+      "mtime": "2025-10-15T00:40:00.932Z"
+    },
+    {
+      "path": "modulos_filosoficos/eco_corpo_sensacao.txt",
+      "bytes": 91,
+      "mtime": "2025-10-15T21:11:28.797Z"
+    },
+    {
+      "path": "modulos_filosoficos/eco_fim_do_sofrimento.txt",
+      "bytes": 2478,
+      "mtime": "2025-10-15T00:40:00.944Z"
+    },
+    {
+      "path": "modulos_filosoficos/eco_identificacao_mente.txt",
+      "bytes": 2408,
+      "mtime": "2025-10-15T00:40:00.960Z"
+    },
+    {
+      "path": "modulos_filosoficos/eco_observador_presente.txt",
+      "bytes": 91,
+      "mtime": "2025-10-15T21:11:28.797Z"
+    },
+    {
+      "path": "modulos_filosoficos/eco_presenca_racional.txt",
+      "bytes": 91,
+      "mtime": "2025-10-15T21:11:28.797Z"
+    },
+    {
+      "path": "modulos_filosoficos/estoicos/eco_observador_presente.txt",
+      "bytes": 2430,
+      "mtime": "2025-10-15T00:40:00.963Z"
+    },
+    {
+      "path": "modulos_filosoficos/estoicos/eco_presenca_racional.txt",
+      "bytes": 2294,
+      "mtime": "2025-10-15T00:40:00.976Z"
+    },
+    {
+      "path": "modulos_cognitivos/eco_heuristica_ancoragem.txt",
+      "bytes": 600,
+      "mtime": "2025-10-20T14:34:03.711Z"
+    },
+    {
+      "path": "modulos_cognitivos/eco_heuristica_causas_superam_estatisticas.txt",
+      "bytes": 643,
+      "mtime": "2025-10-20T14:34:03.721Z"
+    },
+    {
+      "path": "modulos_cognitivos/eco_heuristica_certeza_emocional.txt",
+      "bytes": 634,
+      "mtime": "2025-10-20T14:34:03.731Z"
+    },
+    {
+      "path": "modulos_cognitivos/eco_heuristica_disponibilidade.txt",
+      "bytes": 648,
+      "mtime": "2025-10-20T14:34:03.740Z"
+    },
+    {
+      "path": "modulos_cognitivos/eco_heuristica_excesso_confianca.txt",
+      "bytes": 615,
+      "mtime": "2025-10-20T14:34:03.751Z"
+    },
+    {
+      "path": "modulos_cognitivos/eco_heuristica_ilusao_compreensao_passado.txt",
+      "bytes": 645,
+      "mtime": "2025-10-20T14:34:03.761Z"
+    },
+    {
+      "path": "modulos_cognitivos/eco_heuristica_ilusao_validade.txt",
+      "bytes": 636,
+      "mtime": "2025-10-20T14:34:03.771Z"
+    },
+    {
+      "path": "modulos_cognitivos/eco_heuristica_intuicao_especialista.txt",
+      "bytes": 640,
+      "mtime": "2025-10-20T14:34:03.780Z"
+    },
+    {
+      "path": "modulos_cognitivos/eco_heuristica_regressao_media.txt",
+      "bytes": 634,
+      "mtime": "2025-10-20T14:34:03.789Z"
+    },
+    {
+      "path": "modulos_cognitivos/heuristica_ilusao_compreensao.txt",
+      "bytes": 2680,
+      "mtime": "2025-10-15T00:40:00.874Z"
+    },
+    {
+      "path": "modulos_extras/BLOCO_REFERENCIA_LEVE.txt",
+      "bytes": 314,
+      "mtime": "2025-10-15T00:21:38.911Z"
+    },
+    {
+      "path": "modulos_extras/DETECÇÃOCRISE.txt",
+      "bytes": 741,
+      "mtime": "2025-10-15T00:21:38.924Z"
+    },
+    {
+      "path": "modulos_extras/ESCALA_INTENSIDADE_0a10.txt",
+      "bytes": 602,
+      "mtime": "2025-10-15T00:21:38.943Z"
+    },
+    {
+      "path": "modulos_extras/PEDIDOPRÁTICO.txt",
+      "bytes": 341,
+      "mtime": "2025-10-15T00:21:38.964Z"
+    },
+    {
+      "path": "modulos_extras/bloco_tecnico_memoria.txt",
+      "bytes": 357,
+      "mtime": "2025-11-05T15:19:11.005Z"
+    },
+    {
+      "path": "modulos_extras/escala_abertura_1a3.txt",
+      "bytes": 527,
+      "mtime": "2025-10-23T15:34:19.478Z"
+    },
+    {
+      "path": "modulos_extras/metodo_viva_enxuto.txt",
+      "bytes": 986,
+      "mtime": "2025-10-23T15:34:19.489Z"
     }
   ]
 }
