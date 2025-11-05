@@ -1,29 +1,29 @@
 {
   "items": [
     {
-      "path": "modulos_core_active/identidade_mini.txt",
-      "bytes": 1680,
-      "mtime": "2025-10-23T15:34:19.437Z"
+      "path": "modulos_core/sistema_identidade.txt",
+      "bytes": 1657,
+      "mtime": "2025-11-05T16:11:37.639Z"
     },
     {
-      "path": "modulos_core_active/nv1_core.txt",
-      "bytes": 729,
-      "mtime": "2025-10-23T15:34:19.447Z"
+      "path": "modulos_core/abertura_superficie.txt",
+      "bytes": 708,
+      "mtime": "2025-11-05T16:11:37.665Z"
     },
     {
-      "path": "modulos_core_active/eco_estrutura_de_resposta.txt",
-      "bytes": 1099,
-      "mtime": "2025-10-23T15:34:19.429Z"
+      "path": "modulos_core/formato_resposta.txt",
+      "bytes": 1074,
+      "mtime": "2025-11-05T16:11:37.665Z"
     },
     {
-      "path": "modulos_core_active/eco_prompt_programavel.txt",
-      "bytes": 2871,
-      "mtime": "2025-11-05T15:18:14.049Z"
+      "path": "modulos_core/instrucoes_sistema.txt",
+      "bytes": 2851,
+      "mtime": "2025-11-05T16:11:37.667Z"
     },
     {
-      "path": "modulos_core_active/bloco_tecnico_memoria.txt",
-      "bytes": 357,
-      "mtime": "2025-11-05T15:18:14.075Z"
+      "path": "modulos_core/tecnico_bloco_memoria.txt",
+      "bytes": 343,
+      "mtime": "2025-11-05T16:11:37.667Z"
     }
   ]
 }

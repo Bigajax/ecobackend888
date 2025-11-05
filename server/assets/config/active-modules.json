@@ -1,9 +1,9 @@
 {
   "active": [
-    "modulos_core_active/identidade_mini.txt",
-    "modulos_core_active/nv1_core.txt",
-    "modulos_core_active/eco_estrutura_de_resposta.txt",
-    "modulos_core_active/eco_prompt_programavel.txt",
-    "modulos_core_active/bloco_tecnico_memoria.txt"
+    "modulos_core/sistema_identidade.txt",
+    "modulos_core/abertura_superficie.txt",
+    "modulos_core/formato_resposta.txt",
+    "modulos_core/instrucoes_sistema.txt",
+    "modulos_core/tecnico_bloco_memoria.txt"
   ]
 }

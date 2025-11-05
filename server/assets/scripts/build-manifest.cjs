@@ -40,32 +40,6 @@ console.log(`📦 Processing ${activeModules.length} active modules...`);
 const manifestItems = [];
 const modulesManifestItems = [];
 const ecoManifestItems = [];
-let mirrorsCreated = 0;
-
-// Map of (legacy path → actual path) for retrocompat
-// Maps where code expects to find files → where they actually are
-const legacyPathMap = {
-  'modulos_core_active/identidade_mini.txt': [
-    'modulos_core/identidade_mini.txt',      // Expected by legacy code
-    'modulos_core_active/identidade_mini.txt' // Master copy
-  ],
-  'modulos_core_active/nv1_core.txt': [
-    'modulos_core/nv1_core.txt',
-    'modulos_core_active/nv1_core.txt'
-  ],
-  'modulos_core_active/eco_estrutura_de_resposta.txt': [
-    'modulos_core/eco_estrutura_de_resposta.txt',
-    'modulos_core_active/eco_estrutura_de_resposta.txt'
-  ],
-  'modulos_core_active/eco_prompt_programavel.txt': [
-    'prompts/eco_prompt_programavel.txt',
-    'modulos_core_active/eco_prompt_programavel.txt'
-  ],
-  'modulos_core_active/bloco_tecnico_memoria.txt': [
-    'modulos_extras/bloco_tecnico_memoria.txt',
-    'modulos_core_active/bloco_tecnico_memoria.txt'
-  ]
-};
 
 /**
  * Determine family: "core" or "extra"
@@ -91,47 +65,6 @@ function determineSize(bytes) {
  */
 function estimateTokens(bytes) {
   return Math.max(0, Math.floor(bytes / 4));
-}
-
-/**
- * Ensure directory exists
- */
-function ensureDir(dirPath) {
-  if (!fs.existsSync(dirPath)) {
-    fs.mkdirSync(dirPath, { recursive: true });
-  }
-}
-
-/**
- * Create or update a mirror file (retrocompat)
- */
-function createMirror(sourcePath, targetPath) {
-  const sourceFullPath = path.join(assetsRoot, sourcePath);
-  const targetFullPath = path.join(assetsRoot, targetPath);
-
-  // Only create mirror if source and target are different
-  if (path.normalize(sourceFullPath) === path.normalize(targetFullPath)) {
-    return false;
-  }
-
-  // Ensure source exists
-  if (!fs.existsSync(sourceFullPath)) {
-    console.warn(`⚠️  Source file not found: ${sourcePath}`);
-    return false;
-  }
-
-  // Ensure target directory
-  ensureDir(path.dirname(targetFullPath));
-
-  // Copy file
-  try {
-    const content = fs.readFileSync(sourceFullPath, 'utf8');
-    fs.writeFileSync(targetFullPath, content, 'utf8');
-    return true;
-  } catch (e) {
-    console.error(`❌ Failed to create mirror ${targetPath}: ${e.message}`);
-    return false;
-  }
 }
 
 // Process each active module
@@ -232,24 +165,4 @@ try {
   process.exit(1);
 }
 
-// Create retrocompatible mirrors
-console.log('\n🔄 Creating retrocompatibility mirrors...');
-for (const modulePath of activeModules) {
-  const legacyPaths = legacyPathMap[modulePath];
-  if (legacyPaths && Array.isArray(legacyPaths)) {
-    // legacyPaths[1] is the master, legacyPaths[0] is where code expects it
-    const source = legacyPaths[1]; // master in modulos_core_active
-    const target = legacyPaths[0]; // where legacy code expects it
-
-    if (source !== target) {
-      if (createMirror(source, target)) {
-        mirrorsCreated++;
-        console.log(`  ✓ Mirror: ${source} → ${target}`);
-      }
-    }
-  }
-}
-
-console.log(
-  `\n✅ Build complete: ${activeModules.length} active modules, ${mirrorsCreated} mirrors created`
-);
+console.log(`\n✅ Build complete: ${activeModules.length} active modules processed`);

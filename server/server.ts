@@ -37,12 +37,12 @@ const app = createApp();
 
 const REQUIRED_MODULE_PATHS = [
   "modulos_core/developer_prompt.txt",
-  "modulos_core/nv1_core.txt",
-  "modulos_core/identidade_mini.txt",
+  "modulos_core/abertura_superficie.txt",
+  "modulos_core/sistema_identidade.txt",
   "modulos_extras/escala_abertura_1a3.txt",
-  "modulos_core/eco_estrutura_de_resposta.txt",
+  "modulos_core/formato_resposta.txt",
   "modulos_core/usomemorias.txt",
-  "modulos_extras/bloco_tecnico_memoria.txt",
+  "modulos_core/tecnico_bloco_memoria.txt",
   "modulos_extras/metodo_viva_enxuto.txt",
 ] as const;
 

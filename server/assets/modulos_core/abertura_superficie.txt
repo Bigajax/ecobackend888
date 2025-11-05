@@ -9,6 +9,7 @@ when:
   opennessIn: [1]
 dedupeKey: nv1CoreTone
 ---
+
 # NV1 — tom essencial
 
 ## Contexto

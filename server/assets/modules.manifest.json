@@ -2,39 +2,39 @@
   "version": "2",
   "modules": [
     {
-      "id": "IDENTIDADE_MINI",
-      "family": "extra",
+      "id": "SISTEMA_IDENTIDADE",
+      "family": "core",
       "role": "instruction",
       "size": "S",
-      "tokens_avg": 420
+      "tokens_avg": 414
     },
     {
-      "id": "NV1_CORE",
-      "family": "extra",
+      "id": "ABERTURA_SUPERFICIE",
+      "family": "core",
       "role": "instruction",
       "size": "S",
-      "tokens_avg": 182
+      "tokens_avg": 177
     },
     {
-      "id": "ECO_ESTRUTURA_DE_RESPOSTA",
-      "family": "extra",
+      "id": "FORMATO_RESPOSTA",
+      "family": "core",
       "role": "instruction",
       "size": "S",
-      "tokens_avg": 274
+      "tokens_avg": 268
     },
     {
-      "id": "ECO_PROMPT_PROGRAMAVEL",
-      "family": "extra",
+      "id": "INSTRUCOES_SISTEMA",
+      "family": "core",
       "role": "instruction",
       "size": "M",
-      "tokens_avg": 717
+      "tokens_avg": 712
     },
     {
-      "id": "BLOCO_TECNICO_MEMORIA",
-      "family": "extra",
+      "id": "TECNICO_BLOCO_MEMORIA",
+      "family": "core",
       "role": "instruction",
       "size": "S",
-      "tokens_avg": 89
+      "tokens_avg": 85
     }
   ]
 }

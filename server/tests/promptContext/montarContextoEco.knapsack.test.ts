@@ -9,7 +9,7 @@ import { qualityAnalyticsStore } from "../../services/analytics/analyticsStore";
 const inlineModules: Record<string, string> = {
   "developer_prompt.txt": "DP".repeat(20),
   "IDENTIDADE.txt": "ID".repeat(200),
-  "identidade_mini.txt": "IM".repeat(40),
+  "sistema_identidade.txt": "IM".repeat(40),
   "MODULACAO_TOM_REGISTRO.txt": "MT".repeat(40),
   "LINGUAGEM_NATURAL.txt": "LN".repeat(40),
   "ENCERRAMENTO_SENSIVEL.txt": "ES".repeat(30),
@@ -18,19 +18,19 @@ const inlineModules: Record<string, string> = {
   "escala_abertura_1a3.txt": "EA".repeat(40),
   "ESCALA_INTENSIDADE_0a10.txt": "EI".repeat(40),
   "metodo_viva_enxuto.txt": "MV".repeat(50),
-  "bloco_tecnico_memoria.txt": "BT".repeat(40),
+  "tecnico_bloco_memoria.txt": "BT".repeat(40),
   "usomemorias.txt": "UM".repeat(40),
   "PRINCIPIOS_CHAVE.txt": "PC".repeat(60),
   "ANTISALDO_MIN.txt": "AM".repeat(30),
-  "eco_estrutura_de_resposta.txt": "EE".repeat(60),
-  "nv1_core.txt": "NV".repeat(30),
+  "formato_resposta.txt": "EE".repeat(60),
+  "abertura_superficie.txt": "NV".repeat(30),
 };
 
 const MVS_EXPECTED = [
-  "identidade_mini.txt",
-  "eco_estrutura_de_resposta.txt",
+  "sistema_identidade.txt",
+  "formato_resposta.txt",
   "usomemorias.txt",
-  "bloco_tecnico_memoria.txt",
+  "tecnico_bloco_memoria.txt",
   "metodo_viva_enxuto.txt",
 ];
 
