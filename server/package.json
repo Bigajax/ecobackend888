@@ -16,7 +16,10 @@
     "copy:assets": "node ./scripts/copy-assets.cjs",
     "verify:assets": "node ./scripts/verifyAssetsBuild.cjs",
     "start": "cross-env NODE_ENV=production node dist/server.js",
-    "cors:smoke": "bash server/scripts/cors-smoke.sh"
+    "cors:smoke": "bash server/scripts/cors-smoke.sh",
+    "registrar:emocionais": "node ./scripts/registrar-emocionais.cjs",
+    "registrar:filosoficos": "node ./scripts/registrar-filosoficos.cjs",
+    "registrar:todos": "npm run registrar:emocionais && npm run registrar:filosoficos"
   },
   "dependencies": {
     "@dqbd/tiktoken": "^1.0.21",
