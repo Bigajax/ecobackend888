@@ -27,6 +27,8 @@ import {
   updateDecisionDebug,
   resolveDecisionContext,
 } from "./pipeline/decisionResolver";
+import { buscarMemoriasSemanticas } from "../supabase/semanticMemoryClient";
+import { formatMemoriesSection, injectMemoriesIntoPrompt, clampTokens } from "./memoryInjector";
 
 const REQUIRED_MANIFEST_IDS = new Set([
   "identidade_core",
@@ -404,7 +406,57 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
   });
 
   const base = assembly.base;
-  const montarMensagemAtual = (textoAtual: string) => applyCurrentMessage(base, textoAtual);
+  // Retrieve and inject semantic memories if user is authenticated
+  let baseWithMemories = base;
+  if (typeof params.userId === "string" && params.userId.trim().length > 0) {
+    try {
+      if (isDebug()) {
+        log.debug("[ContextBuilder] retrieving_semantic_memories", {
+          usuarioId: params.userId,
+          queryTextLen: texto.length,
+          hasBearer: Boolean(params.bearerToken),
+        });
+      }
+
+      const memoriesResult = await buscarMemoriasSemanticas({
+        usuarioId: params.userId,
+        queryText: texto,
+        bearerToken: params.bearerToken,
+        topK: 10,
+        minScore: 0.30,
+        includeRefs: ecoDecision.openness >= 2,
+      });
+
+      if (memoriesResult.memories && memoriesResult.memories.length > 0) {
+        const memoriesSection = formatMemoriesSection(
+          memoriesResult.memories,
+          clampTokens(1500, 2000)
+        );
+
+        if (memoriesSection) {
+          baseWithMemories = injectMemoriesIntoPrompt(base, memoriesSection);
+
+          if (isDebug()) {
+            log.debug("[ContextBuilder] memories_injected", {
+              count: memoriesResult.memories.length,
+              minMaxScore: memoriesResult.minMaxScore,
+            });
+          }
+        }
+      } else if (isDebug()) {
+        log.debug("[ContextBuilder] no_memories_retrieved", {
+          minScore: memoriesResult.minScoreFinal,
+        });
+      }
+    } catch (err) {
+      log.warn("[ContextBuilder] memory_retrieval_failed", {
+        message: err instanceof Error ? err.message : String(err),
+        usuarioId: params.userId,
+      });
+    }
+  }
+
+  const montarMensagemAtual = (textoAtual: string) => applyCurrentMessage(baseWithMemories, textoAtual);
 
   const promptComTexto = assembly.promptWithText;
 
@@ -441,7 +493,7 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
     });
   }
 
-  return { base, montarMensagemAtual };
+  return { base: baseWithMemories, montarMensagemAtual };
 }
 
 export const __internals = {

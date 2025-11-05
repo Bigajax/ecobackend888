@@ -20,6 +20,7 @@ import type { ActivationTracer } from "../../core/activationTracer";
 import type { ContextMeta } from "../../utils/types";
 
 export type BuildParams = {
+  bearerToken?: string | null;
   userId?: string | null;
   guestId?: string | null;
   userName?: string | null;

@@ -337,3 +337,193 @@ export async function buscarMemoriasSemelhantesV2({
 
   return { rows: limited, thresholdUsed };
 }
+
+// New: Semantic memory retrieval with text query (RLS-aware)
+
+export interface RetrievedMemory {
+  id: string;
+  texto: string;
+  score: number;
+  tags: string[];
+  dominio_vida: string | null;
+  created_at: string | null;
+}
+
+export interface BuscarMemoriasSemanticasParams {
+  usuarioId: string;
+  queryText: string;
+  bearerToken?: string;
+  topK?: number;
+  minScore?: number;
+  includeRefs?: boolean;
+}
+
+export interface BuscarMemoriasSemanticasResult {
+  memories: RetrievedMemory[];
+  fetchedCount: number;
+  minScoreFinal: number;
+  minMaxScore: { min: number; max: number } | null;
+}
+
+const DEBUG_SEMANTIC_RETRIEVAL = process.env.ECO_DEBUG === "1" || process.env.DEBUG_SEMANTICA === "true";
+
+function debugLog(msg: string, payload: Record<string, unknown>): void {
+  if (DEBUG_SEMANTIC_RETRIEVAL) {
+    console.log(`[buscarMemoriasSemanticas] ${msg}`, payload);
+  }
+}
+
+/**
+ * Retrieve semantically similar memories using text query with RLS enforcement.
+ * Uses bearer token for user isolation (RLS).
+ */
+export async function buscarMemoriasSemanticas({
+  usuarioId,
+  queryText,
+  bearerToken,
+  topK = 8,
+  minScore = 0.30,
+  includeRefs = false,
+}: BuscarMemoriasSemanticasParams): Promise<BuscarMemoriasSemanticasResult> {
+  const startMs = Date.now();
+
+  if (!usuarioId || !queryText || !queryText.trim()) {
+    debugLog("skipped_empty_input", { usuarioId, queryLen: queryText?.length ?? 0 });
+    return {
+      memories: [],
+      fetchedCount: 0,
+      minScoreFinal: minScore,
+      minMaxScore: null,
+    };
+  }
+
+  try {
+    // Dynamic imports to avoid circular dependencies
+    const { getEmbeddingCached } = await import("../../adapters/EmbeddingAdapter");
+    const { supabaseWithBearer } = await import("../../adapters/SupabaseAdapter");
+
+    // Generate embedding from query text
+    debugLog("generating_embedding", { textLen: queryText.length });
+    const queryEmbedding = await getEmbeddingCached(queryText, "semantic_memory_query");
+
+    if (!queryEmbedding || queryEmbedding.length === 0) {
+      debugLog("embedding_failed", { queryTextLen: queryText.length });
+      return {
+        memories: [],
+        fetchedCount: 0,
+        minScoreFinal: minScore,
+        minMaxScore: null,
+      };
+    }
+
+    // Create RLS-aware client (bearer token enforces user isolation)
+    let supabaseClient: SupabaseClient;
+    if (bearerToken) {
+      supabaseClient = supabaseWithBearer(bearerToken);
+    } else {
+      // Fallback to admin client (RLS still enforced via user ID)
+      const admin = getSupabaseAdmin();
+      if (!admin) {
+        debugLog("no_supabase_client", { usuarioId });
+        return {
+          memories: [],
+          fetchedCount: 0,
+          minScoreFinal: minScore,
+          minMaxScore: null,
+        };
+      }
+      supabaseClient = admin;
+    }
+
+    // Call RPC with embedding
+    debugLog("calling_rpc", {
+      usuarioId,
+      embeddingDim: queryEmbedding.length,
+      topK,
+      minScore,
+      includeRefs,
+    });
+
+    const { data, error } = await supabaseClient.rpc(
+      "buscar_memorias_semanticas_v2",
+      {
+        p_usuario_id: usuarioId,
+        p_query_embedding: queryEmbedding,
+        p_top_k: topK,
+        p_min_score: minScore,
+        p_incluir_referencias: includeRefs,
+      } as Record<string, unknown>
+    );
+
+    if (error) {
+      debugLog("rpc_error", {
+        message: (error as any)?.message,
+        usuarioId,
+      });
+      return {
+        memories: [],
+        fetchedCount: 0,
+        minScoreFinal: minScore,
+        minMaxScore: null,
+      };
+    }
+
+    // Map RPC result to RetrievedMemory format
+    if (!Array.isArray(data)) {
+      debugLog("invalid_rpc_response", { dataType: typeof data });
+      return {
+        memories: [],
+        fetchedCount: 0,
+        minScoreFinal: minScore,
+        minMaxScore: null,
+      };
+    }
+
+    const memories: RetrievedMemory[] = data
+      .map((row: any) => {
+        const score = typeof row.similarity === "number" ? row.similarity : 0;
+        return {
+          id: row.id ?? "",
+          texto: row.resumo_eco ?? row.contexto ?? "",
+          score,
+          tags: Array.isArray(row.tags) ? row.tags : [],
+          dominio_vida: row.dominio_vida ?? null,
+          created_at: row.created_at ?? null,
+        };
+      })
+      .filter((m) => m.texto && m.score >= (minScore ?? 0));
+
+    const minMaxScores = memories.length > 0
+      ? {
+          min: Math.min(...memories.map((m) => m.score)),
+          max: Math.max(...memories.map((m) => m.score)),
+        }
+      : null;
+
+    const latencyMs = Date.now() - startMs;
+    debugLog("success", {
+      count: memories.length,
+      minScore: minMaxScores?.min ?? null,
+      maxScore: minMaxScores?.max ?? null,
+      latencyMs,
+    });
+
+    return {
+      memories,
+      fetchedCount: memories.length,
+      minScoreFinal: minScore,
+      minMaxScore: minMaxScores,
+    };
+  } catch (error) {
+    debugLog("exception", {
+      message: error instanceof Error ? error.message : String(error),
+      usuarioId,
+    });
+    return {
+      memories: [],
+      fetchedCount: 0,
+      minScoreFinal: minScore,
+      minMaxScore: null,
+    };
+  }
+}
