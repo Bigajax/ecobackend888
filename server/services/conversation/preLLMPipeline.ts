@@ -128,7 +128,13 @@ async function emitImmediateStream({
   // Caso contrário, o frontend recebe "NO_CHUNKS_EMITTED" erro
   const textToEmit = finalText || (finalized.message || "👋");
 
-  await streamHandler.onEvent({ type: "chunk", delta: textToEmit, index: 0 });
+  // Use onChunk if available (proper channel when streamHasChunkHandler=true)
+  // Otherwise fall back to onEvent
+  if (streamHandler.onChunk) {
+    await streamHandler.onChunk({ text: textToEmit, index: 0 });
+  } else {
+    await streamHandler.onEvent({ type: "chunk", delta: textToEmit, index: 0 });
+  }
 
   await streamHandler.onEvent({
     type: "control",
