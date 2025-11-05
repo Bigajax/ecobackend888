@@ -9,8 +9,9 @@
   },
   "scripts": {
     "dev": "cross-env NODE_ENV=development nodemon",
-    "build": "tsc && npm run copy:assets",
-    "postbuild": "node scripts/sanitize-modules-manifest.cjs",
+    "build": "tsc && npm run copy:assets && npm run build:manifest && npm run postbuild:sanitize",
+    "build:manifest": "node ./assets/scripts/build-manifest.cjs",
+    "postbuild:sanitize": "node scripts/sanitize-modules-manifest.cjs",
     "copy:assets": "node ./scripts/copy-assets.cjs",
     "verify:assets": "node ./scripts/verifyAssetsBuild.cjs",
     "start": "cross-env NODE_ENV=production node dist/server.js",

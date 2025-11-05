@@ -1,0 +1,9 @@
+{
+  "active": [
+    "modulos_core/identidade_mini.txt",
+    "modulos_core/nv1_core.txt",
+    "modulos_core/eco_estrutura_de_resposta.txt",
+    "prompts/eco_prompt_programavel.txt",
+    "modulos_extras/bloco_tecnico_memoria.txt"
+  ]
+}
