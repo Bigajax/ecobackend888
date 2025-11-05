@@ -1,4 +1,4 @@
-// assets/config/estoicosTriggers.ts
+// services/promptContext/triggers/estoicosTriggers.ts
 export interface ModuloEstoicoTrigger {
   arquivo: string;
   gatilhos: string[];

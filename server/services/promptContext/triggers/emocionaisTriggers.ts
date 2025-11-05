@@ -1,4 +1,4 @@
-// assets/config/emocionaisTriggers.ts
+// services/promptContext/triggers/emocionaisTriggers.ts
 
 export interface ModuloEmocionalTrigger {
   arquivo: string;

@@ -1,4 +1,4 @@
-// /assets/config/regulacaoTriggers.ts
+// services/promptContext/triggers/regulacaoTriggers.ts
 // Gatilhos para práticas de regulação/respiração/grounding
 // Saída indica quais módulos carregar quando as condições forem satisfeitas.
 
