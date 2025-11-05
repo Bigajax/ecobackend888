@@ -3,28 +3,28 @@
   "modules": [
     {
       "id": "IDENTIDADE_MINI",
-      "family": "core",
+      "family": "extra",
       "role": "instruction",
       "size": "S",
       "tokens_avg": 420
     },
     {
       "id": "NV1_CORE",
-      "family": "core",
+      "family": "extra",
       "role": "instruction",
       "size": "S",
       "tokens_avg": 182
     },
     {
       "id": "ECO_ESTRUTURA_DE_RESPOSTA",
-      "family": "core",
+      "family": "extra",
       "role": "instruction",
       "size": "S",
       "tokens_avg": 274
     },
     {
       "id": "ECO_PROMPT_PROGRAMAVEL",
-      "family": "core",
+      "family": "extra",
       "role": "instruction",
       "size": "M",
       "tokens_avg": 717

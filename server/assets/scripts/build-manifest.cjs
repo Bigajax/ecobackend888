@@ -43,12 +43,28 @@ const ecoManifestItems = [];
 let mirrorsCreated = 0;
 
 // Map of (legacy path → actual path) for retrocompat
+// Maps where code expects to find files → where they actually are
 const legacyPathMap = {
-  'modulos_core/identidade_mini.txt': 'modulos_core/identidade_mini.txt',
-  'modulos_core/nv1_core.txt': 'modulos_core/nv1_core.txt',
-  'modulos_core/eco_estrutura_de_resposta.txt': 'modulos_core/eco_estrutura_de_resposta.txt',
-  'prompts/eco_prompt_programavel.txt': 'prompts/eco_prompt_programavel.txt',
-  'modulos_extras/bloco_tecnico_memoria.txt': 'modulos_extras/bloco_tecnico_memoria.txt',
+  'modulos_core_active/identidade_mini.txt': [
+    'modulos_core/identidade_mini.txt',      // Expected by legacy code
+    'modulos_core_active/identidade_mini.txt' // Master copy
+  ],
+  'modulos_core_active/nv1_core.txt': [
+    'modulos_core/nv1_core.txt',
+    'modulos_core_active/nv1_core.txt'
+  ],
+  'modulos_core_active/eco_estrutura_de_resposta.txt': [
+    'modulos_core/eco_estrutura_de_resposta.txt',
+    'modulos_core_active/eco_estrutura_de_resposta.txt'
+  ],
+  'modulos_core_active/eco_prompt_programavel.txt': [
+    'prompts/eco_prompt_programavel.txt',
+    'modulos_core_active/eco_prompt_programavel.txt'
+  ],
+  'modulos_core_active/bloco_tecnico_memoria.txt': [
+    'modulos_extras/bloco_tecnico_memoria.txt',
+    'modulos_core_active/bloco_tecnico_memoria.txt'
+  ]
 };
 
 /**
@@ -219,14 +235,18 @@ try {
 // Create retrocompatible mirrors
 console.log('\n🔄 Creating retrocompatibility mirrors...');
 for (const modulePath of activeModules) {
-  const legacyPath = legacyPathMap[modulePath];
-  if (legacyPath && legacyPath !== modulePath) {
-    if (createMirror(modulePath, legacyPath)) {
-      mirrorsCreated++;
-      console.log(`  ✓ Mirror: ${modulePath} → ${legacyPath}`);
+  const legacyPaths = legacyPathMap[modulePath];
+  if (legacyPaths && Array.isArray(legacyPaths)) {
+    // legacyPaths[1] is the master, legacyPaths[0] is where code expects it
+    const source = legacyPaths[1]; // master in modulos_core_active
+    const target = legacyPaths[0]; // where legacy code expects it
+
+    if (source !== target) {
+      if (createMirror(source, target)) {
+        mirrorsCreated++;
+        console.log(`  ✓ Mirror: ${source} → ${target}`);
+      }
     }
-  } else if (legacyPath) {
-    console.log(`  ✓ Already in place: ${modulePath}`);
   }
 }
 

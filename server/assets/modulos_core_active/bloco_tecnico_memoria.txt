@@ -1,0 +1,16 @@
+---
+minIntensity: 7
+opennessIn: [2, 3]
+flagsAny: [hasTechBlock, saveMemory]
+injectAs: footer
+dedupeKey: blocoTecnicoMemoria
+---
+{
+  "emocao_principal": "...",
+  "intensidade": {{DEC.intensity}},
+  "tags": [],
+  "dominio_vida": {{DEC.domain}},
+  "padrao_comportamental": "...",
+  "nivel_abertura": {{DEC.openness}},
+  "analise_resumo": "..."
+}

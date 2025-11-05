@@ -1,29 +1,29 @@
 {
   "items": [
     {
-      "path": "modulos_core/identidade_mini.txt",
+      "path": "modulos_core_active/identidade_mini.txt",
       "bytes": 1680,
       "mtime": "2025-10-23T15:34:19.437Z"
     },
     {
-      "path": "modulos_core/nv1_core.txt",
+      "path": "modulos_core_active/nv1_core.txt",
       "bytes": 729,
       "mtime": "2025-10-23T15:34:19.447Z"
     },
     {
-      "path": "modulos_core/eco_estrutura_de_resposta.txt",
+      "path": "modulos_core_active/eco_estrutura_de_resposta.txt",
       "bytes": 1099,
       "mtime": "2025-10-23T15:34:19.429Z"
     },
     {
-      "path": "prompts/eco_prompt_programavel.txt",
+      "path": "modulos_core_active/eco_prompt_programavel.txt",
       "bytes": 2871,
-      "mtime": "2025-11-03T19:56:04.946Z"
+      "mtime": "2025-11-05T15:18:14.049Z"
     },
     {
-      "path": "modulos_extras/bloco_tecnico_memoria.txt",
+      "path": "modulos_core_active/bloco_tecnico_memoria.txt",
       "bytes": 357,
-      "mtime": "2025-10-23T15:34:19.468Z"
+      "mtime": "2025-11-05T15:18:14.075Z"
     }
   ]
 }
