@@ -163,7 +163,7 @@ export async function registrarFeedback(req: Request, res: Response) {
   });
 
   const rewardPayload = {
-    response_id: responseId,
+    response_id: interactionId,
     pilar: pillar,
     arm: armKey,
     recompensa: reward,
