@@ -131,8 +131,17 @@ async function emitImmediateStream({
   // Use onChunk if available (proper channel when streamHasChunkHandler=true)
   // Otherwise fall back to onEvent
   if (streamHandler.onChunk) {
+    if (process.env.ECO_DEBUG === "1" || process.env.ECO_DEBUG === "true") {
+      console.debug("[preLLMPipeline] calling onChunk", { textLen: textToEmit.length, index: 0 });
+    }
     await streamHandler.onChunk({ text: textToEmit, index: 0 });
+    if (process.env.ECO_DEBUG === "1" || process.env.ECO_DEBUG === "true") {
+      console.debug("[preLLMPipeline] onChunk completed");
+    }
   } else {
+    if (process.env.ECO_DEBUG === "1" || process.env.ECO_DEBUG === "true") {
+      console.debug("[preLLMPipeline] onChunk not available, falling back to onEvent");
+    }
     await streamHandler.onEvent({ type: "chunk", delta: textToEmit, index: 0 });
   }
 

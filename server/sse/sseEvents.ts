@@ -737,15 +737,35 @@ export class SseEventHandlers {
   }
 
   sendChunk(input: { text: string; index?: number; meta?: Record<string, unknown> }) {
-    if (!input || typeof input.text !== "string") return;
+    if (!input || typeof input.text !== "string") {
+      if (process.env.ECO_DEBUG === "1" || process.env.ECO_DEBUG === "true") {
+        console.debug("[sendChunk] early return: no input/text");
+      }
+      return;
+    }
     if (this.state.clientClosed) {
+      if (process.env.ECO_DEBUG === "1" || process.env.ECO_DEBUG === "true") {
+        console.debug("[sendChunk] early return: client closed");
+      }
       return;
     }
     const cleaned = sanitizeOutput(input.text);
     const finalText = cleaned;
-    if (finalText.length === 0) return;
-    if (finalText.trim().toLowerCase() === "ok") {
+    if (finalText.length === 0) {
+      if (process.env.ECO_DEBUG === "1" || process.env.ECO_DEBUG === "true") {
+        console.debug("[sendChunk] early return: empty text");
+      }
       return;
+    }
+    if (finalText.trim().toLowerCase() === "ok") {
+      if (process.env.ECO_DEBUG === "1" || process.env.ECO_DEBUG === "true") {
+        console.debug("[sendChunk] early return: OK text");
+      }
+      return;
+    }
+
+    if (process.env.ECO_DEBUG === "1" || process.env.ECO_DEBUG === "true") {
+      console.debug("[sendChunk] processing", { textLen: finalText.length, providedIndex: input.index });
     }
 
     this.options.clearEarlyClientAbortTimer();
@@ -781,6 +801,10 @@ export class SseEventHandlers {
     }
 
     if (!this.state.clientClosed) {
+      const sseConnection = this.options.getSseConnection?.();
+      if (process.env.ECO_DEBUG === "1" || process.env.ECO_DEBUG === "true") {
+        console.debug("[sendChunk] calling sendEvent", { hasConnection: !!sseConnection });
+      }
       this.sendEvent(
         "chunk",
         {
@@ -789,6 +813,8 @@ export class SseEventHandlers {
         },
         this.options.getSseConnection
       );
+    } else if (process.env.ECO_DEBUG === "1" || process.env.ECO_DEBUG === "true") {
+      console.debug("[sendChunk] not sending: client closed");
     }
 
     this.hasEmittedChunk = true;
