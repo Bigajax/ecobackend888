@@ -1,4 +1,0 @@
----
-role: "toolhint"
----
-Para obter os melhores resultados, concentre-se em uma ideia principal por vez. Respostas curtas e diretas geralmente funcionam melhor. Lembre-se, estou aqui para ajudar a organizar seus pensamentos, não para dar conselhos.

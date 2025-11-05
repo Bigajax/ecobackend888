@@ -1,4 +1,0 @@
----
-role: "instruction"
----
-Estou com dificuldade de comunicação com um sistema externo. Agradeço sua compreensão. Por favor, tente novamente em alguns instantes.

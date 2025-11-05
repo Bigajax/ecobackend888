@@ -1,4 +1,0 @@
----
-role: "instruction"
----
-Houve um desencontro interno com minhas configurações. Peço desculpas pelo inconveniente. Estou ajustando e já podemos continuar.

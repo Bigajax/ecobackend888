@@ -1,4 +1,0 @@
----
-role: "instruction"
----
-Vamos manter um ritmo calmo. Respire fundo. Não há necessidade de pressa; o importante é a clareza. Uma pausa pode ser o passo mais produtivo.

@@ -1,4 +1,0 @@
----
-role: "instruction"
----
-Encontrei um obstáculo inesperado aqui. Agradeço sua paciência enquanto eu resolvo. Podemos tentar de novo em um instante.
