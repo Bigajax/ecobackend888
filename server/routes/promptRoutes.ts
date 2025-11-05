@@ -1349,6 +1349,27 @@ async function handleAskEcoRequest(req: Request, res: Response, _next: NextFunct
 
     const bootstrapPromise = bootstrapInteraction(); // Start creating interaction immediately
 
+    // CRITICAL: Ensure interaction is persisted BEFORE emitting prompt_ready
+    // This prevents race condition where eco_passive_signals tries to reference
+    // a non-existent eco_interactions row (FK 23503 error)
+    try {
+      await Promise.race([
+        bootstrapPromise,
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error("bootstrap_timeout")), 5000)
+        ),
+      ]);
+      log.info("[ask-eco] interaction_bootstrapped", {
+        origin: origin ?? null,
+        streamId: streamId ?? null,
+      });
+    } catch (error) {
+      // Log but continue - fallback captureInteractionId already called in bootstrapInteraction
+      log.warn("[ask-eco] bootstrap_race_failed", {
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+
     if (wantsStream) {
       try {
         streamSse.prompt_ready({ client_message_id: promptReadyClientMessageId });
@@ -1526,10 +1547,21 @@ async function handleAskEcoRequest(req: Request, res: Response, _next: NextFunct
       const stream: EcoStreamHandler = {
         onEvent: (event) => forwardEvent(event),
         onChunk: async (payload) => {
-          if (!payload) return;
+          if (process.env.ECO_DEBUG === "1" || process.env.ECO_DEBUG === "true") {
+            console.debug("[stream.onChunk] called", { hasPayload: !!payload, keys: payload ? Object.keys(payload) : [] });
+          }
+          if (!payload) {
+            if (process.env.ECO_DEBUG === "1" || process.env.ECO_DEBUG === "true") {
+              console.debug("[stream.onChunk] no payload, returning");
+            }
+            return;
+          }
           const metaValue = payload.meta && typeof payload.meta === "object" ? (payload.meta as Record<string, unknown>) : undefined;
 
           if ((payload as any).done) {
+            if (process.env.ECO_DEBUG === "1" || process.env.ECO_DEBUG === "true") {
+              console.debug("[stream.onChunk] has done flag");
+            }
             if (metaValue) {
               state.mergeDoneMeta(metaValue);
               if (!state.finishReason) {
@@ -1546,11 +1578,21 @@ async function handleAskEcoRequest(req: Request, res: Response, _next: NextFunct
           }
 
           if (typeof (payload as any).text === "string" && (payload as any).text) {
+            if (process.env.ECO_DEBUG === "1" || process.env.ECO_DEBUG === "true") {
+              console.debug("[stream.onChunk] has text, calling sendChunk", { textLen: ((payload as any).text as string).length, index: (payload as any).index });
+            }
             sendChunk({ text: (payload as any).text, index: (payload as any).index, meta: metaValue });
             return;
           }
 
-          if (metaValue) sendMeta(metaValue);
+          if (metaValue) {
+            if (process.env.ECO_DEBUG === "1" || process.env.ECO_DEBUG === "true") {
+              console.debug("[stream.onChunk] has meta, calling sendMeta");
+            }
+            sendMeta(metaValue);
+          } else if (process.env.ECO_DEBUG === "1" || process.env.ECO_DEBUG === "true") {
+            console.debug("[stream.onChunk] no text or meta, ignoring");
+          }
         },
       };
 
