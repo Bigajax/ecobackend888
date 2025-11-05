@@ -527,3 +527,38 @@ export async function buscarMemoriasSemanticas({
     };
   }
 }
+
+/**
+ * Wrapper com timeout para buscarMemoriasSemanticas
+ * Retorna resultado vazio se exceder timeout (graceful degradation)
+ */
+export async function buscarMemoriasSemanticasComTimeout(
+  params: BuscarMemoriasSemanticasParams,
+  timeoutMs: number = 5000
+): Promise<BuscarMemoriasSemanticasResult> {
+  const timeoutPromise = new Promise<BuscarMemoriasSemanticasResult>((_, reject) =>
+    setTimeout(() => reject(new Error("Memory retrieval timeout")), timeoutMs)
+  );
+
+  try {
+    return await Promise.race([
+      buscarMemoriasSemanticas(params),
+      timeoutPromise,
+    ]);
+  } catch (err) {
+    if (err instanceof Error && err.message.includes("timeout")) {
+      debugLog("timeout_exceeded", {
+        timeoutMs,
+        usuarioId: params.usuarioId,
+      });
+      return {
+        memories: [],
+        fetchedCount: 0,
+        minScoreFinal: params.minScore ?? 0.30,
+        minMaxScore: null,
+      };
+    }
+    // Re-throw outros erros
+    throw err;
+  }
+}

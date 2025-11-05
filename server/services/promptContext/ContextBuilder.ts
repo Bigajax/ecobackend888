@@ -27,7 +27,7 @@ import {
   updateDecisionDebug,
   resolveDecisionContext,
 } from "./pipeline/decisionResolver";
-import { buscarMemoriasSemanticas } from "../supabase/semanticMemoryClient";
+import { buscarMemoriasSemanticas, buscarMemoriasSemanticasComTimeout } from "../supabase/semanticMemoryClient";
 import { formatMemoriesSection, injectMemoriesIntoPrompt, clampTokens } from "./memoryInjector";
 
 const REQUIRED_MANIFEST_IDS = new Set([
@@ -419,7 +419,7 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
         });
       }
 
-      const memoriesResult = await buscarMemoriasSemanticas({
+      const memoriesResult = await buscarMemoriasSemanticasComTimeout({
         usuarioId: userId,
         queryText: texto,
         bearerToken: params.bearerToken ?? undefined,
@@ -449,12 +449,7 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
           minScore: memoriesResult.minScoreFinal,
         });
       }
-    } catch (err) {
-      log.warn("[ContextBuilder] memory_retrieval_failed", {
-        message: err instanceof Error ? err.message : String(err),
-        usuarioId: userId,
-      });
-    }
+} catch (err) {      log.warn("[ContextBuilder] memory_retrieval_failed", {        message: err instanceof Error ? err.message : String(err),        usuarioId: userId,        stack: err instanceof Error ? err.stack : undefined,      });    }
   }
 
   const montarMensagemAtual = (textoAtual: string) => applyCurrentMessage(baseWithMemories, textoAtual);
