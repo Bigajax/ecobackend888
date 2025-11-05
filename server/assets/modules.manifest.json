@@ -1,221 +1,400 @@
 {
   "version": "2",
+  "defaults": {
+    "window_days": 14,
+    "alpha_prior": 1.5,
+    "beta_prior": 1.5,
+    "max_aux_tokens": 350,
+    "cold_start_boost": 0.35
+  },
+  "families": {
+    "core": {
+      "reward_key": "core_guidance",
+      "baseline": "ABERTURA_SUPERFICIE",
+      "enabled": true
+    },
+    "emotional": {
+      "reward_key": "emotional_resonance",
+      "baseline": "ECO_VULNERABILIDADE_MITOS",
+      "enabled": true
+    },
+    "philosophical": {
+      "reward_key": "philosophical_depth",
+      "baseline": "ECO_OBSERVADOR_PRESENTE",
+      "enabled": true
+    },
+    "cognitive": {
+      "reward_key": "cognitive_clarity",
+      "baseline": "ECO_HEURISTICA_DISPONIBILIDADE",
+      "enabled": true
+    },
+    "extra": {
+      "reward_key": "contextual_support",
+      "enabled": true
+    }
+  },
   "modules": [
     {
       "id": "SISTEMA_IDENTIDADE",
       "family": "core",
       "role": "instruction",
-      "tokens_avg": 414
+      "size": "S",
+      "tokens_avg": 414,
+      "enabled": true
     },
     {
       "id": "ABERTURA_SUPERFICIE",
       "family": "core",
       "role": "instruction",
-      "tokens_avg": 177
+      "size": "S",
+      "tokens_avg": 177,
+      "enabled": true
     },
     {
       "id": "FORMATO_RESPOSTA",
       "family": "core",
       "role": "instruction",
-      "tokens_avg": 268
+      "size": "S",
+      "tokens_avg": 268,
+      "enabled": true
     },
     {
       "id": "INSTRUCOES_SISTEMA",
       "family": "core",
       "role": "instruction",
-      "tokens_avg": 712
+      "size": "M",
+      "tokens_avg": 712,
+      "enabled": true
     },
     {
       "id": "TECNICO_BLOCO_MEMORIA",
       "family": "core",
       "role": "instruction",
-      "tokens_avg": 85
+      "size": "S",
+      "tokens_avg": 85,
+      "enabled": true
     },
     {
       "id": "ECO_EMO_VERGONHA_COMBATE",
-      "family": "extra",
-      "role": "instruction",
-      "tokens_avg": 595
+      "family": "emotional",
+      "role": "context",
+      "size": "M",
+      "tokens_avg": 595,
+      "gate": {
+        "min_open": 2
+      },
+      "enabled": true
     },
     {
       "id": "ECO_MEMORIA_REVISITAR_PASSADO",
-      "family": "extra",
-      "role": "instruction",
-      "tokens_avg": 621
+      "family": "emotional",
+      "role": "context",
+      "size": "M",
+      "tokens_avg": 621,
+      "gate": {
+        "min_open": 2
+      },
+      "enabled": true
     },
     {
       "id": "ECO_VULNERABILIDADE_DEFESAS",
-      "family": "extra",
-      "role": "instruction",
-      "tokens_avg": 637
+      "family": "emotional",
+      "role": "context",
+      "size": "M",
+      "tokens_avg": 637,
+      "gate": {
+        "min_open": 2
+      },
+      "enabled": true
     },
     {
       "id": "ECO_VULNERABILIDADE_MICRO_PRESENCA",
-      "family": "extra",
-      "role": "instruction",
-      "tokens_avg": 124
+      "family": "emotional",
+      "role": "context",
+      "size": "S",
+      "tokens_avg": 124,
+      "gate": {
+        "min_open": 3
+      },
+      "enabled": true
     },
     {
       "id": "ECO_VULNERABILIDADE_MICRO_REFRAME",
-      "family": "extra",
-      "role": "instruction",
-      "tokens_avg": 125
+      "family": "emotional",
+      "role": "context",
+      "size": "S",
+      "tokens_avg": 125,
+      "gate": {
+        "min_open": 3
+      },
+      "enabled": true
     },
     {
       "id": "ECO_VULNERABILIDADE_MITOS",
-      "family": "extra",
-      "role": "instruction",
-      "tokens_avg": 648
+      "family": "emotional",
+      "role": "context",
+      "size": "M",
+      "tokens_avg": 648,
+      "gate": {
+        "min_open": 2
+      },
+      "enabled": true
     },
     {
       "id": "ECO_CORPO_EMOCAO",
-      "family": "extra",
-      "role": "instruction",
-      "tokens_avg": 639
+      "family": "philosophical",
+      "role": "context",
+      "size": "M",
+      "tokens_avg": 639,
+      "gate": {
+        "min_open": 2
+      },
+      "enabled": true
     },
     {
       "id": "ECO_CORPO_SENSACAO",
-      "family": "extra",
-      "role": "instruction",
-      "tokens_avg": 22
+      "family": "philosophical",
+      "role": "context",
+      "size": "S",
+      "tokens_avg": 22,
+      "gate": {
+        "min_open": 3
+      },
+      "enabled": true
     },
     {
       "id": "ECO_FIM_DO_SOFRIMENTO",
-      "family": "extra",
-      "role": "instruction",
-      "tokens_avg": 619
+      "family": "philosophical",
+      "role": "context",
+      "size": "M",
+      "tokens_avg": 619,
+      "gate": {
+        "min_open": 2
+      },
+      "enabled": true
     },
     {
       "id": "ECO_IDENTIFICACAO_MENTE",
-      "family": "extra",
-      "role": "instruction",
-      "tokens_avg": 602
+      "family": "philosophical",
+      "role": "context",
+      "size": "M",
+      "tokens_avg": 602,
+      "gate": {
+        "min_open": 2
+      },
+      "enabled": true
     },
     {
       "id": "ECO_OBSERVADOR_PRESENTE",
-      "family": "extra",
-      "role": "instruction",
-      "tokens_avg": 22
+      "family": "philosophical",
+      "role": "context",
+      "size": "S",
+      "tokens_avg": 22,
+      "gate": {
+        "min_open": 3
+      },
+      "enabled": true
     },
     {
       "id": "ECO_PRESENCA_RACIONAL",
-      "family": "extra",
-      "role": "instruction",
-      "tokens_avg": 22
+      "family": "philosophical",
+      "role": "context",
+      "size": "S",
+      "tokens_avg": 22,
+      "gate": {
+        "min_open": 3
+      },
+      "enabled": true
     },
     {
-      "id": "ECO_OBSERVADOR_PRESENTE",
-      "family": "extra",
-      "role": "instruction",
-      "tokens_avg": 607
+      "id": "ECO_OBSERVADOR_PRESENTE_ESTOICO",
+      "family": "philosophical",
+      "role": "context",
+      "size": "M",
+      "tokens_avg": 607,
+      "path_hint": "modulos_filosoficos/estoicos/eco_observador_presente.txt",
+      "gate": {
+        "min_open": 2
+      },
+      "enabled": true
     },
     {
-      "id": "ECO_PRESENCA_RACIONAL",
-      "family": "extra",
-      "role": "instruction",
-      "tokens_avg": 573
+      "id": "ECO_PRESENCA_RACIONAL_ESTOICO",
+      "family": "philosophical",
+      "role": "context",
+      "size": "M",
+      "tokens_avg": 573,
+      "path_hint": "modulos_filosoficos/estoicos/eco_presenca_racional.txt",
+      "gate": {
+        "min_open": 2
+      },
+      "enabled": true
     },
     {
       "id": "ECO_HEURISTICA_ANCORAGEM",
-      "family": "extra",
-      "role": "instruction",
-      "tokens_avg": 150
+      "family": "cognitive",
+      "role": "context",
+      "size": "S",
+      "tokens_avg": 150,
+      "gate": {
+        "signal": "ancoragem"
+      },
+      "enabled": true
     },
     {
       "id": "ECO_HEURISTICA_CAUSAS_SUPERAM_ESTATISTICAS",
-      "family": "extra",
-      "role": "instruction",
-      "tokens_avg": 160
+      "family": "cognitive",
+      "role": "context",
+      "size": "S",
+      "tokens_avg": 160,
+      "gate": {
+        "signal": "causas_superam_estatisticas"
+      },
+      "enabled": true
     },
     {
       "id": "ECO_HEURISTICA_CERTEZA_EMOCIONAL",
-      "family": "extra",
-      "role": "instruction",
-      "tokens_avg": 158
+      "family": "cognitive",
+      "role": "context",
+      "size": "S",
+      "tokens_avg": 158,
+      "gate": {
+        "signal": "certeza_emocional"
+      },
+      "enabled": true
     },
     {
       "id": "ECO_HEURISTICA_DISPONIBILIDADE",
-      "family": "extra",
-      "role": "instruction",
-      "tokens_avg": 162
+      "family": "cognitive",
+      "role": "context",
+      "size": "S",
+      "tokens_avg": 162,
+      "gate": {
+        "signal": "disponibilidade"
+      },
+      "enabled": true
     },
     {
       "id": "ECO_HEURISTICA_EXCESSO_CONFIANCA",
-      "family": "extra",
-      "role": "instruction",
-      "tokens_avg": 153
+      "family": "cognitive",
+      "role": "context",
+      "size": "S",
+      "tokens_avg": 153,
+      "gate": {
+        "signal": "excesso_confianca"
+      },
+      "enabled": true
     },
     {
       "id": "ECO_HEURISTICA_ILUSAO_COMPREENSAO_PASSADO",
-      "family": "extra",
-      "role": "instruction",
-      "tokens_avg": 161
+      "family": "cognitive",
+      "role": "context",
+      "size": "S",
+      "tokens_avg": 161,
+      "gate": {
+        "signal": "ilusao_compreensao_passado"
+      },
+      "enabled": true
     },
     {
       "id": "ECO_HEURISTICA_ILUSAO_VALIDADE",
-      "family": "extra",
-      "role": "instruction",
-      "tokens_avg": 159
+      "family": "cognitive",
+      "role": "context",
+      "size": "S",
+      "tokens_avg": 159,
+      "gate": {
+        "signal": "ilusao_validade"
+      },
+      "enabled": true
     },
     {
       "id": "ECO_HEURISTICA_INTUICAO_ESPECIALISTA",
-      "family": "extra",
-      "role": "instruction",
-      "tokens_avg": 160
+      "family": "cognitive",
+      "role": "context",
+      "size": "S",
+      "tokens_avg": 160,
+      "gate": {
+        "signal": "excesso_intuicao_especialista"
+      },
+      "enabled": true
     },
     {
       "id": "ECO_HEURISTICA_REGRESSAO_MEDIA",
-      "family": "extra",
-      "role": "instruction",
-      "tokens_avg": 158
+      "family": "cognitive",
+      "role": "context",
+      "size": "S",
+      "tokens_avg": 158,
+      "gate": {
+        "signal": "ignora_regressao_media"
+      },
+      "enabled": true
     },
     {
       "id": "HEURISTICA_ILUSAO_COMPREENSAO",
-      "family": "extra",
-      "role": "instruction",
-      "tokens_avg": 670
+      "family": "cognitive",
+      "role": "context",
+      "size": "M",
+      "tokens_avg": 670,
+      "enabled": true
     },
     {
       "id": "BLOCO_REFERENCIA_LEVE",
       "family": "extra",
-      "role": "instruction",
-      "tokens_avg": 78
+      "role": "context",
+      "size": "S",
+      "tokens_avg": 78,
+      "enabled": true
     },
     {
       "id": "DETECÇÃOCRISE",
       "family": "extra",
-      "role": "instruction",
-      "tokens_avg": 185
+      "role": "context",
+      "size": "S",
+      "tokens_avg": 185,
+      "gate": {
+        "min_open": 3
+      },
+      "enabled": true
     },
     {
       "id": "ESCALA_INTENSIDADE_0A10",
       "family": "extra",
-      "role": "instruction",
-      "tokens_avg": 150
+      "role": "context",
+      "size": "S",
+      "tokens_avg": 150,
+      "enabled": true
     },
     {
       "id": "PEDIDOPRÁTICO",
       "family": "extra",
-      "role": "instruction",
-      "tokens_avg": 85
+      "role": "context",
+      "size": "S",
+      "tokens_avg": 85,
+      "enabled": true
     },
     {
       "id": "BLOCO_TECNICO_MEMORIA",
       "family": "extra",
-      "role": "instruction",
-      "tokens_avg": 89
+      "role": "context",
+      "size": "S",
+      "tokens_avg": 89,
+      "enabled": true
     },
     {
       "id": "ESCALA_ABERTURA_1A3",
       "family": "extra",
-      "role": "instruction",
-      "tokens_avg": 131
+      "role": "context",
+      "size": "S",
+      "tokens_avg": 131,
+      "enabled": true
     },
     {
       "id": "METODO_VIVA_ENXUTO",
       "family": "extra",
-      "role": "instruction",
-      "tokens_avg": 246
+      "role": "context",
+      "size": "S",
+      "tokens_avg": 246,
+      "enabled": true
     }
   ]
 }
