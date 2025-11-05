@@ -1317,6 +1317,38 @@ async function handleAskEcoRequest(req: Request, res: Response, _next: NextFunct
     sseConnection = streamSse;
     sseConnectionRef.current = streamSse;
 
+    const bootstrapInteraction = async () => {
+      try {
+        const createdInteractionId = await createInteraction({
+          id: requestInteractionId,
+          userId:
+            !isGuestRequest && typeof (params as any).userId === "string"
+              ? ((params as any).userId as string).trim()
+              : null,
+          sessionId:
+            typeof reqWithIdentity.ecoSessionId === "string" && reqWithIdentity.ecoSessionId.trim()
+              ? reqWithIdentity.ecoSessionId.trim()
+              : null,
+          messageId: lastMessageId,
+          promptHash: null,
+        });
+
+        if (typeof createdInteractionId === "string" && createdInteractionId.trim()) {
+          captureInteractionId(createdInteractionId);
+          (params as any).interactionId = createdInteractionId;
+          return;
+        }
+      } catch (error) {
+        log.warn("[ask-eco] interaction_create_failed", {
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+
+      if (!isInteractionIdReady()) captureInteractionId(requestInteractionId);
+    };
+
+    const bootstrapPromise = bootstrapInteraction(); // Start creating interaction immediately
+
     if (wantsStream) {
       try {
         streamSse.prompt_ready({ client_message_id: promptReadyClientMessageId });
@@ -1458,36 +1490,6 @@ async function handleAskEcoRequest(req: Request, res: Response, _next: NextFunct
       isClosed = true;
     });
 
-    const bootstrapInteraction = async () => {
-      try {
-        const createdInteractionId = await createInteraction({
-          id: requestInteractionId,
-          userId:
-            !isGuestRequest && typeof (params as any).userId === "string"
-              ? ((params as any).userId as string).trim()
-              : null,
-          sessionId:
-            typeof reqWithIdentity.ecoSessionId === "string" && reqWithIdentity.ecoSessionId.trim()
-              ? reqWithIdentity.ecoSessionId.trim()
-              : null,
-          messageId: lastMessageId,
-          promptHash: null,
-        });
-
-        if (typeof createdInteractionId === "string" && createdInteractionId.trim()) {
-          captureInteractionId(createdInteractionId);
-          (params as any).interactionId = createdInteractionId;
-          return;
-        }
-      } catch (error) {
-        log.warn("[ask-eco] interaction_create_failed", {
-          message: error instanceof Error ? error.message : String(error),
-        });
-      }
-
-      if (!isInteractionIdReady()) captureInteractionId(requestInteractionId);
-    };
-
     abortListenerRef.current = () => {
       if (state.done) {
         clearAbortListenerRef();
@@ -1518,7 +1520,7 @@ async function handleAskEcoRequest(req: Request, res: Response, _next: NextFunct
     };
     abortSignal.addEventListener("abort", abortListenerRef.current);
 
-    interactionBootstrapPromise = bootstrapInteraction();
+    interactionBootstrapPromise = bootstrapPromise;
 
     try {
       const stream: EcoStreamHandler = {
