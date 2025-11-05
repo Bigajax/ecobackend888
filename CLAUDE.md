@@ -1,876 +1,616 @@
-# Claude.md - ECO Backend Architecture Documentation
+# CLAUDE.md
 
-## Overview
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-The ECO system is an emotionally-aware AI assistant built on Node.js/TypeScript that implements a sophisticated conversation orchestration pipeline with persistent semantic memory, adaptive context building, and real-time streaming responses. The system analyzes emotional intensity in conversations and adapts its responses accordingly, maintaining a nuanced memory system that scales from ephemeral references to deep emotional memories.
+## Project Overview
 
-## Table of Contents
+ECO is an emotionally-aware conversational AI backend built with Node.js/TypeScript. The system analyzes emotional intensity in user messages, dynamically assembles prompts based on emotional state (3-tier openness levels), streams responses via Server-Sent Events (SSE), and persistently stores meaningful emotional memories in Supabase with semantic search capabilities.
 
-1. [Core Architecture](#core-architecture)
-2. [Request Pipeline](#request-pipeline)
-3. [Emotional Intelligence System](#emotional-intelligence-system)
-4. [Context Building & Prompt Assembly](#context-building--prompt-assembly)
-5. [Memory & Embeddings Subsystem](#memory--embeddings-subsystem)
-6. [SSE Streaming Architecture](#sse-streaming-architecture)
-7. [Data Persistence Layer](#data-persistence-layer)
-8. [Analytics & Telemetry](#analytics--telemetry)
-9. [Security & Identity](#security--identity)
-10. [External Integrations](#external-integrations)
+The backend orchestrates a sophisticated pipeline: guest/identity validation → emotional decision analysis → dynamic prompt assembly → Claude LLM streaming → memory persistence and analytics tracking.
 
-## Core Architecture
+## Key Technologies
 
-### Technology Stack
-- **Runtime**: Node.js with TypeScript
-- **Framework**: Express.js for HTTP server
-- **Database**: Supabase (PostgreSQL with pgvector extension)
-- **LLM Provider**: OpenRouter/Claude (Anthropic)
-- **Real-time**: Server-Sent Events (SSE)
-- **Analytics**: Mixpanel
-- **Embeddings**: OpenAI/pgvector for semantic search
+- **Runtime**: Node.js 18+ with TypeScript 5.8
+- **Web Framework**: Express.js 5.1
+- **Database**: Supabase (PostgreSQL + pgvector for semantic search)
+- **LLM**: Claude 3.5 Sonnet via OpenRouter API
+- **Real-time**: Server-Sent Events (SSE) for streaming responses
+- **Analytics**: Mixpanel + internal analytics tables (Supabase)
+- **Voice**: ElevenLabs (TTS) + Google Cloud Speech-to-Text (transcription)
+- **Testing**: Jest 30 + ts-jest
+- **Validation**: Zod 3.25
 
-### Key Design Principles
-1. **Emotional Awareness**: Every interaction is analyzed for emotional intensity (0-10 scale)
-2. **Adaptive Context**: Prompt construction dynamically adjusts based on emotional state
-3. **Memory Persistence**: Intense emotional moments (≥7) become permanent memories
-4. **Streaming First**: SSE-based responses for real-time interaction
-5. **Privacy by Design**: User isolation through RLS and JWT validation
+## Project Structure
 
-## Request Pipeline
-
-### 1. Bootstrap & Initialization
 ```
-server.ts → Environment validation → Module catalog → Service initialization
+ecobackend888/
+├── server/                           # Main backend application
+│   ├── core/
+│   │   ├── http/
+│   │   │   ├── app.ts               # Express app creation, CORS, middleware
+│   │   │   ├── guestIdentity.ts     # Guest/session ID generation & validation
+│   │   │   └── middlewares/         # Rate limiting, logging, query normalization
+│   │   ├── ClaudeAdapter.ts         # OpenRouter/Claude streaming integration
+│   │   ├── EmotionalAnalyzer.ts     # Emotion taxonomy and scoring
+│   │   └── activationTracer.ts      # Module activation tracking
+│   ├── services/
+│   │   ├── ConversationOrchestrator.ts # Main orchestration engine
+│   │   ├── conversation/
+│   │   │   ├── ecoDecisionHub.ts    # Emotional intensity & openness level calculation
+│   │   │   ├── fastLane.ts          # Fast-path greeting detection
+│   │   │   ├── streamingOrchestrator.ts # SSE lifecycle & event handling
+│   │   │   ├── responseFinalizer.ts # Post-LLM processing & memory persistence
+│   │   │   ├── memoryPersistence.ts # Emotional memory save logic
+│   │   │   ├── contextCache.ts      # Context caching strategy
+│   │   │   ├── interactionAnalytics.ts # Interaction tracking
+│   │   │   └── genericAutoReplyGuard.ts # Auto-reply detection
+│   │   ├── promptContext/
+│   │   │   ├── ContextBuilder.ts    # Dynamic multi-layer prompt assembly (27KB)
+│   │   │   ├── ModuleStore.ts       # Prompt module loading & caching
+│   │   │   ├── moduleManifest.ts    # Module metadata & activation rules
+│   │   │   ├── heuristicsV2.ts      # Heuristic rule evaluation
+│   │   │   ├── familyBanditPlanner.ts # Multi-armed bandit integration
+│   │   │   ├── calPlanner.ts        # Token budget & knapsack optimization
+│   │   │   ├── promptPlan/          # Prompt planning utilities
+│   │   │   └── logger.ts            # Structured logging
+│   │   ├── analytics/
+│   │   │   ├── analyticsOrchestrator.ts # Analytics event finalization
+│   │   │   └── banditRewardsSync.ts # Bandit reward synchronization scheduler
+│   │   ├── supabase/
+│   │   │   ├── semanticMemoryClient.ts # Memory search & retrieval (RPC calls)
+│   │   │   └── buscarMemorias.ts    # Semantic search wrapper
+│   │   ├── MemoryService.ts         # Memory CRUD operations
+│   │   ├── buscarReferenciasSemelhantes.ts # Temporary reference retrieval
+│   │   ├── supabaseClient.ts        # Supabase admin/analytics client factory
+│   │   ├── registrarTodasHeuristicas.ts # Dynamic heuristic registration
+│   │   └── registrarModulosFilosoficos.ts # Philosophical module registration
+│   ├── routes/
+│   │   ├── promptRoutes.ts          # POST /api/ask-eco (SSE endpoint, 68KB)
+│   │   ├── askEcoModern.ts          # Stub handler for testing
+│   │   ├── openrouterRoutes.ts      # LLM integration endpoints
+│   │   ├── voiceFullRoutes.ts       # Voice transcription & response
+│   │   ├── perfilEmocionalRoutes.ts # Emotional profile endpoints
+│   │   ├── memoriasRoutes.ts        # Memory CRUD routes
+│   │   ├── feedbackRoutes.ts        # Feedback collection
+│   │   ├── signalRoutes.ts          # Passive behavior signals
+│   │   ├── relatorioEmocionalRoutes.ts # Emotional reports
+│   │   ├── guestRoutes.ts           # Guest account claim
+│   │   └── askEco/                  # Legacy conversation routes
+│   ├── controllers/
+│   │   ├── memoriasController.ts    # Memory endpoint handlers (17KB)
+│   │   ├── feedbackController.ts    # Feedback submission
+│   │   ├── signalController.ts      # Signal reception
+│   │   └── voiceController.ts       # Voice processing
+│   ├── adapters/
+│   │   ├── ClaudeAdapter.ts         # Claude LLM adapter (duplicate in core/)
+│   │   ├── SupabaseAdapter.ts       # Supabase client wrapper
+│   │   ├── OpenRouterAdapter.ts     # OpenRouter API wrapper
+│   │   ├── embeddingService.ts      # OpenAI embeddings
+│   │   └── supabaseMemoryRepository.ts # Memory persistence layer
+│   ├── middleware/
+│   │   ├── cors.ts                  # CORS configuration & whitelist
+│   │   ├── ensureIdentity.ts        # JWT validation & header injection
+│   │   └── errorHandler.ts          # Global error handler
+│   ├── domains/
+│   │   ├── memory/
+│   │   │   ├── controller.ts        # Memory CRUD handlers (13KB)
+│   │   │   ├── memoryQueries.ts
+│   │   │   └── types.ts
+│   │   ├── mensagem/
+│   │   │   └── types.ts
+│   │   └── prompts/
+│   │       └── ModuleCatalog.ts     # Module registry & lookup
+│   ├── sse/
+│   │   ├── sseEvents.ts             # SSE event serialization (34KB)
+│   │   ├── sseState.ts              # Stream state management
+│   │   └── chunkProcessor.ts
+│   ├── deduplication/
+│   │   ├── activeStreamManager.ts   # Stream deduplication & concurrency control
+│   │   ├── clientMessageRegistry.ts # Client message ID tracking
+│   │   └── interactionManager.ts
+│   ├── analytics/
+│   │   └── events/
+│   │       └── mixpanelEvents.ts    # Mixpanel event definitions & payloads
+│   ├── utils/
+│   │   ├── text.ts                  # Token counting & text utilities
+│   │   ├── http.ts                  # HTTP response helpers
+│   │   ├── sse.ts                   # SSE response creation
+│   │   ├── logger.ts                # Structured logging utilities
+│   │   └── types.ts                 # Shared TypeScript types
+│   ├── validation/
+│   │   ├── schemas.ts               # Zod validation schemas
+│   │   └── sanitize.ts              # Input sanitization
+│   ├── bootstrap/
+│   │   └── modules.ts               # Module catalog initialization
+│   ├── scripts/
+│   │   ├── modulesInventory.ts      # Module listing & inventory
+│   │   ├── smokeFeedback.ts         # Feedback system smoke test
+│   │   ├── testSupabasePersistence.ts # Supabase integration test
+│   │   ├── banditPosteriorCache.ts  # Bandit cache warming
+│   │   ├── cronSelfTest.ts          # Health check script
+│   │   └── pilotSmoke.ts            # Pilot program smoke test
+│   ├── assets/                      # Prompt modules (TXT files)
+│   │   ├── modulos_core/
+│   │   │   ├── developer_prompt.txt
+│   │   │   ├── nv1_core.txt         # Level 1 openness (surface)
+│   │   │   ├── nv2_reflection.txt   # Level 2 openness (reflection)
+│   │   │   ├── nv3_profundo.txt     # Level 3 openness (depth)
+│   │   │   ├── eco_estrutura_de_resposta.txt
+│   │   │   ├── identidade_mini.txt
+│   │   │   └── usomemorias.txt      # Memory usage instructions
+│   │   └── modulos_extras/
+│   │       ├── bloco_tecnico_memoria.txt
+│   │       ├── escala_abertura_1a3.txt
+│   │       ├── eco_*.txt            # Philosophical modules
+│   │       └── heuristicas_*.txt    # Heuristic modules
+│   ├── data/                        # Data utilities
+│   ├── lib/
+│   │   ├── supabaseAdmin.ts         # Supabase admin client
+│   │   └── mixpanel.ts              # Mixpanel client wrapper
+│   ├── types/
+│   │   └── index.ts
+│   ├── schemas/
+│   │   └── memory.sql
+│   ├── server.ts                    # Main entry point (boot)
+│   ├── jest.contract.config.ts      # Jest contract test config
+│   ├── tsconfig.json
+│   ├── package.json                 # Backend dependencies
+│   └── dist/                        # Compiled JavaScript output
+├── tests/                           # Root-level test directory
+│   ├── analytics/                   # Analytics tests
+│   ├── bandits/                     # Bandit algorithm tests
+│   ├── core/                        # Core utility tests
+│   ├── orchestrator/                # Orchestration tests
+│   └── promptPlan/                  # Prompt planning tests
+├── __tests__/                       # Alternative test directory (legacy)
+├── docs/                            # Documentation
+├── supabase/                        # Supabase migrations & schema
+│   └── migrations/
+├── src/                             # Root-level utilities & types
+│   └── utils/
+│       └── assetsRoot.ts            # Assets directory resolution
+├── jest.config.ts                   # Root Jest config
+├── tsconfig.json                    # Root TypeScript config
+├── package.json                     # Root package.json
+└── README.md                        # Project documentation
 ```
 
-The server bootstrap process:
-- Loads environment variables (`ECO_ASSETS_ROOT`)
-- Initializes the module catalog for prompt assets
-- Sets up auxiliary services (bandits synchronization, heuristics)
-- Establishes Supabase connections (admin and service-role clients)
+## Core Request Pipeline
 
-### 2. Express Application Setup
 ```
-createApp() → CORS → JSON parsing → Identity middlewares → Rate limiting → Domain routes
-```
-
-The Express app applies middleware in order:
-1. **CORS configuration** for cross-origin requests
-2. **Conditional JSON parsing** based on content type
-3. **Guest identity management** (`ensureGuestIdentity`)
-4. **Authenticated identity validation** (`ensureIdentity`)
-5. **Rate limiting** for anonymous requests (`guestSessionMiddleware`)
-6. **Domain-specific routers** mounting
-
-### 3. Core Routes
-
-| Route | Purpose | Method | Response Type |
-|-------|---------|--------|---------------|
-| `/api/ask-eco` | Main conversation endpoint | POST | SSE/JSON |
-| `/api/memorias` | Memory CRUD operations | GET/POST/PUT | JSON |
-| `/api/feedback` | User feedback collection | POST | JSON |
-| `/api/signal` | Passive behavior signals | POST | JSON |
-| `/api/guest/claim` | Guest account association | POST | JSON |
-| `/api/_eco-contract` | Service introspection | GET | JSON |
-| `/api/health` | Health check & status | GET | JSON |
-
-### 4. Conversation Orchestration Flow
-
-```mermaid
-sequenceDiagram
-    participant Client
-    participant Router
-    participant Orchestrator
-    participant EcoDecision
-    participant ContextBuilder
-    participant LLM
-    participant Finalizer
-    participant Supabase
-
-    Client->>Router: POST /api/ask-eco
-    Router->>Orchestrator: getEcoResponse()
-    Orchestrator->>EcoDecision: computeEcoDecision()
-    EcoDecision-->>Orchestrator: {intensity, openness, saveMemory}
-    Orchestrator->>ContextBuilder: prepareConversationContext()
-    ContextBuilder-->>Orchestrator: {systemPrompt, context}
-    Orchestrator->>LLM: Claude via OpenRouter
-    LLM-->>Orchestrator: Stream response
-    Orchestrator->>Finalizer: ResponseFinalizer.finalize()
-    Finalizer->>Supabase: Persist memory (if intensity ≥7)
-    Orchestrator->>Client: SSE events stream
+1. POST /api/ask-eco (promptRoutes.ts:L592-L847)
+   ↓
+2. Identity validation (guestIdentity.ts, ensureIdentity.ts)
+   ↓
+3. ActiveStreamManager deduplication check
+   ↓
+4. ConversationOrchestrator.getEcoResponse()
+   ├─ Greeting detection via fastLane.ts
+   ├─ EcoDecision calculation (intensity 0-10, openness 1-3)
+   ├─ ContextBuilder.prepareConversationContext()
+   │  ├─ Load required modules (core, behavioral, philosophical, heuristic)
+   │  ├─ Module selection via familyBanditPlanner or heuristics
+   │  ├─ Memory search via semanticMemoryClient (RPC buscar_memorias_semanticas_v2)
+   │  ├─ Token budget planning via calPlanner (knapsack optimization)
+   │  └─ Prompt assembly with memory integration
+   ├─ ClaudeAdapter.streamOpenRouter()
+   │  └─ OpenRouter API streaming via axios (JSON mode + stream support)
+   ├─ StreamingOrchestrator SSE event emission
+   │  ├─ prompt_ready event
+   │  ├─ first_token event with latency
+   │  ├─ chunk events (text fragments)
+   │  ├─ memory_saved event (if intensity ≥7)
+   │  └─ done event with stats
+   ├─ ResponseFinalizer post-processing
+   │  ├─ Emotion extraction from response
+   │  ├─ Memory persistence to public.memories (if intensity ≥7 && !guest)
+   │  └─ Analytics finalization
+   └─ AnalyticsOrchestrator async event tracking (withAnalyticsFinalize)
+      ├─ Mixpanel event dispatch
+      ├─ Analytics table inserts
+      └─ Bandit reward tracking
 ```
 
-## Emotional Intelligence System
+## Development Quick Start
 
-### Emotional Decision Hub (`ecoDecisionHub`)
+### Installation & Setup
 
-The emotional analysis pipeline evaluates each message for:
+```bash
+# Install dependencies
+npm install
 
-1. **Intensity Calculation (0-10)**:
-   - Lexical analysis for emotional markers
-   - Vulnerability detection patterns
-   - Contextual weighting based on conversation history
-   - Heuristic rules for specific trigger patterns
+# Configure environment variables
+cp .env.sample .env
+# Edit .env with your Supabase and OpenRouter credentials
 
-2. **Openness Level Derivation (1-3)**:
-   - **Level 1 (Surface)**: Intensity < 5, no vulnerability detected
-   - **Level 2 (Reflection)**: Intensity 5-6 or moderate vulnerability
-   - **Level 3 (Depth)**: Intensity ≥7 with vulnerability signals
-
-3. **Memory Decision Logic**:
-   ```typescript
-   if (intensity >= 7 && !isGuest) {
-     saveMemory = true
-     hasTechBlock = true
-   }
-   ```
-
-### Technical Block Generation
-
-When emotional intensity reaches threshold (≥7), the system generates a structured JSON block containing:
-
-```json
-{
-  "emocao_principal": "string",
-  "intensidade": 7.5,
-  "tags": ["array", "of", "tags"],
-  "dominio_vida": "trabalho|relacionamentos|saude|financas|outros",
-  "nivel_abertura": 1-3,
-  "analise_resumo": "Brief analysis",
-  "salvar_memoria": true,
-  "timestamp": "ISO 8601"
-}
+# Run in development mode
+npm run dev
+# Starts nodemon on server/server.ts with hot reload
 ```
 
-## Context Building & Prompt Assembly
+### Build & Run for Production
 
-### Dynamic Context Pipeline
+```bash
+# Type check & compile
+npm run build
+# Outputs to: server/dist/
 
-The `ContextBuilder` implements a sophisticated multi-layer prompt assembly system:
-
-#### 1. Module Selection Matrix
+# Start production server
+npm start
+# NODE_ENV=production node server/dist/server.ts
 ```
-Base Layer → Core Modules → Advanced Modules → Heuristic Modules → Footer Sections
+
+### Common Development Commands
+
+```bash
+# View all loaded prompt modules
+npm run modules:inventory
+
+# Dump module contents to terminal
+npm run modules:dump
+
+# Test Supabase persistence layer
+npm run test:supabase
+
+# Run all Jest tests
+npm test
+
+# Run specific test suite
+npm test -- --testNamePattern="ecoDecision"
+
+# Run smoke tests
+npm run shadow:smoke
+npm run pilot:smoke
+npm run smoke:feedback
 ```
 
-#### 2. Module Categories
+### Key Environment Variables for Development
 
-| Category | Activation | Examples |
-|----------|------------|----------|
-| **Core** | Always active | `developer_prompt.txt`, `IDENTIDADE.txt` |
-| **Behavioral** | Level-based | `nv1_core.txt`, `nv2_reflection.txt` |
-| **Philosophical** | Level ≥2 | `eco_observador_presente.txt`, `eco_corpo_emocao.txt` |
-| **Heuristic** | Rule-based | `eco_heuristica_disponibilidade.txt` |
-| **Crisis** | High intensity | `eco_crise_sensivel.txt` |
+```bash
+# Required
+OPENROUTER_API_KEY=sk-or-...
+SUPABASE_URL=https://xxx.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=eyJxx...
+SUPABASE_ANON_KEY=eyJxx...
 
-#### 3. Context Cache Strategy
+# Optional (development defaults)
+PORT=3001
+NODE_ENV=development
+ECO_DEBUG=true
+USE_STUB_ECO=false            # true to skip LLM, use stub responses
 
-The system implements an intelligent caching mechanism:
-- **Cache Key**: `ctx:<id>:<level>:<intensity>:<memoryCount>:<flags>`
-- **Cache Conditions**: Level ≤2, no similar memories, stable emotional state
-- **Cache TTL**: 5 minutes for hot paths, 30 minutes for stable contexts
+# SSE tuning
+ECO_SSE_TIMEOUT_MS=55000      # Max time without events before closing
+ECO_FIRST_TOKEN_TIMEOUT_MS=35000 # Watchdog before fallback
+ECO_SSE_PING_INTERVAL_MS=12000   # Heartbeat interval
 
-### Memory Integration
+# Voice (optional)
+ELEVEN_VOICE_ID=21m00Tcm4TlvDq8ikWAM
+ECO_ELEVENLABS_API_KEY=...
 
-The context builder incorporates memories through:
+# Analytics (optional, logs to stderr if disabled)
+MIXPANEL_SERVER_TOKEN=...
+ECO_ANALYTICS_ENABLED=true
+```
 
-1. **Semantic Search**: Finding relevant past experiences
-2. **Temporal Continuity**: Detecting conversation threads
-3. **Emotional Resonance**: Matching emotional patterns
-4. **Domain Alignment**: Prioritizing same life domain memories
+## Critical Files & Key Concepts
 
-## Memory & Embeddings Subsystem
+### Main Orchestration
 
-### Data Model
+**ConversationOrchestrator** (`services/ConversationOrchestrator.ts`):
+- Entry point for all conversation requests
+- Delegates to: ecoDecision → contextBuilder → streamingOrchestrator → finalizer
+- Handles guest vs authenticated user flows
+- Returns streaming SSE response or fallback JSON
 
-#### Primary Tables
+**streamingOrchestrator** (`services/conversation/streamingOrchestrator.ts`):
+- Manages SSE event lifecycle
+- Emits: `prompt_ready` → `first_token` → `chunk` (many) → `memory_saved` → `done`
+- Implements watchdog timers (first token timeout, idle timeout)
+- Handles provider silence gracefully with fallback logic
 
-**`public.memories`** - Persistent emotional memories (intensity ≥7)
+### Emotional Intelligence
+
+**ecoDecisionHub** (`services/conversation/ecoDecisionHub.ts`):
+- Analyzes message for emotional intensity (0-10 scale)
+- Derives openness level (1-3):
+  - Level 1 (Surface): intensity < 5
+  - Level 2 (Reflection): intensity 5-6 or moderate vulnerability
+  - Level 3 (Depth): intensity ≥7 with vulnerability signals
+- Determines if memory should be saved (intensity ≥7 && !guest)
+
+**responseFinalizer** (`services/conversation/responseFinalizer.ts`):
+- Post-processes Claude response
+- Extracts emotion and technical blocks from response
+- Persists to `public.memories` if emotional intensity threshold met
+- Updates user emotional profile statistics
+
+### Context & Prompt Assembly
+
+**ContextBuilder** (`services/promptContext/ContextBuilder.ts`):
+- Multi-layer prompt assembly based on emotional state
+- Module categories:
+  - **Core** (always): developer_prompt, identidade, estrutura_resposta
+  - **Behavioral** (level-based): nv1_core, nv2_reflection, nv3_profundo
+  - **Philosophical** (level ≥2): eco_observador_presente, eco_corpo_emocao, etc.
+  - **Heuristic** (rule-based): eco_heuristica_disponibilidade, etc.
+  - **Crisis** (high intensity): eco_crise_sensivel
+- Integrates semantic memories via multi-factor scoring
+- Caches context for repeated requests (5min hot cache, 30min stable)
+
+**ModuleStore** (`services/promptContext/ModuleStore.ts`):
+- Loads prompt modules from `/server/assets/modulos_*/*.txt`
+- Pre-compiles and caches module content
+- Tracks module activation for analytics
+- Supports hot reload in development
+
+### Memory & Semantic Search
+
+**semanticMemoryClient** (`services/supabase/semanticMemoryClient.ts`):
+- Calls Supabase RPC `buscar_memorias_semanticas_v2`
+- Multi-factor scoring:
+  - Semantic similarity (cosine distance on pgvector embeddings)
+  - Emotional similarity (optional embedding_emocional)
+  - Temporal recency (exponential decay)
+  - Tag overlap coefficient
+  - Life domain matching bonus
+- Returns top K memories within token budget
+- Implements MMR (Maximum Marginal Relevance) for diversity
+
+**MemoryService** (`services/MemoryService.ts`):
+- CRUD operations on `public.memories` and `public.referencias_temporarias`
+- Row-Level Security enforced: users see only their own memories
+- Persists memories only when intensity ≥7
+- Automatic expiration of temporary references (max 30 days)
+
+### Real-time Streaming (SSE)
+
+**promptRoutes.ts** (POST `/api/ask-eco`):
+- Validates request identity & deduplicates via activeStreamManager
+- Sets up SSE response headers
+- Delegates to ConversationOrchestrator for orchestration
+- Implements JSON fallback if client fails to connect to SSE
+- Watchdog timers prevent silent hangs:
+  - `firstTokenWatchdogMs` (35s default) - triggers fallback if no first token
+  - `streamIdleTimeoutMs` (55s default) - closes stream if no activity
+  - `streamPingIntervalMs` (12s default) - sends heartbeat pings
+
+**sseEvents.ts** (`sse/sseEvents.ts`):
+- Serializes SSE events (control, chunk, done, memory_saved, error)
+- Calculates first-token latency
+- Handles chunk buffering and ordering
+- Implements ping/heartbeat mechanism
+
+### Testing
+
+The project uses Jest with TypeScript support. Key test directories:
+
+- **Contract Tests** (`server/tests/contract/`): API contract tests
+  - `askEco.sse.spec.ts` - SSE endpoint behavior
+  - `feedback.spec.ts` - Feedback API
+  - `similaresV2.spec.ts` - Memory search RPC
+- **Unit Tests** (`tests/`): Service logic tests
+  - `ecoDecisionPipeline.test.ts` - Emotional decision calculations
+  - `contextBuilder.test.ts` - Prompt assembly
+  - `fastLane.test.ts` - Greeting detection
+
+Run tests:
+```bash
+npm test                          # All tests
+npm test -- --watch               # Watch mode
+npm run test:supabase            # Integration tests
+```
+
+## Database Schema
+
+### Core Tables (Supabase PostgreSQL)
+
+**`public.memories`** (Persistent emotional memories):
 ```sql
 - id: UUID primary key
-- usuario_id: User identifier (RLS enforced)
-- texto: Memory content (3-3000 tokens)
-- intensidade: Float 0-10
-- emocao_principal: Emotion taxonomy
-- tags: Text array (snake_case)
-- embedding: vector(1536) - Semantic embedding
-- embedding_emocional: vector(768) - Emotional embedding (optional)
-- dominio_vida: Life domain enum
-- created_at/updated_at: Timestamps
-- pin: Boolean for manual retention
-- mensagem_id: Link to original message
+- usuario_id: UUID (RLS enforced)
+- texto: TEXT (memory content, 3-3000 tokens)
+- intensidade: FLOAT (0-10 scale)
+- emocao_principal: TEXT (emotion taxonomy)
+- tags: TEXT[] (snake_case tags)
+- embedding: vector(1536) (semantic embedding from OpenAI)
+- embedding_emocional: vector(768) (optional emotional embedding)
+- dominio_vida: TEXT (work|relationships|health|finances|other)
+- created_at: TIMESTAMP
+- updated_at: TIMESTAMP
+- pin: BOOLEAN (manual retention)
+- mensagem_id: UUID (link to original interaction)
 ```
 
-**`public.referencias_temporarias`** - Ephemeral references (intensity <7)
-```sql
+**`public.referencias_temporarias`** (Ephemeral references <7 intensity):
 - Same structure as memories
-- expires_at: Timestamp for automatic cleanup (max 30 days)
-```
+- `expires_at: TIMESTAMP` (auto-delete after 30 days)
 
-### Embedding Pipeline
+**`analytics.quality_metrics`**:
+- Tracks response quality, user satisfaction scores
 
-```mermaid
-flowchart LR
-    A[User Message] --> B[Generate Embedding]
-    B --> C[Semantic Search RPC]
-    C --> D[HNSW Index Lookup]
-    D --> E[MMR Diversification]
-    E --> F[Token Budget Check]
-    F --> G[Return Memories]
-```
+**`analytics.bandit_state`**:
+- Stores multi-armed bandit arm weights and performance metrics
 
-### Semantic Search RPC
+**`analytics.knapsack_results`**:
+- Records module selection decisions and outcomes
 
-The `buscar_memorias_semanticas_v2` RPC implements:
+### Indexes
+- HNSW index on `memories.embedding` for fast semantic search
+- Partial indexes filtered by `usuario_id` and creation date
+- GiST indexes on emotional patterns
 
-1. **Multi-factor Scoring**:
-   - Semantic similarity (cosine distance)
-   - Emotional similarity (when available)
-   - Temporal recency (exponential decay)
-   - Tag overlap coefficient
-   - Domain matching bonus
+## Architecture Patterns
 
-2. **MMR (Maximum Marginal Relevance)**:
-   - Lambda parameter (default 0.5)
-   - Diversity penalty for similar selections
-   - Prevents redundant memory retrieval
+### 1. Conversation Orchestration
+Pipeline pattern: greeting → decision → context → stream → finalize. Each stage has well-defined inputs/outputs for easy testing and modification.
 
-3. **Token Budget Management**:
-   - Configurable token limit
-   - Priority queue by composite score
-   - Truncation with ellipsis for overflow
+### 2. Emotional Awareness
+3-tier openness system (1=surface, 2=reflection, 3=depth) determines which modules load and how memories integrate. Dynamic prompt assembly adapts tone and depth.
 
-## SSE Streaming Architecture
+### 3. Streaming with Fallbacks
+SSE preferred for real-time, JSON fallback for connectivity issues. Watchdog timers prevent silent failures. Client-side streams deduplicated by `client_message_id`.
 
-### Event Flow Sequence
+### 4. Memory as Context
+Semantic search finds emotionally relevant memories. MMR prevents redundancy. Memories only persist when intensity ≥7 (meaningful moments). Guests don't accumulate permanent memories.
 
-```
-1. prompt_ready → 2. first_token → 3. chunk (repeated) → 4. memory_saved → 5. done
-```
+### 5. Analytics-Driven Optimization
+Bandit algorithm selects modules. Heuristic rules prime selection. Quality metrics tracked per interaction. Rewards synced periodically to optimize future decisions.
 
-### SSE Event Types
+### 6. Privacy by Design
+RLS enforces user isolation in all memory queries. Service role used only for admin operations. Guests session-scoped, not persisted long-term.
 
-| Event | Type | Payload | Purpose |
-|-------|------|---------|---------|
-| `prompt_ready` | control | `{stream: true}` | Handshake confirmation |
-| `first_token` | meta | `{latency_ms}` | First token metrics |
-| `chunk` | token | `{index, text}` | Content streaming |
-| `memory_saved` | control | `{memory_id}` | Persistence confirmation |
-| `done` | done | `{done: true, stats}` | Stream termination |
+## Common Development Tasks
 
-### Resilience Features
+### Adding a New Memory Field
 
-1. **Heartbeat Mechanism**: Periodic `ping` events prevent timeout
-2. **Idle Guard**: Automatic termination after inactivity threshold
-3. **Fallback Handler**: JSON response if SSE fails
-4. **Deduplication**: Active stream manager prevents concurrent requests
-5. **Graceful Shutdown**: Cleanup on client disconnect
+1. Create Supabase migration: `supabase/migrations/xxx_add_field.sql`
+2. Update `MemoryService` type definitions
+3. Update RPC `buscar_memorias_semanticas_v2` if searchable
+4. Add to memory persistence in `responseFinalizer.ts`
+5. Update tests in `server/tests/contract/`
 
-## Data Persistence Layer
+### Tuning Emotional Decision Logic
 
-### Supabase Integration
+1. Edit `ecoDecisionHub.ts` intensity calculation thresholds
+2. Adjust openness level breakpoints (currently 5, 6, 7)
+3. Modify vulnerability patterns in pattern matching
+4. Run tests: `npm test -- --testNamePattern="ecoDecision"`
+5. Check impact via `npm run modules:inventory` output
 
-#### Connection Management
-```typescript
-// Analytics client (service-role)
-const analyticsClient = createClient(SUPABASE_URL, SERVICE_ROLE_KEY)
+### Optimizing Context Assembly
 
-// Admin client (full access)
-const adminClient = createClient(SUPABASE_URL, ADMIN_KEY)
-```
+1. Adjust module weights in `familyBanditPlanner.ts`
+2. Add heuristic rules in `heuristicsV2.ts`
+3. Modify token budgets in `calPlanner.ts`
+4. Update cache TTL in `contextCache.ts`
+5. Monitor via `/api/health` module activation stats
 
-#### Row-Level Security (RLS)
+### Testing Streaming Behavior
 
-All memory tables enforce user isolation:
-```sql
-CREATE POLICY "Users can only access own memories"
-ON public.memories
-FOR ALL
-USING (usuario_id = auth.uid() OR auth.role() = 'service_role')
-```
+1. Use `USE_STUB_ECO=true` to test without LLM calls
+2. Enable `ECO_DEBUG=true` for detailed logs
+3. Run: `npm run shadow:smoke` for end-to-end flow
+4. Check SSE event ordering in `sseEvents.ts` test
+5. Verify fallback JSON behavior in `promptRoutes.ts:L800-L847`
 
-### Analytics Schema
+## Important Notes
 
-**Core Analytics Tables**:
-- `analytics.quality_metrics` - Response quality tracking
-- `analytics.bandit_state` - Multi-armed bandit optimization
-- `analytics.knapsack_results` - Module selection metrics
-- `analytics.latency_tracking` - Performance monitoring
+### Modules & Assets
 
-### Memory Persistence Flow
-
-```mermaid
-stateDiagram-v2
-    [*] --> Analyze: Message Received
-    Analyze --> CheckIntensity: Compute Intensity
-    CheckIntensity --> SaveMemory: Intensity ≥7
-    CheckIntensity --> SaveReference: Intensity <7
-    SaveMemory --> UpdateProfile: Update Emotional Profile
-    SaveReference --> ExpireCheck: Set Expiration
-    UpdateProfile --> InvalidateCache: Clear Caches
-    InvalidateCache --> [*]: Complete
-    ExpireCheck --> [*]: Complete
-```
-
-## Analytics & Telemetry
-
-### Mixpanel Integration
-
-Events tracked:
-- **Message Events**: `eco_message_sent`, `eco_message_received`
-- **Memory Events**: `memory_created`, `deep_question_detected`
-- **Performance**: `first_token_latency`, `total_response_time`
-- **User Behavior**: `session_start`, `session_end`, `feedback_submitted`
-
-### Telemetry Pipeline
-
-```typescript
-// Asynchronous event processing
-withAnalyticsFinalize(async () => {
-  await mixpanel.track('eco_message', {
-    intensity,
-    openness_level,
-    memory_saved,
-    response_time_ms,
-    tokens_used
-  })
-})
-```
-
-## Security & Identity
-
-### Identity Management Layers
-
-1. **Guest Identity** (`ensureGuestIdentity`):
-   - Generates UUID v4 for anonymous users
-   - Maintains session continuity
-   - Rate limiting via sliding window
-
-2. **Authenticated Identity** (`ensureIdentity`):
-   - Validates JWT from Supabase Auth
-   - Injects `X-Eco-Guest-Id` and `X-Eco-Session-Id` headers
-   - Enforces UUID v4 format
-
-3. **CORS Configuration**:
-   - Whitelisted origins from environment
-   - Credential support for authenticated requests
-   - Preflight caching optimization
-
-### Rate Limiting Strategy
-
-```typescript
-// Guest session limits
-const RATE_LIMITS = {
-  window: '15m',
-  max_requests: 20,
-  cooldown: '5m'
-}
-```
-
-## External Integrations
-
-### OpenRouter/Claude Integration
-
-Configuration:
-```typescript
-{
-  model: 'anthropic/claude-3-5-sonnet',
-  api_key: OPENROUTER_API_KEY,
-  temperature: 0.7,
-  max_tokens: 4096,
-  stream: true
-}
-```
-
-Error Handling:
-- Automatic retry with exponential backoff
-- Fallback to cached responses when available
-- Graceful degradation for non-critical features
-
-### Supabase Services
-
-**Used Services**:
-- Authentication (JWT validation)
-- Database (PostgreSQL with pgvector)
-- Realtime (WebSocket subscriptions)
-- Storage (media attachments)
-
-### Module Catalog System
-
-The system loads prompt modules from `/server/assets`:
-```
-assets/
-├── core/           # Always active
-├── behavioral/     # Level-based
-├── philosophical/  # Advanced features
-├── heuristic/      # Rule-triggered
-└── crisis/         # High-intensity
-```
-
-## Performance Optimizations
-
-### Caching Strategies
-
-1. **Context Cache**: Reuses computed prompts for similar requests
-2. **Embedding Cache**: Stores frequently accessed embeddings
-3. **Module Cache**: Pre-loads and indexes text modules
-4. **Response Cache**: Stores common responses for quick retrieval
-
-### Parallel Processing
-
-```typescript
-// Parallel fetch for context preparation
-await Promise.all([
-  generateEmbedding(message),
-  fetchHeuristics(context),
-  searchMemories(embedding),
-  checkContinuity(session)
-])
-```
-
-### Database Optimizations
-
-- **HNSW Indexes**: Fast approximate nearest neighbor search
-- **Partial Indexes**: Filtered by user_id and created_at
-- **Connection Pooling**: Managed by Supabase client
-- **Batch Operations**: Bulk inserts for analytics
-
-## Monitoring & Observability
-
-### Health Checks
-
-The `/api/health` endpoint provides:
-- Service status
-- Database connectivity
-- Module catalog state
-- Active stream count
-- Memory usage metrics
-
-### Debug Features
-
-Environment-based debugging:
-```typescript
-if (ECO_DEBUG === 'true') {
-  // Verbose logging
-  // Request/response inspection
-  // Performance profiling
-}
-```
-
-### Error Recovery
-
-1. **Circuit Breaker**: Prevents cascade failures
-2. **Dead Letter Queue**: Captures failed operations
-3. **Automatic Retries**: With exponential backoff
-4. **Graceful Degradation**: Falls back to basic responses
-
-## Development Guidelines
-
-### Code Organization
+The system requires prompt modules to be present at startup. Missing modules cause fatal errors:
 
 ```
-server/
-├── controllers/     # Request handlers
-├── services/        # Business logic
-├── middleware/      # Express middleware
-├── routes/          # Route definitions
-├── core/           # Core utilities
-├── analytics/      # Telemetry logic
-├── sse/           # Streaming components
-└── assets/        # Prompt modules
+REQUIRED_MODULE_PATHS = [
+  "modulos_core/developer_prompt.txt",
+  "modulos_core/nv1_core.txt",
+  "modulos_core/identidade_mini.txt",
+  ...
+]
 ```
 
-### Testing Strategy
+Use `npm run verify:assets` before deploying to ensure all modules are bundled.
 
-- **Unit Tests**: Service and utility functions
-- **Integration Tests**: API endpoints
-- **Load Tests**: SSE streaming performance
-- **E2E Tests**: Full conversation flows
+### OpenRouter/Claude Configuration
 
-### Deployment Considerations
+The system currently defaults to `anthropic/claude-3-5-sonnet` via OpenRouter. To change:
 
-1. **Environment Variables**: Properly configured secrets
-2. **Database Migrations**: Supabase CLI managed
-3. **Module Assets**: Verified and indexed
-4. **Health Monitoring**: Uptime checks configured
-5. **Log Aggregation**: Centralized logging setup
+1. Set `ECO_CLAUDE_MODEL=anthropic/claude-3-haiku` (or other OpenRouter model)
+2. Adjust `ECO_MAX_PROMPT_TOKENS` if needed for model context limits
+3. Test streaming behavior via `npm run shadow:smoke`
 
-## Frontend Architecture
+### Supabase Connection
 
-### Application Entry & Bootstrap
+Analytics and memory operations require service role key:
+- Admin client (bypass RLS): `SUPABASE_SERVICE_ROLE_KEY`
+- Analytics isolation: `SUPABASE_ANALYTICS_SERVICE_ROLE_KEY` (optional override)
+- User operations: `SUPABASE_ANON_KEY` (client-side bearer)
 
-#### Main Entry Point
-```typescript
-// src/main.tsx
-1. Install instrumented AbortController for debugging
-2. Initialize guest/session IDs
-3. Activate Facebook Pixel
-4. Render App in StrictMode with RootProviders
-```
+RLS policies enforce user isolation automatically. Test with `npm run test:supabase`.
 
-The bootstrap sequence ensures identity is established before any API calls, with telemetry initialized for tracking user journeys from the first interaction.
+### Rate Limiting
 
-#### App Structure
-```typescript
-// src/App.tsx routing structure
-<AppChrome>                  // Health checks & banners
-  <Routes>
-    <Route path="/app/*">    // Protected routes
-      <MainLayout>
-        <ChatPage />         // Primary experience
-        <VoicePage />        // Audio interface
-        <MemoryRoutes />     // Memory management
-      </MainLayout>
-    </Route>
-    <Route path="/*">        // Public routes
-  </Routes>
-</AppChrome>
-```
+The system enforces rate limits on three dimensions:
+- Per JWT token (authenticated users)
+- Per guest session (anonymous users)
+- Per IP address (global)
 
-### Frontend Organization
+Configured via:
+- `API_RATE_LIMIT_WINDOW_MS` (60s default)
+- `API_RATE_LIMIT_MAX_REQUESTS` (60/min default)
+- `GUEST_RATE_LIMIT` (30 requests per 1 minute)
 
-```
-src/
-├── pages/              # Route-level components
-│   ├── ChatPage.tsx    # Main chat interface
-│   ├── VoicePage.tsx   # Voice interaction
-│   └── memory/         # Memory & profile pages
-├── components/         # Reusable UI components
-│   ├── ChatInput.tsx   # Message composition
-│   ├── ChatMessage.tsx # Message rendering
-│   └── AudioPlayer/    # Audio components
-├── contexts/           # Global state management
-│   ├── AuthContext.tsx # Supabase auth
-│   └── ChatContext.tsx # Message persistence
-├── hooks/              # Custom React hooks
-│   ├── useEcoStream/   # SSE orchestration
-│   ├── useEcoActivity  # Activity tracking
-│   └── useFeedback     # Feedback prompts
-├── api/                # API client layer
-│   ├── ecoApi.ts       # Main chat endpoint
-│   ├── memoriaApi.ts   # Memory CRUD
-│   └── voiceApi.ts     # Voice services
-└── utils/              # Helper functions
-```
+Override in development: `API_RATE_LIMIT_MAX_REQUESTS=1000` for testing.
 
-### Provider Architecture
+## Debugging
 
-```typescript
-// src/providers/RootProviders.tsx
-<AuthProvider>           // Supabase authentication
-  <ChatProvider>         // Message state & persistence
-    {children}           // App routes
-  </ChatProvider>
-</AuthProvider>
-```
-
-The provider hierarchy ensures authentication state is available before chat initialization, with automatic cleanup on auth changes.
-
-## Frontend API Clients
-
-### Main Chat Client (`ecoApi`)
-- **Endpoint**: `POST /api/ask-eco` (SSE or JSON fallback)
-- **Identity Headers**: `x-eco-guest-id`, `x-eco-session-id`, `x-eco-client-message-id`
-- **Error Handling**: Custom `EcoApiError` with user-friendly messages
-- **Retry Logic**: Conditional retry on network errors with health ping
-
-### Memory API (`memoriaApi`)
-- **Operations**: CRUD + semantic search
-- **Normalization**: Converts various payload formats to consistent `Memoria` type
-- **Error Recovery**: Differentiates network vs HTTP errors for fallback
-
-### Voice Services (`voiceApi`)
-- **TTS Endpoint**: `POST /api/voice/tts` - Text to audio conversion
-- **Transcribe Flow**: WebM upload → AssemblyAI → ElevenLabs → ECO response
-- **Bias Hints**: Contextual voice personalization based on conversation
-
-### Profile API (`perfilApi`)
-- **Caching**: 60-second TTL in-memory cache
-- **Flexible Parsing**: Handles various response formats
-- **Timeout**: Configurable with 12s default
-
-## Stream Orchestration System
-
-### Core Components
-
-#### 1. useEcoStream Hook
-```typescript
-// Primary interface for components
-{
-  handleSendMessage,  // Send user message
-  pending,           // Request in flight
-  streaming,         // SSE active
-  digitando,         // ECO typing indicator
-  erroApi           // Error state
-}
-```
-
-#### 2. StreamOrchestrator
-Central engine managing:
-- URL resolution with security checks
-- StreamSession lifecycle
-- SSE event processing
-- Fallback coordination
-- Metadata injection
-
-#### 3. StreamSession
-Encapsulates connection state:
-- Abort controller management
-- Duplicate prevention by clientMessageId
-- Watchdog timers (first token, heartbeat)
-- Reference tracking for cleanup
-
-#### 4. ChunkProcessor
-SSE event interpreter:
-- Normalizes event types (`chunk`, `control`, `done`)
-- Extracts text and indices
-- Delegates to appropriate handlers
-
-### SSE Event Contract
-
-| Event | Purpose | Handler | UI Impact |
-|-------|---------|---------|-----------|
-| `prompt_ready` | Stream initialized | `handlePromptReady` | Show typing indicator |
-| `chunk` | Text fragment | `appendAssistantDelta` | Render incremental text |
-| `control` | Metadata/commands | `handleControl` | Update telemetry/state |
-| `done` | Stream complete | `handleStreamDone` | Enable new messages |
-| `error` | Error condition | Error handler | Show error, enable retry |
-
-### Fallback Strategy
-
-```mermaid
-flowchart LR
-    A[Start Stream] --> B{First Chunk?}
-    B -->|Timeout| C[JSON Fallback]
-    B -->|Received| D[Continue SSE]
-    C --> E[Display Response]
-    D --> F{More Chunks?}
-    F -->|Yes| D
-    F -->|No| E
-```
-
-## UI/UX Design System
-
-### Design Principles
-
-#### Glassmorphism Architecture
-- **Background**: Radial gradients with translucent overlays
-- **Blend Modes**: `mix-blend-mode: screen` for light diffusion
-- **Blur Effects**: `backdrop-blur-md` on interactive elements
-- **Apple-inspired**: Clean, minimal, with subtle depth
-
-#### Color System
-```css
-:root {
-  --eco-blue: #007AFF;
-  --color-glass-tint: rgba(255, 255, 255, 0.7);
-  --bubble-user: #007AFF;
-  --bubble-assistant: white;
-}
-```
-
-#### Typography
-- **Primary**: SF Pro, system fonts fallback
-- **Body Size**: 15px for optimal readability
-- **Letter Spacing**: Subtle adjustments for refinement
-- **Markdown Support**: Styled `.markdown-body` for formatted content
-
-### Component Styling
-
-#### Chat Interface
-- **Input Field**: Glass border with blue focus ring
-- **Message Bubbles**: Rounded corners with subtle shadows
-- **Typing Indicator**: Animated dots with `aria-live`
-- **Feedback States**: Color-coded finish reasons
-
-#### Voice Experience
-- **Triple Gradients**: Layered backgrounds for depth
-- **Circular Controls**: Glass buttons with icon states
-- **Visual Feedback**: State-based bubble animations
-- **Icon Library**: Lucide React for consistent thin strokes
-
-### Accessibility Features
-
-```css
-/* High Contrast Mode */
-@media (prefers-contrast: high) {
-  /* Replace glass with solid surfaces */
-}
-
-/* Reduced Motion */
-@media (prefers-reduced-motion) {
-  /* Minimize animations */
-}
-
-/* Transparency Settings */
-@media (prefers-reduced-transparency) {
-  /* Opaque backgrounds */
-}
-```
-
-## Environment Configuration
-
-### Core Variables
-
-| Variable | Purpose | Default/Fallback |
-|----------|---------|------------------|
-| `VITE_APP_URL` | OAuth redirect base | `window.location.origin` |
-| `VITE_SUPABASE_URL/KEY` | Database connection | Required |
-| `VITE_API_URL` | Backend endpoint | Current host |
-| `VITE_MIXPANEL_TOKEN` | Analytics | Optional |
-| `VITE_FB_PIXEL_ID` | Marketing tracking | Optional |
-
-### Stream Configuration
-
-| Variable | Purpose | Default |
-|----------|---------|---------|
-| `VITE_ECO_STREAM_GUARD_TIMEOUT_MS` | SSE fallback timer | 15000ms |
-| `VITE_ENABLE_PASSIVE_SIGNALS` | Telemetry toggle | true |
-| `VITE_ENABLE_MODULE_USAGE` | Module metrics | true |
-
-## Data Flow & State Management
-
-### Message Persistence
-
-```mermaid
-flowchart TB
-    A[User Types] --> B[ChatInput]
-    B --> C[useEcoStream]
-    C --> D[StreamOrchestrator]
-    D --> E[Backend API]
-    E --> F[SSE Response]
-    F --> G[ChunkProcessor]
-    G --> H[ChatContext]
-    H --> I[LocalStorage]
-    H --> J[UI Update]
-```
-
-### Context Synchronization
-
-1. **ChatContext** maintains messages per authenticated user
-2. **LocalStorage** provides persistence across sessions
-3. **Index Maps** (`byId`, `interaction`) enable efficient updates
-4. **Incremental Updates** during streaming prevent full re-renders
-
-### Identity Management
-
-```typescript
-// Identity flow
-1. Generate guest_id (UUID v4)
-2. Create session_id
-3. Include in all API requests
-4. Persist across page reloads
-5. Clear on authentication change
-```
-
-## Performance Optimizations (Frontend)
-
-### Code Splitting
-- Lazy loading for routes
-- Dynamic imports for heavy components
-- Chunk optimization via Vite
-
-### Caching Strategies
-- Profile API: 60s in-memory cache
-- API responses: Conditional caching
-- Static assets: Long-term browser cache
-
-### Stream Optimizations
-- Debounced typing indicators
-- Throttled chunk processing
-- Efficient DOM updates via React keys
-- Virtual scrolling for long conversations
-
-## Security Considerations
-
-### Frontend Security
-- **HTTPS Enforcement**: Blocks insecure API connections
-- **CORS Validation**: Strict origin checking
-- **XSS Prevention**: Input sanitization
-- **CSP Headers**: Content Security Policy
-
-### Authentication Flow
-```mermaid
-sequenceDiagram
-    participant User
-    participant Frontend
-    participant Supabase
-    participant Backend
-
-    User->>Frontend: Login request
-    Frontend->>Supabase: OAuth redirect
-    Supabase-->>Frontend: JWT token
-    Frontend->>Backend: API call + JWT
-    Backend->>Supabase: Validate JWT
-    Backend-->>Frontend: Authorized response
-```
-
-## Monitoring & Analytics
-
-### Frontend Telemetry
-
-#### Mixpanel Events
-- User interactions: `message_sent`, `voice_played`
-- Performance: `stream_latency`, `first_paint`
-- Errors: `api_error`, `stream_timeout`
-- Navigation: `page_view`, `route_change`
-
-#### Facebook Pixel
-- Conversion tracking
-- Retargeting audiences
-- Custom events for engagement
-
-### Error Tracking
-```typescript
-// Error boundary hierarchy
-<ErrorBoundary>          // App-level
-  <RouteErrorBoundary>   // Route-level
-    <ComponentBoundary>  // Component-level
-```
-
-## Development Workflow
-
-### Local Development
+### Enable Debug Mode
 ```bash
-# Frontend
-npm install
-npm run dev              # Vite dev server
-
-# Backend
-npm install
-npm run dev              # Node.js with nodemon
-
-# Database
-supabase start          # Local Supabase
+ECO_DEBUG=true npm run dev
 ```
 
-### Testing Approach
-- **Unit Tests**: Vitest for utilities
-- **Component Tests**: React Testing Library
-- **E2E Tests**: Playwright for critical paths
-- **Visual Regression**: Chromatic/Percy
+This enables:
+- Verbose logging for Supabase queries
+- Module activation tracing
+- Analytics event inspection
+- SSE event detailed logs
 
-### Deployment Pipeline
-1. **Build**: Vite production build
-2. **Optimize**: Asset compression, tree shaking
-3. **Deploy**: CDN for static assets
-4. **Monitor**: Real User Monitoring (RUM)
+### Check Module Loading
+```bash
+npm run modules:inventory
+npm run modules:dump
+```
 
-## Conclusion
+### Health Check
+```bash
+curl http://localhost:3001/api/health
+# Returns: module status, database connectivity, active streams
+```
 
-The ECO system represents a sophisticated full-stack emotional AI platform that seamlessly integrates:
+### Stub Mode (No LLM calls)
+```bash
+USE_STUB_ECO=true npm run dev
+# Returns fixed responses, useful for frontend testing
+```
 
-**Backend Excellence**:
-- Adaptive emotional intelligence with 3-tier openness levels
-- Persistent semantic memory with vector search
-- Real-time SSE streaming with resilient fallbacks
-- Modular prompt assembly with dynamic context
+### Trace Request Flow
+1. Add console.log in `ConversationOrchestrator.ts`
+2. Set `ECO_DEBUG=true`
+3. Make request to `/api/ask-eco`
+4. Check terminal output for detailed pipeline trace
 
-**Frontend Innovation**:
-- Glassmorphic UI with accessibility-first design
-- Robust stream orchestration with automatic recovery
-- Efficient state management with local persistence
-- Comprehensive telemetry and error tracking
+## External API Integrations
 
-The architecture's strength lies in its careful balance of technical sophistication and user experience, creating an emotionally aware AI assistant that learns and adapts while maintaining performance, security, and privacy. The system's modular design enables continuous improvement while its robust error handling ensures reliability even under adverse conditions.
+### OpenRouter/Claude
+- **Endpoint**: `https://openrouter.io/api/v1/chat/completions`
+- **Auth**: `Authorization: Bearer ${OPENROUTER_API_KEY}`
+- **Models**: anthropic/claude-3-5-sonnet, anthropic/claude-3-haiku (configurable)
+- **Streaming**: Supported via `stream: true`
+- **Timeout**: Configurable via `OPENROUTER_TIMEOUT_MS` (30s default)
 
-This bidirectional streaming architecture, combined with intelligent caching and fallback mechanisms, delivers a responsive, personalized experience that deepens with each interaction, making ECO a truly unique conversational AI platform.
+### Supabase (PostgreSQL + pgvector)
+- **RPC**: `buscar_memorias_semanticas_v2` - semantic search with multi-factor scoring
+- **Tables**: memories, referencias_temporarias, analytics.* (analytics schema)
+- **Auth**: JWT via `SUPABASE_ANON_KEY` (client ops), Service role for admin
+- **Vectors**: 1536-dim semantic embeddings (OpenAI), 768-dim emotional (optional)
+
+### Mixpanel
+- **Endpoint**: `https://api.mixpanel.com`
+- **Events**: eco_message, memory_created, first_token_latency, feedback_submitted
+- **Auth**: Server token via `MIXPANEL_SERVER_TOKEN`
+- **Fallback**: No-op client if token not provided (development-friendly)
+
+### ElevenLabs (Voice)
+- **Endpoint**: `https://api.elevenlabs.io/v1/text-to-speech/{voice_id}`
+- **Auth**: `xi-api-key: ${ELEVEN_API_KEY}`
+- **Models**: Configurable via `ECO_ELEVENLABS_MODEL`
+- **Voices**: Default `ELEVEN_VOICE_ID` or per-request override
+
+## Additional Resources
+
+- **Architecture Docs**: `ARCHITECTURE.md`, `API_REFERENCE.md`, `DATA_MODEL.md`
+- **Environment Guide**: `ENVIRONMENT.md` (comprehensive variable reference)
+- **Security**: `SECURITY.md` (RLS policies, JWT validation, CORS)
+- **Observability**: `OBSERVABILITY.md` (logging, metrics, debugging)
+- **SSE Details**: `STREAMING_SSE.md` (streaming protocol, resilience)
+- **Deployment**: `DEPLOY_RUNBOOK.md` (production checklist)
