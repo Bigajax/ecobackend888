@@ -452,6 +452,19 @@ export async function streamClaudeChatCompletion(
         if (parsed?.model) latestModel = parsed.model;
         if (finishReason) latestFinish = finishReason;
 
+        // Debug: Log all chunks including empty ones
+        if (process.env.ECO_DEBUG === "1" || process.env.ECO_DEBUG === "true") {
+          console.debug("[ClaudeAdapter] received chunk", {
+            hasText: !!deltaText,
+            textLength: deltaText.length,
+            hasChoice: !!choice,
+            hasDelta: !!choice?.delta,
+            deltaKeys: choice?.delta ? Object.keys(choice.delta) : [],
+            finishReason,
+            parsed: JSON.stringify(parsed).slice(0, 200)
+          });
+        }
+
         if (deltaText) {
           await safeCallbacks.onChunk?.({ content: deltaText, raw: parsed });
         }
