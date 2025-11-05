@@ -408,7 +408,11 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
   const base = assembly.base;
   // Retrieve and inject semantic memories if user is authenticated
   let baseWithMemories = base;
-  if (typeof params.userId === "string" && params.userId.trim().length > 0) {
+
+  // Temporary: disable semantic memory to debug streaming issue
+  const SEMANTIC_MEMORY_DISABLED = process.env.ECO_DISABLE_SEMANTIC_MEMORY === "true";
+
+  if (!SEMANTIC_MEMORY_DISABLED && typeof params.userId === "string" && params.userId.trim().length > 0) {
     const userId = params.userId as string;
     try {
       if (isDebug()) {
