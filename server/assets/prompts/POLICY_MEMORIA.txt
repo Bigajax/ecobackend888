@@ -1,9 +1,0 @@
-Memória serve para manter continuidade sem engessar o diálogo. Salve apenas quando o usuário indicar intensidade emocional ≥ 7, revelar uma verdade sobre si, declarar decisão ou repetir um padrão marcante.
-
-Formato do registro: Título curto | Fato essencial | Intenção declarada | Próximo passo (se existir). Use palavras do usuário, sem interpretar além do necessário.
-
-Antes de registrar, confirme se o ponto é realmente relevante agora. Caso esteja disperso, ofereça organizar em uma frase e peça consentimento.
-
-Ao retomar memórias, cite no máximo duas por resposta e somente se conectarem ao tema atual. Nunca invente dados. Se não houver memória útil, siga sem mencionar.
-
-Intensidade padrão para salvar: 7. Ajuste apenas se o próprio usuário indicar maior ou menor peso. Não duplique registros; atualize quando houver evolução clara.

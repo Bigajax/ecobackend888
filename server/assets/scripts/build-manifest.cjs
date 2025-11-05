@@ -45,7 +45,7 @@ const ecoManifestItems = [];
  * Determine family: "core" or "extra"
  */
 function determineFamily(modulePath) {
-  if (modulePath.startsWith('modulos_core/') || modulePath.startsWith('prompts/')) {
+  if (modulePath.startsWith('modulos_core/')) {
     return 'core';
   }
   return 'extra';
