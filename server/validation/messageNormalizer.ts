@@ -29,7 +29,7 @@ export function normalizeMessages(payload: unknown): { messages: NormalizedMessa
       const role = typeof roleValue === "string" && roleValue.trim() ? roleValue.trim() : "user";
       let content: string = "";
       if (typeof contentValue === "string") {
-        content = contentValue;
+        content = contentValue.trim();
       } else if (contentValue != null) {
         try {
           content = JSON.stringify(contentValue);
@@ -49,21 +49,21 @@ export function normalizeMessages(payload: unknown): { messages: NormalizedMessa
   const singleText = typeof body.text === "string" && body.text.trim();
   if (singleText) {
     shape = "text";
-    result.push({ role: "user", content: body.text });
+    result.push({ role: "user", content: body.text.trim() });
     return { messages: result, shape };
   }
 
   const singleTexto = typeof body.texto === "string" && body.texto.trim();
   if (singleTexto) {
     shape = "texto";
-    result.push({ role: "user", content: body.texto });
+    result.push({ role: "user", content: body.texto.trim() });
     return { messages: result, shape };
   }
 
   const singleMensagem = typeof body.mensagem === "string" && body.mensagem.trim();
   if (singleMensagem) {
     shape = "mensagem";
-    result.push({ role: "user", content: body.mensagem });
+    result.push({ role: "user", content: body.mensagem.trim() });
     return { messages: result, shape };
   }
 
