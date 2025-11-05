@@ -16,7 +16,6 @@ const assetsRoot = path.dirname(path.dirname(__filename)); // assets/
 const configFile = path.join(assetsRoot, 'config', 'active-modules.json');
 const manifestFile = path.join(assetsRoot, 'MANIFEST.json');
 const modulesManifestFile = path.join(assetsRoot, 'modules.manifest.json');
-const ecoManifestFile = path.join(assetsRoot, 'modules.manifest.eco.json'); // For ModuleStore compatibility
 
 // Ensure config file exists
 if (!fs.existsSync(configFile)) {
@@ -39,7 +38,6 @@ console.log(`📦 Processing ${activeModules.length} active modules...`);
 // Track manifests
 const manifestItems = [];
 const modulesManifestItems = [];
-const ecoManifestItems = [];
 
 /**
  * Determine family: "core" or "extra"
@@ -51,14 +49,6 @@ function determineFamily(modulePath) {
   return 'extra';
 }
 
-/**
- * Determine size category based on bytes
- */
-function determineSize(bytes) {
-  if (bytes <= 2048) return 'S';
-  if (bytes <= 8192) return 'M';
-  return 'L';
-}
 
 /**
  * Estimate average tokens (simple heuristic: bytes / 4)
@@ -99,31 +89,16 @@ for (const modulePath of activeModules) {
   // Build modules.manifest.json entry
   const basename = path.basename(modulePath).toUpperCase();
   const family = determineFamily(modulePath);
-  const size = determineSize(bytes);
   const tokens_avg = estimateTokens(bytes);
 
   modulesManifestItems.push({
     id: basename.replace(/\.TXT$/, ''),
     family,
     role: 'instruction', // Must be: instruction | context | toolhint
-    size,
     tokens_avg,
   });
 
-  // Also generate EcoManifestEntry for ModuleStore compatibility
-  ecoManifestItems.push({
-    id: basename.replace(/\.TXT$/, ''),
-    path: modulePath,
-    role: 'assistant', // Required by ModuleStore
-    categoria: family === 'core' ? 'core' : 'extra',
-    nivelMin: 1,
-    nivelMax: 3,
-    excluiSe: [],
-    peso: 1.0,
-    ordenacao: 1,
-  });
-
-  console.log(`✓ ${modulePath} (${bytes} bytes, ${family}, ${size})`);
+  console.log(`✓ ${modulePath} (${bytes} bytes, ${family})`);
 }
 
 // Write MANIFEST.json
@@ -149,19 +124,6 @@ try {
   console.log(`✅ Generated: ${path.relative(process.cwd(), modulesManifestFile)}`);
 } catch (e) {
   console.error(`❌ Failed to write modules.manifest.json: ${e.message}`);
-  process.exit(1);
-}
-
-// Write modules.manifest.eco.json (for ModuleStore compatibility)
-try {
-  fs.writeFileSync(
-    ecoManifestFile,
-    JSON.stringify({ modules: ecoManifestItems }, null, 2),
-    'utf8'
-  );
-  console.log(`✅ Generated: ${path.relative(process.cwd(), ecoManifestFile)}`);
-} catch (e) {
-  console.error(`❌ Failed to write modules.manifest.eco.json: ${e.message}`);
   process.exit(1);
 }
 
