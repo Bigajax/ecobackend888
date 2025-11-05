@@ -412,14 +412,14 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
     try {
       if (isDebug()) {
         log.debug("[ContextBuilder] retrieving_semantic_memories", {
-          usuarioId: params.userId,
+          usuarioId: userId,
           queryTextLen: texto.length,
           hasBearer: Boolean(params.bearerToken),
         });
       }
 
       const memoriesResult = await buscarMemoriasSemanticas({
-        usuarioId: params.userId,
+        usuarioId: userId,
         queryText: texto,
         bearerToken: params.bearerToken,
         topK: 10,
@@ -451,7 +451,7 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
     } catch (err) {
       log.warn("[ContextBuilder] memory_retrieval_failed", {
         message: err instanceof Error ? err.message : String(err),
-        usuarioId: params.userId,
+        usuarioId: userId,
       });
     }
   }

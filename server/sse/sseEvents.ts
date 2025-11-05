@@ -688,8 +688,8 @@ export class SseEventHandlers {
         this.options.consoleStreamEnd(Object.keys(endPayload).length ? endPayload : undefined);
 
         const doneValue = clientFinishReason === "completed" ? 1 : 0;
-        const summaryText = this.state.getAggregatedContent();
-        const finalTextLen = summaryText.length;
+        const summaryText2 = this.state.getAggregatedContent();
+        const finalTextLen = summaryText2.length;
 
         this.options.onTelemetry(
           "done",
