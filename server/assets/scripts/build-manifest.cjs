@@ -16,6 +16,7 @@ const assetsRoot = path.dirname(path.dirname(__filename)); // assets/
 const configFile = path.join(assetsRoot, 'config', 'active-modules.json');
 const manifestFile = path.join(assetsRoot, 'MANIFEST.json');
 const modulesManifestFile = path.join(assetsRoot, 'modules.manifest.json');
+const ecoManifestFile = path.join(assetsRoot, 'modules.manifest.eco.json'); // For ModuleStore compatibility
 
 // Ensure config file exists
 if (!fs.existsSync(configFile)) {
@@ -38,6 +39,7 @@ console.log(`📦 Processing ${activeModules.length} active modules...`);
 // Track manifests
 const manifestItems = [];
 const modulesManifestItems = [];
+const ecoManifestItems = [];
 let mirrorsCreated = 0;
 
 // Map of (legacy path → actual path) for retrocompat
@@ -154,9 +156,22 @@ for (const modulePath of activeModules) {
   modulesManifestItems.push({
     id: basename.replace(/\.TXT$/, ''),
     family,
-    role: 'instruction',
+    role: 'instruction', // Must be: instruction | context | toolhint
     size,
     tokens_avg,
+  });
+
+  // Also generate EcoManifestEntry for ModuleStore compatibility
+  ecoManifestItems.push({
+    id: basename.replace(/\.TXT$/, ''),
+    path: modulePath,
+    role: 'assistant', // Required by ModuleStore
+    categoria: family === 'core' ? 'core' : 'extra',
+    nivelMin: 1,
+    nivelMax: 3,
+    excluiSe: [],
+    peso: 1.0,
+    ordenacao: 1,
   });
 
   console.log(`✓ ${modulePath} (${bytes} bytes, ${family}, ${size})`);
@@ -185,6 +200,19 @@ try {
   console.log(`✅ Generated: ${path.relative(process.cwd(), modulesManifestFile)}`);
 } catch (e) {
   console.error(`❌ Failed to write modules.manifest.json: ${e.message}`);
+  process.exit(1);
+}
+
+// Write modules.manifest.eco.json (for ModuleStore compatibility)
+try {
+  fs.writeFileSync(
+    ecoManifestFile,
+    JSON.stringify({ modules: ecoManifestItems }, null, 2),
+    'utf8'
+  );
+  console.log(`✅ Generated: ${path.relative(process.cwd(), ecoManifestFile)}`);
+} catch (e) {
+  console.error(`❌ Failed to write modules.manifest.eco.json: ${e.message}`);
   process.exit(1);
 }
 

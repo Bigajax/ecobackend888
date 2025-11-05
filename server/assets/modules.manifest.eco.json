@@ -1,0 +1,59 @@
+{
+  "modules": [
+    {
+      "id": "IDENTIDADE_MINI",
+      "path": "modulos_core/identidade_mini.txt",
+      "role": "assistant",
+      "categoria": "core",
+      "nivelMin": 1,
+      "nivelMax": 3,
+      "excluiSe": [],
+      "peso": 1,
+      "ordenacao": 1
+    },
+    {
+      "id": "NV1_CORE",
+      "path": "modulos_core/nv1_core.txt",
+      "role": "assistant",
+      "categoria": "core",
+      "nivelMin": 1,
+      "nivelMax": 3,
+      "excluiSe": [],
+      "peso": 1,
+      "ordenacao": 1
+    },
+    {
+      "id": "ECO_ESTRUTURA_DE_RESPOSTA",
+      "path": "modulos_core/eco_estrutura_de_resposta.txt",
+      "role": "assistant",
+      "categoria": "core",
+      "nivelMin": 1,
+      "nivelMax": 3,
+      "excluiSe": [],
+      "peso": 1,
+      "ordenacao": 1
+    },
+    {
+      "id": "ECO_PROMPT_PROGRAMAVEL",
+      "path": "prompts/eco_prompt_programavel.txt",
+      "role": "assistant",
+      "categoria": "core",
+      "nivelMin": 1,
+      "nivelMax": 3,
+      "excluiSe": [],
+      "peso": 1,
+      "ordenacao": 1
+    },
+    {
+      "id": "BLOCO_TECNICO_MEMORIA",
+      "path": "modulos_extras/bloco_tecnico_memoria.txt",
+      "role": "assistant",
+      "categoria": "extra",
+      "nivelMin": 1,
+      "nivelMax": 3,
+      "excluiSe": [],
+      "peso": 1,
+      "ordenacao": 1
+    }
+  ]
+}
