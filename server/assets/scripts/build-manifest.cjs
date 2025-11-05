@@ -87,12 +87,12 @@ for (const modulePath of activeModules) {
   });
 
   // Build modules.manifest.json entry
-  const basename = path.basename(modulePath).toUpperCase();
+  const basename = path.basename(modulePath, '.txt').toLowerCase();
   const family = determineFamily(modulePath);
   const tokens_avg = estimateTokens(bytes);
 
   modulesManifestItems.push({
-    id: basename.replace(/\.TXT$/, ''),
+    id: basename,
     family,
     role: 'instruction', // Must be: instruction | context | toolhint
     tokens_avg,

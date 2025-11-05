@@ -10,22 +10,22 @@
   "families": {
     "core": {
       "reward_key": "core_guidance",
-      "baseline": "ABERTURA_SUPERFICIE",
+      "baseline": "abertura_superficie",
       "enabled": true
     },
     "emotional": {
       "reward_key": "emotional_resonance",
-      "baseline": "ECO_VULNERABILIDADE_MITOS",
+      "baseline": "eco_vulnerabilidade_mitos",
       "enabled": true
     },
     "philosophical": {
       "reward_key": "philosophical_depth",
-      "baseline": "ECO_OBSERVADOR_PRESENTE",
+      "baseline": "eco_observador_presente",
       "enabled": true
     },
     "cognitive": {
       "reward_key": "cognitive_clarity",
-      "baseline": "ECO_HEURISTICA_DISPONIBILIDADE",
+      "baseline": "eco_heuristica_disponibilidade",
       "enabled": true
     },
     "extra": {
@@ -35,7 +35,7 @@
   },
   "modules": [
     {
-      "id": "SISTEMA_IDENTIDADE",
+      "id": "sistema_identidade",
       "family": "core",
       "role": "instruction",
       "size": "S",
@@ -43,7 +43,7 @@
       "enabled": true
     },
     {
-      "id": "ABERTURA_SUPERFICIE",
+      "id": "abertura_superficie",
       "family": "core",
       "role": "instruction",
       "size": "S",
@@ -51,7 +51,7 @@
       "enabled": true
     },
     {
-      "id": "FORMATO_RESPOSTA",
+      "id": "formato_resposta",
       "family": "core",
       "role": "instruction",
       "size": "S",
@@ -59,7 +59,7 @@
       "enabled": true
     },
     {
-      "id": "INSTRUCOES_SISTEMA",
+      "id": "instrucoes_sistema",
       "family": "core",
       "role": "instruction",
       "size": "M",
@@ -67,7 +67,7 @@
       "enabled": true
     },
     {
-      "id": "TECNICO_BLOCO_MEMORIA",
+      "id": "tecnico_bloco_memoria",
       "family": "core",
       "role": "instruction",
       "size": "S",
@@ -75,7 +75,7 @@
       "enabled": true
     },
     {
-      "id": "ECO_EMO_VERGONHA_COMBATE",
+      "id": "eco_emo_vergonha_combate",
       "family": "emotional",
       "role": "context",
       "size": "M",
@@ -86,7 +86,7 @@
       "enabled": true
     },
     {
-      "id": "ECO_MEMORIA_REVISITAR_PASSADO",
+      "id": "eco_memoria_revisitar_passado",
       "family": "emotional",
       "role": "context",
       "size": "M",
@@ -97,7 +97,7 @@
       "enabled": true
     },
     {
-      "id": "ECO_VULNERABILIDADE_DEFESAS",
+      "id": "eco_vulnerabilidade_defesas",
       "family": "emotional",
       "role": "context",
       "size": "M",
@@ -108,7 +108,7 @@
       "enabled": true
     },
     {
-      "id": "ECO_VULNERABILIDADE_MICRO_PRESENCA",
+      "id": "eco_vulnerabilidade_micro_presenca",
       "family": "emotional",
       "role": "context",
       "size": "S",
@@ -119,7 +119,7 @@
       "enabled": true
     },
     {
-      "id": "ECO_VULNERABILIDADE_MICRO_REFRAME",
+      "id": "eco_vulnerabilidade_micro_reframe",
       "family": "emotional",
       "role": "context",
       "size": "S",
@@ -130,7 +130,7 @@
       "enabled": true
     },
     {
-      "id": "ECO_VULNERABILIDADE_MITOS",
+      "id": "eco_vulnerabilidade_mitos",
       "family": "emotional",
       "role": "context",
       "size": "M",
@@ -141,7 +141,7 @@
       "enabled": true
     },
     {
-      "id": "ECO_CORPO_EMOCAO",
+      "id": "eco_corpo_emocao",
       "family": "philosophical",
       "role": "context",
       "size": "M",
@@ -152,7 +152,7 @@
       "enabled": true
     },
     {
-      "id": "ECO_CORPO_SENSACAO",
+      "id": "eco_corpo_sensacao",
       "family": "philosophical",
       "role": "context",
       "size": "S",
@@ -163,7 +163,7 @@
       "enabled": true
     },
     {
-      "id": "ECO_FIM_DO_SOFRIMENTO",
+      "id": "eco_fim_do_sofrimento",
       "family": "philosophical",
       "role": "context",
       "size": "M",
@@ -174,7 +174,7 @@
       "enabled": true
     },
     {
-      "id": "ECO_IDENTIFICACAO_MENTE",
+      "id": "eco_identificacao_mente",
       "family": "philosophical",
       "role": "context",
       "size": "M",
@@ -185,7 +185,7 @@
       "enabled": true
     },
     {
-      "id": "ECO_OBSERVADOR_PRESENTE",
+      "id": "eco_observador_presente",
       "family": "philosophical",
       "role": "context",
       "size": "S",
@@ -196,7 +196,7 @@
       "enabled": true
     },
     {
-      "id": "ECO_PRESENCA_RACIONAL",
+      "id": "eco_presenca_racional",
       "family": "philosophical",
       "role": "context",
       "size": "S",
@@ -207,7 +207,7 @@
       "enabled": true
     },
     {
-      "id": "ECO_OBSERVADOR_PRESENTE_ESTOICO",
+      "id": "eco_observador_presente_estoico",
       "family": "philosophical",
       "role": "context",
       "size": "M",
@@ -219,7 +219,7 @@
       "enabled": true
     },
     {
-      "id": "ECO_PRESENCA_RACIONAL_ESTOICO",
+      "id": "eco_presenca_racional_estoico",
       "family": "philosophical",
       "role": "context",
       "size": "M",
@@ -231,7 +231,7 @@
       "enabled": true
     },
     {
-      "id": "ECO_HEURISTICA_ANCORAGEM",
+      "id": "eco_heuristica_ancoragem",
       "family": "cognitive",
       "role": "context",
       "size": "S",
@@ -242,7 +242,7 @@
       "enabled": true
     },
     {
-      "id": "ECO_HEURISTICA_CAUSAS_SUPERAM_ESTATISTICAS",
+      "id": "eco_heuristica_causas_superam_estatisticas",
       "family": "cognitive",
       "role": "context",
       "size": "S",
@@ -253,7 +253,7 @@
       "enabled": true
     },
     {
-      "id": "ECO_HEURISTICA_CERTEZA_EMOCIONAL",
+      "id": "eco_heuristica_certeza_emocional",
       "family": "cognitive",
       "role": "context",
       "size": "S",
@@ -264,7 +264,7 @@
       "enabled": true
     },
     {
-      "id": "ECO_HEURISTICA_DISPONIBILIDADE",
+      "id": "eco_heuristica_disponibilidade",
       "family": "cognitive",
       "role": "context",
       "size": "S",
@@ -275,7 +275,7 @@
       "enabled": true
     },
     {
-      "id": "ECO_HEURISTICA_EXCESSO_CONFIANCA",
+      "id": "eco_heuristica_excesso_confianca",
       "family": "cognitive",
       "role": "context",
       "size": "S",
@@ -286,7 +286,7 @@
       "enabled": true
     },
     {
-      "id": "ECO_HEURISTICA_ILUSAO_COMPREENSAO_PASSADO",
+      "id": "eco_heuristica_ilusao_compreensao_passado",
       "family": "cognitive",
       "role": "context",
       "size": "S",
@@ -297,7 +297,7 @@
       "enabled": true
     },
     {
-      "id": "ECO_HEURISTICA_ILUSAO_VALIDADE",
+      "id": "eco_heuristica_ilusao_validade",
       "family": "cognitive",
       "role": "context",
       "size": "S",
@@ -308,7 +308,7 @@
       "enabled": true
     },
     {
-      "id": "ECO_HEURISTICA_INTUICAO_ESPECIALISTA",
+      "id": "eco_heuristica_intuicao_especialista",
       "family": "cognitive",
       "role": "context",
       "size": "S",
@@ -319,7 +319,7 @@
       "enabled": true
     },
     {
-      "id": "ECO_HEURISTICA_REGRESSAO_MEDIA",
+      "id": "eco_heuristica_regressao_media",
       "family": "cognitive",
       "role": "context",
       "size": "S",
@@ -330,7 +330,7 @@
       "enabled": true
     },
     {
-      "id": "HEURISTICA_ILUSAO_COMPREENSAO",
+      "id": "heuristica_ilusao_compreensao",
       "family": "cognitive",
       "role": "context",
       "size": "M",
@@ -338,7 +338,7 @@
       "enabled": true
     },
     {
-      "id": "BLOCO_REFERENCIA_LEVE",
+      "id": "bloco_referencia_leve",
       "family": "extra",
       "role": "context",
       "size": "S",
@@ -346,7 +346,7 @@
       "enabled": true
     },
     {
-      "id": "DETECÇÃOCRISE",
+      "id": "deteccao_crise",
       "family": "extra",
       "role": "context",
       "size": "S",
@@ -357,7 +357,7 @@
       "enabled": true
     },
     {
-      "id": "ESCALA_INTENSIDADE_0A10",
+      "id": "escala_intensidade_0a10",
       "family": "extra",
       "role": "context",
       "size": "S",
@@ -365,7 +365,7 @@
       "enabled": true
     },
     {
-      "id": "PEDIDOPRÁTICO",
+      "id": "pedidopratico",
       "family": "extra",
       "role": "context",
       "size": "S",
@@ -373,7 +373,7 @@
       "enabled": true
     },
     {
-      "id": "BLOCO_TECNICO_MEMORIA",
+      "id": "bloco_tecnico_memoria",
       "family": "extra",
       "role": "context",
       "size": "S",
@@ -381,7 +381,7 @@
       "enabled": true
     },
     {
-      "id": "ESCALA_ABERTURA_1A3",
+      "id": "escala_abertura_1a3",
       "family": "extra",
       "role": "context",
       "size": "S",
@@ -389,7 +389,7 @@
       "enabled": true
     },
     {
-      "id": "METODO_VIVA_ENXUTO",
+      "id": "metodo_viva_enxuto",
       "family": "extra",
       "role": "context",
       "size": "S",
