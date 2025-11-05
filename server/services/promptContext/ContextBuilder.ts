@@ -409,6 +409,7 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
   // Retrieve and inject semantic memories if user is authenticated
   let baseWithMemories = base;
   if (typeof params.userId === "string" && params.userId.trim().length > 0) {
+    const userId = params.userId as string;
     try {
       if (isDebug()) {
         log.debug("[ContextBuilder] retrieving_semantic_memories", {
