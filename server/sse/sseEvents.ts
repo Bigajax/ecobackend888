@@ -808,13 +808,9 @@ export class SseEventHandlers {
       return; // Don't emit yet
     }
 
-    // If buffer has content, prepend it to this chunk (with space if needed)
+    // If buffer has content, prepend it to this chunk (spacing already handled by normalizeOpenRouterText)
     if (this.minChunkBuffer.length > 0) {
-      const needsSpace = this.minChunkBuffer && cleaned &&
-                         !this.minChunkBuffer.endsWith(" ") &&
-                         !this.minChunkBuffer.endsWith("-") &&
-                         !cleaned.startsWith(" ");
-      cleaned = this.minChunkBuffer + (needsSpace ? " " : "") + cleaned;
+      cleaned = this.minChunkBuffer + cleaned;
       this.minChunkBuffer = "";
       if (process.env.ECO_DEBUG === "1" || process.env.ECO_DEBUG === "true") {
         console.debug("[sendChunk] flushing buffered chunk", { combinedLen: cleaned.length });
