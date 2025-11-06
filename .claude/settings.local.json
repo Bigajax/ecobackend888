@@ -3,7 +3,9 @@
     "allow": [
       "Bash(cat:*)",
       "Bash(sed:*)",
-      "Bash(npm run build:*)"
+      "Bash(npm run build:*)",
+      "Bash(__NEW_LINE__ git add docs/)",
+      "Bash(git commit:*)"
     ],
     "deny": [],
     "ask": []
