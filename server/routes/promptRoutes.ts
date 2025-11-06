@@ -708,7 +708,6 @@ async function handleAskEcoRequest(req: Request, res: Response, _next: NextFunct
   const pingIntervalMs = streamPingIntervalMs;
   const firstTokenTimeoutMs = firstTokenWatchdogMs;
 
-  let readyEmitted = false;
   let streamSummaryLogged = false;
 
   let sse: ReturnType<typeof createSSE> | null = null;
@@ -1188,7 +1187,6 @@ async function handleAskEcoRequest(req: Request, res: Response, _next: NextFunct
         origin: origin ?? null,
         clientMessageId: clientMessageId ?? null,
         streamId,
-        ready_emitted: readyEmitted,
         chunks_emitted: state.chunksCount,
         finish_reason: reason ?? state.finishReason ?? null,
       });
@@ -1368,26 +1366,6 @@ async function handleAskEcoRequest(req: Request, res: Response, _next: NextFunct
       log.warn("[ask-eco] bootstrap_race_failed", {
         message: error instanceof Error ? error.message : String(error),
       });
-    }
-
-    if (wantsStream) {
-      try {
-        streamSse.prompt_ready({ client_message_id: promptReadyClientMessageId });
-        streamSse.sendControl("stream_metadata", { server_ts: new Date().toISOString(), stream_id: streamId });
-        readyEmitted = true;
-        log.info("[ask-eco] sse_ready", {
-          origin: origin ?? null,
-          clientMessageId: clientMessageId ?? null,
-          streamId,
-          ready_emitted: true,
-        });
-        flushSse();
-      } catch (error) {
-        log.warn("[ask-eco] sse_ready_emit_failed", {
-          origin: origin ?? null,
-          message: error instanceof Error ? error.message : String(error),
-        });
-      }
     }
 
     const handlerResult = makeHandlers({
