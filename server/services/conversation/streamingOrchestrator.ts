@@ -676,7 +676,7 @@ export async function executeStreamingLLM({
     const err = error instanceof Error ? error : new Error(String(error));
     streamFailure = err;
     rejectRawForBloco(err);
-    throw err;
+    // Don't rethrow - error is handled by Promise.race
   });
 
   startBlocoPipeline();
