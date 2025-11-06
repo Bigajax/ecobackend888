@@ -127,6 +127,11 @@ export function computeEcoDecision(texto: string, options: EcoDecisionOptions = 
   const vivaSteps = deriveVivaSteps(openness);
   const saveMemory = intensity >= MEMORY_THRESHOLD;
 
+  // DEBUG LOG: Intensidade e decisão de memória
+  if (process.env.ECO_DEBUG === 'true') {
+    console.log(`[ecoDecision] intensity=${intensity.toFixed(2)}, threshold=${MEMORY_THRESHOLD}, saveMemory=${saveMemory}`);
+  }
+
   return {
     intensity,
     openness,

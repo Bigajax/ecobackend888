@@ -107,18 +107,30 @@ export async function gerarBlocoTecnicoSeparado(mensagemUsuario: string, respost
   const fallbackPrompt = mkPrompt(true, mensagemUsuario, respostaIa);
 
   try {
-    // 1) tentativas com os modelos “primários”
+    // 1) tentativas com os modelos "primários"
     for (const model of CANDIDATES_PRIMARY) {
       try {
         const raw = await tryJsonWithModel(model, firstPrompt, 4000);
         if (raw) {
           const m = raw.match(/\{[\s\S]*\}/);
-          if (m) return sanitizeJson(m[0], mensagemUsuario, respostaIa);
+          if (m) {
+            const bloco = sanitizeJson(m[0], mensagemUsuario, respostaIa);
+            if (process.env.ECO_DEBUG === 'true') {
+              console.log(`[blocoTecnico] modelo=${model}, emocao=${bloco.emocao_principal}, intensidade=${bloco.intensidade}`);
+            }
+            return bloco;
+          }
         }
         const raw2 = await tryJsonWithModel(model, fallbackPrompt, 3500);
         if (raw2) {
           const m2 = raw2.match(/\{[\s\S]*\}/);
-          if (m2) return sanitizeJson(m2[0], mensagemUsuario, respostaIa);
+          if (m2) {
+            const bloco = sanitizeJson(m2[0], mensagemUsuario, respostaIa);
+            if (process.env.ECO_DEBUG === 'true') {
+              console.log(`[blocoTecnico] modelo=${model} (fallback), emocao=${bloco.emocao_principal}, intensidade=${bloco.intensidade}`);
+            }
+            return bloco;
+          }
         }
       } catch { /* segue fallback */ }
     }
@@ -129,14 +141,26 @@ export async function gerarBlocoTecnicoSeparado(mensagemUsuario: string, respost
         const raw = await tryJsonWithModel(model, fallbackPrompt, 3500);
         if (raw) {
           const m = raw.match(/\{[\s\S]*\}/);
-          if (m) return sanitizeJson(m[0], mensagemUsuario, respostaIa);
+          if (m) {
+            const bloco = sanitizeJson(m[0], mensagemUsuario, respostaIa);
+            if (process.env.ECO_DEBUG === 'true') {
+              console.log(`[blocoTecnico] modelo_fallback=${model}, emocao=${bloco.emocao_principal}, intensidade=${bloco.intensidade}`);
+            }
+            return bloco;
+          }
         }
       } catch { /* último recurso abaixo */ }
     }
 
     // 3) fallback seguro
+    if (process.env.ECO_DEBUG === 'true') {
+      console.log(`[blocoTecnico] BLOCOBRANCO - nenhum modelo retornou JSON válido`);
+    }
     return blocoEmBranco();
   } catch {
+    if (process.env.ECO_DEBUG === 'true') {
+      console.log(`[blocoTecnico] ERRO - exceção capturada, retornando blocoEmBranco()`);
+    }
     return blocoEmBranco();
   }
 }

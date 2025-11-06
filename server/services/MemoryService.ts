@@ -214,6 +214,11 @@ export async function saveMemoryOrReference(opts: {
   const dominioPadronizado = normalizeDomain(bloco?.dominio_vida);
   const analiseResumo = analiseResumoSafe || null;
 
+  // DEBUG LOG: Decisão de memória
+  if (process.env.ECO_DEBUG === 'true') {
+    console.log(`[MemoryService] decision.saveMemory=${decision.saveMemory}, intensidadeNum=${intensidadeNum}, shouldSaveMemory=${shouldSaveMemory}, shouldSaveReference=${shouldSaveReference}`);
+  }
+
   const payloadBase = {
     usuario_id: userId,
     mensagem_id: lastMessageId ?? null,
@@ -250,6 +255,11 @@ export async function saveMemoryOrReference(opts: {
         .insert([{ ...payloadBase, salvar_memoria: true, created_at: new Date().toISOString() }])
         .select("id")
         .maybeSingle();
+
+      if (process.env.ECO_DEBUG === 'true') {
+        console.log(`[MemoryService.INSERT] shouldSaveMemory=true, error=${error?.message || 'null'}, insertedId=${data?.id || 'null'}`);
+      }
+
       if (!error) {
         const insertedId =
           data && typeof (data as any)?.id === "string" && (data as any).id.trim().length

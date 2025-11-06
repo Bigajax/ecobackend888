@@ -289,8 +289,15 @@ function applyMemoryDecision({
   activationTracer?: ActivationTracer;
 }) {
   const crossedThreshold = ecoDecision.intensity >= MEMORY_THRESHOLD;
+  const beforeGuest = ecoDecision.saveMemory;
   ecoDecision.saveMemory = ecoDecision.saveMemory && !isGuest;
   ecoDecision.hasTechBlock = ecoDecision.saveMemory;
+
+  // DEBUG LOG: Guest check
+  if (process.env.ECO_DEBUG === 'true') {
+    console.log(`[applyMemoryDecision] isGuest=${isGuest}, beforeGuest=${beforeGuest}, afterGuest=${ecoDecision.saveMemory}, hasTechBlock=${ecoDecision.hasTechBlock}`);
+  }
+
   activationTracer?.setMemoryDecision(
     ecoDecision.saveMemory,
     ecoDecision.intensity,
