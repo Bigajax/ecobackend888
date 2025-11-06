@@ -1,16 +1,189 @@
 ---
+id: BLOCO_TECNICO_MEMORIA_V2
 minIntensity: 7
 opennessIn: [2, 3]
-flagsAny: [hasTechBlock, saveMemory]
+flagsAny: [hasTechBlock, saveMemory, significantInsight, patternDetected, turningPoint]
 injectAs: footer
-dedupeKey: blocoTecnicoMemoria
+dedupeKey: blocoTecnicoMemoriaV2
 ---
+
+# Registro de Memória V2
+
+```json
 {
-  "emocao_principal": "...",
-  "intensidade": {{DEC.intensity}},
-  "tags": [],
-  "dominio_vida": {{DEC.domain}},
-  "padrao_comportamental": "...",
-  "nivel_abertura": {{DEC.openness}},
-  "analise_resumo": "..."
+  "metadata": {
+    "timestamp": "{{ISO_8601}}",
+    "session_id": "{{SESSION_UUID}}",
+    "turn_number": {{TURN_NUMBER}},
+    "registro_tipo": "padrao|insight|decisao|crise|recurso"
+  },
+  
+  "estado_emocional": {
+    "emocao_primaria": "{{DETECTED_PRIMARY}}",
+    "emocoes_secundarias": ["{{SECONDARY_1}}", "{{SECONDARY_2}}"],
+    "intensidade": {{DEC.intensity}},
+    "qualidade": "expansiva|contrativa|mista|neutra",
+    "corpo_localizacao": "{{SOMATIC_LOCATION}}",
+    "energia_nivel": "colapsada|baixa|media|alta|hiperativada"
+  },
+  
+  "contexto": {
+    "dominio_vida": "{{DEC.domain}}",
+    "gatilho_identificado": "{{TRIGGER}}",
+    "tempo_referencia": "passado|presente|futuro|atemporal",
+    "contexto_relacional": "sozinho|intimo|familiar|social|profissional",
+    "nivel_abertura": {{DEC.openness}}
+  },
+  
+  "padroes": {
+    "padrao_principal": "{{PATTERN_NAME}}",
+    "descricao": "{{PATTERN_DESCRIPTION}}",
+    "frequencia_historica": "primeira_vez|esporadico|recorrente|cronico",
+    "elementos_sistema": [
+      {
+        "tipo": "crenca|comportamento|relacional|somatico",
+        "descricao": "{{ELEMENT_DESC}}"
+      }
+    ],
+    "funcao_adaptativa": "{{ADAPTIVE_FUNCTION}}",
+    "custo_atual": "{{CURRENT_COST}}"
+  },
+  
+  "movimento": {
+    "direcao_observada": "aproximacao|evitacao|paralisia|oscilacao",
+    "qualidade_movimento": "forcado|natural|hesitante|fluido",
+    "resistencias_identificadas": ["{{RESISTANCE_1}}"],
+    "recursos_disponiveis": ["{{RESOURCE_1}}"],
+    "experimento_proposto": "{{PROPOSED_EXPERIMENT}}",
+    "resposta_inicial": "{{USER_RESPONSE}}"
+  },
+  
+  "insights": {
+    "nivel": "superficie|estrutura|sistema|essencia",
+    "conteudo": "{{INSIGHT_CONTENT}}",
+    "qualidade": "cognitivo|emocional|somatico|integral",
+    "acao_potencial": "{{POTENTIAL_ACTION}}",
+    "integracao_necessaria": "{{INTEGRATION_NEEDED}}"
+  },
+  
+  "linguagem_usuario": {
+    "palavras_chave": ["{{EXACT_WORD_1}}", "{{EXACT_WORD_2}}"],
+    "metaforas_usadas": ["{{METAPHOR_1}}"],
+    "frases_significativas": "{{SIGNIFICANT_PHRASE}}",
+    "vocabulario_emocional": "basico|moderado|rico|alexitimico",
+    "estilo_comunicacao": "direto|elaborado|evasivo|fragmentado"
+  },
+  
+  "intervencao_eco": {
+    "tipo_resposta": "acolhimento|exploracao|estruturacao|acao",
+    "modulos_usados": ["espelho_3a_ordem", "padrao", "convite"],
+    "pergunta_feita": "{{QUESTION_ASKED}}",
+    "efetividade_percebida": "{{1-5}}",
+    "ajuste_necessario": "{{ADJUSTMENT_NEEDED}}"
+  },
+  
+  "seguranca": {
+    "nivel_risco": "verde|amarelo|laranja|vermelho",
+    "sinais_alerta": ["{{SIGN_1}}"],
+    "protocolo_ativado": "nenhum|monitoramento|suporte|crise",
+    "recursos_sugeridos": ["{{RESOURCE}}"],
+    "followup_necessario": true|false
+  },
+  
+  "continuidade": {
+    "threads_relacionadas": ["{{PREVIOUS_SESSION_ID}}"],
+    "temas_emergentes": ["{{THEME_1}}", "{{THEME_2}}"],
+    "evolucao_observada": "{{EVOLUTION_DESC}}",
+    "proxima_exploracao": "{{SUGGESTED_NEXT}}",
+    "relevancia_futura": "baixa|media|alta|critica"
+  },
+  
+  "metricas_qualidade": {
+    "precisao_espelhamento": {{0.0-1.0}},
+    "profundidade_alcancada": {{1-4}},
+    "ressonancia_estimada": {{0.0-1.0}},
+    "movimento_gerado": {{0.0-1.0}},
+    "seguranca_mantida": {{0.0-1.0}}
+  },
+  
+  "notas_processuais": {
+    "observacoes_clinicas": "{{CLINICAL_NOTES}}",
+    "hipoteses_trabalho": "{{WORKING_HYPOTHESIS}}",
+    "contradicoes_notadas": "{{CONTRADICTIONS}}",
+    "intuicoes_nao_verbalizadas": "{{INTUITIONS}}",
+    "aprendizado_sistema": "{{SYSTEM_LEARNING}}"
+  }
 }
+```
+
+## Critérios de Ativação Expandidos
+
+### Registro Obrigatório:
+1. Intensidade >= 7
+2. Padrão comportamental identificado pela 2ª vez
+3. Insight de nível sistema ou essência
+4. Decisão significativa tomada
+5. Ponto de virada emocional
+6. Ativação de protocolo laranja/vermelho
+7. Pedido explícito do usuário
+
+### Registro Recomendado:
+1. Intensidade >= 5 com novo conteúdo
+2. Primeira aparição de tema importante
+3. Mudança notável no estilo de comunicação
+4. Recurso novo identificado
+5. Experimento aceito e realizado
+
+### Flags de Contexto:
+- `hasTechBlock`: Incluir análise técnica
+- `saveMemory`: Garantir persistência
+- `significantInsight`: Detalhar descoberta
+- `patternDetected`: Mapear sistema completo
+- `turningPoint`: Marcar mudança de fase
+- `crisisProtocol`: Documentar intervenção
+- `resourceEmergence`: Registrar força descoberta
+
+## Protocolo de Recuperação V2
+
+### Quando Referenciar:
+- Padrão reaparece após >= 3 turnos
+- Contradição significativa com memória anterior
+- Evolução clara de tema registrado
+- Pedido de histórico pelo usuário
+- Necessidade de evidenciar progresso
+
+### Como Referenciar:
+```
+"Lembro que [tempo] você mencionou [palavras exatas breves]..."
+"Isso conecta com [padrão] que apareceu quando..."
+"Diferente de [situação anterior], agora percebo..."
+```
+
+### Limites:
+- Máximo 2 referências por resposta
+- Mínimo 3 turnos entre referências do mesmo registro
+- Nunca usar memória para contradizer usuário
+- Sempre permitir reinterpretação de eventos passados
+
+## Compressão Inteligente
+
+Para sessões longas (>20 turnos), comprimir registros antigos mantendo:
+- Palavras-chave exatas do usuário
+- Padrões principais identificados
+- Pontos de virada significativos
+- Recursos descobertos
+- Insights de nível sistema/essência
+
+Descartar:
+- Detalhes processuais redundantes
+- Hipóteses não confirmadas
+- Métricas de baixa relevância
+- Notas já integradas em padrões
+
+## Privacidade e Ética
+
+- Anonimizar referencias a terceiros
+- Não registrar informações identificáveis desnecessárias
+- Marcar registros sensíveis com flag de privacidade
+- Permitir pedidos de "esquecimento" de tópicos específicos
+- Separar fatos de interpretações nas notas
