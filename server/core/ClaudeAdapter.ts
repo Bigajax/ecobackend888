@@ -107,7 +107,14 @@ function flattenContentPieces(input: unknown): string[] {
 
 function normalizeOpenRouterText(input: unknown): string {
   const pieces = flattenContentPieces(input);
-  return pieces.length ? pieces.join("") : "";
+  if (!pieces.length) return "";
+  // Join pieces with space, but trim each piece first to avoid double spaces
+  // This ensures "mas" + "nem" becomes "mas nem" (not "masnem")
+  // And "text " + " more" becomes "text more" (not "text  more")
+  return pieces
+    .map((p) => (typeof p === "string" ? p.trim() : ""))
+    .filter((p) => p.length > 0)
+    .join(" ");
 }
 
 function isObject(x: unknown): x is Record<string, unknown> {
