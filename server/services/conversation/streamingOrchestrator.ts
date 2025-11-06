@@ -537,6 +537,35 @@ export async function executeStreamingLLM({
 
   let streamGuardTimer: NodeJS.Timeout | null = null;
 
+  // ===== WORD-BOUNDARY BUFFERING =====
+  // Accumulates tokens until word boundary or max size to prevent micro-chunks
+  let wordBuffer = "";
+  let lastFlushTime = Date.now();
+  const WORD_BUFFER_MAX_SIZE = 50; // chars
+  const WORD_FLUSH_DEBOUNCE_MS = 100; // time-based flush
+
+  const shouldFlushWordBuffer = (): boolean => {
+    if (!wordBuffer) return false;
+    // Check if buffer ends with natural boundary
+    const endsWithBoundary = /[\s.,!?;:\-—\n]\s*$/.test(wordBuffer);
+    const bufferTooLarge = wordBuffer.length >= WORD_BUFFER_MAX_SIZE;
+    const timeoutExceeded = Date.now() - lastFlushTime >= WORD_FLUSH_DEBOUNCE_MS;
+    return endsWithBoundary || bufferTooLarge || timeoutExceeded;
+  };
+
+  const flushWordBuffer = async (): Promise<void> => {
+    if (!wordBuffer) return;
+    const toEmit = wordBuffer;
+    wordBuffer = "";
+    lastFlushTime = Date.now();
+    // Emit as a single chunk event
+    const currentIndex = chunkIndex;
+    chunkIndex += 1;
+    streamedChunks.push(toEmit);
+    await emitStream({ type: "chunk", delta: toEmit, index: currentIndex, content: toEmit });
+  };
+  // ===== END WORD-BOUNDARY BUFFERING =====
+
   const cleanupAbortListener = (() => {
     if (!abortSignal) {
       return null as (() => void) | null;
@@ -593,6 +622,7 @@ export async function executeStreamingLLM({
         if (!content) return;
         if (ignoreStreamEvents) return;
         sawChunk = true;
+        // Add to internal accumulated chunks for finalization
         streamedChunks.push(content);
         if (streamGuardTimer) {
           clearStreamGuard(streamGuardTimer);
@@ -601,9 +631,12 @@ export async function executeStreamingLLM({
         if (!firstTokenSent) {
           firstTokenSent = true;
         }
-        const currentIndex = chunkIndex;
-        chunkIndex += 1;
-        await emitStream({ type: "chunk", delta: content, index: currentIndex, content });
+        // ===== WORD-BOUNDARY BUFFERING: Accumulate instead of emitting immediately =====
+        wordBuffer += content;
+        if (shouldFlushWordBuffer()) {
+          await flushWordBuffer();
+        }
+        // ===== END WORD-BOUNDARY BUFFERING =====
       },
       async onControl(event) {
         if (ignoreStreamEvents) return;
@@ -612,6 +645,9 @@ export async function executeStreamingLLM({
           return;
         }
         if (event.type === "done") {
+          // ===== WORD-BOUNDARY BUFFERING: Flush remaining buffer before finishing =====
+          await flushWordBuffer();
+          // ===== END WORD-BOUNDARY BUFFERING =====
           if (streamGuardTimer) {
             clearStreamGuard(streamGuardTimer);
             streamGuardTimer = null;

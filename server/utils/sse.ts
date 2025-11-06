@@ -105,6 +105,28 @@ export function createSSE(
     ensureOpen();
     if (res.writableEnded) return;
     const payload = serializeData(data);
+
+    // ===== SSE WRITE VALIDATION: Validate UTF-8 before sending =====
+    // Encode to UTF-8 buffer and decode back to verify no corruption
+    try {
+      const payloadBuffer = Buffer.from(payload, 'utf-8');
+      const decodedBack = payloadBuffer.toString('utf-8');
+      if (decodedBack !== payload) {
+        console.error("[SSE] UTF-8 encoding mismatch detected, skipping send", {
+          event,
+          payloadLen: payload.length,
+        });
+        return;
+      }
+    } catch (err) {
+      console.error("[SSE] UTF-8 validation error", {
+        event,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return;
+    }
+    // ===== END SSE WRITE VALIDATION =====
+
     const eventLine = `event: ${event}\n`;
     const dataLine = `data: ${payload}\n\n`;
     res.write(eventLine);
