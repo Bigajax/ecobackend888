@@ -687,13 +687,24 @@ export async function executeStreamingLLM({
 
   const guardPromise = armStreamGuard();
 
-  const raceOutcome = await Promise.race<"stream" | "fallback" | "guard_disabled">([
-    streamPromise.then(() => {
-      streamCompleted = true;
-      return "stream" as const;
-    }),
-    guardPromise,
-  ]);
+  let raceOutcome: "stream" | "fallback" | "guard_disabled" | "stream_error" = "stream";
+
+  try {
+    raceOutcome = await Promise.race<"stream" | "fallback" | "guard_disabled">([
+      streamPromise.then(() => {
+        streamCompleted = true;
+        return "stream" as const;
+      }),
+      guardPromise,
+    ]);
+  } catch (error) {
+    // If race rejects due to streamPromise error (e.g., NON_SSE_EMPTY), handle gracefully
+    log.warn("[promise_race_error]", {
+      error: error instanceof Error ? error.message : String(error),
+      sawChunk,
+    });
+    raceOutcome = "stream_error";
+  }
 
   if (raceOutcome === "fallback") {
     void streamPromise.catch(() => undefined);
@@ -701,14 +712,28 @@ export async function executeStreamingLLM({
   }
 
   if (raceOutcome === "guard_disabled") {
-    await streamPromise;
-    streamCompleted = true;
+    try {
+      await streamPromise;
+      streamCompleted = true;
+    } catch (error) {
+      log.warn("[guard_disabled_stream_error]", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      raceOutcome = "stream_error";
+    }
   }
 
   try {
     if (!streamCompleted) {
-      await streamPromise;
-      streamCompleted = true;
+      if (raceOutcome === "stream_error") {
+        // Stream error occurred, deliver fallback if no chunks received
+        if (!sawChunk) {
+          await emitFallbackOnce();
+        }
+      } else {
+        await streamPromise;
+        streamCompleted = true;
+      }
     }
   } finally {
     clearTimeout(firstTokenTimer);
