@@ -106,22 +106,14 @@ function flattenContentPieces(input: unknown): string[] {
 }
 
 function normalizeOpenRouterText(input: unknown): string {
+  // BACKEND PASSTHROUGH: Return text without transformation
+  // Removed all trimming, filtering, and joining logic
+  // Text is passed raw from OpenRouter to client
   const pieces = flattenContentPieces(input);
   if (!pieces.length) return "";
 
-  // IMPORTANT: Only trim pieces if input was originally an array (structured content)
-  // If input is a simple string, never trim - preserve spaces from streaming chunks
-  const shouldTrimPieces = Array.isArray(input);
-
-  return pieces
-    .map((p) => {
-      if (typeof p !== "string") return "";
-      // Only trim if we received an array (structured content like [{content: "..."}])
-      // For streaming chunks (plain strings), preserve original spacing
-      return shouldTrimPieces ? p.trim() : p;
-    })
-    .filter((p) => p.length > 0)
-    .join(shouldTrimPieces ? " " : "");
+  // Concatenate pieces as-is without any normalization
+  return pieces.map((p) => (typeof p === "string" ? p : "")).join("");
 }
 
 function isObject(x: unknown): x is Record<string, unknown> {

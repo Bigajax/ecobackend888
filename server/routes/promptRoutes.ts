@@ -24,7 +24,7 @@ import {
   type RequestWithIdentity as RequestWithEcoIdentity,
 } from "../middleware/ensureIdentity";
 import { createInteraction } from "../services/conversation/interactionAnalytics";
-import { extractTextLoose, sanitizeOutput } from "../utils/textExtractor";
+import { extractTextLoose } from "../utils/textExtractor";
 import { getGuestIdFromCookies, resolveGuestId } from "../utils/guestIdResolver";
 import {
   validateAskEcoPayload,
@@ -920,7 +920,8 @@ async function handleAskEcoRequest(req: Request, res: Response, _next: NextFunct
     if (!wantsStream) {
       try {
         const result = await getEcoResponse(params as any);
-        const textOut = sanitizeOutput(extractTextLoose(result) ?? "");
+        // BACKEND PASSTHROUGH: Send raw text from model without sanitization
+        const textOut = extractTextLoose(result) ?? "";
         log.info("[ask-eco] response", { mode: "json", hasContent: textOut.length > 0 });
 
         const tokens = (() => {
@@ -1589,7 +1590,8 @@ async function handleAskEcoRequest(req: Request, res: Response, _next: NextFunct
       if (!state.done) {
   if (!state.sawChunk) {
     // Extrair texto final e finishReason do resultado
-    const textOut = sanitizeOutput(extractTextLoose(result) ?? "");
+    // BACKEND PASSTHROUGH: Send raw text from model without sanitization
+    const textOut = extractTextLoose(result) ?? "";
     const resultMeta = (result as any)?.meta;
     const finishReasonFromResult =
       (resultMeta as any)?.finishReason ??

@@ -1,6 +1,6 @@
 import { log } from "../services/promptContext/logger";
 import type { EcoStreamEvent } from "../services/conversation/types";
-import { extractEventText, sanitizeOutput } from "../utils/textExtractor";
+import { extractEventText } from "../utils/textExtractor";
 import type { SSEConnection } from "../utils/sse";
 import { SseStreamState } from "./sseState";
 
@@ -426,20 +426,7 @@ export class SseEventHandlers {
   sendDone(reason?: string | null) {
     if (this.state.done) return;
 
-    // ===== MINIMUM CHUNK SIZE POLICY: Flush residual buffer =====
-    if (this.minChunkBuffer.length > 0) {
-      const residual = this.minChunkBuffer;
-      this.minChunkBuffer = "";
-      if (process.env.ECO_DEBUG === "1" || process.env.ECO_DEBUG === "true") {
-        console.debug("[sendDone] flushing residual minChunkBuffer", {
-          residualLen: residual.length,
-        });
-      }
-      // Emit residual content as final chunk before done
-      this.sendChunk({ text: residual });
-    }
-    // ===== END MINIMUM CHUNK SIZE POLICY =====
-
+    // BACKEND PASSTHROUGH: No buffering, all chunks already sent raw
     this.options.clearFirstTokenWatchdog();
     const nowTs = Date.now();
     this.state.markDone(nowTs);
@@ -752,9 +739,8 @@ export class SseEventHandlers {
   }
 
   // ===== MINIMUM CHUNK SIZE POLICY =====
-  private minChunkBuffer = "";
-  private MIN_CHUNK_LENGTH = 3; // At least 3 chars to avoid single-char accents
-  // ===== END MINIMUM CHUNK SIZE POLICY =====
+  // BACKEND PASSTHROUGH: Removed all buffer/normalization logic
+  // Text from model is sent raw to client without transformation
 
   sendChunk(input: { text: string; index?: number; meta?: Record<string, unknown> }) {
     if (!input || typeof input.text !== "string") {
@@ -769,56 +755,19 @@ export class SseEventHandlers {
       }
       return;
     }
-    let cleaned = sanitizeOutput(input.text);
 
-    // ===== UTF-8 PRE-FLIGHT VALIDATION =====
-    // Detect replacement character (U+FFFD) which indicates corrupted UTF-8
-    if (cleaned.includes('\uFFFD')) {
-      log.warn("[sendChunk] detected UTF-8 replacement character, skipping chunk", {
-        textLen: cleaned.length,
-        index: input.index,
-      });
-      return;
-    }
-    // ===== END UTF-8 PRE-FLIGHT VALIDATION =====
+    // BACKEND PASSTHROUGH: Send raw text from model without any transformation
+    const text = input.text;
 
-    if (cleaned.length === 0) {
+    if (text.length === 0) {
       if (process.env.ECO_DEBUG === "1" || process.env.ECO_DEBUG === "true") {
         console.debug("[sendChunk] early return: empty text");
       }
       return;
     }
-    if (cleaned.trim().toLowerCase() === "ok") {
-      if (process.env.ECO_DEBUG === "1" || process.env.ECO_DEBUG === "true") {
-        console.debug("[sendChunk] early return: OK text");
-      }
-      return;
-    }
 
-    // ===== MINIMUM CHUNK SIZE POLICY =====
-    // Accumulate small chunks to prevent 1-2 char fragments (especially accents like "á")
-    if (cleaned.length < this.MIN_CHUNK_LENGTH) {
-      this.minChunkBuffer += cleaned;
-      if (process.env.ECO_DEBUG === "1" || process.env.ECO_DEBUG === "true") {
-        console.debug("[sendChunk] buffering small chunk", {
-          chunkLen: cleaned.length,
-          bufferLen: this.minChunkBuffer.length,
-        });
-      }
-      return; // Don't emit yet
-    }
-
-    // If buffer has content, prepend it to this chunk (spacing already handled by normalizeOpenRouterText)
-    if (this.minChunkBuffer.length > 0) {
-      cleaned = this.minChunkBuffer + cleaned;
-      this.minChunkBuffer = "";
-      if (process.env.ECO_DEBUG === "1" || process.env.ECO_DEBUG === "true") {
-        console.debug("[sendChunk] flushing buffered chunk", { combinedLen: cleaned.length });
-      }
-    }
-    // ===== END MINIMUM CHUNK SIZE POLICY =====
-
-    const finalText = cleaned;
+    // Send raw text directly without buffering or processing
+    const finalText = text;
 
     if (process.env.ECO_DEBUG === "1" || process.env.ECO_DEBUG === "true") {
       console.debug("[sendChunk] processing", { textLen: finalText.length, providedIndex: input.index });
