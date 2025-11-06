@@ -197,6 +197,10 @@ export class SseStreamState {
     this.chunksCount = Math.max(this.chunksCount, chunkIndex + 1);
     this.bytesCount = totalBytes;
     this.contentPieces.push(text);
+    // Add space between chunks to prevent word concatenation (e.g., "está" + "pedindo" → "está pedindo")
+    if (this.contentBuffer && text && !this.contentBuffer.endsWith(" ") && !text.startsWith(" ")) {
+      this.contentBuffer += " ";
+    }
     this.contentBuffer += text;
 
     return { chunkIndex, chunkBytes, totalBytes, firstChunk, timestamp: now };

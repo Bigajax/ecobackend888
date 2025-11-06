@@ -632,6 +632,10 @@ export async function executeStreamingLLM({
           firstTokenSent = true;
         }
         // ===== WORD-BOUNDARY BUFFERING: Accumulate instead of emitting immediately =====
+        // Add space between chunks if buffer has content and new content doesn't start with space
+        if (wordBuffer && content && !content.startsWith(" ") && !wordBuffer.endsWith(" ")) {
+          wordBuffer += " ";
+        }
         wordBuffer += content;
         if (shouldFlushWordBuffer()) {
           await flushWordBuffer();
@@ -756,7 +760,8 @@ export async function executeStreamingLLM({
     throw streamFailure;
   }
 
-  const raw = streamedChunks.join("");
+  // Join chunks with space to prevent word concatenation (e.g., "estápedindo" → "está pedindo")
+  const raw = streamedChunks.map(c => c.trim()).filter(c => c).join(" ");
   resolveRawForBloco(raw);
 
   let finalizePromise: Promise<GetEcoResult> | null = null;
