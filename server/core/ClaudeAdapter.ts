@@ -157,8 +157,8 @@ function pickContent(chunk: ORStreamChunk | ORChatCompletion): string {
 
 export async function claudeChatCompletion({
   messages,
-  model = process.env.ECO_CLAUDE_MODEL || "anthropic/claude-3.7-sonnet",
-  fallbackModel = process.env.ECO_CLAUDE_MODEL_FALLBACK || "anthropic/claude-sonnet-4",
+  model = process.env.ECO_CLAUDE_MODEL || "anthropic/claude-sonnet-4.5-20250929",
+  fallbackModel = process.env.ECO_CLAUDE_MODEL_FALLBACK || "anthropic/claude-3-haiku-20240307",
   temperature = 0.5,
   maxTokens = 700,
 }: {
@@ -252,8 +252,8 @@ export async function claudeChatCompletion({
 export async function streamClaudeChatCompletion(
   {
     messages,
-    model = process.env.ECO_CLAUDE_MODEL || "anthropic/claude-3.7-sonnet",
-    fallbackModel = process.env.ECO_CLAUDE_MODEL_FALLBACK || "anthropic/claude-sonnet-4",
+    model = process.env.ECO_CLAUDE_MODEL || "anthropic/claude-sonnet-4.5-20250929",
+    fallbackModel = process.env.ECO_CLAUDE_MODEL_FALLBACK || "anthropic/claude-3-haiku-20240307",
     temperature = 0.5,
     maxTokens = 700,
   }: {
@@ -346,7 +346,25 @@ export async function streamClaudeChatCompletion(
       }
 
       if (!resp.ok) {
-        const err = new Error(`OpenRouter error: ${resp.status} ${resp.statusText}`);
+        let errorDetails = `${resp.status} ${resp.statusText}`;
+        try {
+          const errorBody = await resp.json().catch(() => null);
+          if (errorBody && typeof errorBody === 'object') {
+            const errMsg = (errorBody as any).error?.message || (errorBody as any).message;
+            if (errMsg) {
+              errorDetails += ` - ${errMsg}`;
+            }
+          }
+        } catch (_) {
+          // Ignore JSON parsing errors
+        }
+        const err = new Error(`OpenRouter error: ${errorDetails}`);
+        log.warn("[openrouter_http_error]", {
+          status: resp.status,
+          statusText: resp.statusText,
+          details: errorDetails,
+          model: modelToUse,
+        });
         (err as any).__claudeBeforeStream = true;
         (err as any).__claudeStreamDelivered = false;
         throw err;
