@@ -13,7 +13,7 @@ The backend orchestrates a sophisticated pipeline: guest/identity validation →
 - **Runtime**: Node.js 18+ with TypeScript 5.8
 - **Web Framework**: Express.js 5.1
 - **Database**: Supabase (PostgreSQL + pgvector for semantic search)
-- **LLM**: Claude 3.5 Sonnet via OpenRouter API
+- **LLM**: Claude Sonnet 4.5 via OpenRouter API
 - **Real-time**: Server-Sent Events (SSE) for streaming responses
 - **Analytics**: Mixpanel + internal analytics tables (Supabase)
 - **Voice**: ElevenLabs (TTS) + Google Cloud Speech-to-Text (transcription)
@@ -513,7 +513,7 @@ Use `npm run verify:assets` before deploying to ensure all modules are bundled.
 
 ### OpenRouter/Claude Configuration
 
-The system currently defaults to `anthropic/claude-3-5-sonnet` via OpenRouter. To change:
+The system currently defaults to `anthropic/claude-sonnet-4.5-20250929` via OpenRouter. To change:
 
 1. Set `ECO_CLAUDE_MODEL=anthropic/claude-3-haiku` (or other OpenRouter model)
 2. Adjust `ECO_MAX_PROMPT_TOKENS` if needed for model context limits
@@ -584,7 +584,7 @@ USE_STUB_ECO=true npm run dev
 ### OpenRouter/Claude
 - **Endpoint**: `https://openrouter.io/api/v1/chat/completions`
 - **Auth**: `Authorization: Bearer ${OPENROUTER_API_KEY}`
-- **Models**: anthropic/claude-3-5-sonnet, anthropic/claude-3-haiku (configurable)
+- **Models**: anthropic/claude-sonnet-4.5-20250929 (principal), anthropic/claude-3-haiku (fast-lane, configurable)
 - **Streaming**: Supported via `stream: true`
 - **Timeout**: Configurable via `OPENROUTER_TIMEOUT_MS` (30s default)
 
