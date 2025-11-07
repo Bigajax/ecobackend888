@@ -555,9 +555,27 @@ export async function executeStreamingLLM({
 
   const flushWordBuffer = async (): Promise<void> => {
     if (!wordBuffer) return;
-    const toEmit = wordBuffer;
-    wordBuffer = "";
+
+    let toEmit = wordBuffer;
+    let remaining = "";
+
+    // Smart word-boundary splitting: respect word limits when buffer is too large
+    if (toEmit.length >= WORD_BUFFER_MAX_SIZE) {
+      // Try to find the last space within the max size limit
+      const lastSpaceIndex = toEmit.lastIndexOf(" ", WORD_BUFFER_MAX_SIZE - 1);
+
+      if (lastSpaceIndex > 0) {
+        // Found a space before the limit - split there
+        toEmit = toEmit.substring(0, lastSpaceIndex + 1); // Include the space
+        remaining = wordBuffer.substring(lastSpaceIndex + 1);
+      }
+      // If no space found within limit, we'll emit the full buffer
+      // (word is longer than WORD_BUFFER_MAX_SIZE, unavoidable break)
+    }
+
+    wordBuffer = remaining;
     lastFlushTime = Date.now();
+
     // Emit as a single chunk event
     const currentIndex = chunkIndex;
     chunkIndex += 1;
