@@ -1,13 +1,15 @@
 ---
-id: BLOCO_TECNICO_MEMORIA_V2
+id: BLOCO_TECNICO_MEMORIA_V3
 minIntensity: 7
 opennessIn: [2, 3]
 flagsAny: [hasTechBlock, saveMemory, significantInsight, patternDetected, turningPoint]
 injectAs: footer
-dedupeKey: blocoTecnicoMemoriaV2
+dedupeKey: blocoTecnicoMemoriaV3
 ---
 
-# Registro de Memória V2
+# Schema de Registro de Memória V3
+
+## Estrutura JSON Completa
 
 ```json
 {
@@ -21,18 +23,18 @@ dedupeKey: blocoTecnicoMemoriaV2
   "estado_emocional": {
     "emocao_primaria": "{{DETECTED_PRIMARY}}",
     "emocoes_secundarias": ["{{SECONDARY_1}}", "{{SECONDARY_2}}"],
-    "intensidade": {{DEC.intensity}},
+    "intensidade": {{0-10}},
     "qualidade": "expansiva|contrativa|mista|neutra",
     "corpo_localizacao": "{{SOMATIC_LOCATION}}",
     "energia_nivel": "colapsada|baixa|media|alta|hiperativada"
   },
   
   "contexto": {
-    "dominio_vida": "{{DEC.domain}}",
-    "gatilho_identificado": "{{TRIGGER}}",
+    "dominio_vida": "trabalho|relacionamentos|familia|saude|identidade|financeiro|espiritual|criativo|outro",
+    "gatilho_identificado": "{{TRIGGER_DESCRIPTION}}",
     "tempo_referencia": "passado|presente|futuro|atemporal",
     "contexto_relacional": "sozinho|intimo|familiar|social|profissional",
-    "nivel_abertura": {{DEC.openness}}
+    "nivel_abertura": {{1-3}}
   },
   
   "padroes": {
@@ -55,7 +57,7 @@ dedupeKey: blocoTecnicoMemoriaV2
     "resistencias_identificadas": ["{{RESISTANCE_1}}"],
     "recursos_disponiveis": ["{{RESOURCE_1}}"],
     "experimento_proposto": "{{PROPOSED_EXPERIMENT}}",
-    "resposta_inicial": "{{USER_RESPONSE}}"
+    "resposta_inicial": "aceito|hesitante|recusado|adaptado"
   },
   
   "insights": {
@@ -63,7 +65,7 @@ dedupeKey: blocoTecnicoMemoriaV2
     "conteudo": "{{INSIGHT_CONTENT}}",
     "qualidade": "cognitivo|emocional|somatico|integral",
     "acao_potencial": "{{POTENTIAL_ACTION}}",
-    "integracao_necessaria": "{{INTEGRATION_NEEDED}}"
+    "integracao_necessaria": "imediata|curto_prazo|longo_prazo|processamento"
   },
   
   "linguagem_usuario": {
@@ -76,9 +78,9 @@ dedupeKey: blocoTecnicoMemoriaV2
   
   "intervencao_eco": {
     "tipo_resposta": "acolhimento|exploracao|estruturacao|acao",
-    "modulos_usados": ["espelho_3a_ordem", "padrao", "convite"],
+    "modulos_usados": ["espelho", "padrao", "convite", "pergunta", "ordem"],
     "pergunta_feita": "{{QUESTION_ASKED}}",
-    "efetividade_percebida": "{{1-5}}",
+    "efetividade_percebida": {{1-5}},
     "ajuste_necessario": "{{ADJUSTMENT_NEEDED}}"
   },
   
@@ -116,58 +118,19 @@ dedupeKey: blocoTecnicoMemoriaV2
 }
 ```
 
-## Critérios de Ativação Expandidos
+## Flags de Contexto Técnicas
 
-### Registro Obrigatório:
-1. Intensidade >= 7
-2. Padrão comportamental identificado pela 2ª vez
-3. Insight de nível sistema ou essência
-4. Decisão significativa tomada
-5. Ponto de virada emocional
-6. Ativação de protocolo laranja/vermelho
-7. Pedido explícito do usuário
+### Ativação de Registro:
+- `hasTechBlock`: Incluir análise técnica completa
+- `saveMemory`: Garantir persistência do registro
+- `significantInsight`: Detalhar descoberta em notas processuais
+- `patternDetected`: Mapear sistema completo (padroes + elementos)
+- `turningPoint`: Marcar mudança de fase significativa
+- `crisisProtocol`: Documentar intervenção de segurança
+- `resourceEmergence`: Registrar força/recurso interno descoberto
 
-### Registro Recomendado:
-1. Intensidade >= 5 com novo conteúdo
-2. Primeira aparição de tema importante
-3. Mudança notável no estilo de comunicação
-4. Recurso novo identificado
-5. Experimento aceito e realizado
-
-### Flags de Contexto:
-- `hasTechBlock`: Incluir análise técnica
-- `saveMemory`: Garantir persistência
-- `significantInsight`: Detalhar descoberta
-- `patternDetected`: Mapear sistema completo
-- `turningPoint`: Marcar mudança de fase
-- `crisisProtocol`: Documentar intervenção
-- `resourceEmergence`: Registrar força descoberta
-
-## Protocolo de Recuperação V2
-
-### Quando Referenciar:
-- Padrão reaparece após >= 3 turnos
-- Contradição significativa com memória anterior
-- Evolução clara de tema registrado
-- Pedido de histórico pelo usuário
-- Necessidade de evidenciar progresso
-
-### Como Referenciar:
-```
-"Lembro que [tempo] você mencionou [palavras exatas breves]..."
-"Isso conecta com [padrão] que apareceu quando..."
-"Diferente de [situação anterior], agora percebo..."
-```
-
-### Limites:
-- Máximo 2 referências por resposta
-- Mínimo 3 turnos entre referências do mesmo registro
-- Nunca usar memória para contradizer usuário
-- Sempre permitir reinterpretação de eventos passados
-
-## Compressão Inteligente
-
-Para sessões longas (>20 turnos), comprimir registros antigos mantendo:
+### Compressão para Sessões Longas (>20 turnos):
+Comprimir registros antigos mantendo:
 - Palavras-chave exatas do usuário
 - Padrões principais identificados
 - Pontos de virada significativos
@@ -178,12 +141,15 @@ Descartar:
 - Detalhes processuais redundantes
 - Hipóteses não confirmadas
 - Métricas de baixa relevância
-- Notas já integradas em padrões
+- Notas já integradas em padrões posteriores
 
-## Privacidade e Ética
-
-- Anonimizar referencias a terceiros
+### Privacidade e Ética:
+- Anonimizar referências a terceiros
 - Não registrar informações identificáveis desnecessárias
 - Marcar registros sensíveis com flag de privacidade
 - Permitir pedidos de "esquecimento" de tópicos específicos
-- Separar fatos de interpretações nas notas
+- Separar fatos observados de interpretações nas notas
+
+---
+
+**Nota técnica**: Critérios de ativação, protocolo de recuperação e política de memória estão definidos em `instrucoes_sistema.txt` e `promptIdentity.ts`. Este módulo serve apenas como schema de dados.
