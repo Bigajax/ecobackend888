@@ -560,19 +560,31 @@ export async function executeStreamingLLM({
   };
 
   const findLastWordBoundary = (text: string, maxPos: number): number => {
-    // Find the last word boundary (space or punctuation) within maxPos characters
-    // Use regex to handle accented characters properly
-    let lastBoundary = 0;
-
+    // Priority 1: Find last SPACE within limit (most reliable for word breaks)
+    let lastSpacePos = -1;
     for (let i = 0; i < Math.min(maxPos, text.length); i++) {
-      const char = text[i];
-      // Word boundaries: space, punctuation, line breaks
-      if (/[\s.,!?;:\-—\n]/.test(char)) {
-        lastBoundary = i + 1; // Include the boundary character
+      if (text[i] === " ") {
+        lastSpacePos = i;
       }
     }
 
-    return lastBoundary;
+    // If we found a space, include it in the emission
+    if (lastSpacePos >= 0) {
+      return lastSpacePos + 1; // +1 to include the space itself
+    }
+
+    // Priority 2: No space found within limit, look for punctuation
+    // to avoid breaking in the middle of a word
+    let lastPunctuation = 0;
+    for (let i = 0; i < Math.min(maxPos, text.length); i++) {
+      const char = text[i];
+      // Punctuation that naturally separates content
+      if (/[.,!?;:\-—\n]/.test(char)) {
+        lastPunctuation = i + 1; // Include the punctuation
+      }
+    }
+
+    return lastPunctuation; // May be 0 if no boundaries found
   };
 
   const flushTokenizedBuffer = async (): Promise<void> => {
