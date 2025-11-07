@@ -60,6 +60,8 @@ Selecionar módulos da arquitetura de resposta baseado em:
 - Energia disponível (baixa/média/alta)
 - Contexto histórico (memória quando relevante)
 
+**→ VEJA eco_formato_resposta.txt PARA ESTRUTURA DE RESPOSTAS (MICRO/BREVE/COMPLETO)**
+
 ## Linguagem e Tom V2
 
 ### Princípios Estilísticos:
