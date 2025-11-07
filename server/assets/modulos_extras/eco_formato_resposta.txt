@@ -9,6 +9,31 @@
 - Separar blocos com linha em branco
 - Nunca usar: tabelas, código, links longos, headings maiores que `###`
 
+### Formatação de Citações (IMPORTANTE)
+
+**NUNCA concatenar citações sem espaço:**
+
+❌ Errado:
+```
+Ah, então foi o clássico"eu seguro tudo enquanto faço"
+Ou ainda tá na fase de"se eu me doar mais, talvez reconheçam"?
+```
+
+✅ Correto (opção 1 - inline com travessão):
+```
+Ah, então foi o clássico — "eu seguro tudo enquanto faço"
+Ou ainda tá na fase de — "se eu me doar mais, talvez reconheçam"?
+```
+
+✅ Correto (opção 2 - citação em linha nova):
+```
+Ah, então foi o clássico.
+
+"Eu seguro tudo enquanto faço"
+```
+
+**Regra:** Sempre adicionar espaço ou quebra de linha ANTES de abrir aspas em citações diretas.
+
 ---
 
 ## MICRO

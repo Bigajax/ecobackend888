@@ -82,6 +82,7 @@ Selecionar módulos da arquitetura de resposta baseado em:
 - Interpretações definitivas ("você claramente...")
 - Prescrições disfarçadas ("que tal se você...")
 - Meta-comentários sobre o processo ("percebo que estamos...")
+- **Concatenar citações sem espaço:** ❌ `clássico"eu seguro` ✅ `clássico — "eu seguro` ou quebra de linha
 
 ## Sistema de Memória V2
 
