@@ -537,52 +537,158 @@ export async function executeStreamingLLM({
 
   let streamGuardTimer: NodeJS.Timeout | null = null;
 
-  // ===== WORD-BOUNDARY BUFFERING =====
-  // Accumulates tokens until word boundary or max size to prevent micro-chunks
-  let wordBuffer = "";
+  // ===== INTELLIGENT WORD-AWARE BUFFERING =====
+  // Ensures words are never broken across chunks using word boundary detection
+  let rawBuffer = ""; // Accumulates raw text from stream
   let lastFlushTime = Date.now();
-  const WORD_BUFFER_MAX_SIZE = 50; // chars
-  const WORD_FLUSH_DEBOUNCE_MS = 100; // time-based flush
+  const TARGET_CHUNK_SIZE = 50; // Target size in chars (soft limit)
+  const TOKENIZER_FLUSH_DEBOUNCE_MS = 80; // time-based flush
+  const MIN_ACCUMULATED_SIZE = 30; // Minimum chars before attempting flush
 
-  const shouldFlushWordBuffer = (): boolean => {
-    if (!wordBuffer) return false;
-    // Check if buffer ends with natural boundary
-    const endsWithBoundary = /[\s.,!?;:\-—\n]\s*$/.test(wordBuffer);
-    const bufferTooLarge = wordBuffer.length >= WORD_BUFFER_MAX_SIZE;
-    const timeoutExceeded = Date.now() - lastFlushTime >= WORD_FLUSH_DEBOUNCE_MS;
-    return endsWithBoundary || bufferTooLarge || timeoutExceeded;
+  const shouldFlushTokenizedBuffer = (): boolean => {
+    if (!rawBuffer) return false;
+
+    // Check if buffer is large enough
+    const bufferLargeEnough = rawBuffer.length >= TARGET_CHUNK_SIZE;
+    const timeoutExceeded = Date.now() - lastFlushTime >= TOKENIZER_FLUSH_DEBOUNCE_MS;
+
+    // Check if ends with natural boundary (for early flush on complete sentences)
+    const endsWithBoundary = /[\s.,!?;:\-—\n]\s*$/.test(rawBuffer);
+    const bufferSizeable = rawBuffer.length >= MIN_ACCUMULATED_SIZE;
+
+    return (bufferLargeEnough && bufferSizeable) || timeoutExceeded || (endsWithBoundary && bufferSizeable);
   };
 
-  const flushWordBuffer = async (): Promise<void> => {
-    if (!wordBuffer) return;
+  const findLastWordBoundary = (text: string, maxPos: number): number => {
+    // Find the last word boundary (space or punctuation) within maxPos characters
+    // Use regex to handle accented characters properly
+    let lastBoundary = 0;
 
-    let toEmit = wordBuffer;
-    let remaining = "";
-
-    // Smart word-boundary splitting: respect word limits when buffer is too large
-    if (toEmit.length >= WORD_BUFFER_MAX_SIZE) {
-      // Try to find the last space within the max size limit
-      const lastSpaceIndex = toEmit.lastIndexOf(" ", WORD_BUFFER_MAX_SIZE - 1);
-
-      if (lastSpaceIndex > 0) {
-        // Found a space before the limit - split there
-        toEmit = toEmit.substring(0, lastSpaceIndex + 1); // Include the space
-        remaining = wordBuffer.substring(lastSpaceIndex + 1);
+    for (let i = 0; i < Math.min(maxPos, text.length); i++) {
+      const char = text[i];
+      // Word boundaries: space, punctuation, line breaks
+      if (/[\s.,!?;:\-—\n]/.test(char)) {
+        lastBoundary = i + 1; // Include the boundary character
       }
-      // If no space found within limit, we'll emit the full buffer
-      // (word is longer than WORD_BUFFER_MAX_SIZE, unavoidable break)
     }
 
-    wordBuffer = remaining;
-    lastFlushTime = Date.now();
-
-    // Emit as a single chunk event
-    const currentIndex = chunkIndex;
-    chunkIndex += 1;
-    streamedChunks.push(toEmit);
-    await emitStream({ type: "chunk", delta: toEmit, index: currentIndex, content: toEmit });
+    return lastBoundary;
   };
-  // ===== END WORD-BOUNDARY BUFFERING =====
+
+  const flushTokenizedBuffer = async (): Promise<void> => {
+    if (!rawBuffer || rawBuffer.trim().length === 0) return;
+
+    try {
+      // Find the last word boundary within TARGET_CHUNK_SIZE
+      const lastBoundary = findLastWordBoundary(rawBuffer, TARGET_CHUNK_SIZE);
+
+      if (lastBoundary > 0 && lastBoundary < rawBuffer.length) {
+        let toEmit = rawBuffer.substring(0, lastBoundary);
+
+        if (toEmit.length > 0) {
+          const currentIndex = chunkIndex;
+          chunkIndex += 1;
+          streamedChunks.push(toEmit);
+          await emitStream({
+            type: "chunk",
+            delta: toEmit,
+            index: currentIndex,
+            content: toEmit,
+          });
+
+          // Keep remaining text without modification
+          rawBuffer = rawBuffer.substring(lastBoundary);
+        }
+      } else if (lastBoundary === 0 && rawBuffer.length > TARGET_CHUNK_SIZE) {
+        // No word boundary found, but buffer is too large - emit entire buffer
+        const currentIndex = chunkIndex;
+        chunkIndex += 1;
+        streamedChunks.push(rawBuffer);
+        await emitStream({
+          type: "chunk",
+          delta: rawBuffer,
+          index: currentIndex,
+          content: rawBuffer,
+        });
+        rawBuffer = "";
+      }
+
+      lastFlushTime = Date.now();
+    } catch (error) {
+      if (process.env.ECO_DEBUG === "1" || process.env.ECO_DEBUG === "true") {
+        console.debug("[flushTokenizedBuffer] error", {
+          error: error instanceof Error ? error.message : String(error),
+          bufferLen: rawBuffer.length,
+        });
+      }
+
+      // Fallback: simple space-based splitting
+      const lastSpace = rawBuffer.lastIndexOf(" ", TARGET_CHUNK_SIZE);
+      let toEmit = rawBuffer;
+      let remaining = "";
+
+      if (lastSpace > 0 && rawBuffer.length > TARGET_CHUNK_SIZE) {
+        toEmit = rawBuffer.substring(0, lastSpace + 1);
+        remaining = rawBuffer.substring(lastSpace + 1);
+      }
+
+      if (toEmit.length > 0) {
+        rawBuffer = remaining;
+        lastFlushTime = Date.now();
+
+        const currentIndex = chunkIndex;
+        chunkIndex += 1;
+        streamedChunks.push(toEmit);
+        await emitStream({
+          type: "chunk",
+          delta: toEmit,
+          index: currentIndex,
+          content: toEmit,
+        });
+      }
+    }
+  };
+
+  const flushRemainingTokenizedBuffer = async (): Promise<void> => {
+    if (!rawBuffer || rawBuffer.trim().length === 0) return;
+
+    try {
+      // Final flush: emit all remaining text with proper spacing
+      if (rawBuffer.length > 0) {
+        const currentIndex = chunkIndex;
+        chunkIndex += 1;
+        streamedChunks.push(rawBuffer);
+        await emitStream({
+          type: "chunk",
+          delta: rawBuffer,
+          index: currentIndex,
+          content: rawBuffer,
+        });
+      }
+    } catch (error) {
+      if (process.env.ECO_DEBUG === "1" || process.env.ECO_DEBUG === "true") {
+        console.debug("[flushRemainingTokenizedBuffer] error", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+      // Fallback: emit raw buffer as-is
+      if (rawBuffer.trim().length > 0) {
+        const currentIndex = chunkIndex;
+        chunkIndex += 1;
+        streamedChunks.push(rawBuffer);
+        await emitStream({
+          type: "chunk",
+          delta: rawBuffer,
+          index: currentIndex,
+          content: rawBuffer,
+        });
+      }
+    }
+
+    rawBuffer = "";
+    lastFlushTime = Date.now();
+  };
+  // ===== END INTELLIGENT WORD-AWARE BUFFERING =====
 
   const cleanupAbortListener = (() => {
     if (!abortSignal) {
@@ -649,13 +755,13 @@ export async function executeStreamingLLM({
         if (!firstTokenSent) {
           firstTokenSent = true;
         }
-        // ===== WORD-BOUNDARY BUFFERING: Accumulate instead of emitting immediately =====
-        // Concat directly (normalizeOpenRouterText already handles spacing within deltas)
-        wordBuffer += content;
-        if (shouldFlushWordBuffer()) {
-          await flushWordBuffer();
+        // ===== INTELLIGENT WORD-AWARE BUFFERING: Tokenize and group by word boundaries =====
+        // Accumulate raw content, then tokenize to ensure words are never broken
+        rawBuffer += content;
+        if (shouldFlushTokenizedBuffer()) {
+          await flushTokenizedBuffer();
         }
-        // ===== END WORD-BOUNDARY BUFFERING =====
+        // ===== END INTELLIGENT WORD-AWARE BUFFERING =====
       },
       async onControl(event) {
         if (ignoreStreamEvents) return;
@@ -664,9 +770,9 @@ export async function executeStreamingLLM({
           return;
         }
         if (event.type === "done") {
-          // ===== WORD-BOUNDARY BUFFERING: Flush remaining buffer before finishing =====
-          await flushWordBuffer();
-          // ===== END WORD-BOUNDARY BUFFERING =====
+          // ===== INTELLIGENT WORD-AWARE BUFFERING: Final flush before stream end =====
+          await flushRemainingTokenizedBuffer();
+          // ===== END INTELLIGENT WORD-AWARE BUFFERING =====
           if (streamGuardTimer) {
             clearStreamGuard(streamGuardTimer);
             streamGuardTimer = null;
