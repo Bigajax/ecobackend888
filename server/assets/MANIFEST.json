@@ -2,28 +2,28 @@
   "items": [
     {
       "path": "modulos_core/sistema_identidade.txt",
-      "bytes": 1657,
-      "mtime": "2025-11-05T16:11:37.639Z"
+      "bytes": 5796,
+      "mtime": "2025-11-06T18:20:23.411Z"
     },
     {
       "path": "modulos_core/abertura_superficie.txt",
-      "bytes": 708,
-      "mtime": "2025-11-05T16:11:37.665Z"
+      "bytes": 1559,
+      "mtime": "2025-11-06T18:20:18.074Z"
     },
     {
       "path": "modulos_core/formato_resposta.txt",
-      "bytes": 1074,
-      "mtime": "2025-11-05T16:11:37.665Z"
+      "bytes": 3414,
+      "mtime": "2025-11-06T18:20:19.590Z"
     },
     {
       "path": "modulos_core/instrucoes_sistema.txt",
-      "bytes": 2851,
-      "mtime": "2025-11-05T16:11:37.667Z"
+      "bytes": 8520,
+      "mtime": "2025-11-07T03:33:08.261Z"
     },
     {
       "path": "modulos_core/tecnico_bloco_memoria.txt",
-      "bytes": 343,
-      "mtime": "2025-11-05T16:11:37.667Z"
+      "bytes": 5380,
+      "mtime": "2025-11-07T03:33:20.241Z"
     },
     {
       "path": "modulos_emocionais/eco_emo_vergonha_combate.txt",

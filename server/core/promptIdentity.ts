@@ -212,3 +212,13 @@ ${ECO_VOICE}
 ${MEMORY_PROTOCOL}
 
 ${SAFETY_PROTOCOL}`;
+// --- Aliases para compatibilidade ---
+export const ID_ECO_MINI = ID_ECO_COMPACT;
+export const STYLE_HINTS_MINI = `Tone: Natural Brazilian Portuguese, conversational, direct. Max 2-4 sentences. Prioritize mirror over explanation. Use socratics sparingly. Zero therapeutic jargon.`;
+
+export const ID_ECO_FULL = ECO_IDENTITY_FULL;
+export const STYLE_HINTS_FULL = `${ECO_VOICE}
+
+Comprehensive identity: socratics, reflection, precise naming, safety awareness. Can extend to 10-12 lines if complexity requires. Meta-awareness of own role strictly forbidden.`;
+
+export const MEMORY_POLICY_EXPLICIT = MEMORY_PROTOCOL;
