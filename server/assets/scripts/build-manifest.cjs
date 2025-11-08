@@ -49,12 +49,23 @@ function determineFamily(modulePath) {
   return 'extra';
 }
 
-
 /**
  * Estimate average tokens (simple heuristic: bytes / 4)
  */
 function estimateTokens(bytes) {
   return Math.max(0, Math.floor(bytes / 4));
+}
+
+/**
+ * Determine size category: S (small), M (medium), L (large)
+ * S: < 1500 bytes
+ * M: 1500-5000 bytes
+ * L: > 5000 bytes
+ */
+function determineSize(bytes) {
+  if (bytes < 1500) return 'S';
+  if (bytes < 5000) return 'M';
+  return 'L';
 }
 
 // Process each active module
@@ -90,12 +101,14 @@ for (const modulePath of activeModules) {
   const basename = path.basename(modulePath, '.txt').toLowerCase();
   const family = determineFamily(modulePath);
   const tokens_avg = estimateTokens(bytes);
+  const size = determineSize(bytes);
 
   modulesManifestItems.push({
     id: basename,
     family,
     role: 'instruction', // Must be: instruction | context | toolhint
     tokens_avg,
+    size,
   });
 
   console.log(`✓ ${modulePath} (${bytes} bytes, ${family})`);

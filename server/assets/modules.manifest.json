@@ -5,217 +5,253 @@
       "id": "sistema_identidade",
       "family": "core",
       "role": "instruction",
-      "tokens_avg": 1449
+      "tokens_avg": 1449,
+      "size": "L"
     },
     {
       "id": "abertura_superficie",
       "family": "core",
       "role": "instruction",
-      "tokens_avg": 389
+      "tokens_avg": 389,
+      "size": "M"
     },
     {
       "id": "formato_resposta",
       "family": "core",
       "role": "instruction",
-      "tokens_avg": 853
+      "tokens_avg": 853,
+      "size": "M"
     },
     {
       "id": "instrucoes_sistema",
       "family": "core",
       "role": "instruction",
-      "tokens_avg": 2130
+      "tokens_avg": 2130,
+      "size": "L"
     },
     {
       "id": "tecnico_bloco_memoria",
       "family": "core",
       "role": "instruction",
-      "tokens_avg": 1345
+      "tokens_avg": 1345,
+      "size": "L"
     },
     {
       "id": "eco_emo_vergonha_combate",
       "family": "extra",
       "role": "instruction",
-      "tokens_avg": 595
+      "tokens_avg": 595,
+      "size": "M"
     },
     {
       "id": "eco_memoria_revisitar_passado",
       "family": "extra",
       "role": "instruction",
-      "tokens_avg": 621
+      "tokens_avg": 621,
+      "size": "M"
     },
     {
       "id": "eco_vulnerabilidade_defesas",
       "family": "extra",
       "role": "instruction",
-      "tokens_avg": 637
+      "tokens_avg": 637,
+      "size": "M"
     },
     {
       "id": "eco_vulnerabilidade_micro_presenca",
       "family": "extra",
       "role": "instruction",
-      "tokens_avg": 124
+      "tokens_avg": 124,
+      "size": "S"
     },
     {
       "id": "eco_vulnerabilidade_micro_reframe",
       "family": "extra",
       "role": "instruction",
-      "tokens_avg": 125
+      "tokens_avg": 125,
+      "size": "S"
     },
     {
       "id": "eco_vulnerabilidade_mitos",
       "family": "extra",
       "role": "instruction",
-      "tokens_avg": 648
+      "tokens_avg": 648,
+      "size": "M"
     },
     {
       "id": "eco_corpo_emocao",
       "family": "extra",
       "role": "instruction",
-      "tokens_avg": 639
+      "tokens_avg": 639,
+      "size": "M"
     },
     {
       "id": "eco_corpo_sensacao",
       "family": "extra",
       "role": "instruction",
-      "tokens_avg": 22
+      "tokens_avg": 22,
+      "size": "S"
     },
     {
       "id": "eco_fim_do_sofrimento",
       "family": "extra",
       "role": "instruction",
-      "tokens_avg": 619
+      "tokens_avg": 619,
+      "size": "M"
     },
     {
       "id": "eco_identificacao_mente",
       "family": "extra",
       "role": "instruction",
-      "tokens_avg": 602
+      "tokens_avg": 602,
+      "size": "M"
     },
     {
       "id": "eco_observador_presente",
       "family": "extra",
       "role": "instruction",
-      "tokens_avg": 22
+      "tokens_avg": 22,
+      "size": "S"
     },
     {
       "id": "eco_presenca_racional",
       "family": "extra",
       "role": "instruction",
-      "tokens_avg": 22
+      "tokens_avg": 22,
+      "size": "S"
     },
     {
       "id": "eco_observador_presente",
       "family": "extra",
       "role": "instruction",
-      "tokens_avg": 607
+      "tokens_avg": 607,
+      "size": "M"
     },
     {
       "id": "eco_presenca_racional",
       "family": "extra",
       "role": "instruction",
-      "tokens_avg": 573
+      "tokens_avg": 573,
+      "size": "M"
     },
     {
       "id": "eco_heuristica_ancoragem",
       "family": "extra",
       "role": "instruction",
-      "tokens_avg": 150
+      "tokens_avg": 150,
+      "size": "S"
     },
     {
       "id": "eco_heuristica_causas_superam_estatisticas",
       "family": "extra",
       "role": "instruction",
-      "tokens_avg": 160
+      "tokens_avg": 160,
+      "size": "S"
     },
     {
       "id": "eco_heuristica_certeza_emocional",
       "family": "extra",
       "role": "instruction",
-      "tokens_avg": 158
+      "tokens_avg": 158,
+      "size": "S"
     },
     {
       "id": "eco_heuristica_disponibilidade",
       "family": "extra",
       "role": "instruction",
-      "tokens_avg": 162
+      "tokens_avg": 162,
+      "size": "S"
     },
     {
       "id": "eco_heuristica_excesso_confianca",
       "family": "extra",
       "role": "instruction",
-      "tokens_avg": 153
+      "tokens_avg": 153,
+      "size": "S"
     },
     {
       "id": "eco_heuristica_ilusao_compreensao_passado",
       "family": "extra",
       "role": "instruction",
-      "tokens_avg": 161
+      "tokens_avg": 161,
+      "size": "S"
     },
     {
       "id": "eco_heuristica_ilusao_validade",
       "family": "extra",
       "role": "instruction",
-      "tokens_avg": 159
+      "tokens_avg": 159,
+      "size": "S"
     },
     {
       "id": "eco_heuristica_intuicao_especialista",
       "family": "extra",
       "role": "instruction",
-      "tokens_avg": 160
+      "tokens_avg": 160,
+      "size": "S"
     },
     {
       "id": "eco_heuristica_regressao_media",
       "family": "extra",
       "role": "instruction",
-      "tokens_avg": 158
+      "tokens_avg": 158,
+      "size": "S"
     },
     {
       "id": "heuristica_ilusao_compreensao",
       "family": "extra",
       "role": "instruction",
-      "tokens_avg": 670
+      "tokens_avg": 670,
+      "size": "M"
     },
     {
       "id": "bloco_referencia_leve",
       "family": "extra",
       "role": "instruction",
-      "tokens_avg": 78
+      "tokens_avg": 78,
+      "size": "S"
     },
     {
       "id": "detecçãocrise",
       "family": "extra",
       "role": "instruction",
-      "tokens_avg": 185
+      "tokens_avg": 185,
+      "size": "S"
     },
     {
       "id": "escala_intensidade_0a10",
       "family": "extra",
       "role": "instruction",
-      "tokens_avg": 150
+      "tokens_avg": 150,
+      "size": "S"
     },
     {
       "id": "pedidoprático",
       "family": "extra",
       "role": "instruction",
-      "tokens_avg": 85
+      "tokens_avg": 85,
+      "size": "S"
     },
     {
       "id": "bloco_tecnico_memoria",
       "family": "extra",
       "role": "instruction",
-      "tokens_avg": 89
+      "tokens_avg": 89,
+      "size": "S"
     },
     {
       "id": "escala_abertura_1a3",
       "family": "extra",
       "role": "instruction",
-      "tokens_avg": 131
+      "tokens_avg": 131,
+      "size": "S"
     },
     {
       "id": "metodo_viva_enxuto",
       "family": "extra",
       "role": "instruction",
-      "tokens_avg": 246
+      "tokens_avg": 246,
+      "size": "S"
     }
   ]
 }
