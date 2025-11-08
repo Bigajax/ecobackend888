@@ -44,22 +44,34 @@ function blocoEmBranco() {
 // ===== prompt builders =====
 function mkPrompt(enxuto: boolean, mensagemUsuario: string, respostaIa: string) {
   if (enxuto) {
-    return `Retorne SOMENTE este JSON válido, sem comentários e sem markdown:
+    return `Analise a mensagem do usuário abaixo e retorne SOMENTE este JSON válido, sem comentários e sem markdown:
 {"emocao_principal":"","intensidade":0,"tags":[],"dominio_vida":"","padrao_comportamental":"","nivel_abertura":"baixo","categoria":"","analise_resumo":"","tema_recorrente":null,"evolucao_temporal":null,"impacto_resposta_estimado":null,"sugestao_proximo_passo":null,"modo_hibrido_acionado":false,"tipo_referencia":null}
+
+INSTRUÇÕES CRÍTICAS para emocao_principal:
+- NUNCA deixe vazio ou null se há emoção clara (medo, raiva, tristeza, ansiedade, alegria, etc)
+- Analise ESPECIFICAMENTE: "${mensagemUsuario}"
+- Procure por palavras como: angustia, ansiedade, medo, raiva, alegria, tristeza, calma, frustração
+- Se vazio, use: "Indefinida"
+
 Baseie no texto do usuário: "${mensagemUsuario}"
-e na resposta da IA: "${respostaIa}"
-Se não souber algum campo, use null, [], "" ou 0.`;
+e na resposta da IA: "${respostaIa}"`;
   }
   return `
-Extraia e retorne apenas o JSON abaixo, sem markdown/comentários.
+Você é um analisador de emoções especializado. Analise CUIDADOSAMENTE a mensagem do usuário e a resposta da IA.
 
-Resposta da IA:
+MENSAGEM DO USUÁRIO (analise a emoção AQUI):
+"""${mensagemUsuario}"""
+
+RESPOSTA DA IA:
 """${respostaIa}"""
 
-Mensagem original:
-"${mensagemUsuario}"
+INSTRUÇÃO CRÍTICA:
+- Se a mensagem expressa uma emoção clara (angustia, medo, raiva, tristeza, alegria, ansiedade, etc), identifique-a em "emocao_principal"
+- NUNCA retorne "emocao_principal" como vazio, null ou "Neutro" se há sentimento claro no texto
+- Procure por: "angustia", "angustiado", "ansiedade", "ansioso", "medo", "assustado", "raiva", "furioso", "tristeza", "triste", "alegria", "feliz", etc
+- Se a emoção não for clara, use "Indefinida" (não "Neutro")
 
-JSON alvo:
+Retorne apenas este JSON, sem markdown:
 {
   "emocao_principal": "",
   "intensidade": 0,

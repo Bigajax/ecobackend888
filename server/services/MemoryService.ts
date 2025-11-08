@@ -19,15 +19,72 @@ export interface SaveMemoryOutcome {
 }
 
 const KNOWN_EMOTIONS: Record<string, string> = {
+  // Basic emotions
   alegria: "Alegria",
+  felicidade: "Alegria",
+  feliz: "Alegria",
+  contente: "Alegria",
   tristeza: "Tristeza",
+  triste: "Tristeza",
+  melancolia: "Tristeza",
   raiva: "Raiva",
+  furioso: "Raiva",
+  irritado: "Raiva",
   medo: "Medo",
+  assustado: "Medo",
   nojo: "Nojo",
+  desgosto: "Nojo",
   surpresa: "Surpresa",
+  assombro: "Surpresa",
   calma: "Calma",
+  tranquilo: "Calma",
+  sereno: "Calma",
   neutra: "Neutro",
   neutro: "Neutro",
+
+  // Additional emotions commonly found in messages
+  ansiedade: "Ansiedade",
+  ansioso: "Ansiedade",
+  angustia: "Ansiedade",
+  angustiado: "Ansiedade",
+  preocupacao: "Ansiedade",
+  preocupado: "Ansiedade",
+  frustacao: "Frustração",
+  frustrado: "Frustração",
+  desespero: "Desespero",
+  desesperado: "Desespero",
+  vergonha: "Vergonha",
+  envergonhado: "Vergonha",
+  culpa: "Culpa",
+  culpado: "Culpa",
+  esperanca: "Esperança",
+  esperancoso: "Esperança",
+  alivio: "Alívio",
+  aliviado: "Alívio",
+  confusao: "Confusão",
+  confuso: "Confusão",
+  rejeicao: "Rejeição",
+  rejeitado: "Rejeição",
+  exclusao: "Rejeição",
+  excluido: "Rejeição",
+  solidao: "Solidão",
+  solitario: "Solidão",
+  vazio: "Vazio",
+  dor: "Dor",
+  dolorido: "Dor",
+  compaixao: "Compaixão",
+  amor: "Amor",
+  amado: "Amor",
+  gratidao: "Gratidão",
+  grato: "Gratidão",
+  ciumes: "Ciúmes",
+  ciumento: "Ciúmes",
+
+  // Meta-emotions for intensity-based fallback
+  emocao_intensa: "Emoção Intensa",
+  emocao_forte: "Emoção Intensa",
+  intensa: "Emoção Intensa",
+  forte: "Emoção Intensa",
 };
 
 const DOMAIN_ALIASES: Record<string, string> = {
@@ -119,17 +176,23 @@ function sanitizeTagsInput(raw: unknown): string[] {
 }
 
 function resolveEmotion(primary: unknown, tags: string[]): string {
+  // First, try to use the primary emotion if provided
   if (typeof primary === "string") {
     const trimmed = primary.trim();
     const normalized = normalizeToken(trimmed);
+
+    // If it matches a known emotion, return it
     if (normalized && KNOWN_EMOTIONS[normalized]) {
       return KNOWN_EMOTIONS[normalized];
     }
-    if (normalized !== "indefinida") {
+
+    // If it's a non-empty custom emotion and not "indefinida", return it as-is
+    if (normalized && normalized !== "indefinida") {
       return trimmed;
     }
   }
 
+  // Try to find emotion in tags
   for (const tag of tags) {
     const key = normalizeToken(tag);
     if (key && KNOWN_EMOTIONS[key]) {
@@ -137,7 +200,9 @@ function resolveEmotion(primary: unknown, tags: string[]): string {
     }
   }
 
-  return "Neutro";
+  // Don't default to "Neutro" - use "Indefinida" instead to indicate unclear emotion
+  // This prevents misleading "Neutro" labels for high-intensity emotional moments
+  return "Indefinida";
 }
 
 function normalizeDomain(value: unknown): string | null {
@@ -206,8 +271,28 @@ export async function saveMemoryOrReference(opts: {
   referenciaAnteriorId = (ultimaMemoria as any)?.id ?? null;
 
   const blocoTags = sanitizeTagsInput(bloco?.tags);
-  const emocaoPrincipal = resolveEmotion(bloco?.emocao_principal, blocoTags);
+  let emocaoPrincipal = resolveEmotion(bloco?.emocao_principal, blocoTags);
   const intensidadeNum = coerceIntensity(bloco?.intensidade, Math.max(0, Math.round(decision.intensity)));
+
+  // If emotion is "Indefinida" but we have high intensity, try to infer from context
+  // This prevents misleading "Indefinida" labels for clearly emotional moments
+  if (emocaoPrincipal === "Indefinida" && intensidadeNum >= 7) {
+    // For high-intensity moments, check if there are emotional keywords in tags or message
+    const emotionalKeywords = ["angustia", "ansiedade", "medo", "raiva", "tristeza", "frustração", "desespero"];
+    const messageText = ultimaMsg?.toLowerCase() || "";
+    const tagText = blocoTags.map(t => t.toLowerCase()).join(" ");
+
+    const hasAnxietySignals = ["angustia", "angustiado", "ansiedade", "ansioso", "preocupado", "preocupacao"].some(
+      word => messageText.includes(word) || tagText.includes(word)
+    );
+
+    if (hasAnxietySignals) {
+      emocaoPrincipal = "Ansiedade";
+    } else if (intensidadeNum >= 8) {
+      // For very high intensity, if no emotion detected, use "Emoção Intensa"
+      emocaoPrincipal = "Emoção Intensa";
+    }
+  }
   const nivelNumerico = coerceNivelAbertura(bloco?.nivel_abertura, decision.openness ?? null);
   const shouldSaveMemory = decision.saveMemory && intensidadeNum >= 7;
   const shouldSaveReference = !shouldSaveMemory && intensidadeNum > 0;
@@ -216,7 +301,16 @@ export async function saveMemoryOrReference(opts: {
 
   // DEBUG LOG: Decisão de memória
   if (process.env.ECO_DEBUG === 'true') {
-    console.log(`[MemoryService] decision.saveMemory=${decision.saveMemory}, intensidadeNum=${intensidadeNum}, shouldSaveMemory=${shouldSaveMemory}, shouldSaveReference=${shouldSaveReference}`);
+    console.log(`[MemoryService] Emotion Resolution:`, {
+      rawEmocao: bloco?.emocao_principal,
+      blocoTags: blocoTags,
+      resolvedEmotion: emocaoPrincipal,
+      intensidade: intensidadeNum,
+      decision_saveMemory: decision.saveMemory,
+      shouldSaveMemory: shouldSaveMemory,
+      shouldSaveReference: shouldSaveReference,
+      messagePreview: ultimaMsg?.slice(0, 100),
+    });
   }
 
   const payloadBase = {
