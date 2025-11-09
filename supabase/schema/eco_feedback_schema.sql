@@ -135,5 +135,16 @@ select
   recompensa
 from analytics.bandit_rewards;
 
+-- View for banditRewardsSync: aggregated reward metrics per arm
+-- Used by banditRewardsSync.ts to compute alpha/beta and update eco_bandit_arms
+create or replace view analytics.eco_bandit_feedback_rewards as
+select
+  arm as arm_key,
+  sum(case when recompensa >= 0.5 then 1 else 0 end)::bigint as feedback_count,
+  sum(recompensa)::numeric as reward_sum,
+  sum(recompensa * recompensa)::numeric as reward_sq_sum
+from analytics.bandit_rewards
+group by arm;
+
 grant usage on schema analytics to service_role;
 grant select, insert, update, delete on all tables in schema analytics to service_role;
