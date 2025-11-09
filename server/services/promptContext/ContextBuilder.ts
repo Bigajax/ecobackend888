@@ -406,54 +406,52 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
   });
 
   const base = assembly.base;
-  // Retrieve and inject semantic memories if user is authenticated
+  // Inject semantic memories that were already retrieved in parallel fetch
   let baseWithMemories = base;
 
-  // Temporary: disable semantic memory to debug streaming issue
-  const SEMANTIC_MEMORY_DISABLED = process.env.ECO_DISABLE_SEMANTIC_MEMORY === "true";
+  // Use memories from params if available and user is not a guest
+  const isGuestUser = !params.userId || typeof params.userId !== "string" || params.userId.trim().length === 0;
+  const hasMemoriesToInject = Array.isArray(memsSemelhantesNorm) && memsSemelhantesNorm.length > 0;
 
-  if (!SEMANTIC_MEMORY_DISABLED && typeof params.userId === "string" && params.userId.trim().length > 0) {
-    const userId = params.userId as string;
+  if (!isGuestUser && hasMemoriesToInject) {
     try {
       if (isDebug()) {
-        log.debug("[ContextBuilder] retrieving_semantic_memories", {
-          usuarioId: userId,
-          queryTextLen: texto.length,
-          hasBearer: Boolean(params.bearerToken),
+        log.debug("[ContextBuilder] injecting_semantic_memories", {
+          usuarioId: params.userId,
+          memoryCount: memsSemelhantesNorm.length,
         });
       }
 
-      const memoriesResult = await buscarMemoriasSemanticasComTimeout({
-        usuarioId: userId,
-        queryText: texto,
-        bearerToken: params.bearerToken ?? undefined,
-        topK: 10,
-        minScore: 0.30,
-        includeRefs: ecoDecision.openness >= 2,
-      });
+      // Convert memories to the format expected by formatMemoriesSection
+      const memoriesFormatted = memsSemelhantesNorm.map((mem: any) => ({
+        id: mem.id || "",
+        texto: mem.resumo_eco || mem.texto || mem.analise_resumo || "",
+        score: typeof mem.similarity === "number" ? mem.similarity : 0.5,
+        tags: Array.isArray(mem.tags) ? mem.tags : [],
+        dominio_vida: mem.dominio_vida || null,
+        created_at: mem.created_at || null,
+      }));
 
-      if (memoriesResult.memories && memoriesResult.memories.length > 0) {
-        const memoriesSection = formatMemoriesSection(
-          memoriesResult.memories,
-          clampTokens(1500, 2000)
-        );
+      const memoriesSection = formatMemoriesSection(
+        memoriesFormatted,
+        clampTokens(1500, 2000)
+      );
 
-        if (memoriesSection) {
-          baseWithMemories = injectMemoriesIntoPrompt(base, memoriesSection);
+      if (memoriesSection) {
+        baseWithMemories = injectMemoriesIntoPrompt(base, memoriesSection);
 
-          if (isDebug()) {
-            log.debug("[ContextBuilder] memories_injected", {
-              count: memoriesResult.memories.length,
-              minMaxScore: memoriesResult.minMaxScore,
-            });
-          }
+        if (isDebug()) {
+          log.debug("[ContextBuilder] memories_injected", {
+            count: memsSemelhantesNorm.length,
+          });
         }
-      } else if (isDebug()) {
-        log.debug("[ContextBuilder] no_memories_retrieved", {
-          minScore: memoriesResult.minScoreFinal,
-        });
       }
-} catch (err) {      log.warn("[ContextBuilder] memory_retrieval_failed", {        message: err instanceof Error ? err.message : String(err),        usuarioId: userId,        stack: err instanceof Error ? err.stack : undefined,      });    }
+    } catch (err) {
+      log.warn("[ContextBuilder] memory_injection_failed", {
+        message: err instanceof Error ? err.message : String(err),
+        stack: err instanceof Error ? err.stack : undefined,
+      });
+    }
   }
 
   const montarMensagemAtual = (textoAtual: string) => applyCurrentMessage(baseWithMemories, textoAtual);

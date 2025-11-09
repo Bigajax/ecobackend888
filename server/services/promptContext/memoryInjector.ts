@@ -15,6 +15,7 @@ function debugLog(msg: string, data?: Record<string, unknown>): void {
 
 /**
  * Format memories into a prompt section with token budget awareness
+ * Includes dates, emotion tags, and visual hierarchy
  * Returns null if no memories to inject
  */
 export function formatMemoriesSection(
@@ -25,21 +26,112 @@ export function formatMemoriesSection(
     return null;
   }
 
-  // Start with header
-  let section = "## MEMÓRIAS RELEVANTES\n";
-  let currentTokenCount = 15; // Rough estimate for header
+  // Helper: Calculate days since memory was created
+  function getDaysSince(createdAt: string | null): number | null {
+    if (!createdAt) return null;
+    try {
+      const memoryDate = new Date(createdAt);
+      const today = new Date();
+      const diffMs = today.getTime() - memoryDate.getTime();
+      const days = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+      return days >= 0 ? days : null;
+    } catch {
+      return null;
+    }
+  }
 
-  const snippets: string[] = [];
+  // Helper: Get time descriptor with emoji
+  function getTimeDescriptor(daysSince: number | null): string {
+    if (daysSince === null) return "";
+    if (daysSince === 0) return " 🕐 **HOJE**";
+    if (daysSince === 1) return " 🕐 **ONTEM**";
+    if (daysSince <= 3) return ` 🔥 há ${daysSince} dias ⚡`;
+    if (daysSince <= 7) return ` 📅 há ${daysSince} dias`;
+    if (daysSince <= 30) return ` 📅 há ~${Math.ceil(daysSince / 7)} semanas`;
+    return ` 📆 há ~${Math.ceil(daysSince / 30)} meses`;
+  }
+
+  // Helper: Check if memory is recent (< 7 days)
+  function isRecentMemory(daysSince: number | null): boolean {
+    return daysSince !== null && daysSince <= 7;
+  }
+
+  // Helper: Get emotion emoji
+  function getEmotionEmoji(emotion: string | null): string {
+    if (!emotion) return "💭";
+    const lower = emotion.toLowerCase();
+    const emojiMap: Record<string, string> = {
+      tristeza: "😔",
+      tristesse: "😔",
+      sad: "😔",
+      "tristeza / perda": "😔",
+      ansiedade: "😰",
+      anxiety: "😰",
+      medo: "😨",
+      fear: "😨",
+      alegria: "😊",
+      joy: "😊",
+      raiva: "😠",
+      anger: "😠",
+      frustração: "😤",
+      frustration: "😤",
+      esperança: "🌟",
+      hope: "🌟",
+      confusão: "😕",
+      confusion: "😕",
+      amor: "💕",
+      love: "💕",
+      culpa: "😔",
+      guilt: "😔",
+      vergonha: "😳",
+      shame: "😳",
+      paz: "🕊️",
+      peace: "🕊️",
+      vazio: "🖤",
+      emptiness: "🖤",
+    };
+
+    for (const [key, emoji] of Object.entries(emojiMap)) {
+      if (lower.includes(key)) return emoji;
+    }
+    return "💭";
+  }
+
+  // Helper: Get relevance indicator based on score
+  function getRelevanceIndicator(score: number): string {
+    if (score >= 0.85) return "🔴"; // Very relevant
+    if (score >= 0.70) return "🟠"; // Relevant
+    if (score >= 0.50) return "🟡"; // Somewhat relevant
+    return "⚪"; // Low relevance
+  }
+
+  // Start with header
+  let section = "## 📚 MEMÓRIAS RELEVANTES\n\n";
+  let currentTokenCount = 20; // Rough estimate for header
+
+  // Separate memories into recent and older for better visibility
+  const recentSnippets: string[] = [];
+  const olderSnippets: string[] = [];
   let addedCount = 0;
 
   // Add memories in score-descending order with token budget
   for (const mem of memories) {
     const score = Math.round(mem.score * 1000) / 1000; // 3 decimal places
-    const scoreStr = score.toFixed(2);
-    const snippet = `• [${scoreStr}] ${mem.texto}`;
+    const daysSince = getDaysSince(mem.created_at);
+    const timeDesc = getTimeDescriptor(daysSince);
+    const relevanceEmoji = getRelevanceIndicator(score);
+    const isRecent = isRecentMemory(daysSince);
+
+    // Build enhanced snippet with metadata
+    // Use either emocao_principal or fallback to dominio_vida for emoji
+    const emotionForEmoji = (mem as any).emocao_principal || mem.dominio_vida || "";
+    const emotionEmoji = getEmotionEmoji(emotionForEmoji);
+    const header = `${relevanceEmoji} ${emotionEmoji}${timeDesc}`;
+    const text = mem.texto.trim();
+    const snippet = `${header}\n  "${text}"`;
 
     // Rough token estimation (4 chars ≈ 1 token)
-    const estimatedTokens = Math.ceil(snippet.length / 4) + 5; // +5 for punctuation/overhead
+    const estimatedTokens = Math.ceil(snippet.length / 4) + 10; // +10 for structure
 
     if (currentTokenCount + estimatedTokens > tokenBudget && addedCount > 0) {
       debugLog("token_budget_reached", {
@@ -49,16 +141,36 @@ export function formatMemoriesSection(
       break;
     }
 
-    snippets.push(snippet);
+    // Separate recent from older
+    if (isRecent) {
+      recentSnippets.push(snippet);
+    } else {
+      olderSnippets.push(snippet);
+    }
     currentTokenCount += estimatedTokens;
     addedCount++;
   }
 
-  if (snippets.length === 0) {
+  if (recentSnippets.length === 0 && olderSnippets.length === 0) {
     return null;
   }
 
-  section += snippets.join("\n") + "\n";
+  // Add recent memories first with emphasis
+  if (recentSnippets.length > 0) {
+    section += "### 🔥 MUITO RECENTE (últimos 7 dias)\n\n";
+    section += recentSnippets.join("\n\n") + "\n\n";
+  }
+
+  // Add older memories
+  if (olderSnippets.length > 0) {
+    if (recentSnippets.length > 0) {
+      section += "---\n\n";
+    }
+    section += "### 📚 TAMBÉM RELEVANTE\n\n";
+    section += olderSnippets.join("\n\n") + "\n\n";
+  }
+
+  section += `_${addedCount} memória${addedCount !== 1 ? "s" : ""} relevante${addedCount !== 1 ? "s" : ""} recuperada${addedCount !== 1 ? "s" : ""}_\n`;
 
   debugLog("formatted_memories", {
     totalFetched: memories.length,
