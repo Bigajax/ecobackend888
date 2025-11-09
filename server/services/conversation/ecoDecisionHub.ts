@@ -116,6 +116,64 @@ function deriveVivaSteps(openness: 1 | 2 | 3): EcoVivaStep[] {
   }
 }
 
+/**
+ * Compute emotional decision with hybrid intensity detection
+ *
+ * Now uses:
+ * 1. Fast regex path (< 1ms)
+ * 2. GPT-5.0 fallback if regex uncertain (cached, ~500ms first then <1ms)
+ *
+ * Enable GPT-5.0 analysis: ECO_ENABLE_GPT5_INTENSITY=true
+ */
+export async function computeEcoDecisionAsync(
+  texto: string,
+  options: EcoDecisionOptions & { respostaIa?: string } = {}
+): Promise<EcoDecisionResult> {
+  // Use hybrid intensity detection
+  const { detectEmotionalIntensity } = await import("./emotionalIntensityAnalyzer");
+  const intensityRaw = await detectEmotionalIntensity(texto, {
+    respostaIa: options.respostaIa,
+  });
+  const intensity = clamp(Number.isFinite(intensityRaw) ? intensityRaw : 0, 0, 10);
+  const heuristicaFlags = options.heuristicaFlags ?? {};
+  const flags = derivarFlags(texto, heuristicaFlags);
+
+  const { isVulnerable, signals: vulnerabilitySignals } = detectVulnerability(texto, flags);
+  const openness = deriveOpenness(intensity, isVulnerable);
+  const vivaSteps = deriveVivaSteps(openness);
+  const saveMemory = intensity >= MEMORY_THRESHOLD;
+
+  // DEBUG LOG: Intensidade e decisão de memória
+  if (process.env.ECO_DEBUG === 'true') {
+    console.log(`[ecoDecision] intensity=${intensity.toFixed(2)}, threshold=${MEMORY_THRESHOLD}, saveMemory=${saveMemory}`);
+  }
+
+  return {
+    intensity,
+    openness,
+    isVulnerable,
+    vivaSteps,
+    saveMemory,
+    hasTechBlock: saveMemory,
+    tags: [],
+    domain: null,
+    flags,
+    signals: {},
+    debug: {
+      intensitySignals: [`hybrid:${intensityRaw}`],
+      vulnerabilitySignals,
+      modules: [],
+      selectedModules: [],
+    },
+    activeBiases: [],
+    decayedActiveBiases: [],
+  };
+}
+
+/**
+ * Synchronous version (uses fast regex path only)
+ * For backward compatibility with existing code
+ */
 export function computeEcoDecision(texto: string, options: EcoDecisionOptions = {}): EcoDecisionResult {
   const intensityRaw = estimarIntensidade0a10(texto);
   const intensity = clamp(Number.isFinite(intensityRaw) ? intensityRaw : 0, 0, 10);
