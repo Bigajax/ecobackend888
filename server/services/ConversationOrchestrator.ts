@@ -6,7 +6,7 @@ import {
   type GetEcoResult,
   type ChatMessage,
 } from "../utils";
-import { supabaseWithBearer } from "../adapters/SupabaseAdapter";
+import { supabaseWithBearer, supabaseForGuests } from "../adapters/SupabaseAdapter";
 import { claudeChatCompletion } from "../core/ClaudeAdapter";
 import { defaultGreetingPipeline } from "./conversation/greeting";
 import { runFastLaneLLM } from "./conversation/fastLane";
@@ -558,7 +558,21 @@ export async function getEcoResponse({
       throw reason instanceof Error ? reason : new Error(String(reason));
     }
 
-    const supabase = !isGuest && accessToken ? supabaseWithBearer(accessToken) : null;
+    let supabase = null;
+    try {
+      if (!isGuest && accessToken) {
+        supabase = supabaseWithBearer(accessToken);
+      } else if (isGuest) {
+        // Guests get anonymous Supabase client for persisting to guest_sessions and guest_messages
+        supabase = supabaseForGuests();
+      }
+    } catch (e) {
+      log.warn("[getEcoResponse] Supabase init failed", {
+        isGuest,
+        error: e instanceof Error ? e.message : String(e),
+      });
+      // Continue without Supabase
+    }
     const hasAssistantBeforeInThread = thread
       .slice(0, -1)
       .some((msg) => mapRoleForOpenAI(msg.role) === "assistant");
