@@ -98,6 +98,7 @@ export class MensagemController {
     const payload: MensagemPayload = {
       conteudo,
       usuario_id: userId,
+      data_hora: new Date().toISOString(),
     };
 
     if (typeof body.salvar_memoria === "boolean") {
