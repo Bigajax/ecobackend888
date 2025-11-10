@@ -13,7 +13,7 @@ import { runFastLaneLLM } from "./conversation/fastLane";
 import { buildFullPrompt, selectBanditArms } from "./conversation/promptPlan";
 import { defaultResponseFinalizer } from "./conversation/responseFinalizer";
 import { firstName } from "./conversation/helpers";
-import { computeEcoDecision, MEMORY_THRESHOLD } from "./conversation/ecoDecisionHub";
+import { computeEcoDecision, computeEcoDecisionAsync, MEMORY_THRESHOLD } from "./conversation/ecoDecisionHub";
 import type { EcoDecisionResult } from "./conversation/ecoDecisionHub";
 import { handlePreLLMShortcuts } from "./conversation/preLLMPipeline";
 import { prepareConversationContext } from "./conversation/contextPreparation";
@@ -221,7 +221,7 @@ async function runPreLLMPipeline({
     return null;
   }
 
-  const ecoDecision = computeEcoDecision(ultimaMsg);
+  const ecoDecision = await computeEcoDecisionAsync(ultimaMsg);
   const retrieveForAnalytics = inferRetrieveMode({ ultimaMsg, hints: null, ecoDecision });
   const tracer = activationTracer || undefined;
   const analyticsContext = {
@@ -597,7 +597,7 @@ export async function getEcoResponse({
       return preLLMResult;
     }
 
-    ecoDecision = computeEcoDecision(ultimaMsg);
+    ecoDecision = await computeEcoDecisionAsync(ultimaMsg);
     applyMemoryDecision({ ecoDecision, isGuest, activationTracer: normalizedActivationTracer });
 
     const routeDecision = decideRoute({
