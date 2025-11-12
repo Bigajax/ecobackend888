@@ -758,8 +758,8 @@ export async function executeStreamingLLM({
         if (!content) return;
         if (ignoreStreamEvents) return;
         sawChunk = true;
-        // Add to internal accumulated chunks for finalization
-        streamedChunks.push(content);
+        // NOTE: Do NOT add to streamedChunks here. The content will be added
+        // when the rawBuffer is flushed to avoid double-counting in word-aware buffering.
         if (streamGuardTimer) {
           clearStreamGuard(streamGuardTimer);
           streamGuardTimer = null;
