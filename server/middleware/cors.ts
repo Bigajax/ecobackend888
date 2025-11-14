@@ -62,14 +62,7 @@ export const CORS_ALLOWED_REGEX_PATTERNS = regexOrigins;
 export const PRIMARY_CORS_ORIGIN = CORS_ALLOWED_ORIGINS[0];
 
 export const CORS_ALLOWED_METHODS = ["GET", "POST", "OPTIONS", "HEAD"] as const;
-export const CORS_ALLOWED_HEADERS = [
-  "content-type",
-  "accept",
-  "x-client-id",
-  "x-eco-client-message-id",
-  "x-eco-guest-id",
-  "x-eco-session-id",
-] as const;
+export const CORS_ALLOWED_HEADERS = ["Content-Type", "Accept"] as const;
 
 export const CORS_ALLOWED_METHODS_VALUE = CORS_ALLOWED_METHODS.join(",");
 export const CORS_ALLOWED_HEADERS_VALUE = CORS_ALLOWED_HEADERS.join(", ");
