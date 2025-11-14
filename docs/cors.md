@@ -25,6 +25,6 @@ Requisições sem header `Origin` (por exemplo via `curl`) também são aceitas.
 `GET, POST, PUT, PATCH, DELETE, OPTIONS`
 
 ## Cabeçalhos aceitos no preflight
-`Content-Type, Accept`
+`Content-Type`, `Accept`, `X-Eco-Client-Message-Id`, `X-Eco-Guest-Id`, `X-Eco-Session-Id`, `X-Client-Id`, `Authorization`
 
-Mantemos o preflight restrito aos cabeçalhos simples exigidos pelos navegadores. Os identificadores `X-Eco-*` são enviados pelo backend nas respostas e ficam acessíveis ao frontend via `Access-Control-Expose-Headers`.
+Os headers customizados `X-Eco-*` podem ser enviados pelo frontend e são validados pelo backend para identidade e deduplicação de mensagens.
