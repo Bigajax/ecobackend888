@@ -20,7 +20,14 @@ Regex UUID v4:
 ## Seção 2 — SSE (GET /api/ask-eco)
 
 - Método: `GET`
-- Query obrigatória: `guest_id`, `session_id` (use `client_message_id` opcional)
+- Query obrigatória:
+  - `guest_id` (UUID v4)
+  - `session_id` (UUID v4)
+  - `message` ou `texto` (STRING - a mensagem do usuário) ⚠️ **OBRIGATÓRIO**
+- Query opcional:
+  - `client_message_id` (para deduplicação)
+  - `messages` (JSON array de {role, content})
+  - `payload` (JSON completo com todas as propriedades)
 - Eventos emitidos: `ready` → múltiplos `chunk` → `done`
 - Headers enviados pelo servidor na abertura:
   - `Content-Type: text/event-stream`
@@ -28,6 +35,7 @@ Regex UUID v4:
   - `Connection: keep-alive`
   - `Access-Control-Allow-Origin: <echoed origin>`
 - Se `guest_id` ou `session_id` não forem UUID v4 válidos, o backend encerra com `400 invalid_guest_id`.
+- Se nenhuma mensagem for enviada (falta `message`, `texto`, ou `messages`), retorna `400`.
 
 ## Seção 3 — Fallback JSON (POST /api/ask-eco)
 
@@ -77,14 +85,28 @@ Regex UUID v4:
 
 ## Seção 6 — Snippets Front prontos
 
-### SSE
+### SSE (Correct)
 
 ```ts
 const u = new URL(`${BACKEND}/api/ask-eco`);
 u.searchParams.set('guest_id', guestId);
 u.searchParams.set('session_id', sessionId);
+u.searchParams.set('message', userMessage);  // ⚠️ OBRIGATÓRIO
 u.searchParams.set('client_message_id', clientMessageId);
-const es = new EventSource(u.toString());
+// Opcional: adicionar headers se usar EventSource com credenciais
+const es = new EventSource(u.toString(), { withCredentials: true });
+
+// Listeners
+es.addEventListener('chunk', (evt) => {
+  const data = JSON.parse(evt.data);
+  console.log('received:', data.text);
+});
+
+es.addEventListener('done', (evt) => {
+  const data = JSON.parse(evt.data);
+  console.log('finished:', data.meta);
+  es.close();
+});
 ```
 
 ### JSON
