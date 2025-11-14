@@ -536,29 +536,31 @@ export async function buscarMemoriasSemanticasComTimeout(
   params: BuscarMemoriasSemanticasParams,
   timeoutMs: number = 5000
 ): Promise<BuscarMemoriasSemanticasResult> {
-  const timeoutPromise = new Promise<BuscarMemoriasSemanticasResult>((_, reject) =>
-    setTimeout(() => reject(new Error("Memory retrieval timeout")), timeoutMs)
-  );
+  const minScoreFallback = params.minScore ?? 0.3;
 
-  try {
-    return await Promise.race([
-      buscarMemoriasSemanticas(params),
-      timeoutPromise,
-    ]);
-  } catch (err) {
-    if (err instanceof Error && err.message.includes("timeout")) {
+  return new Promise<BuscarMemoriasSemanticasResult>((resolve, reject) => {
+    const timeoutId = setTimeout(() => {
       debugLog("timeout_exceeded", {
         timeoutMs,
         usuarioId: params.usuarioId,
       });
-      return {
+
+      resolve({
         memories: [],
         fetchedCount: 0,
-        minScoreFinal: params.minScore ?? 0.30,
+        minScoreFinal: minScoreFallback,
         minMaxScore: null,
-      };
-    }
-    // Re-throw outros erros
-    throw err;
-  }
+      });
+    }, timeoutMs);
+
+    buscarMemoriasSemanticas(params)
+      .then((result) => {
+        clearTimeout(timeoutId);
+        resolve(result);
+      })
+      .catch((error) => {
+        clearTimeout(timeoutId);
+        reject(error);
+      });
+  });
 }
