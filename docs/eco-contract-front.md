@@ -54,7 +54,7 @@ Regex UUID v4:
   - http://localhost:4173
 - `Vary: Origin` habilitado
 - Métodos permitidos: `GET`, `POST`, `OPTIONS`
-- Headers permitidos (case-insensitive): `content-type`, `x-client-id`, `x-eco-guest-id`, `x-eco-session-id`, `x-eco-client-message-id`
+- Headers permitidos (case-insensitive): `content-type`, `accept`
 
 ## Seção 5 — Códigos & Timeouts
 
