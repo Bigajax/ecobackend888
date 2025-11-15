@@ -403,16 +403,19 @@ export async function executeStreamingLLM({
                   origem: "streaming_bloco",
                 });
 
-                if (rpcRes.saved && rpcRes.memoriaId) {
+                if (rpcRes.saved && rpcRes.memoriaId && rpcRes.memoryData) {
+                  // Enviar evento memory_saved com estrutura completa esperada pelo frontend
                   await emitStream({
                     type: "control",
                     name: "memory_saved",
                     meta: {
-                      memoriaId: rpcRes.memoriaId,
+                      memory: rpcRes.memoryData,
                       primeiraMemoriaSignificativa: !!rpcRes.primeira,
-                      intensidade: metaPayload.intensidade,
                     },
                   });
+                } else if (rpcRes.saved && rpcRes.memoriaId && !rpcRes.memoryData) {
+                  // Log de aviso se memoryData não estiver disponível
+                  log.warn("[StreamingBloco] memoryData não disponível, evento memory_saved não emitido");
                 }
               } catch (error: any) {
                 log.warn("[StreamingBloco] salvarMemoriaViaRPC falhou (ignorado)", {
