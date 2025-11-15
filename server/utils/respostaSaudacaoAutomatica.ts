@@ -1,5 +1,5 @@
 // utils/respostaSaudacaoAutomatica.ts
-// Saudação contemplativa — presença filosófica desde o primeiro contato
+// Saudações equilibradas — curiosas, leves e exploratórias
 
 export type MsgRole = "user" | "assistant" | "system";
 export type Msg = { role?: MsgRole; content: string };
@@ -8,8 +8,8 @@ export type SaudacaoAutoMeta = {
   isGreeting: boolean;
   isFarewell: boolean;
   firstTurn: boolean;
-  suggestedLevel?: number;   // 1 fixo (saudação)
-  contextualCue?: string;    // "greeting"
+  suggestedLevel?: number; // 1 fixo (saudação)
+  contextualCue?: string;  // "greeting"
 };
 
 export type SaudacaoAutoResp = {
@@ -66,7 +66,7 @@ function saudacaoDoDia(opts?: { clientHour?: number; clientTz?: string }): strin
 }
 
 function pick<T>(arr: T[]): T {
-  return arr[Math.floor(Math.random() * arr.length)];
+  return arr[Math.floor(Math.random() * Math.random() * arr.length)];
 }
 
 function isFirstUserTurn(messages: Msg[]): boolean {
@@ -79,60 +79,59 @@ function isFirstUserTurn(messages: Msg[]): boolean {
 }
 
 /* =========================
-   VARIAÇÕES CONTEMPLATIVAS
-   (nível 1 fixo, profundidade filosófica)
+   VARIAÇÕES EQUILIBRADAS
    ========================= */
 
 type Tpl = (sd: string, nome: string) => string;
 
-// Saudações primeira vez — perguntas arqueológicas, fenomenológicas, estruturais leves
+/* ---------------------------------------
+   SAUDAÇÕES PRIMEIRA VEZ — equilibradas
+------------------------------------------ */
 const BASE_VARIANTES_PRIMEIRA: Tpl[] = [
-  // Fenomenológicas (experiência direta)
-  (sd, nome) => `${sd}${nome}. O que está mais vivo em você neste exato momento?`,
-  (sd, nome) => `${sd}${nome}. Se tivesse que nomear o que pulsa agora, o que seria?`,
-  (sd, nome) => `${sd}${nome}. Onde sua atenção pousa quando você para por alguns segundos?`,
-  
-  // Arqueológicas leves (camada logo abaixo)
-  (sd, nome) => `${sd}${nome}. O que te trouxe até aqui — uma pergunta, uma inquietação, ou só curiosidade?`,
-  (sd, nome) => `${sd}${nome}. O que há sob o que você mostrou até agora que merecia ser explorado?`,
-  
-  // Estruturais simples (prioridade, foco)
-  (sd, nome) => `${sd}${nome}. Se pudesse focar em uma única coisa agora, qual seria?`,
-  (sd, nome) => `${sd}${nome}. O que pediria mais atenção sua neste momento?`,
-  
-  // Abertura pura (espaço sem direção)
-  (sd, nome) => `${sd}${nome}. Estou aqui. Por onde você quer começar?`,
-  (sd, nome) => `${sd}${nome}. O que faria diferença você dizer em voz alta agora?`,
-  
-  // Paradoxo leve (ocasional)
-  (sd, nome) => `${sd}${nome}. Você veio buscar clareza ou descobrir o que ainda não sabe que busca?`,
+  (sd, nome) => `${sd}${nome}. Como você está chegando aqui hoje?`,
+  (sd, nome) => `${sd}${nome}. Se tivesse que resumir seu momento em uma frase, qual seria?`,
+  (sd, nome) => `${sd}${nome}. O que está mais presente em você agora: curiosidade, cansaço ou algo específico?`,
+
+  (sd, nome) => `${sd}${nome}. O que faria diferença para você organizar ou entender melhor hoje?`,
+  (sd, nome) => `${sd}${nome}. Você quer falar mais sobre emoções, decisões ou algo prático da sua rotina?`,
+  (sd, nome) => `${sd}${nome}. Tem algo que vem voltando com frequência nesses dias?`,
+
+  (sd, nome) => `${sd}${nome}. Se pudesse escolher um único tema para começar, qual seria?`,
+  (sd, nome) => `${sd}${nome}. O que anda ocupando mais espaço aí dentro ultimamente?`,
+
+  (sd, nome) => `${sd}${nome}. Estou aqui. Sobre o que faria sentido começar?`,
+  (sd, nome) => `${sd}${nome}. O que você sente vontade de colocar em palavras primeiro?`,
+
+  (sd, nome) => `${sd}${nome}. Você veio buscar clareza sobre algo específico ou quer explorar aos poucos o que aparecer?`,
 ];
 
-// Saudações por horário — conexão fenomenológica com o tempo vivido
+/* ---------------------------------------
+   VARIANTES POR HORÁRIO — mais diárias
+------------------------------------------ */
 const VARIANTES_POR_HORARIO: Record<"madrugada" | "manha" | "tarde" | "noite", Tpl[]> = {
   madrugada: [
-    (sd, nome) => `${sd}${nome}. O que ainda pede espaço antes do descanso?`,
-    (sd, nome) => `${sd}${nome}. Há algo que você gostaria de soltar antes de deixar o dia ir?`,
-    (sd, nome) => `${sd}${nome}. O que impede o silêncio de chegar?`,
-    (sd, nome) => `${sd}${nome}. Entre tudo que aconteceu hoje, o que ainda pulsa?`,
+    (sd, nome) => `${sd}${nome}. O que ainda está te mantendo acordado(a) agora?`,
+    (sd, nome) => `${sd}${nome}. Tem algum pensamento que não está deixando você desligar?`,
+    (sd, nome) => `${sd}${nome}. Se pudesse aliviar uma preocupação antes de dormir, qual seria?`,
+    (sd, nome) => `${sd}${nome}. Quais pensamentos mais aparecem nessa hora?`,
   ],
   manha: [
-    (sd, nome) => `${sd}${nome}. O que você carrega do sono para este dia que começa?`,
-    (sd, nome) => `${sd}${nome}. Se este dia tivesse um único fio condutor, qual seria?`,
-    (sd, nome) => `${sd}${nome}. O que você gostaria de deixar claro antes que o dia te leve?`,
-    (sd, nome) => `${sd}${nome}. Qual estado você quer habitar enquanto o dia se desenrola?`,
+    (sd, nome) => `${sd}${nome}. Como você está começando este dia?`,
+    (sd, nome) => `${sd}${nome}. Tem algo de hoje que já ocupa sua cabeça?`,
+    (sd, nome) => `${sd}${nome}. Se este dia tivesse um foco principal, qual você escolheria?`,
+    (sd, nome) => `${sd}${nome}. Antes do dia acelerar, o que faria sentido organizar primeiro?`,
   ],
   tarde: [
-    (sd, nome) => `${sd}${nome}. Como você se percebe agora, neste meio de caminho?`,
-    (sd, nome) => `${sd}${nome}. O que mudou em você desde a manhã até aqui?`,
-    (sd, nome) => `${sd}${nome}. Há algo pedindo reavaliação neste ponto do dia?`,
-    (sd, nome) => `${sd}${nome}. Onde você sente que sua energia está agora — presente, dispersa ou recolhida?`,
+    (sd, nome) => `${sd}${nome}. Como você está se sentindo neste meio de dia?`,
+    (sd, nome) => `${sd}${nome}. Desde a manhã até agora, teve algo que te marcou?`,
+    (sd, nome) => `${sd}${nome}. Teve alguma situação hoje que você gostaria de revisar comigo?`,
+    (sd, nome) => `${sd}${nome}. Sua energia agora está mais focada ou mais dispersa?`,
   ],
   noite: [
-    (sd, nome) => `${sd}${nome}. O que você reconhece em si quando o ritmo do dia desacelera?`,
-    (sd, nome) => `${sd}${nome}. Há algo que você ainda precisa dizer sobre hoje, mesmo que só para você?`,
-    (sd, nome) => `${sd}${nome}. O que deste dia você leva consigo para depois?`,
-    (sd, nome) => `${sd}${nome}. Entre tudo que aconteceu, o que pede ser observado antes de virar a página?`,
+    (sd, nome) => `${sd}${nome}. Como você chega no fim deste dia?`,
+    (sd, nome) => `${sd}${nome}. Tem algo de hoje que ainda ecoa em você?`,
+    (sd, nome) => `${sd}${nome}. Se tivesse que destacar um momento do dia, qual viria à mente?`,
+    (sd, nome) => `${sd}${nome}. Antes de encerrar, o que faria sentido reconhecer?`,
   ],
 };
 
@@ -146,52 +145,52 @@ function periodoDoDiaFromHour(h: number): "madrugada" | "manha" | "tarde" | "noi
 function escolherSaudacaoPrimeira(sd: string, nome: string, h: number): string {
   const periodo = periodoDoDiaFromHour(h);
   const r = Math.random();
-  
-  // 20% de chance de usar variante específica de horário (exceto madrugada, que é rara)
+
+  // 20% usa horária
   const permitirHorario = periodo !== "madrugada";
   if (permitirHorario && r < 0.20) {
     return pick(VARIANTES_POR_HORARIO[periodo])(sd, nome);
   }
-  
-  // 80% usa variantes base (contemplativas, variadas)
+
   return pick(BASE_VARIANTES_PRIMEIRA)(sd, nome);
 }
 
-// Saudações de retorno — reconhecimento de continuidade + abertura
+/* ---------------------------------------
+   SAUDAÇÕES DE RETORNO — continuidade
+------------------------------------------ */
 const VARIANTES_RETORNO: ((nome: string) => string)[] = [
-  // Arqueológica (o que mudou)
-  (nome) => `De volta${nome}. O que se moveu em você desde a última vez?`,
-  (nome) => `Olá novamente${nome}. O que é diferente agora do que era antes?`,
-  
-  // Fenomenológica (o que está presente)
-  (nome) => `Oi${nome}. O que está pedindo atenção em você agora?`,
-  (nome) => `Aqui de novo${nome}. O que pulsa com mais força hoje?`,
-  
-  // Estrutural leve (padrão, recorrência)
-  (nome) => `Bem-vindo de volta${nome}. Algo familiar reapareceu ou algo novo surgiu?`,
-  
-  // Abertura pura
-  (nome) => `Olá${nome}. Estou aqui. Por onde você quer começar hoje?`,
-  (nome) => `Oi${nome}. O que você gostaria de explorar desta vez?`,
-  
-  // Escolha (peso/clareza)
-  (nome) => `Ei${nome}. Prefere começar pelo que pesa ou pelo que já está mais claro?`,
-  
-  // Ritmo/estado (reconhecimento de autonomia)
-  (nome) => `Que bom ter você aqui${nome}. Como você se encontra hoje?`,
-  (nome) => `De volta${nome}. Você veio para mergulhar fundo ou para organizar o que já está na superfície?`,
+  (nome) => `Que bom te ver de novo${nome}. O que mudou desde a última vez?`,
+  (nome) => `Olá novamente${nome}. Nesses dias, teve algo que voltou bastante à sua cabeça?`,
+
+  (nome) => `Oi${nome}. E hoje, o que está pedindo mais atenção em você?`,
+  (nome) => `Aqui de novo${nome}. Você está se sentindo mais calmo(a), acelerado(a) ou em dúvida?`,
+
+  (nome) => `Bem-vindo(a) de volta${nome}. Estamos olhando para algo familiar ou para algo novo hoje?`,
+
+  (nome) => `Olá${nome}. Podemos retomar de onde paramos ou começar por algo diferente. O que prefere?`,
+  (nome) => `Oi${nome}. O que faz mais sentido abordar hoje?`,
+
+  (nome) => `Ei${nome}. Prefere começar pelo que está mais pesado ou pelo que já está mais claro?`,
+
+  (nome) => `Fico feliz em te receber de novo${nome}. Se fosse dar um nome ao seu estado de hoje, qual seria?`,
+  (nome) => `De volta${nome}. Faz mais sentido desabafar, organizar ou decidir algo?`,
 ];
 
-// Despedidas contemplativas — fechamento com dignidade
+/* ---------------------------------------
+   DESPEDIDAS — suaves, realistas
+------------------------------------------ */
 const VARIANTES_DESPEDIDA: ((sd: string) => string)[] = [
-  (sd) => `Até breve. Que sua ${sd.toLowerCase()} seja leve.`,
-  (sd) => `Quando quiser retomar, estarei aqui. Boa ${sd.toLowerCase()}.`,
-  (sd) => `Fica bem. O que conversamos aqui permanece contigo.`,
-  (sd) => `Até a próxima. Que o silêncio que vem agora seja fértil.`,
-  (sd) => `Vá com leveza. Quando precisar, retomamos daqui.`,
-  (sd) => `Cuide-se. ${sd} — e que você encontre o que procura, mesmo que seja só descanso.`,
+  (sd) => `Até breve. Que sua ${sd.toLowerCase()} seja um pouco mais leve depois daqui.`,
+  (sd) => `Quando quiser continuar, estarei aqui. Boa ${sd.toLowerCase()}.`,
+  (sd) => `Fica bem. Se algo voltar a incomodar, retomamos depois.`,
+  (sd) => `Até a próxima. Cuide de você com gentileza hoje.`,
+  (sd) => `Vá com calma. Se quiser organizar de novo o que sente, é só voltar.`,
+  (sd) => `Cuide-se. Boa ${sd.toLowerCase()} — e, se algo apertar, conversamos depois.`,
 ];
 
+/* ---------------------------------------
+   FUNÇÃO PRINCIPAL
+------------------------------------------ */
 export function respostaSaudacaoAutomatica({
   messages,
   userName,
