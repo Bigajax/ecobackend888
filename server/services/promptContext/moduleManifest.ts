@@ -55,7 +55,7 @@ const manifestSchema = z
   .object({
     version: z.string().min(1),
     defaults: defaultsSchema.optional(),
-    families: z.record(familySchema).optional(),
+    families: z.record(z.string(), familySchema).optional(),
     modules: z.array(moduleSchema).optional(),
   })
   .strict();

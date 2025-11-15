@@ -1,1 +1,0 @@
-{"version":3,"file":"SupabaseAdapter.js","sourceRoot":"","sources":["../../adapters/SupabaseAdapter.ts"],"names":[],"mappings":";;AAKA,gDAMC;AAXD,uDAAqD;AAKrD,SAAgB,kBAAkB,CAAC,WAAmB;IACpD,OAAO,IAAA,0BAAY,EACjB,OAAO,CAAC,GAAG,CAAC,YAAa,EACzB,OAAO,CAAC,GAAG,CAAC,iBAAkB,EAC9B,EAAE,MAAM,EAAE,EAAE,OAAO,EAAE,EAAE,aAAa,EAAE,UAAU,WAAW,EAAE,EAAE,EAAE,EAAE,CACrD,CAAC;AACnB,CAAC"}

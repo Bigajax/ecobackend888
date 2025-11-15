@@ -131,8 +131,9 @@ export function countMeaningfulWords(text: string): number {
 export function formatKeywordList(keywords: string[]): string {
   if (keywords.length === 0) return "";
   if (keywords.length === 1) return keywords[0];
+  if (keywords.length === 2) return `${keywords[0]} e ${keywords[1]}`;
   const last = keywords[keywords.length - 1];
-  return `${keywords.slice(0, -1).join(" e ")} e ${last}`;
+  return `${keywords.slice(0, -1).join(", ")} e ${last}`;
 }
 
 export function lowerFirst(text: string): string {

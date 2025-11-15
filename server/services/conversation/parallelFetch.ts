@@ -3,8 +3,10 @@ import { getEmbeddingCached } from "../../adapters/EmbeddingAdapter";
 import { buscarHeuristicasSemelhantes } from "../../services/heuristicaService";
 import {
   buscarMemoriasComModo,
+  retrieveConfigs,
   type RetrieveMode,
 } from "../supabase/memoriaRepository";
+import { buscarReferenciasSemelhantes } from "../../services/buscarReferenciasSemelhantes";
 
 export interface ParallelFetchParams {
   ultimaMsg: string;
@@ -30,6 +32,7 @@ interface ParallelFetchDeps {
   getEmbedding: typeof getEmbeddingCached;
   getHeuristicas: typeof buscarHeuristicasSemelhantes;
   getMemorias: typeof buscarMemoriasComModo;
+  getReferencias: typeof buscarReferenciasSemelhantes;
   logger: typeof log;
   debug: typeof isDebug;
 }
@@ -44,6 +47,7 @@ export class ParallelFetchService {
       getEmbedding: getEmbeddingCached,
       getHeuristicas: buscarHeuristicasSemelhantes,
       getMemorias: buscarMemoriasComModo,
+      getReferencias: buscarReferenciasSemelhantes,
       logger: log,
       debug: isDebug,
     }
@@ -82,6 +86,15 @@ export class ParallelFetchService {
 
     if (userEmbedding.length > 0) {
       const cacheKey = userId ?? ANON_KEY;
+      const referenceFallbackThreshold = Number(
+        process.env.SEMANTIC_MEMORY_REFERENCE_FALLBACK_THRESHOLD ?? "0.5"
+      );
+      const referenceThreshold = Number.isFinite(referenceFallbackThreshold)
+        ? referenceFallbackThreshold
+        : 0.5;
+      const referenceK =
+        retrieveConfigs[retrieveMode]?.k ??
+        Number(process.env.SEMANTIC_MEMORY_REFERENCE_TOP_K ?? 4);
 
       const heuristicasPromise = withTimeoutOrNull(
         this.deps
@@ -154,6 +167,52 @@ export class ParallelFetchService {
           memSource = memsSemelhantes.length ? "live" : "empty";
           if (memsSemelhantes.length) {
             this.memoriaCache.set(cacheKey, memsSemelhantes.slice(0, CACHE_LIMIT));
+          } else if (userEmbedding.length > 0) {
+            const refsResult = await withTimeoutOrNull(
+              this.deps
+                .getReferencias(userId, {
+                  userEmbedding,
+                  k: referenceK,
+                  threshold: referenceThreshold,
+                })
+                .catch((error: any) => {
+                  if (this.deps.debug()) {
+                    this.deps.logger.warn(
+                      `[ParallelFetch] referencias_rpc falhou: ${error?.message}`
+                    );
+                  }
+                  return [];
+                }),
+              RPC_TIMEOUT_MS,
+              "ref_lookup",
+              { logger: this.deps.logger }
+            );
+            if (Array.isArray(refsResult) && refsResult.length) {
+              memsSemelhantes = refsResult.map((ref, index) => ({
+                id:
+                  typeof (ref as any)?.id === "string" && (ref as any).id.trim().length
+                    ? (ref as any).id.trim()
+                    : `ref_${index}`,
+                resumo_eco: ref.resumo_eco,
+                tags: Array.isArray(ref.tags) ? ref.tags : [],
+                emocao_principal: ref.emocao_principal ?? null,
+                intensidade:
+                  typeof ref.intensidade === "number" && Number.isFinite(ref.intensidade)
+                    ? ref.intensidade
+                    : null,
+                created_at: ref.created_at ?? null,
+                similarity:
+                  typeof ref.similarity === "number" && Number.isFinite(ref.similarity)
+                    ? ref.similarity
+                    : undefined,
+                distancia:
+                  typeof ref.distancia === "number" && Number.isFinite(ref.distancia)
+                    ? ref.distancia
+                    : undefined,
+              }));
+              memSource = "live";
+              this.memoriaCache.set(cacheKey, memsSemelhantes.slice(0, CACHE_LIMIT));
+            }
           }
         } else {
           const cached = this.memoriaCache.get(cacheKey) ?? [];

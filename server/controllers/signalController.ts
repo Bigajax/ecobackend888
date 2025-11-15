@@ -12,6 +12,39 @@ const logger = log.withContext("signal-controller");
 
 type SignalBody = Record<string, unknown>;
 
+/**
+ * Retry helper: exponential backoff with max attempts
+ * Used to handle FK 23503 race condition where interaction may not be persisted yet
+ */
+async function retryWithBackoff<T>(
+  fn: () => Promise<T>,
+  maxAttempts: number = 3,
+  initialDelayMs: number = 50
+): Promise<T> {
+  let lastError: Error | null = null;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+
+      if (attempt < maxAttempts) {
+        // Exponential backoff: 50ms * 2^(attempt-1)
+        const delayMs = initialDelayMs * Math.pow(2, attempt - 1);
+        logger.debug("signal.retry_backoff", {
+          attempt,
+          delayMs,
+          error: lastError.message,
+        });
+        await new Promise(resolve => setTimeout(resolve, delayMs));
+      }
+    }
+  }
+
+  throw lastError || new Error("unknown_error");
+}
+
 type NormalizedSignal = {
   type: string;
   name: string;
@@ -176,34 +209,43 @@ export async function registrarSignal(req: Request, res: Response) {
     return res.status(503).json({ error: "analytics_unavailable" });
   }
 
+  // CRITICAL: Verify interaction exists with retry
+  // Handles race condition where interaction may not be persisted yet (FK 23503)
+  let interactionExists = false;
   try {
-    const { data, error } = await analyticsClient
-      .from("eco_interactions")
-      .select("id")
-      .eq("id", normalized.interaction_id)
-      .maybeSingle();
+    interactionExists = await retryWithBackoff(
+      async () => {
+        const { data, error } = await analyticsClient
+          .from("eco_interactions")
+          .select("id")
+          .eq("id", normalized.interaction_id)
+          .maybeSingle();
 
-    if (error) {
-      logger.error("signal.interaction_lookup_failed", {
-        interaction_id: normalized.interaction_id,
-        message: error.message,
-        code: error.code ?? null,
-      });
-      return res.status(500).json({ error: "interaction_lookup_failed" });
-    }
+        if (error) {
+          throw new Error(`interaction_lookup_failed: ${error.message} (${error.code})`);
+        }
 
-    if (!data || typeof data.id !== "string") {
-      logger.warn("signal.interaction_not_found", {
-        interaction_id: normalized.interaction_id,
-      });
-      return res.status(404).json({ error: "interaction_not_found" });
-    }
+        if (!data || typeof data.id !== "string") {
+          throw new Error("interaction_not_found");
+        }
+
+        return true;
+      },
+      3,
+      50 // 50ms initial delay
+    );
   } catch (error) {
-    logger.error("signal.interaction_lookup_unexpected", {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    const isNotFound = errorMessage.includes("interaction_not_found");
+    const statusCode = isNotFound ? 404 : 500;
+    const errorResponse = isNotFound ? "interaction_not_found" : "interaction_lookup_failed";
+
+    logger.warn("signal.interaction_verify_failed", {
       interaction_id: normalized.interaction_id,
-      message: error instanceof Error ? error.message : String(error),
+      message: errorMessage,
+      attempts: 3,
     });
-    return res.status(500).json({ error: "interaction_lookup_unexpected" });
+    return res.status(statusCode).json({ error: errorResponse });
   }
 
   const supabaseMeta = {
@@ -215,18 +257,36 @@ export async function registrarSignal(req: Request, res: Response) {
     ...(normalized.guest_id ? { guest_id: normalized.guest_id } : {}),
   };
 
+  // CRITICAL: Insert signal with retry for FK violations
+  // Handles race condition where interaction INSERT may still be in progress (FK 23503)
   try {
-    const { error } = await analyticsClient.from("eco_passive_signals").insert([
-      {
-        interaction_id: normalized.interaction_id,
-        signal: normalized.name,
-        meta: supabaseMeta,
-      },
-    ]);
+    await retryWithBackoff(
+      async () => {
+        const { error } = await analyticsClient.from("eco_passive_signals").insert([
+          {
+            interaction_id: normalized.interaction_id,
+            signal: normalized.name,
+            meta: supabaseMeta,
+          },
+        ]);
 
-    if (error) {
-      throw error;
-    }
+        if (error) {
+          const code = (error as any)?.code;
+          const isFkViolation = code === "23503";
+
+          if (isFkViolation) {
+            logger.debug("signal.fk_violation_retry", {
+              code,
+              interaction_id: normalized.interaction_id,
+            });
+          }
+
+          throw new Error(`insert_failed: ${error.message} (${code})`);
+        }
+      },
+      3,
+      50 // 50ms initial delay
+    );
   } catch (err) {
     const errorMessage =
       err instanceof Error
@@ -239,6 +299,7 @@ export async function registrarSignal(req: Request, res: Response) {
       name: normalized.name,
       type: normalized.type,
       interaction_id: normalized.interaction_id,
+      attempts: 3,
     });
     return res.status(500).json({ error: "signal_persist_failed" });
   }

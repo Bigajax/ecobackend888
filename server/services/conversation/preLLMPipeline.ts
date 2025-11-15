@@ -110,21 +110,51 @@ async function emitImmediateStream({
 }): Promise<EcoStreamingResult> {
   const finalText = buildFinalizedStreamText(finalized);
 
+  // Debug: log the greeting response
+  if (process.env.ECO_DEBUG === "1" || process.env.ECO_DEBUG === "true") {
+    console.debug("[preLLMPipeline] emitImmediateStream", {
+      modelo,
+      hasMessage: !!finalized.message,
+      messageLength: typeof finalized.message === "string" ? finalized.message.length : 0,
+      finalTextLength: finalText.length,
+      finalText: finalText.slice(0, 200),
+    });
+  }
+
   const timings: EcoLatencyMarks = {};
   await streamHandler.onEvent({ type: "control", name: "prompt_ready", timings });
-  if (finalText) {
-    await streamHandler.onEvent({ type: "chunk", delta: finalText, index: 0 });
+
+  // IMPORTANTE: Sempre emitir um chunk, mesmo que vazio
+  // Caso contrário, o frontend recebe "NO_CHUNKS_EMITTED" erro
+  const textToEmit = finalText || (finalized.message || "👋");
+
+  // Use onChunk if available (proper channel when streamHasChunkHandler=true)
+  // Otherwise fall back to onEvent
+  if (streamHandler.onChunk) {
+    if (process.env.ECO_DEBUG === "1" || process.env.ECO_DEBUG === "true") {
+      console.debug("[preLLMPipeline] calling onChunk", { textLen: textToEmit.length, index: 0 });
+    }
+    await streamHandler.onChunk({ text: textToEmit, index: 0 });
+    if (process.env.ECO_DEBUG === "1" || process.env.ECO_DEBUG === "true") {
+      console.debug("[preLLMPipeline] onChunk completed");
+    }
+  } else {
+    if (process.env.ECO_DEBUG === "1" || process.env.ECO_DEBUG === "true") {
+      console.debug("[preLLMPipeline] onChunk not available, falling back to onEvent");
+    }
+    await streamHandler.onEvent({ type: "chunk", delta: textToEmit, index: 0 });
   }
+
   await streamHandler.onEvent({
     type: "control",
     name: "done",
-    meta: { length: finalText.length, modelo },
+    meta: { length: textToEmit.length, modelo },
     timings,
   });
 
   const finalize = async () => finalized;
   return {
-    raw: finalText,
+    raw: textToEmit,
     modelo,
     usage: undefined,
     finalize,
