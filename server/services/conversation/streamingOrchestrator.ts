@@ -19,7 +19,7 @@ import { executeFullLLM } from "./fullOrchestrator";
 import type { ChatMessage, GetEcoResult } from "../../utils";
 import type { EcoHints } from "../../utils/types";
 
-const BLOCO_DEADLINE_MS = Number(process.env.ECO_BLOCO_DEADLINE_MS ?? 5000);
+const BLOCO_DEADLINE_MS = Number(process.env.ECO_BLOCO_DEADLINE_MS ?? 10000);
 const BLOCO_PENDING_MS = Number(process.env.ECO_BLOCO_PENDING_MS ?? 1000);
 const STREAM_GUARD_MS = Number(process.env.ECO_STREAM_GUARD_MS ?? 2000);
 const FIRST_TOKEN_TIMEOUT_MS = Number(process.env.ECO_FIRST_TOKEN_TIMEOUT_MS ?? 15000);
@@ -403,19 +403,44 @@ export async function executeStreamingLLM({
                   origem: "streaming_bloco",
                 });
 
-                if (rpcRes.saved && rpcRes.memoriaId && rpcRes.memoryData) {
+                if (rpcRes.saved && rpcRes.memoriaId) {
                   // Enviar evento memory_saved com estrutura completa esperada pelo frontend
+                  // Sempre emitir, mesmo se memoryData for null (fallback construct)
+                  const memoryPayload = rpcRes.memoryData || {
+                    id: rpcRes.memoriaId,
+                    usuario_id: userId,
+                    resumo_eco: metaPayload.resumo ?? "",
+                    emocao_principal: metaPayload.emocao ?? "indefinida",
+                    intensidade: metaPayload.intensidade,
+                    contexto: metaPayload.analise_resumo ?? "",
+                    dominio_vida: metaPayload.categoria ?? null,
+                    padrao_comportamental: null,
+                    categoria: metaPayload.categoria ?? null,
+                    nivel_abertura: metaPayload.nivel_abertura ?? null,
+                    analise_resumo: metaPayload.analise_resumo ?? "",
+                    tags: Array.isArray(metaPayload.tags) ? metaPayload.tags : [],
+                    created_at: new Date().toISOString(),
+                  };
+
                   await emitStream({
                     type: "control",
                     name: "memory_saved",
                     meta: {
-                      memory: rpcRes.memoryData,
+                      memory: memoryPayload,
                       primeiraMemoriaSignificativa: !!rpcRes.primeira,
                     },
                   });
-                } else if (rpcRes.saved && rpcRes.memoriaId && !rpcRes.memoryData) {
-                  // Log de aviso se memoryData não estiver disponível
-                  log.warn("[StreamingBloco] memoryData não disponível, evento memory_saved não emitido");
+
+                  log.info("[StreamingBloco] evento memory_saved emitido", {
+                    memoriaId: rpcRes.memoriaId,
+                    primeiraMemoria: !!rpcRes.primeira,
+                    usedFallback: !rpcRes.memoryData,
+                  });
+                } else {
+                  log.warn("[StreamingBloco] RPC retornou saved=true mas memoriaId está ausente", {
+                    saved: rpcRes.saved,
+                    memoriaId: rpcRes.memoriaId,
+                  });
                 }
               } catch (error: any) {
                 log.warn("[StreamingBloco] salvarMemoriaViaRPC falhou (ignorado)", {
