@@ -94,7 +94,7 @@ const BASE_VARIANTES_PRIMEIRA: Tpl[] = [
   
   // Arqueológicas leves (camada logo abaixo)
   (sd, nome) => `${sd}${nome}. O que te trouxe até aqui — uma pergunta, uma inquietação, ou só curiosidade?`,
-  (sd, nome) => `${sd}${nome}. Há algo que você vem carregando e gostaria de pousar aqui?`,
+  (sd, nome) => `${sd}${nome}. O que há sob o que você mostrou até agora que merecia ser explorado?`,
   
   // Estruturais simples (prioridade, foco)
   (sd, nome) => `${sd}${nome}. Se pudesse focar em uma única coisa agora, qual seria?`,
