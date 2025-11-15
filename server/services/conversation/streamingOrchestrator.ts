@@ -403,11 +403,12 @@ export async function executeStreamingLLM({
                   origem: "streaming_bloco",
                 });
 
-                if (rpcRes.saved && rpcRes.memoriaId) {
+                if (rpcRes.saved && rpcRes.memoriaId !== null) {
                   // Enviar evento memory_saved com estrutura completa esperada pelo frontend
                   // Sempre emitir, mesmo se memoryData for null (fallback construct)
+                  const memoriaId = rpcRes.memoriaId;
                   const memoryPayload = rpcRes.memoryData || {
-                    id: rpcRes.memoriaId,
+                    id: memoriaId,
                     usuario_id: userId,
                     resumo_eco: metaPayload.resumo ?? "",
                     emocao_principal: metaPayload.emocao ?? "indefinida",
@@ -432,7 +433,7 @@ export async function executeStreamingLLM({
                   });
 
                   log.info("[StreamingBloco] evento memory_saved emitido", {
-                    memoriaId: rpcRes.memoriaId,
+                    memoriaId,
                     primeiraMemoria: !!rpcRes.primeira,
                     usedFallback: !rpcRes.memoryData,
                   });
