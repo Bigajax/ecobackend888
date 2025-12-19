@@ -38,6 +38,7 @@ import voiceFullRoutes from "../../routes/voiceFullRoutes";
 import openrouterRoutes from "../../routes/openrouterRoutes";
 import relatorioRoutes from "../../routes/relatorioEmocionalRoutes";
 import feedbackRoutes from "../../routes/feedbackRoutes";
+import meditationRoutes from "../../routes/meditationRoutes";
 import mensagemRoutes from "../../domains/mensagem/routes";
 import signalRoutes from "../../routes/signalRoutes";
 import moduleUsageRoutes from "../../routes/moduleUsageRoutes";
@@ -372,6 +373,7 @@ export function createApp(): Express {
   app.use("/api/relatorio_emocional", relatorioRoutes);
   app.use("/api/v1/relatorio-emocional", relatorioRoutes);
   app.use("/api/feedback", feedbackRoutes);
+  app.use("/api/meditation", meditationRoutes);
   app.use("/api/mensagens", mensagemRoutes);
   app.use("/api/signal", signalRoutes);
   app.use("/api/module-usage", moduleUsageRoutes);
