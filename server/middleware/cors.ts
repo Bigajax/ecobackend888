@@ -68,6 +68,8 @@ export const CORS_ALLOWED_HEADERS = [
   "X-Eco-Client-Message-Id",
   "X-Eco-Guest-Id",
   "X-Eco-Session-Id",
+  "X-Session-Id",          // Frontend meditation feedback
+  "X-Guest-Id",            // Frontend meditation feedback
   "X-Client-Id",
   "Authorization",
 ] as const;
