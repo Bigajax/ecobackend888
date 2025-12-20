@@ -18,8 +18,8 @@ const optionalUuid = () => z.string().uuid().nullable().optional();
 const requiredString = (maxLength: number = 255) => z.string().min(1).max(maxLength);
 const optionalString = (maxLength: number = 255) => z.string().min(1).max(maxLength).nullable().optional();
 
-// Main meditation feedback payload schema
-export const MeditationFeedbackPayloadSchema = z.object({
+// Base schema without validation (for extending)
+const MeditationFeedbackBaseSchema = z.object({
   // Feedback principal
   vote: MeditationVoteSchema,
   reasons: z.array(MeditationFeedbackReasonSchema).optional(),
@@ -43,7 +43,10 @@ export const MeditationFeedbackPayloadSchema = z.object({
 
   // Metadados
   feedback_source: z.string().default("meditation_completion"),
-}).refine(
+});
+
+// Main meditation feedback payload schema (with validation)
+export const MeditationFeedbackPayloadSchema = MeditationFeedbackBaseSchema.refine(
   (data) => {
     // Se vote é "negative", reasons deve existir e ter pelo menos 1 item
     if (data.vote === "negative") {
@@ -60,7 +63,7 @@ export const MeditationFeedbackPayloadSchema = z.object({
 export type MeditationFeedbackPayload = z.infer<typeof MeditationFeedbackPayloadSchema>;
 
 // Schema for the complete feedback record (includes DB fields)
-export const MeditationFeedbackRecordSchema = MeditationFeedbackPayloadSchema.extend({
+export const MeditationFeedbackRecordSchema = MeditationFeedbackBaseSchema.extend({
   id: z.string().uuid(),
   user_id: optionalUuid(),
   session_id: requiredString(100),

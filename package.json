@@ -5,6 +5,7 @@
     "test": "jest --config jest.contract.config.ts --passWithNoTests",
     "test:contract": "jest --config server/jest.contract.config.ts",
     "test:supabase": "ts-node server/scripts/testSupabasePersistence.ts",
+    "test:meditation-feedback": "ts-node server/scripts/testMeditationFeedback.ts",
     "modules:inventory": "ts-node server/scripts/modulesInventory.ts",
     "smoke:feedback": "bash server/scripts/smokeFeedback.sh",
     "modules:dump": "ts-node --transpile-only server/scripts/modulesInventory.ts --dump-modules",
