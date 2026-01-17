@@ -3,6 +3,14 @@ import type { NextFunction, Request, Response } from "express";
 
 import { log } from "../../services/promptContext/logger";
 
+const GUEST_IDENTITY_EXCLUSIONS: ReadonlySet<string> = new Set([
+  "/",
+  "/health",
+  "/healthz",
+  "/readyz",
+  "/api/health",
+]);
+
 const COOKIE_NAME = "guest_id";
 export const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -174,6 +182,11 @@ function ensureSessionHeader(req: Request, res: Response) {
 }
 
 export function ensureGuestIdentity(req: Request, res: Response, next: NextFunction) {
+  if (GUEST_IDENTITY_EXCLUSIONS.has(req.path)) {
+    log.debug("[guestIdentity] skipped for excluded path", { path: req.path });
+    return next();
+  }
+
   const {
     sessionId,
     source: sessionSource,

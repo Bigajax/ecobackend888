@@ -55,29 +55,9 @@ comment on column analytics.module_outcomes.vpt is 'Value per token, derived fro
 create index if not exists module_outcomes_module_id_created_at_idx
     on analytics.module_outcomes (module_id, created_at desc);
 
-create table if not exists analytics.bandit_rewards (
-    id uuid primary key default gen_random_uuid(),
-    created_at timestamptz default now(),
-    response_id uuid,
-    pilar text,
-    arm text,
-    recompensa numeric
-);
-
-alter table analytics.bandit_rewards drop constraint if exists bandit_rewards_pilar_check;
-alter table analytics.bandit_rewards drop constraint if exists bandit_rewards_arm_check;
-
-comment on table analytics.bandit_rewards is 'Rewards observed for Thompson sampling bandits';
-comment on column analytics.bandit_rewards.response_id is 'Link to the originating response';
-comment on column analytics.bandit_rewards.pilar is 'Bandit pillar deciding stylistic variants';
-comment on column analytics.bandit_rewards.arm is 'Selected arm for the pillar';
-comment on column analytics.bandit_rewards.recompensa is 'Reward applied to update the bandit posterior';
-
-create index if not exists bandit_rewards_pilar_arm_created_at_idx
-    on analytics.bandit_rewards (pilar, arm, created_at desc);
-
-create unique index if not exists bandit_rewards_response_arm_uidx
-    on analytics.bandit_rewards (response_id, arm);
+-- DEPRECATED: bandit_rewards table is now defined in eco_feedback_schema.sql
+-- This definition is kept for reference only and should NOT be used
+-- The migration 20251111_fix_bandit_rewards_schema.sql handles the correct table creation
 
 create table if not exists analytics.knapsack_decision (
     id uuid primary key default gen_random_uuid(),

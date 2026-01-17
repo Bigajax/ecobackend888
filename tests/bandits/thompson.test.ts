@@ -11,6 +11,16 @@ describe("thompson sampling bandits", () => {
     expect(picksA).not.toEqual(picksB);
   });
 
+  it("treats zero as a valid deterministic seed", () => {
+    const stateFirst = initBandits(0);
+    const picksFirst = Array.from({ length: 5 }, () => pickArm("Linguagem", stateFirst));
+
+    const stateSecond = initBandits(0);
+    const picksSecond = Array.from({ length: 5 }, () => pickArm("Linguagem", stateSecond));
+
+    expect(picksFirst).toEqual(picksSecond);
+  });
+
   it("updates alpha and beta depending on reward sign", () => {
     const state = initBandits(99);
     const stats = state.Linguagem.full;

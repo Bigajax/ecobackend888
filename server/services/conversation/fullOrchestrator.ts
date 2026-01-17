@@ -1,7 +1,7 @@
 import { claudeChatCompletion, type Msg } from "../../core/ClaudeAdapter";
 import { log } from "../promptContext/logger";
 import { now } from "../../utils";
-import { createInteraction, sha1Hash } from "./interactionAnalytics";
+import { sha1Hash } from "./interactionAnalytics";
 
 import { buildStreamingMetaPayload } from "./responseMetadata";
 import { salvarMemoriaViaRPC } from "./memoryPersistence";
@@ -73,16 +73,7 @@ export async function executeFullLLM({
     typeof basePromptHash === "string" && basePromptHash
       ? basePromptHash
       : sha1Hash(basePrompt);
-  let analyticsInteractionId = interactionId ?? null;
-
-  if (!analyticsInteractionId) {
-    analyticsInteractionId = await createInteraction({
-      userId: !isGuest ? userId : null,
-      sessionId: typeof sessionMeta?.sessaoId === "string" ? sessionMeta.sessaoId : null,
-      messageId: lastMessageId ?? null,
-      promptHash: resolvedPromptHash,
-    });
-  }
+  const analyticsInteractionId = interactionId ?? null;
 
   timings.llmStart = now();
   log.info("// LATENCY: llm_request_start", {

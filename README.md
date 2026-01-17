@@ -1,157 +1,65 @@
-# ECO Backend Analytics & Feedback Service
+# ECO Conversational Backend
 
-## Visão Geral
-A API de backend da ECO coleta sinais de uso em três estágios principais do pipeline:
+## Visão geral
+O back-end da ECO orquestra um servidor Express com suporte a streaming SSE, memória semântica no Supabase e instrumentação de analytics (Supabase + Mixpanel). Durante o boot ele carrega variáveis de ambiente via `dotenv`, valida se os módulos de prompt existem no diretório de assets e inicia agendadores como a sincronização de recompensas dos bandits.【F:server/server.ts†L5-L176】 A aplicação Express aplica CORS global, resolve identidade de convidados, impõe rate limit por token/guest/IP e expõe healthchecks e rotas do domínio conversacional (memórias, analytics, voz, policy etc.).【F:server/core/http/app.ts†L121-L331】
 
-1. **Interações** – cada mensagem gerada registra o `interaction_id`, metadados de prompt, módulos habilitados e métricas de tokens para auditoria operacional.
-2. **Feedback explícito** – votos de "up"/"down" do usuário enriquecidos com motivo e origem, garantindo rastreabilidade para ajustes de UX.
-3. **Latência** – amostras de TTFB/TTLC por resposta que alimentam alertas de desempenho.
+### Capacidades principais
+- **Orquestração conversacional** – `/api/ask-eco` entrega respostas via SSE, aplicando validações de identidade, deduplicação de mensagens e fallback JSON.【F:server/routes/promptRoutes.ts†L592-L847】
+- **Memórias semânticas** – Recupera memórias por RPC (`buscar_memorias_semelhantes_v2`) com filtros de similaridade, emoção e MMR antes de compor o prompt.【F:server/services/supabase/semanticMemoryClient.ts†L96-L198】【F:server/services/conversation/streamingOrchestrator.ts†L132-L213】
+- **Analytics operacional** – Resultados são persistidos em tabelas `analytics.*` (qualidade, bandits, knapsack, latência) e os eventos Mixpanel seguem convenções de `distinct_id` para usuários e convidados.【F:server/services/analytics/analyticsOrchestrator.ts†L80-L151】【F:server/analytics/events/mixpanelEvents.ts†L8-L206】
+- **Observabilidade embutida** – Logs estruturados informam CORS, erros de streaming e métricas de SSE; healthchecks expõem status dos módulos carregados e da configuração Supabase.【F:server/core/http/app.ts†L170-L331】【F:server/sse/sseEvents.ts†L187-L297】
 
-Todos os eventos são gravados no schema `analytics`, que concentra métricas operacionais consumidas por pipelines internos e pelo Metabase. O schema **não possui RLS habilitado** e o acesso se dá via credenciais _service-role_ protegidas no backend.
+## Como rodar localmente
+1. **Instale dependências**
+   ```bash
+   cd server
+   npm install
+   ```
+2. **Configure variáveis** – crie `.env` baseado nas chaves listadas em [ENVIRONMENT.md](ENVIRONMENT.md). Para analytics local rápido há um `.env.sample` com sinalizadores mínimos.【F:.env.sample†L1-L5】
+3. **Rodando em desenvolvimento**
+   ```bash
+   npm run dev
+   ```
+   Executa `nodemon` com `NODE_ENV=development` monitorando os arquivos TypeScript.【F:server/package.json†L10-L18】
+4. **Build e produção**
+   ```bash
+   npm run build
+   npm start
+   ```
+   O build transpila TypeScript (`tsc`) e copia assets necessários antes de subir o servidor compilado (`dist/server.js`).【F:server/package.json†L12-L17】
 
-## Variáveis de Ambiente
-Configure as variáveis abaixo para executar o serviço e suas integrações:
+### Pré-requisitos de assets e módulos
+A inicialização falha se os módulos de prompt não estiverem presentes (ex.: `modulos_core/developer_prompt.txt`). O bootstrap soma arquivos no diretório `assets`, registra heurísticas opcionais e garante que os módulos de identidade estão prontos antes de aceitar requisições.【F:server/server.ts†L38-L177】 Use `npm run verify:assets` para validar a árvore de módulos antes do deploy.【F:server/package.json†L12-L14】
 
-| Variável | Descrição |
-| --- | --- |
-| `SUPABASE_URL` | URL do projeto Supabase utilizado para persistir analytics. |
-| `SUPABASE_SERVICE_ROLE_KEY` | Chave _service-role_ usada apenas pelo backend para inserir dados no schema `analytics`. |
-| `API_URL` | Base URL pública do backend (ex.: `https://api.eco.ai`). Utilizada pelos scripts de _smoke test_. |
-| `ALLOWED_ORIGINS` | Lista de origens permitidas pelo middleware de CORS. |
-
-## Rotas HTTP
-Todas as rotas residem no mesmo domínio do backend com prefixo `/api`.
-
-### `POST /api/feedback`
-* **Resposta:** `204 No Content`
-* **Payload:**
-  ```json
-  {
-    "interaction_id": "uuid opcional",
-    "response_id": "uuid opcional",
-    "vote": "up" | "down",
-    "reason": "texto opcional",
-    "pillar": "geral | empatia | ...",
-    "arm": "identificador do braço"
-  }
-  ```
-  > Obs.: pelo menos um entre `interaction_id` e `response_id` deve ser informado. Quando o braço não é enviado pelo front, o backend infere a partir do primeiro módulo utilizado e recorre ao valor `baseline` como _fallback_.
-* **Exemplo (smoke test):**
-  ```bash
-  curl -i -X POST "$API_URL/api/feedback" \
-    -H "Content-Type: application/json" \
-    -d '{
-      "interaction_id": "00000000-0000-0000-0000-000000000001",
-      "vote": "up",
-      "pillar": "geral"
-    }'
-  ```
-
-### `POST /api/interaction`
-* **Resposta:** `201 Created`
-* **Payload:**
-  ```json
-  {
-    "interaction_id": "uuid",
-    "session_id": "optional",
-    "user_id": "optional uuid or null",
-    "message_id": "optional",
-    "prompt_hash": "optional",
-    "module_combo": ["module-a", "module-b"],
-    "tokens_in": 123,
-    "tokens_out": 456,
-    "latency_ms": 789,
-    "meta": { "qualquer": "json" }
-  }
-  ```
-* **Exemplo:**
-  ```bash
-  curl -i -X POST "$API_URL/api/interaction" \
-    -H "Content-Type: application/json" \
-    -d '{
-      "interaction_id": "00000000-0000-0000-0000-000000000002",
-      "session_id": "SESSION-123",
-      "prompt_hash": "hash-xyz",
-      "module_combo": ["core", "memoria"],
-      "tokens_in": 200,
-      "tokens_out": 350,
-      "latency_ms": 123
-    }'
-  ```
-
-### `POST /api/latency`
-* **Resposta:** `204 No Content`
-* **Payload:**
-  ```json
-  {
-    "response_id": "uuid",
-    "ttfb_ms": 110,
-    "ttlc_ms": 450,
-    "tokens_total": 512
-  }
-  ```
-* **Exemplo:**
-  ```bash
-  curl -i -X POST "$API_URL/api/latency" \
-    -H "Content-Type: application/json" \
-    -d '{
-      "response_id": "00000000-0000-0000-0000-000000000003",
-      "ttfb_ms": 120,
-      "ttlc_ms": 480,
-      "tokens_total": 550
-    }'
-  ```
-
-## Modelagem no Supabase
-| Tabela | Campos principais |
-| --- | --- |
-| `analytics.eco_feedback` | `id`, `interaction_id`, `user_id`, `session_id`, `vote`, `reason`, `source`, `meta`, `created_at` |
-| `analytics.eco_interactions` | `id` (`interaction_id`), `user_id`, `session_id`, `message_id`, `prompt_hash`, `module_combo`, `tokens_in`, `tokens_out`, `latency_ms`, `meta`, `created_at` |
-| `analytics.latency_samples` | `response_id`, `ttfb_ms`, `ttlc_ms`, `tokens_total`, `created_at` |
-
-> Consulte `docs/analytics-schema.md` para detalhes adicionais do schema `analytics`.
-
-## Observabilidade
-* Os handlers de rota registram logs `info` em caso de sucesso e `warn`/`error` para falhas no Supabase, sempre omitindo payloads sensíveis.
-* Utilize `interaction_id` e `response_id` como IDs de correlação ao investigar fluxos no Metabase e nos logs do backend.
-* Em caso de `404`, verifique se o módulo HTTP importou corretamente `feedbackRoutes` e se os testes `server/tests/feedbackRoutes.test.ts` foram executados (`npm test -- feedbackRoutes`).
-
-## Operações (Render Cron – Posterior Cache)
-
-Configure um cron no Render para inserir instantâneos horários da tabela `analytics.bandit_posteriors_cache`:
-
-1. Acesse o dashboard do Render → **Jobs** → **New Cron Job**.
-2. Defina o comando como `npm run bandit:cache` (o job já usa as variáveis de ambiente do serviço).
-3. Agende com frequência **Every hour** (ou mais frequente, se necessário para dashboards em tempo real).
-4. Salve o job e acompanhe os logs: a cada execução bem-sucedida, o processo imprime uma linha JSON `{"posterior_cache":{...}}`; erros surgem como `posterior_cache_error`.
-
-Para monitorar a saúde do cron sem abrir o Metabase, execute localmente ou em outro job auxiliar:
-
-```bash
-npm run cron:self-test
+## Arquitetura
+```mermaid
+flowchart TD
+  Client[Cliente web/mobile] -->|SSE GET /api/ask-eco| Edge
+  Edge[Express App] -->|middlewares| Identity[ensureIdentity + guestSession]
+  Identity -->|requisição validada| Router[Rotas /api]
+  Router -->|ask-eco| Orchestrator[ConversationOrchestrator]
+  Orchestrator -->|LLM streaming| OpenRouter[Claude via OpenRouter]
+  Orchestrator -->|contexto| Supabase[(Supabase: memórias + analytics)]
+  Orchestrator -->|eventos| Mixpanel[(Mixpanel)]
+  Router -->|health, feedback, signals| Outros[Demais controllers]
 ```
+- **Edge/Express** – Configura CORS, parsers, rate limiting e aliases de rotas legadas.【F:server/core/http/app.ts†L121-L330】
+- **Identity** – `ensureGuestIdentity` gera IDs convidados, `ensureIdentity` exige cabeçalhos `X-Eco-*` válidos e o `guestSessionMiddleware` limita uso anônimo.【F:server/core/http/guestIdentity.ts†L1-L120】【F:server/middleware/ensureIdentity.ts†L19-L117】【F:server/core/http/middlewares/guestSession.ts†L52-L194】
+- **Orchestrator** – Seleciona módulos, chama LLM (Claude via OpenRouter) e transmite chunks enquanto registra analytics.【F:server/services/ConversationOrchestrator.ts†L1-L181】【F:server/services/conversation/streamingOrchestrator.ts†L84-L213】
+- **Supabase** – RPCs de memórias, persistência de analytics e políticas RLS em `memories`/`referencias_temporarias`.【F:server/services/supabase/semanticMemoryClient.ts†L96-L198】【F:supabase/schema/memory_schema.sql†L12-L112】【F:supabase/schema/analytics_schema.sql†L1-L83】
+- **Mixpanel** – Eventos encapsulados em `analytics/events/mixpanelEvents.ts` usam um cliente que vira no-op sem token para ambientes locais.【F:server/lib/mixpanel.ts†L6-L44】【F:server/analytics/events/mixpanelEvents.ts†L34-L206】
 
-O script valida se existe um snapshot mais recente que 2 horas e emite um alerta JSON quando a rotina está atrasada.
+## Principais fluxos
+- **Healthchecks** – `/`, `/health`, `/healthz`, `/api/health` retornam estado básico e status de módulos; `/readyz` confirma configuração Supabase para cenários de liveness/readiness em deploys.【F:server/core/http/app.ts†L170-L214】
+- **Feedback & sinais** – `/api/feedback` grava votos com inferência de braço e recompensa; `/api/signal` aceita eventos passivos com rate limit independente.【F:server/controllers/feedbackController.ts†L32-L200】【F:server/routes/signalRoutes.ts†L9-L59】
+- **Guest claim** – `/api/guest/claim` associa dados gerados como convidado a um usuário autenticado e bloqueia reuso do `guestId`.【F:server/routes/guestRoutes.ts†L70-L140】
 
-## Metabase
-Sugestões de cartões para o dashboard operacional:
-1. **TTFB x Tokens (últimos 7d)** – gráfico de dispersão usando `analytics.latency_samples` ou `analytics.v_latency_recent` filtrado por data.
-2. **Distribuição de voto (up/down)** – gráfico de colunas a partir de `analytics.eco_feedback` agregando por `vote` nos últimos 30 dias.
-3. **Top motivos de dislike** – tabela ou _bar chart_ que conta ocorrências de `reason` em `analytics.eco_feedback` com filtro `vote = 'down'`.
-
-Para habilitar as views de apoio, execute:
-```bash
-supabase db push --file supabase/schema/analytics_rest_v2.sql
-```
-
-## Smoke Tests
-| Comando | Resultado esperado |
-| --- | --- |
-| `curl ... /api/feedback` | `HTTP/1.1 204 No Content` sem corpo. |
-| `curl ... /api/interaction` | `HTTP/1.1 201 Created` com `{ "id": "<interaction_id>" }`. |
-| `curl ... /api/latency` | `HTTP/1.1 204 No Content` sem corpo. |
-
-## Roadmap
-* **Upsert** completo de `analytics.eco_interactions` preservando colunas atualizadas ao reenviar o mesmo `interaction_id`.
-* **Deduplicação por `prompt_hash`** para consolidar variantes do mesmo prompt.
-* **RLS granular** em views públicas futuras (`security_invoker`) caso seja necessário expor métricas diretamente ao front.
+## Principais insights e lacunas
+- **Insights**
+  - Garantia rígida de assets de prompt no boot evita respostas inconsistentes e falhas silenciosas em produção.【F:server/server.ts†L67-L133】
+  - O pipeline de streaming usa watchdogs para `first_token` e `guard fallback`, reduzindo silêncio em falhas de LLM.【F:server/sse/sseEvents.ts†L184-L297】
+  - Analytics é opcional: sem `SUPABASE_*` o serviço continua rodando, apenas registra logs de depuração.【F:server/services/analytics/analyticsOrchestrator.ts†L97-L165】
+- **Lacunas**
+  - Não há `.env.example` completo; apenas três flags de analytics são sugeridas em `.env.sample`. Recomenda-se publicar um exemplo cobrindo chaves críticas (OpenRouter, Supabase, Mixpanel).【F:.env.sample†L1-L5】
+  - Monitoramento estruturado (metrics/alerts) fora dos logs não foi encontrado; sugerir integração com APM ou dashboards automáticos para SSE e Supabase (não encontrado).
+  - Testes automatizados para rotas de streaming não estão documentados no README (há specs em `server/tests`, mas sem instruções aqui); incluir uma seção de testes seria útil (não encontrado na documentação atual).

@@ -11,10 +11,10 @@ import type { DecisionSignalMap } from "../pipeline/signalsBuilder";
 const ABS_FIRST = "developer_prompt.txt";
 
 export const MINIMAL_VITAL_SET = [
-  "identidade_mini.txt",
-  "eco_estrutura_de_resposta.txt",
+  "sistema_identidade.txt",
+  "formato_resposta.txt",
   "usomemorias.txt",
-  "bloco_tecnico_memoria.txt",
+  "tecnico_bloco_memoria.txt",
   "metodo_viva_enxuto.txt",
 ];
 

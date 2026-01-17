@@ -44,8 +44,12 @@ export function ensureIdentity(req: Request, res: Response, next: NextFunction) 
     session.source === "query" ||
     (session.source === "header" && sessionHeaderProvided);
 
+  if (req.path === "/health") {
+    return next();
+  }
+
   if (isAskEco && (method === "POST" || method === "GET")) {
-    log.info("[ask-eco] identity_source", {
+    log.debug("[ask-eco] identity_source", {
       path: req.path,
       method,
       origin: origin ?? null,

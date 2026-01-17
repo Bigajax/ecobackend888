@@ -9,11 +9,17 @@
   },
   "scripts": {
     "dev": "cross-env NODE_ENV=development nodemon",
-    "build": "tsc && npm run copy:assets",
+    "build": "tsc && npm run copy:assets && npm run build:manifest && npm run postbuild:sanitize",
+    "build:manifest": "node ./assets/scripts/build-manifest.cjs",
+    "postbuild:sanitize": "node scripts/sanitize-modules-manifest.cjs",
     "copy:assets": "node ./scripts/copy-assets.cjs",
     "verify:assets": "node ./scripts/verifyAssetsBuild.cjs",
     "start": "cross-env NODE_ENV=production node dist/server.js",
-    "cors:smoke": "bash server/scripts/cors-smoke.sh"
+    "cors:smoke": "bash server/scripts/cors-smoke.sh",
+    "test:meditation-feedback": "ts-node scripts/testMeditationFeedback.ts",
+    "registrar:emocionais": "node ./scripts/registrar-emocionais.cjs",
+    "registrar:filosoficos": "node ./scripts/registrar-filosoficos.cjs",
+    "registrar:todos": "npm run registrar:emocionais && npm run registrar:filosoficos"
   },
   "dependencies": {
     "@dqbd/tiktoken": "^1.0.21",
@@ -34,6 +40,7 @@
     "mixpanel": "^0.18.1",
     "multer": "^2.0.1",
     "openai": "^5.6.0",
+    "uuid": "^13.0.0",
     "ws": "^8.18.2",
     "zod": "^3.25.76"
   },

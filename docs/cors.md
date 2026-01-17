@@ -25,6 +25,6 @@ Requisições sem header `Origin` (por exemplo via `curl`) também são aceitas.
 `GET, POST, PUT, PATCH, DELETE, OPTIONS`
 
 ## Cabeçalhos aceitos no preflight
-`Content-Type, Authorization, X-Guest-Id, X-Requested-With, Accept, Accept-Language, Cache-Control, Pragma, Range`
+`Content-Type`, `Accept`, `X-Eco-Client-Message-Id`, `X-Eco-Guest-Id`, `X-Eco-Session-Id`, `X-Client-Id`, `Authorization`
 
-Esses cabeçalhos cobrem tanto usuários autenticados (JWT via `Authorization`) quanto convidados (`X-Guest-Id`) e streaming SSE (`Accept: text/event-stream`).
+Os headers customizados `X-Eco-*` podem ser enviados pelo frontend e são validados pelo backend para identidade e deduplicação de mensagens.
