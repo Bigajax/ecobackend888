@@ -17,6 +17,7 @@
     "start": "cross-env NODE_ENV=production node dist/server.js",
     "cors:smoke": "bash server/scripts/cors-smoke.sh",
     "test:meditation-feedback": "ts-node scripts/testMeditationFeedback.ts",
+    "smoke:feedback": "ts-node scripts/smokeFeedbackSystem.ts",
     "registrar:emocionais": "node ./scripts/registrar-emocionais.cjs",
     "registrar:filosoficos": "node ./scripts/registrar-filosoficos.cjs",
     "registrar:todos": "npm run registrar:emocionais && npm run registrar:filosoficos"
