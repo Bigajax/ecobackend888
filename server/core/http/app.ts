@@ -52,6 +52,8 @@ import { log } from "../../services/promptContext/logger";
 import { isSupabaseConfigured } from "../../lib/supabaseAdmin";
 import { guestSessionMiddleware } from "./middlewares/guestSession";
 import guestRoutes from "../../routes/guestRoutes";
+import subscriptionRoutes from "../../routes/subscriptionRoutes";
+import webhookRoutes from "../../routes/webhookRoutes";
 import requireAdmin from "../../mw/requireAdmin";
 import sseSmokeRouter from "../../routes/sseSmoke";
 
@@ -381,6 +383,8 @@ export function createApp(): Express {
   app.use("/api/module-usage", moduleUsageRoutes);
   app.use("/api/bandit", banditRoutes);
   app.use("/api/policy", policyRoutes);
+  app.use("/api/subscription", subscriptionRoutes);
+  app.use("/api/webhooks", webhookRoutes);
 
   // Aliases sem /api (clientes legados)
   app.use("/memorias", memoryRoutes);
