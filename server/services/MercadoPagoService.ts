@@ -189,6 +189,10 @@ export class MercadoPagoService {
           auto_return: "approved",
           notification_url: `${this.config.backendUrl}/api/webhooks/mercadopago`,
           statement_descriptor: "ECO Premium",
+          payment_methods: {
+            installments: 12,
+            default_installments: 1,
+          },
         },
       });
 
