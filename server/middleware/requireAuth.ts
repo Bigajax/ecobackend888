@@ -86,9 +86,9 @@ export async function requireAuth(
 
     // Attach authenticated user to request
     req.user = {
+      ...data.user,
       id: data.user.id,
       email: data.user.email || "",
-      ...data.user,
     };
 
     logger.debug("auth_success", {
