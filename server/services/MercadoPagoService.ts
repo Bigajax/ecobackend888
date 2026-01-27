@@ -124,7 +124,7 @@ export class MercadoPagoService {
               frequency: 7,
               frequency_type: "days",
             },
-          },
+          } as any,
           back_url: `${this.config.appUrl}/subscription/success`,
           status: "pending",
         },
