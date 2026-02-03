@@ -3,6 +3,11 @@ import { getMercadoPagoService } from "../services/MercadoPagoService";
 import { getSubscriptionService } from "../services/SubscriptionService";
 import { ensureSupabaseConfigured } from "../lib/supabaseAdmin";
 import { log } from "../services/promptContext/logger";
+import {
+  trackSubscriptionPaid,
+  trackPaymentFailed,
+  trackSubscriptionCreated,
+} from "../services/mixpanel";
 
 const logger = log.withContext("webhook-controller");
 
@@ -75,6 +80,15 @@ async function processPaymentEvent(paymentId: string): Promise<void> {
         raw_payload: payment,
       });
 
+      // Track Subscription Paid (Mixpanel - Camada 3)
+      trackSubscriptionPaid(userId, {
+        plan_id: "annual",
+        mp_status: payment.status,
+        payment_method: payment.payment_method_id,
+        transaction_amount: payment.transaction_amount || 299.0,
+        mp_id: paymentId,
+      });
+
       logger.info("annual_payment_processed", { userId, paymentId });
     } else if (payment.status === "rejected" || payment.status === "cancelled") {
       // Record failed payment
@@ -82,6 +96,14 @@ async function processPaymentEvent(paymentId: string): Promise<void> {
         plan: "annual",
         provider_id: paymentId,
         status: payment.status,
+      });
+
+      // Track Payment Failed (Mixpanel - Camada 3)
+      trackPaymentFailed(userId, {
+        plan_id: "annual",
+        mp_status: payment.status,
+        error_message: payment.status_detail || payment.status,
+        mp_id: paymentId,
       });
 
       logger.info("payment_failed_or_cancelled", {
@@ -160,6 +182,13 @@ async function processPreapprovalEvent(preapprovalId: string): Promise<void> {
           provider_id: preapprovalId,
         });
 
+        // Track Subscription Created (Mixpanel - Camada 3)
+        trackSubscriptionCreated(userId, {
+          plan_id: "monthly",
+          mp_status: preapproval.status,
+          preapproval_id: preapprovalId,
+        });
+
         logger.info("trial_started", { userId, preapprovalId });
       } else {
         // Monthly renewal
@@ -182,6 +211,14 @@ async function processPreapprovalEvent(preapprovalId: string): Promise<void> {
         await subService.recordEvent(userId, "subscription_renewed", {
           plan: "monthly",
           provider_id: preapprovalId,
+        });
+
+        // Track Subscription Paid para renovação mensal (Mixpanel - Camada 3)
+        trackSubscriptionPaid(userId, {
+          plan_id: "monthly",
+          mp_status: preapproval.status,
+          transaction_amount: 29.9,
+          mp_id: preapprovalId,
         });
 
         logger.info("subscription_renewed", { userId, preapprovalId });
