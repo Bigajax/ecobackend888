@@ -54,7 +54,7 @@ function warning(text: string) {
   console.log(`${colors.yellow}⚠️  ${text}${colors.reset}`);
 }
 
-function error(text: string) {
+function errorMsg(text: string) {
   console.log(`${colors.red}❌ ${text}${colors.reset}`);
 }
 
@@ -78,7 +78,7 @@ async function checkSubscriptionEvents() {
     .limit(50);
 
   if (error) {
-    error(`Erro ao buscar eventos: ${error.message}`);
+    errorMsg(`Erro ao buscar eventos: ${error.message}`);
     return;
   }
 
@@ -118,7 +118,7 @@ async function checkPayments() {
     .limit(50);
 
   if (error) {
-    error(`Erro ao buscar pagamentos: ${error.message}`);
+    errorMsg(`Erro ao buscar pagamentos: ${error.message}`);
     return;
   }
 
@@ -170,7 +170,7 @@ async function checkUsers() {
     .limit(50);
 
   if (error) {
-    error(`Erro ao buscar usuários: ${error.message}`);
+    errorMsg(`Erro ao buscar usuários: ${error.message}`);
     return;
   }
 
@@ -241,7 +241,7 @@ async function checkCheckoutAttempts() {
     .limit(20);
 
   if (error) {
-    error(`Erro ao buscar tentativas de checkout: ${error.message}`);
+    errorMsg(`Erro ao buscar tentativas de checkout: ${error.message}`);
     return;
   }
 
@@ -323,7 +323,7 @@ async function main() {
     console.log("   • Teste manualmente: POST /api/subscription/create-preference\n");
 
   } catch (err) {
-    error(`Erro fatal: ${err instanceof Error ? err.message : String(err)}`);
+    errorMsg(`Erro fatal: ${err instanceof Error ? err.message : String(err)}`);
     process.exit(1);
   }
 }
