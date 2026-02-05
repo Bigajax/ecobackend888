@@ -67,9 +67,13 @@ export type SubscriptionEventType =
   | "subscription_renewed"
   | "payment_approved"
   | "payment_failed"
+  | "payment_rejected"
+  | "payment_pending"
   | "subscription_cancelled"
   | "subscription_reactivated"
-  | "subscription_expired";
+  | "subscription_expired"
+  | "subscription_authorized"
+  | "subscription_cancelled_by_provider";
 
 /**
  * Service for subscription business logic
@@ -270,6 +274,72 @@ export class SubscriptionService {
       logger.info("subscription_reactivated", { userId });
     } catch (error) {
       logger.error("reactivate_subscription_failed", {
+        userId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Activate subscription with duration and payment details
+   *
+   * @param userId - User ID
+   * @param plan - Plan type ("premium_monthly", "premium_annual", "trial")
+   * @param durationDays - Duration in days
+   * @param paymentDetails - Optional payment metadata
+   */
+  async activateSubscription(
+    userId: string,
+    plan: "premium_monthly" | "premium_annual" | "trial",
+    durationDays: number,
+    paymentDetails?: {
+      provider?: string;
+      provider_payment_id?: string;
+      provider_preapproval_id?: string;
+      payment_status?: string;
+      payment_method?: string;
+      amount?: number;
+    }
+  ): Promise<void> {
+    try {
+      logger.info("activating_subscription", { userId, plan, durationDays });
+
+      const now = new Date();
+      const accessUntil = new Date(now.getTime() + durationDays * 24 * 60 * 60 * 1000);
+
+      // Determine plan_type and trial dates
+      const isTrial = plan === "trial";
+      const planType: PlanType | null = isTrial ? null : (plan === "premium_monthly" ? "monthly" : "annual");
+
+      const updateData: any = {
+        subscription_status: "active",
+        access_until: accessUntil.toISOString(),
+        current_period_end: accessUntil.toISOString(),
+        updated_at: now.toISOString(),
+      };
+
+      // Set trial dates if trial
+      if (isTrial) {
+        updateData.trial_start_date = now.toISOString();
+        updateData.trial_end_date = accessUntil.toISOString();
+      } else {
+        updateData.plan_type = planType;
+      }
+
+      // Add payment details if provided
+      if (paymentDetails?.provider_payment_id) {
+        updateData.provider_payment_id = paymentDetails.provider_payment_id;
+      }
+      if (paymentDetails?.provider_preapproval_id) {
+        updateData.provider_preapproval_id = paymentDetails.provider_preapproval_id;
+      }
+
+      await this.createOrUpdateUser(userId, updateData);
+
+      logger.info("subscription_activated", { userId, plan, accessUntil });
+    } catch (error) {
+      logger.error("activate_subscription_failed", {
         userId,
         error: error instanceof Error ? error.message : String(error),
       });

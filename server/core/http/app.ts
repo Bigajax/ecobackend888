@@ -54,6 +54,7 @@ import { guestSessionMiddleware } from "./middlewares/guestSession";
 import guestRoutes from "../../routes/guestRoutes";
 import subscriptionRoutes from "../../routes/subscriptionRoutes";
 import webhookRoutes from "../../routes/webhookRoutes";
+import programRoutes from "../../routes/programRoutes";
 import requireAdmin from "../../mw/requireAdmin";
 import sseSmokeRouter from "../../routes/sseSmoke";
 
@@ -385,6 +386,7 @@ export function createApp(): Express {
   app.use("/api/policy", policyRoutes);
   app.use("/api/subscription", subscriptionRoutes);
   app.use("/api/webhooks", webhookRoutes);
+  app.use("/api/programs", programRoutes);
 
   // Aliases sem /api (clientes legados)
   app.use("/memorias", memoryRoutes);

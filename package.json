@@ -13,7 +13,8 @@
     "pilot:smoke": "ts-node server/scripts/pilotSmoke.ts",
     "pilot:health": "ts-node --transpile-only server/scripts/pilotHealth.ts",
     "bandit:cache": "ts-node --transpile-only server/scripts/banditPosteriorCache.ts",
-    "cron:self-test": "ts-node --transpile-only server/scripts/cronSelfTest.ts"
+    "cron:self-test": "ts-node --transpile-only server/scripts/cronSelfTest.ts",
+    "diagnosis:subscription": "ts-node --transpile-only server/scripts/diagnosisSubscription.ts"
   },
   "devDependencies": {
     "@types/express": "^5.0.3",
