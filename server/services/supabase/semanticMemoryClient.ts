@@ -33,6 +33,21 @@ const DEFAULT_PRIMARY_THRESHOLD = 0.72;
 const DEFAULT_FALLBACK_THRESHOLD = 0.65;
 const DAYS_BACK = 365;
 const SELF_MIN_AGE_MS = 2 * 60 * 1000;
+const UUID_V4_REGEX =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+const ENV_PRIMARY_THRESHOLD = Number(
+  process.env.SEMANTIC_MEMORY_PRIMARY_THRESHOLD ?? Number.NaN
+);
+const ENV_FALLBACK_THRESHOLD = Number(
+  process.env.SEMANTIC_MEMORY_FALLBACK_THRESHOLD ?? Number.NaN
+);
+const ENV_DAYS_BACK_OVERRIDE = Number(
+  process.env.SEMANTIC_MEMORY_DAYS_BACK_OVERRIDE ?? Number.NaN
+);
+const ENV_EMBEDDING_DIMENSION = Number(
+  process.env.SEMANTIC_MEMORY_EMBEDDING_DIMENSION ?? Number.NaN
+);
 
 function isDebugEnabled(): boolean {
   return process.env.DEBUG_SEMANTICA === "true";
@@ -47,6 +62,17 @@ function safeSliceIds(rows: SemanticMemoryRow[]): string[] {
 
 function normalizeId(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
+}
+
+function canonicalGuestUserId(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (trimmed.startsWith("guest_")) {
+    const suffix = trimmed.slice(6);
+    return UUID_V4_REGEX.test(suffix) ? `guest_${suffix}` : trimmed;
+  }
+  return UUID_V4_REGEX.test(trimmed) ? `guest_${trimmed}` : null;
 }
 
 function parseCreatedAt(row: SemanticMemoryRow): number | null {
@@ -106,18 +132,26 @@ export async function buscarMemoriasSemelhantesV2({
   const resolvedPrimaryThreshold =
     typeof primaryThreshold === "number" && Number.isFinite(primaryThreshold)
       ? primaryThreshold
+      : Number.isFinite(ENV_PRIMARY_THRESHOLD)
+      ? ENV_PRIMARY_THRESHOLD
       : DEFAULT_PRIMARY_THRESHOLD;
   const resolvedFallbackThreshold =
     typeof fallbackThreshold === "number" && Number.isFinite(fallbackThreshold)
       ? fallbackThreshold
+      : Number.isFinite(ENV_FALLBACK_THRESHOLD)
+      ? ENV_FALLBACK_THRESHOLD
       : DEFAULT_FALLBACK_THRESHOLD;
+  const resolvedDaysBack =
+    Number.isFinite(ENV_DAYS_BACK_OVERRIDE) && ENV_DAYS_BACK_OVERRIDE > 0
+      ? Math.floor(ENV_DAYS_BACK_OVERRIDE)
+      : DAYS_BACK;
 
   if (!Array.isArray(queryEmbedding) || queryEmbedding.length === 0) {
     return { rows: [], thresholdUsed: resolvedPrimaryThreshold };
   }
 
-  const normalizedUserId = normalizeId(userId);
-  const normalizedInsertId = normalizeId(userIdUsedForInsert ?? userId);
+  let normalizedUserId = normalizeId(userId);
+  let normalizedInsertId = normalizeId(userIdUsedForInsert ?? userId);
   const normalizedAuthUid = normalizeId(authUid);
 
   const logSummary = (
@@ -140,18 +174,81 @@ export async function buscarMemoriasSemelhantesV2({
     console.log("[semantic_memory] recall_result", payload);
   };
 
-  if (!normalizedUserId) {
+  const resolvedUserId = (() => {
+    if (normalizedAuthUid) {
+      return normalizedUserId || normalizedInsertId || normalizedAuthUid || null;
+    }
+
+    const candidateUser = normalizedUserId;
+    const candidateInsert = normalizedInsertId;
+
+    if (!candidateUser && !candidateInsert) {
+      return null;
+    }
+
+    if (candidateUser && candidateInsert && candidateUser === candidateInsert) {
+      return candidateUser;
+    }
+
+    const canonicalUser = canonicalGuestUserId(candidateUser);
+    const canonicalInsert = canonicalGuestUserId(candidateInsert);
+
+    if (canonicalUser && canonicalInsert && canonicalUser === canonicalInsert) {
+      return canonicalUser;
+    }
+
+    if (!candidateInsert && canonicalUser) {
+      return canonicalUser;
+    }
+
+    if (!candidateUser && canonicalInsert) {
+      return canonicalInsert;
+    }
+
+    if (!candidateUser && candidateInsert) {
+      return canonicalInsert ?? candidateInsert;
+    }
+
+    if (!candidateInsert && candidateUser) {
+      return canonicalUser ?? candidateUser;
+    }
+
+    if (canonicalUser && candidateInsert && canonicalUser === candidateInsert) {
+      return canonicalUser;
+    }
+
+    if (canonicalInsert && candidateUser && canonicalInsert === candidateUser) {
+      return canonicalInsert;
+    }
+
+    return null;
+  })();
+
+  if (!resolvedUserId) {
+    const mismatchPayload = {
+      auth_uid: normalizedAuthUid || null,
+      user_id_input: normalizedUserId || null,
+      user_id_do_insert: normalizedInsertId || null,
+    };
+    console.warn("[semantic_memory] identity_mismatch", mismatchPayload);
     logSummary(0, { threshold: resolvedPrimaryThreshold, skipped: true, latency: 0 });
     return { rows: [], thresholdUsed: resolvedPrimaryThreshold };
   }
 
-  if (normalizedInsertId && normalizedInsertId !== normalizedUserId) {
-    const mismatchPayload = {
-      auth_uid: normalizedAuthUid || null,
-      user_id_input: normalizedUserId,
-      user_id_do_insert: normalizedInsertId,
-    };
-    console.warn("[semantic_memory] identity_mismatch", mismatchPayload);
+  normalizedUserId = resolvedUserId;
+  normalizedInsertId = resolvedUserId;
+
+  if (
+    Number.isFinite(ENV_EMBEDDING_DIMENSION) &&
+    ENV_EMBEDDING_DIMENSION > 0 &&
+    queryEmbedding.length !== ENV_EMBEDDING_DIMENSION
+  ) {
+    if (isDebugEnabled()) {
+      console.warn("[semantic_memory] embedding_dimension_mismatch", {
+        expected: ENV_EMBEDDING_DIMENSION,
+        received: queryEmbedding.length,
+      });
+    }
     logSummary(0, { threshold: resolvedPrimaryThreshold, skipped: true, latency: 0 });
     return { rows: [], thresholdUsed: resolvedPrimaryThreshold };
   }
@@ -174,7 +271,7 @@ export async function buscarMemoriasSemelhantesV2({
         user_id_input: normalizedUserId,
         match_count: MATCH_COUNT,
         match_threshold: threshold,
-        days_back: DAYS_BACK,
+        days_back: resolvedDaysBack,
       } as const;
       if (isDebugEnabled()) {
         console.debug("[semantic_memory] rpc_call", { functionName, payload });
@@ -239,4 +336,231 @@ export async function buscarMemoriasSemelhantesV2({
   });
 
   return { rows: limited, thresholdUsed };
+}
+
+// New: Semantic memory retrieval with text query (RLS-aware)
+
+export interface RetrievedMemory {
+  id: string;
+  texto: string;
+  score: number;
+  tags: string[];
+  dominio_vida: string | null;
+  created_at: string | null;
+}
+
+export interface BuscarMemoriasSemanticasParams {
+  usuarioId: string;
+  queryText: string;
+  bearerToken?: string;
+  topK?: number;
+  minScore?: number;
+  includeRefs?: boolean;
+}
+
+export interface BuscarMemoriasSemanticasResult {
+  memories: RetrievedMemory[];
+  fetchedCount: number;
+  minScoreFinal: number;
+  minMaxScore: { min: number; max: number } | null;
+}
+
+const DEBUG_SEMANTIC_RETRIEVAL = process.env.ECO_DEBUG === "1" || process.env.DEBUG_SEMANTICA === "true";
+
+function debugLog(msg: string, payload: Record<string, unknown>): void {
+  if (DEBUG_SEMANTIC_RETRIEVAL) {
+    console.log(`[buscarMemoriasSemanticas] ${msg}`, payload);
+  }
+}
+
+/**
+ * Retrieve semantically similar memories using text query with RLS enforcement.
+ * Uses bearer token for user isolation (RLS).
+ */
+export async function buscarMemoriasSemanticas({
+  usuarioId,
+  queryText,
+  bearerToken,
+  topK = 8,
+  minScore = 0.30,
+  includeRefs = false,
+}: BuscarMemoriasSemanticasParams): Promise<BuscarMemoriasSemanticasResult> {
+  const startMs = Date.now();
+
+  if (!usuarioId || !queryText || !queryText.trim()) {
+    debugLog("skipped_empty_input", { usuarioId, queryLen: queryText?.length ?? 0 });
+    return {
+      memories: [],
+      fetchedCount: 0,
+      minScoreFinal: minScore,
+      minMaxScore: null,
+    };
+  }
+
+  try {
+    // Dynamic imports to avoid circular dependencies
+    const { getEmbeddingCached } = await import("../../adapters/EmbeddingAdapter");
+    const { supabaseWithBearer } = await import("../../adapters/SupabaseAdapter");
+
+    // Generate embedding from query text
+    debugLog("generating_embedding", { textLen: queryText.length });
+    const queryEmbedding = await getEmbeddingCached(queryText, "semantic_memory_query");
+
+    if (!queryEmbedding || queryEmbedding.length === 0) {
+      debugLog("embedding_failed", { queryTextLen: queryText.length });
+      return {
+        memories: [],
+        fetchedCount: 0,
+        minScoreFinal: minScore,
+        minMaxScore: null,
+      };
+    }
+
+    // Create RLS-aware client (bearer token enforces user isolation)
+    let supabaseClient: SupabaseClient;
+    if (bearerToken) {
+      supabaseClient = supabaseWithBearer(bearerToken);
+    } else {
+      // Fallback to admin client (RLS still enforced via user ID)
+      const admin = getSupabaseAdmin();
+      if (!admin) {
+        debugLog("no_supabase_client", { usuarioId });
+        return {
+          memories: [],
+          fetchedCount: 0,
+          minScoreFinal: minScore,
+          minMaxScore: null,
+        };
+      }
+      supabaseClient = admin;
+    }
+
+    // Call RPC with embedding
+    debugLog("calling_rpc", {
+      usuarioId,
+      embeddingDim: queryEmbedding.length,
+      topK,
+      minScore,
+      includeRefs,
+    });
+
+    const { data, error } = await supabaseClient.rpc(
+      "buscar_memorias_semanticas_v2",
+      {
+        p_usuario_id: usuarioId,
+        p_query_embedding: queryEmbedding,
+        p_top_k: topK,
+        p_min_score: minScore,
+        p_incluir_referencias: includeRefs,
+      } as Record<string, unknown>
+    );
+
+    if (error) {
+      debugLog("rpc_error", {
+        message: (error as any)?.message,
+        usuarioId,
+      });
+      return {
+        memories: [],
+        fetchedCount: 0,
+        minScoreFinal: minScore,
+        minMaxScore: null,
+      };
+    }
+
+    // Map RPC result to RetrievedMemory format
+    if (!Array.isArray(data)) {
+      debugLog("invalid_rpc_response", { dataType: typeof data });
+      return {
+        memories: [],
+        fetchedCount: 0,
+        minScoreFinal: minScore,
+        minMaxScore: null,
+      };
+    }
+
+    const memories: RetrievedMemory[] = data
+      .map((row: any) => {
+        const score = typeof row.similarity === "number" ? row.similarity : 0;
+        return {
+          id: row.id ?? "",
+          texto: row.resumo_eco ?? row.contexto ?? "",
+          score,
+          tags: Array.isArray(row.tags) ? row.tags : [],
+          dominio_vida: row.dominio_vida ?? null,
+          created_at: row.created_at ?? null,
+        };
+      })
+      .filter((m) => m.texto && m.score >= (minScore ?? 0));
+
+    const minMaxScores = memories.length > 0
+      ? {
+          min: Math.min(...memories.map((m) => m.score)),
+          max: Math.max(...memories.map((m) => m.score)),
+        }
+      : null;
+
+    const latencyMs = Date.now() - startMs;
+    debugLog("success", {
+      count: memories.length,
+      minScore: minMaxScores?.min ?? null,
+      maxScore: minMaxScores?.max ?? null,
+      latencyMs,
+    });
+
+    return {
+      memories,
+      fetchedCount: memories.length,
+      minScoreFinal: minScore,
+      minMaxScore: minMaxScores,
+    };
+  } catch (error) {
+    debugLog("exception", {
+      message: error instanceof Error ? error.message : String(error),
+      usuarioId,
+    });
+    return {
+      memories: [],
+      fetchedCount: 0,
+      minScoreFinal: minScore,
+      minMaxScore: null,
+    };
+  }
+}
+
+/**
+ * Wrapper com timeout para buscarMemoriasSemanticas
+ * Retorna resultado vazio se exceder timeout (graceful degradation)
+ */
+export async function buscarMemoriasSemanticasComTimeout(
+  params: BuscarMemoriasSemanticasParams,
+  timeoutMs: number = 5000
+): Promise<BuscarMemoriasSemanticasResult> {
+  const minScoreFallback = params.minScore ?? 0.3;
+
+  return new Promise<BuscarMemoriasSemanticasResult>((resolve, reject) => {
+    const timeoutId = setTimeout(() => {
+      debugLog("timeout_exceeded", {
+        timeoutMs,
+        usuarioId: params.usuarioId,
+      });
+
+      resolve({
+        memories: [],
+        fetchedCount: 0,
+        minScoreFinal: minScoreFallback,
+        minMaxScore: null,
+      });
+    }, timeoutMs);
+
+    buscarMemoriasSemanticas(params)
+      .then((result) => {
+        clearTimeout(timeoutId);
+        resolve(result);
+      })
+      .catch((error) => {
+        clearTimeout(timeoutId);
+        reject(error);
+      });
+  });
 }

@@ -55,6 +55,7 @@ export interface RunFastLaneLLMParams {
   isGuest?: boolean;
   guestId?: string;
   ecoDecision: EcoDecisionResult;
+  interactionId?: string | null;
 }
 
 export interface RunFastLaneLLMResult {
@@ -114,6 +115,7 @@ export async function runFastLaneLLM({
   isGuest = false,
   guestId,
   ecoDecision,
+  interactionId,
 }: RunFastLaneLLMParams): Promise<RunFastLaneLLMResult> {
   const nome = deps.firstName?.(userName);
   const preferCoach = detectExplicitAskForSteps(ultimaMsg);
@@ -153,6 +155,7 @@ export async function runFastLaneLLM({
       selectedModules: ecoDecision.debug.selectedModules,
       isGuest,
       guestId,
+      interactionId,
       promptMessages: payload.messages,
     });
     return { raw: fallback, usage: null, model: "fastlane-fallback", response };
@@ -190,6 +193,7 @@ export async function runFastLaneLLM({
     selectedModules: ecoDecision.debug.selectedModules,
     isGuest,
     guestId,
+    interactionId,
     promptMessages: payload.messages,
     promptTokens:
       usage && typeof (usage as Record<string, unknown>).prompt_tokens === "number"
@@ -215,4 +219,3 @@ export async function runFastLaneLLM({
 export type { ClaudeClientParams, ClaudeClientResult };
 export const FASTLANE_FALLBACK_MESSAGE =
   "Encontrei um problema técnico agora, mas sigo aqui com você. Quer tentar contar de novo o que tá pegando?";
-

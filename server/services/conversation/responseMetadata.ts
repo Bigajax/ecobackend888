@@ -104,6 +104,12 @@ export function buildStreamingMetaPayload(
     return null;
   }
 
+  // ⚠️ CRITICAL VALIDATION: Intensidade deve ser >= 7 para salvar memória
+  // Isso é um gate adicional antes de retornar o payload
+  if (intensidade < 7) {
+    return null;
+  }
+
   return {
     intensidade,
     resumo: resumo || cleanedFallback,

@@ -1,7 +1,7 @@
 import { streamClaudeChatCompletion, type Msg } from "../../core/ClaudeAdapter";
 import { log } from "../promptContext/logger";
 import { now } from "../../utils";
-import { createInteraction, sha1Hash } from "./interactionAnalytics";
+import { sha1Hash } from "./interactionAnalytics";
 
 import {
   EcoStreamHandler,
@@ -19,9 +19,22 @@ import { executeFullLLM } from "./fullOrchestrator";
 import type { ChatMessage, GetEcoResult } from "../../utils";
 import type { EcoHints } from "../../utils/types";
 
-const BLOCO_DEADLINE_MS = Number(process.env.ECO_BLOCO_DEADLINE_MS ?? 5000);
+const BLOCO_DEADLINE_MS = Number(process.env.ECO_BLOCO_DEADLINE_MS ?? 10000);
 const BLOCO_PENDING_MS = Number(process.env.ECO_BLOCO_PENDING_MS ?? 1000);
 const STREAM_GUARD_MS = Number(process.env.ECO_STREAM_GUARD_MS ?? 2000);
+const FIRST_TOKEN_TIMEOUT_MS = Number(process.env.ECO_FIRST_TOKEN_TIMEOUT_MS ?? 15000);
+
+function once<T extends (...args: any[]) => any>(fn: T): T {
+  let hasBeenCalled = false;
+  let result: any;
+  return ((...args: any[]) => {
+    if (!hasBeenCalled) {
+      hasBeenCalled = true;
+      result = fn(...args);
+    }
+    return result;
+  }) as T;
+}
 
 function normalizeBlocoForMeta(
   bloco: any,
@@ -114,23 +127,7 @@ export async function executeStreamingLLM({
     typeof basePromptHash === "string" && basePromptHash
       ? basePromptHash
       : sha1Hash(basePrompt);
-  let analyticsInteractionId = interactionId ?? null;
-
-  if (!analyticsInteractionId) {
-    analyticsInteractionId = await createInteraction({
-      userId: !isGuest ? userId : null,
-      sessionId: typeof sessionMeta?.sessaoId === "string" ? sessionMeta.sessaoId : null,
-      messageId: lastMessageId ?? null,
-      promptHash: resolvedPromptHash,
-    });
-  }
-  const summarizeDelta = (input: string) => {
-    const safe = input ?? "";
-    const normalized = safe.replace(/\s+/g, " ").trim();
-    if (normalized.length <= 60) return normalized;
-    return `${normalized.slice(0, 57)}...`;
-  };
-
+  const analyticsInteractionId = interactionId ?? null;
   const chunkDispatcher =
     streamHandler && typeof streamHandler.onChunk === "function"
       ? streamHandler.onChunk.bind(streamHandler)
@@ -141,7 +138,7 @@ export async function executeStreamingLLM({
   const emitStream = async (event: EcoStreamEvent) => {
     const payloadForLog: Record<string, unknown> = { type: event.type };
     if (event.type === "chunk") {
-      payloadForLog.delta = summarizeDelta(event.delta);
+      payloadForLog.delta = event.delta;
       if (typeof event.index === "number") {
         payloadForLog.index = event.index;
       }
@@ -187,6 +184,56 @@ export async function executeStreamingLLM({
   let streamFailure: Error | null = null;
   let ignoreStreamEvents = false;
   let fallbackResult: EcoStreamingResult | null = null;
+  let fallbackEmitted = false;
+  let sawChunk = false;
+
+  const emitFallbackOnce = once(async () => {
+    try {
+      const fallbackTimings: EcoLatencyMarks = { ...timings };
+      const fullResult = await executeFullLLM({
+        prompt,
+        maxTokens,
+        principalModel,
+        ultimaMsg,
+        basePrompt,
+        basePromptHash: resolvedPromptHash,
+        userName,
+        decision,
+        ecoDecision,
+        userId,
+        supabase,
+        lastMessageId,
+        sessionMeta,
+        timings: fallbackTimings,
+        thread,
+        isGuest,
+        guestId,
+        interactionId: analyticsInteractionId ?? undefined,
+        calHints,
+        memsSemelhantes,
+        contextFlags,
+        contextMeta,
+        continuity,
+      });
+      const text = buildFinalizedStreamText(fullResult);
+      const fallbackText = text?.trim() || "Estou processando sua mensagem...";
+      // Sempre emite pelo menos um chunk
+      await onChunk({ index: chunkIndex, text: fallbackText });
+      sawChunk = true;
+      chunkIndex += 1;
+      await onChunk({ done: true, meta: { finishReason: "fallback" } });
+      return true;
+    } catch (error) {
+      // Mesmo em caso de erro, emitir um chunk antes de retornar
+      const errorText = "Desculpe, tive dificuldade para processar. Pode tentar novamente?";
+      if (!sawChunk) {
+        await onChunk({ index: chunkIndex, text: errorText });
+        sawChunk = true;
+        chunkIndex += 1;
+      }
+      return false;
+    }
+  });
 
   const onChunk = async (payload: EcoStreamChunkPayload) => {
     if (chunkDispatcher) {
@@ -195,10 +242,15 @@ export async function executeStreamingLLM({
     }
     const text = typeof payload.text === "string" ? payload.text : "";
     if (text) {
+      // marca que houve chunk
+      sawChunk = true;
       const resolvedIndex =
         typeof payload.index === "number" && Number.isFinite(payload.index)
           ? payload.index
           : chunkIndex;
+      // garante consistência de index e contagem global
+      chunkIndex = Math.max(chunkIndex, (resolvedIndex ?? 0)) + 1;
+      streamedChunks.push(text);
       await streamHandler.onEvent({
         type: "chunk",
         delta: text,
@@ -207,6 +259,23 @@ export async function executeStreamingLLM({
       } as EcoStreamEvent);
     }
     if (payload.done) {
+      // Garantir que pelo menos um chunk foi emitido antes de enviar done
+      if (!sawChunk && !text) {
+        log.warn("[onChunk] emitindo chunk padrão antes de done", {
+          sawChunk,
+          chunkIndex,
+        });
+        const defaultText = "Estou aqui para você.";
+        sawChunk = true;
+        streamedChunks.push(defaultText);
+        await streamHandler.onEvent({
+          type: "chunk",
+          delta: defaultText,
+          index: chunkIndex,
+          content: defaultText,
+        } as EcoStreamEvent);
+        chunkIndex += 1;
+      }
       await streamHandler.onEvent({
         type: "control",
         name: "done",
@@ -334,15 +403,44 @@ export async function executeStreamingLLM({
                   origem: "streaming_bloco",
                 });
 
-                if (rpcRes.saved && rpcRes.memoriaId) {
+                if (rpcRes.saved && rpcRes.memoriaId !== null) {
+                  // Enviar evento memory_saved com estrutura completa esperada pelo frontend
+                  // Sempre emitir, mesmo se memoryData for null (fallback construct)
+                  const memoriaId = rpcRes.memoriaId;
+                  const memoryPayload = rpcRes.memoryData || {
+                    id: memoriaId,
+                    usuario_id: userId,
+                    resumo_eco: metaPayload.resumo ?? "",
+                    emocao_principal: metaPayload.emocao ?? "indefinida",
+                    intensidade: metaPayload.intensidade,
+                    contexto: metaPayload.analise_resumo ?? "",
+                    dominio_vida: metaPayload.categoria ?? null,
+                    padrao_comportamental: null,
+                    categoria: metaPayload.categoria ?? null,
+                    nivel_abertura: metaPayload.nivel_abertura ?? null,
+                    analise_resumo: metaPayload.analise_resumo ?? "",
+                    tags: Array.isArray(metaPayload.tags) ? metaPayload.tags : [],
+                    created_at: new Date().toISOString(),
+                  };
+
                   await emitStream({
                     type: "control",
                     name: "memory_saved",
                     meta: {
-                      memoriaId: rpcRes.memoriaId,
+                      memory: memoryPayload,
                       primeiraMemoriaSignificativa: !!rpcRes.primeira,
-                      intensidade: metaPayload.intensidade,
                     },
+                  });
+
+                  log.info("[StreamingBloco] evento memory_saved emitido", {
+                    memoriaId,
+                    primeiraMemoria: !!rpcRes.primeira,
+                    usedFallback: !rpcRes.memoryData,
+                  });
+                } else {
+                  log.warn("[StreamingBloco] RPC retornou saved=true mas memoriaId está ausente", {
+                    saved: rpcRes.saved,
+                    memoriaId: rpcRes.memoriaId,
                   });
                 }
               } catch (error: any) {
@@ -377,8 +475,9 @@ export async function executeStreamingLLM({
     if (fallbackResult) {
       return fallbackResult;
     }
+    fallbackEmitted = true;
 
-    await onChunk({ index: 0, text: "Processando...", meta: { fallback: true } });
+    await onChunk({ index: chunkIndex, text: "Processando...", meta: { fallback: true } });
 
     try {
       ignoreStreamEvents = true;
@@ -430,9 +529,8 @@ export async function executeStreamingLLM({
       if (!firstTokenSent) {
         firstTokenSent = true;
       }
-      const currentIndex = chunkIndex;
-      chunkIndex += 1;
-      await emitStream({ type: "chunk", delta: text, index: currentIndex });
+      // Emite via onChunk para manter contadores e flags
+      await onChunk({ index: chunkIndex, text });
 
       const doneSnapshot = { ...fallbackTimings };
       fallbackResult = {
@@ -443,25 +541,195 @@ export async function executeStreamingLLM({
         timings: doneSnapshot,
       };
 
-      await emitStream({
-        type: "control",
-        name: "done",
+      await onChunk({
+        done: true,
         meta: {
           finishReason: "fallback_full",
           length: text.length,
           modelo: "fallback_full",
         },
-        timings: doneSnapshot,
       });
 
       return fallbackResult;
     } catch (error) {
+      // Garantir que pelo menos um chunk seja emitido antes do done
+      const errorMessage = "Desculpe, houve um problema ao processar sua mensagem.";
+      if (!sawChunk) {
+        await onChunk({ index: chunkIndex, text: errorMessage });
+        sawChunk = true;
+        chunkIndex += 1;
+      }
       await onChunk({ done: true, meta: { error: "fallback_failed" } });
       throw error;
     }
   };
 
   let streamGuardTimer: NodeJS.Timeout | null = null;
+
+  // ===== INTELLIGENT WORD-AWARE BUFFERING =====
+  // Ensures words are never broken across chunks using word boundary detection
+  let rawBuffer = ""; // Accumulates raw text from stream
+  let lastFlushTime = Date.now();
+  const TARGET_CHUNK_SIZE = 50; // Target size in chars (soft limit)
+  const TOKENIZER_FLUSH_DEBOUNCE_MS = 80; // time-based flush
+  const MIN_ACCUMULATED_SIZE = 30; // Minimum chars before attempting flush
+
+  const shouldFlushTokenizedBuffer = (): boolean => {
+    if (!rawBuffer) return false;
+
+    // Check if buffer is large enough
+    const bufferLargeEnough = rawBuffer.length >= TARGET_CHUNK_SIZE;
+    const timeoutExceeded = Date.now() - lastFlushTime >= TOKENIZER_FLUSH_DEBOUNCE_MS;
+
+    // Check if ends with natural boundary (for early flush on complete sentences)
+    const endsWithBoundary = /[\s.,!?;:\-—\n]\s*$/.test(rawBuffer);
+    const bufferSizeable = rawBuffer.length >= MIN_ACCUMULATED_SIZE;
+
+    return (bufferLargeEnough && bufferSizeable) || timeoutExceeded || (endsWithBoundary && bufferSizeable);
+  };
+
+  const findLastWordBoundary = (text: string, maxPos: number): number => {
+    // Priority 1: Find last SPACE within limit (most reliable for word breaks)
+    let lastSpacePos = -1;
+    for (let i = 0; i < Math.min(maxPos, text.length); i++) {
+      if (text[i] === " ") {
+        lastSpacePos = i;
+      }
+    }
+
+    // If we found a space, include it in the emission
+    if (lastSpacePos >= 0) {
+      return lastSpacePos + 1; // +1 to include the space itself
+    }
+
+    // Priority 2: No space found within limit, look for punctuation
+    // to avoid breaking in the middle of a word
+    let lastPunctuation = 0;
+    for (let i = 0; i < Math.min(maxPos, text.length); i++) {
+      const char = text[i];
+      // Punctuation that naturally separates content
+      if (/[.,!?;:\-—\n]/.test(char)) {
+        lastPunctuation = i + 1; // Include the punctuation
+      }
+    }
+
+    return lastPunctuation; // May be 0 if no boundaries found
+  };
+
+  const flushTokenizedBuffer = async (): Promise<void> => {
+    if (!rawBuffer || rawBuffer.trim().length === 0) return;
+
+    try {
+      // Find the last word boundary within TARGET_CHUNK_SIZE
+      const lastBoundary = findLastWordBoundary(rawBuffer, TARGET_CHUNK_SIZE);
+
+      if (lastBoundary > 0 && lastBoundary < rawBuffer.length) {
+        let toEmit = rawBuffer.substring(0, lastBoundary);
+
+        if (toEmit.length > 0) {
+          const currentIndex = chunkIndex;
+          chunkIndex += 1;
+          streamedChunks.push(toEmit);
+          await emitStream({
+            type: "chunk",
+            delta: toEmit,
+            index: currentIndex,
+            content: toEmit,
+          });
+
+          // Keep remaining text without modification
+          rawBuffer = rawBuffer.substring(lastBoundary);
+        }
+      } else if (lastBoundary === 0 && rawBuffer.length > TARGET_CHUNK_SIZE) {
+        // No word boundary found, but buffer is too large - emit entire buffer
+        const currentIndex = chunkIndex;
+        chunkIndex += 1;
+        streamedChunks.push(rawBuffer);
+        await emitStream({
+          type: "chunk",
+          delta: rawBuffer,
+          index: currentIndex,
+          content: rawBuffer,
+        });
+        rawBuffer = "";
+      }
+
+      lastFlushTime = Date.now();
+    } catch (error) {
+      if (process.env.ECO_DEBUG === "1" || process.env.ECO_DEBUG === "true") {
+        console.debug("[flushTokenizedBuffer] error", {
+          error: error instanceof Error ? error.message : String(error),
+          bufferLen: rawBuffer.length,
+        });
+      }
+
+      // Fallback: simple space-based splitting
+      const lastSpace = rawBuffer.lastIndexOf(" ", TARGET_CHUNK_SIZE);
+      let toEmit = rawBuffer;
+      let remaining = "";
+
+      if (lastSpace > 0 && rawBuffer.length > TARGET_CHUNK_SIZE) {
+        toEmit = rawBuffer.substring(0, lastSpace + 1);
+        remaining = rawBuffer.substring(lastSpace + 1);
+      }
+
+      if (toEmit.length > 0) {
+        rawBuffer = remaining;
+        lastFlushTime = Date.now();
+
+        const currentIndex = chunkIndex;
+        chunkIndex += 1;
+        streamedChunks.push(toEmit);
+        await emitStream({
+          type: "chunk",
+          delta: toEmit,
+          index: currentIndex,
+          content: toEmit,
+        });
+      }
+    }
+  };
+
+  const flushRemainingTokenizedBuffer = async (): Promise<void> => {
+    if (!rawBuffer || rawBuffer.trim().length === 0) return;
+
+    try {
+      // Final flush: emit all remaining text with proper spacing
+      if (rawBuffer.length > 0) {
+        const currentIndex = chunkIndex;
+        chunkIndex += 1;
+        streamedChunks.push(rawBuffer);
+        await emitStream({
+          type: "chunk",
+          delta: rawBuffer,
+          index: currentIndex,
+          content: rawBuffer,
+        });
+      }
+    } catch (error) {
+      if (process.env.ECO_DEBUG === "1" || process.env.ECO_DEBUG === "true") {
+        console.debug("[flushRemainingTokenizedBuffer] error", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+      // Fallback: emit raw buffer as-is
+      if (rawBuffer.trim().length > 0) {
+        const currentIndex = chunkIndex;
+        chunkIndex += 1;
+        streamedChunks.push(rawBuffer);
+        await emitStream({
+          type: "chunk",
+          delta: rawBuffer,
+          index: currentIndex,
+          content: rawBuffer,
+        });
+      }
+    }
+
+    rawBuffer = "";
+    lastFlushTime = Date.now();
+  };
+  // ===== END INTELLIGENT WORD-AWARE BUFFERING =====
 
   const cleanupAbortListener = (() => {
     if (!abortSignal) {
@@ -500,6 +768,13 @@ export async function executeStreamingLLM({
         : undefined,
   });
 
+  const firstTokenTimer = setTimeout(async () => {
+    if (!sawChunk) {
+      log.warn("[first_token_guard_triggered]", { sawChunk, chunksCount: chunkIndex });
+      await emitFallbackOnce();
+    }
+  }, FIRST_TOKEN_TIMEOUT_MS);
+
   const streamPromise = streamClaudeChatCompletion(
     {
       messages: prompt,
@@ -511,7 +786,9 @@ export async function executeStreamingLLM({
       async onChunk({ content }) {
         if (!content) return;
         if (ignoreStreamEvents) return;
-        streamedChunks.push(content);
+        sawChunk = true;
+        // NOTE: Do NOT add to streamedChunks here. The content will be added
+        // when the rawBuffer is flushed to avoid double-counting in word-aware buffering.
         if (streamGuardTimer) {
           clearStreamGuard(streamGuardTimer);
           streamGuardTimer = null;
@@ -519,9 +796,13 @@ export async function executeStreamingLLM({
         if (!firstTokenSent) {
           firstTokenSent = true;
         }
-        const currentIndex = chunkIndex;
-        chunkIndex += 1;
-        await emitStream({ type: "chunk", delta: content, index: currentIndex, content });
+        // ===== INTELLIGENT WORD-AWARE BUFFERING: Tokenize and group by word boundaries =====
+        // Accumulate raw content, then tokenize to ensure words are never broken
+        rawBuffer += content;
+        if (shouldFlushTokenizedBuffer()) {
+          await flushTokenizedBuffer();
+        }
+        // ===== END INTELLIGENT WORD-AWARE BUFFERING =====
       },
       async onControl(event) {
         if (ignoreStreamEvents) return;
@@ -530,14 +811,24 @@ export async function executeStreamingLLM({
           return;
         }
         if (event.type === "done") {
+          // ===== INTELLIGENT WORD-AWARE BUFFERING: Final flush before stream end =====
+          await flushRemainingTokenizedBuffer();
+          // ===== END INTELLIGENT WORD-AWARE BUFFERING =====
           if (streamGuardTimer) {
             clearStreamGuard(streamGuardTimer);
             streamGuardTimer = null;
+          }
+          if (!sawChunk) {
+            log.warn("[first_token_guard_triggered]", { sawChunk, chunksCount: chunkIndex });
+            await emitFallbackOnce();
           }
           usageFromStream = event.usage ?? usageFromStream;
           finishReason = event.finishReason ?? finishReason;
           modelFromStream = event.model ?? modelFromStream;
         }
+      },
+      onFallback: () => {
+        fallbackEmitted = true;
       },
       async onError(error) {
         if (ignoreStreamEvents) return;
@@ -551,7 +842,7 @@ export async function executeStreamingLLM({
     const err = error instanceof Error ? error : new Error(String(error));
     streamFailure = err;
     rejectRawForBloco(err);
-    throw err;
+    // Don't rethrow - error is handled by Promise.race
   });
 
   startBlocoPipeline();
@@ -562,13 +853,24 @@ export async function executeStreamingLLM({
 
   const guardPromise = armStreamGuard();
 
-  const raceOutcome = await Promise.race<"stream" | "fallback" | "guard_disabled">([
-    streamPromise.then(() => {
-      streamCompleted = true;
-      return "stream" as const;
-    }),
-    guardPromise,
-  ]);
+  let raceOutcome: "stream" | "fallback" | "guard_disabled" | "stream_error" = "stream";
+
+  try {
+    raceOutcome = await Promise.race<"stream" | "fallback" | "guard_disabled">([
+      streamPromise.then(() => {
+        streamCompleted = true;
+        return "stream" as const;
+      }),
+      guardPromise,
+    ]);
+  } catch (error) {
+    // If race rejects due to streamPromise error (e.g., NON_SSE_EMPTY), handle gracefully
+    log.warn("[promise_race_error]", {
+      error: error instanceof Error ? error.message : String(error),
+      sawChunk,
+    });
+    raceOutcome = "stream_error";
+  }
 
   if (raceOutcome === "fallback") {
     void streamPromise.catch(() => undefined);
@@ -576,16 +878,31 @@ export async function executeStreamingLLM({
   }
 
   if (raceOutcome === "guard_disabled") {
-    await streamPromise;
-    streamCompleted = true;
+    try {
+      await streamPromise;
+      streamCompleted = true;
+    } catch (error) {
+      log.warn("[guard_disabled_stream_error]", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      raceOutcome = "stream_error";
+    }
   }
 
   try {
     if (!streamCompleted) {
-      await streamPromise;
-      streamCompleted = true;
+      if (raceOutcome === "stream_error") {
+        // Stream error occurred, deliver fallback if no chunks received
+        if (!sawChunk) {
+          await emitFallbackOnce();
+        }
+      } else {
+        await streamPromise;
+        streamCompleted = true;
+      }
     }
   } finally {
+    clearTimeout(firstTokenTimer);
     if (!streamGuardTimer) {
       // already cleared
     } else {
@@ -605,6 +922,7 @@ export async function executeStreamingLLM({
     throw streamFailure;
   }
 
+  // Join chunks directly (normalizeOpenRouterText already handles spacing within deltas)
   const raw = streamedChunks.join("");
   resolveRawForBloco(raw);
 
@@ -667,15 +985,20 @@ export async function executeStreamingLLM({
 
   const finalize = () => computeFinalization();
 
-  let interactionIdForMeta: string | null = analyticsInteractionId ?? null;
   try {
     const finalized = await computeFinalization();
     const metaFromResult = finalized?.meta as Record<string, unknown> | null | undefined;
-    const maybeInteraction =
+    const interactionIdFromResult =
       typeof metaFromResult?.interaction_id === "string"
         ? metaFromResult.interaction_id.trim()
-        : "";
-    interactionIdForMeta = maybeInteraction ? maybeInteraction : null;
+        : null;
+
+    if (interactionIdFromResult && interactionIdFromResult !== analyticsInteractionId) {
+      log.debug("[StreamingLLM] interaction_id_mismatch", {
+        source: analyticsInteractionId,
+        fromFinalize: interactionIdFromResult,
+      });
+    }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     log.warn("[StreamingLLM] finalize_failed_before_done", { message });
@@ -683,6 +1006,27 @@ export async function executeStreamingLLM({
 
   const doneSnapshot = { ...timings };
   const finalFinishReason = finishReason ?? "stream_done";
+  if (chunkIndex === 0 && !sawChunk) return fallbackResult ?? (await deliverFallbackFull());
+
+  // Garantir que pelo menos um chunk foi emitido antes de enviar done
+  if (!sawChunk || chunkIndex === 0) {
+    log.warn("[StreamingLLM] garantindo emissão de chunk antes de done", {
+      sawChunk,
+      chunkIndex,
+      rawLength: raw.length,
+    });
+
+    const fallbackText = raw?.trim() || "Processando sua mensagem...";
+    await emitStream({
+      type: "chunk",
+      delta: fallbackText,
+      index: chunkIndex,
+      content: fallbackText,
+    });
+    sawChunk = true;
+    chunkIndex += 1;
+  }
+
   log.info("[StreamingLLM] stream_done", {
     length: raw.length,
     chunks: chunkIndex,
@@ -693,7 +1037,8 @@ export async function executeStreamingLLM({
     usage: usageFromStream,
     modelo: modelFromStream ?? principalModel,
     length: raw.length,
-    interaction_id: interactionIdForMeta,
+    interaction_id: analyticsInteractionId,
+    guardFallback: fallbackEmitted,
   };
   await emitStream({
     type: "control",

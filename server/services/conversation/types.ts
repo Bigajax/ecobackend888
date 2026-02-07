@@ -35,9 +35,22 @@ export type EcoStreamEvent =
       type: "control";
       name: "memory_saved";
       meta: {
-        memoriaId: string;
+        memory: {
+          id: string;
+          usuario_id: string;
+          resumo_eco: string;
+          emocao_principal: string;
+          intensidade: number;
+          contexto?: string;
+          dominio_vida?: string | null;
+          padrao_comportamental?: string | null;
+          categoria?: string | null;
+          nivel_abertura?: number | null;
+          analise_resumo?: string;
+          tags: string[];
+          created_at?: string;
+        };
         primeiraMemoriaSignificativa: boolean;
-        intensidade: number;
       };
     }
   | { type: "first_token"; delta: string }
@@ -70,4 +83,6 @@ export interface EcoStreamMetaPayload {
   emocao: string;
   categoria: string;
   tags: string[];
+  analise_resumo?: string;
+  nivel_abertura?: number;
 }
