@@ -55,6 +55,7 @@ import guestRoutes from "../../routes/guestRoutes";
 import subscriptionRoutes from "../../routes/subscriptionRoutes";
 import webhookRoutes from "../../routes/webhookRoutes";
 import programRoutes from "../../routes/programRoutes";
+import ringsRoutes from "../../routes/ringsRoutes";
 import requireAdmin from "../../mw/requireAdmin";
 import sseSmokeRouter from "../../routes/sseSmoke";
 
@@ -387,6 +388,7 @@ export function createApp(): Express {
   app.use("/api/subscription", subscriptionRoutes);
   app.use("/api/webhooks", webhookRoutes);
   app.use("/api/programs", programRoutes);
+  app.use("/api/rings", ringsRoutes);
 
   // Aliases sem /api (clientes legados)
   app.use("/memorias", memoryRoutes);
