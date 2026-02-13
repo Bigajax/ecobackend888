@@ -48,10 +48,11 @@ function mkPrompt(enxuto: boolean, mensagemUsuario: string, respostaIa: string) 
 {"emocao_principal":"","intensidade":0,"tags":[],"dominio_vida":"","padrao_comportamental":"","nivel_abertura":"baixo","categoria":"","analise_resumo":"","tema_recorrente":null,"evolucao_temporal":null,"impacto_resposta_estimado":null,"sugestao_proximo_passo":null,"modo_hibrido_acionado":false,"tipo_referencia":null}
 
 INSTRUÇÕES CRÍTICAS para emocao_principal:
-- NUNCA deixe vazio ou null se há emoção clara (medo, raiva, tristeza, ansiedade, alegria, etc)
-- Analise ESPECIFICAMENTE: "${mensagemUsuario}"
-- Procure por palavras como: angustia, ansiedade, medo, raiva, alegria, tristeza, calma, frustração
-- Se vazio, use: "Indefinida"
+- Use APENAS estas emoções (case-sensitive): Ansiedade, Frustração, Insegurança, Tristeza, Cansaço, Desejo, Medo, Satisfação, Alegria, Alívio, Solidão, Confusão, Curiosidade, Esperança, Conflito, Culpa, Vazio, Felicidade, Raiva, Calma
+- NUNCA invente emoções novas ou compostas (como "medo de falhar", "cansaço profundo")
+- NUNCA use "Neutro" - sempre escolha a emoção mais próxima da lista acima
+- Se nenhuma emoção clara, use: "Indefinida"
+- Analise: "${mensagemUsuario}"
 
 Baseie no texto do usuário: "${mensagemUsuario}"
 e na resposta da IA: "${respostaIa}"`;
@@ -65,11 +66,16 @@ MENSAGEM DO USUÁRIO (analise a emoção AQUI):
 RESPOSTA DA IA:
 """${respostaIa}"""
 
-INSTRUÇÃO CRÍTICA:
-- Se a mensagem expressa uma emoção clara (angustia, medo, raiva, tristeza, alegria, ansiedade, etc), identifique-a em "emocao_principal"
-- NUNCA retorne "emocao_principal" como vazio, null ou "Neutro" se há sentimento claro no texto
-- Procure por: "angustia", "angustiado", "ansiedade", "ansioso", "medo", "assustado", "raiva", "furioso", "tristeza", "triste", "alegria", "feliz", etc
-- Se a emoção não for clara, use "Indefinida" (não "Neutro")
+INSTRUÇÃO CRÍTICA - Use APENAS emoções desta lista:
+- Positivas: Alegria, Felicidade, Satisfação, Alívio, Esperança, Curiosidade, Calma
+- Negativas: Ansiedade, Tristeza, Medo, Frustração, Insegurança, Cansaço, Culpa, Solidão, Vazio, Raiva, Confusão, Conflito
+- Neutras/Mistas: Desejo, Reflexão
+- Se nenhuma se aplica: Indefinida
+
+REGRAS:
+- NUNCA invente emoções novas ou compostas ("medo de falhar" → use "Medo")
+- NUNCA use "Neutro" - escolha a emoção mais próxima da lista
+- Palavras-chave: angustiado/preocupado → Ansiedade, cansado/exausto → Cansaço, inseguro/duvidoso → Insegurança
 
 Retorne apenas este JSON, sem markdown:
 {

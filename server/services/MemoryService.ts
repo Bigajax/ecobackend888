@@ -173,6 +173,10 @@ function sanitizeTagsInput(raw: unknown): string[] {
   return result;
 }
 
+function toTitleCase(str: string): string {
+  return str.charAt(0).toUpperCase() + str.slice(1).toLowerCase();
+}
+
 function resolveEmotion(primary: unknown, tags: string[]): string {
   // First, try to use the primary emotion if provided
   if (typeof primary === "string") {
@@ -184,14 +188,24 @@ function resolveEmotion(primary: unknown, tags: string[]): string {
       return "Indefinida";
     }
 
-    // If it matches a known emotion, return it
+    // If it matches a known emotion, return it in Title Case
     if (normalized && KNOWN_EMOTIONS[normalized]) {
       return KNOWN_EMOTIONS[normalized];
     }
 
-    // If it's a non-empty custom emotion and not "indefinida", return it as-is
+    // For custom emotions: normalize to Title Case and validate
     if (normalized && normalized !== "indefinida") {
-      return trimmed;
+      // Extract first word for compound emotions (e.g., "medo de falhar" → "medo")
+      const firstWord = trimmed.split(/\s+/)[0];
+      const firstWordNormalized = normalizeToken(firstWord);
+
+      // Check if first word is a known emotion
+      if (firstWordNormalized && KNOWN_EMOTIONS[firstWordNormalized]) {
+        return KNOWN_EMOTIONS[firstWordNormalized];
+      }
+
+      // Otherwise, return first word in Title Case (prevents long compound emotions)
+      return toTitleCase(firstWord);
     }
   }
 
