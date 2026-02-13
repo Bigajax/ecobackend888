@@ -39,8 +39,6 @@ const KNOWN_EMOTIONS: Record<string, string> = {
   calma: "Calma",
   tranquilo: "Calma",
   sereno: "Calma",
-  neutra: "Neutro",
-  neutro: "Neutro",
 
   // Additional emotions commonly found in messages
   ansiedade: "Ansiedade",
@@ -180,6 +178,11 @@ function resolveEmotion(primary: unknown, tags: string[]): string {
   if (typeof primary === "string") {
     const trimmed = primary.trim();
     const normalized = normalizeToken(trimmed);
+
+    // Reject "neutro"/"neutra" explicitly - they should become "Indefinida"
+    if (normalized === "neutro" || normalized === "neutra") {
+      return "Indefinida";
+    }
 
     // If it matches a known emotion, return it
     if (normalized && KNOWN_EMOTIONS[normalized]) {
