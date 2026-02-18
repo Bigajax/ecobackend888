@@ -15,7 +15,7 @@ const mixpanel = process.env.MIXPANEL_TOKEN
 
 // Interface para propriedades de subscription paid
 interface SubscriptionPaidProperties {
-  plan_id: 'monthly' | 'annual';
+  plan_id: 'essentials' | 'monthly' | 'annual';
   mp_status: string;
   payment_method?: string;
   transaction_amount?: number;
@@ -25,7 +25,7 @@ interface SubscriptionPaidProperties {
 
 // Interface para propriedades de payment failed
 interface PaymentFailedProperties {
-  plan_id?: 'monthly' | 'annual';
+  plan_id?: 'essentials' | 'monthly' | 'annual';
   mp_status?: string;
   error_message?: string;
   mp_id?: string;
@@ -100,7 +100,7 @@ export function trackPaymentFailed(
 export function trackSubscriptionCreated(
   userId: string,
   props: {
-    plan_id: 'monthly' | 'annual';
+    plan_id: 'essentials' | 'monthly' | 'annual';
     mp_status: string;
     preapproval_id?: string;
     preference_id?: string;

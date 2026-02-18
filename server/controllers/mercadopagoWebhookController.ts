@@ -133,8 +133,9 @@ async function handlePaymentNotification(paymentId: string): Promise<void> {
       });
 
       // Determinar plano e duração
-      const plan = planType === "monthly" ? "premium_monthly" : "premium_annual";
-      const durationDays = planType === "monthly" ? 30 : 365;
+      const plan = planType === "essentials" ? "essentials_monthly" :
+                   planType === "monthly" ? "premium_monthly" : "premium_annual";
+      const durationDays = planType === "annual" ? 365 : 30; // essentials e monthly = 30 dias
 
       // Atualizar assinatura no banco
       await subscriptionService.activateSubscription(
@@ -242,21 +243,26 @@ async function handlePreapprovalNotification(preapprovalId: string): Promise<voi
         preapprovalId,
       });
 
+      // Detectar se é essentials ou monthly pelo valor
+      const amount = preapproval.auto_recurring?.transaction_amount as number | undefined;
+      const planType = !amount || amount >= 20 ? "monthly" : "essentials"; // R$ 14.90 = essentials, R$ 29.90 = monthly
+
       // Ativar trial de 7 dias
       await subscriptionService.activateSubscription(
         userId,
-        "trial", // Trial para plano mensal
+        "trial", // Trial para ambos (essentials e monthly)
         7, // 7 dias de trial
         {
           provider: "mercadopago",
           provider_preapproval_id: preapprovalId,
           payment_status: "authorized",
+          plan_type: planType, // Salvar qual plano será após o trial
         }
       );
 
       // Track Subscription Created (Mixpanel - Camada 3)
       trackSubscriptionCreated(userId, {
-        plan_id: "monthly",
+        plan_id: planType,
         mp_status: preapproval.status,
         preapproval_id: preapprovalId,
       });
@@ -264,7 +270,7 @@ async function handlePreapprovalNotification(preapprovalId: string): Promise<voi
       // Registrar evento
       await subscriptionService.recordEvent(userId, "subscription_authorized", {
         preapproval_id: preapprovalId,
-        plan: "monthly",
+        plan: planType,
       });
     } else if (preapproval.status === "cancelled") {
       // ❌ Assinatura cancelada
@@ -273,13 +279,17 @@ async function handlePreapprovalNotification(preapprovalId: string): Promise<voi
         preapprovalId,
       });
 
+      // Detectar plano pelo valor
+      const amount = preapproval.auto_recurring?.transaction_amount as number | undefined;
+      const planType = !amount || amount >= 20 ? "monthly" : "essentials";
+
       // Cancelar assinatura no banco
       await subscriptionService.cancelSubscription(userId);
 
       // Registrar evento
       await subscriptionService.recordEvent(userId, "subscription_cancelled_by_provider", {
         preapproval_id: preapprovalId,
-        plan: "monthly",
+        plan: planType,
       });
     }
   } catch (error) {
@@ -293,7 +303,7 @@ async function handlePreapprovalNotification(preapprovalId: string): Promise<voi
 /**
  * Extrai tipo de plano do pagamento
  */
-function extractPlanType(payment: any): "monthly" | "annual" {
+function extractPlanType(payment: any): "essentials" | "monthly" | "annual" {
   // Tentar extrair do metadata primeiro
   if (payment.metadata?.plan_type) {
     return payment.metadata.plan_type;
@@ -303,8 +313,10 @@ function extractPlanType(payment: any): "monthly" | "annual" {
   const amount = payment.transaction_amount as number;
   if (amount >= 200) {
     return "annual"; // R$ 299
-  } else {
+  } else if (amount >= 20) {
     return "monthly"; // R$ 29.90
+  } else {
+    return "essentials"; // R$ 14.90
   }
 }
 

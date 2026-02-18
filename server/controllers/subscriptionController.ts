@@ -14,10 +14,10 @@ const CACHE_TTL = 60 * 1000; // 60 seconds
 /**
  * Helper to normalize plan input
  */
-function normalizePlan(plan: unknown): "monthly" | "annual" | null {
+function normalizePlan(plan: unknown): "essentials" | "monthly" | "annual" | null {
   if (typeof plan !== "string") return null;
   const normalized = plan.trim().toLowerCase();
-  if (normalized === "monthly" || normalized === "annual") {
+  if (normalized === "essentials" || normalized === "monthly" || normalized === "annual") {
     return normalized;
   }
   return null;
@@ -55,7 +55,7 @@ export async function createPreferenceHandler(req: Request, res: Response) {
       logger.warn("create_preference_invalid_plan", { userId, plan: req.body?.plan });
       return res.status(400).json({
         error: "INVALID_PLAN",
-        message: "Plano inválido. Use 'monthly' ou 'annual'",
+        message: "Plano inválido. Use 'essentials', 'monthly' ou 'annual'",
       });
     }
 
@@ -196,8 +196,8 @@ export async function cancelHandler(req: Request, res: Response) {
       });
     }
 
-    // If monthly plan, cancel preapproval with Mercado Pago
-    if (status.plan === "premium_monthly") {
+    // If monthly or essentials plan, cancel preapproval with Mercado Pago
+    if (status.plan === "premium_monthly" || status.plan === "essentials_monthly") {
       const mpService = getMercadoPagoService();
 
       // Get preapproval ID from database
@@ -229,7 +229,8 @@ export async function cancelHandler(req: Request, res: Response) {
 
     // Record event
     await subscriptionService.recordEvent(userId, "subscription_cancelled", {
-      plan: status.plan === "premium_monthly" ? "monthly" : "annual",
+      plan: status.plan === "premium_monthly" ? "monthly" :
+            status.plan === "essentials_monthly" ? "essentials" : "annual",
       reason: req.body?.reason || null,
     });
 

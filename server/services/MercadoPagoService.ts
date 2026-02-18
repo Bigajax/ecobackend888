@@ -76,20 +76,82 @@ export class MercadoPagoService {
    *
    * @param userId - User ID to link with subscription
    * @param userEmail - User email for payment notifications
-   * @param plan - Plan type: 'monthly' or 'annual'
+   * @param plan - Plan type: 'essentials', 'monthly' or 'annual'
    * @returns Checkout URL and ID
    */
   async createCheckout(
     userId: string,
     userEmail: string,
-    plan: "monthly" | "annual"
+    plan: "essentials" | "monthly" | "annual"
   ): Promise<CheckoutResult> {
     logger.info("creating_checkout", { userId, plan });
 
-    if (plan === "monthly") {
+    if (plan === "essentials") {
+      return this.createEssentialsPreapproval(userId, userEmail);
+    } else if (plan === "monthly") {
       return this.createMonthlyPreapproval(userId, userEmail);
     } else {
       return this.createAnnualPreference(userId, userEmail);
+    }
+  }
+
+  /**
+   * Create Essentials subscription with 7-day free trial (R$ 14.90/month)
+   *
+   * Uses Mercado Pago Preapproval API for recurring payments
+   */
+  private async createEssentialsPreapproval(
+    userId: string,
+    userEmail: string
+  ): Promise<CheckoutResult> {
+    try {
+      const preApprovalClient = new PreApproval(this.client);
+
+      // Calculate trial dates
+      const now = new Date();
+      const trialEnd = new Date(now);
+      trialEnd.setDate(trialEnd.getDate() + 7); // 7-day trial
+
+      const response = await preApprovalClient.create({
+        body: {
+          reason: "Assinatura Essentials ECO - Mensal",
+          external_reference: userId,
+          payer_email: userEmail,
+          auto_recurring: {
+            frequency: 1,
+            frequency_type: "months",
+            transaction_amount: 14.9,
+            currency_id: "BRL",
+            free_trial: {
+              frequency: 7,
+              frequency_type: "days",
+            },
+          } as any,
+          back_url: `${this.config.appUrl}/subscription/success`,
+          status: "pending",
+        },
+      });
+
+      if (!response.init_point || !response.id) {
+        throw new Error("Invalid preapproval response from Mercado Pago");
+      }
+
+      logger.info("essentials_preapproval_created", {
+        userId,
+        preapprovalId: response.id,
+      });
+
+      return {
+        initPoint: response.init_point,
+        id: response.id,
+        type: "preapproval",
+      };
+    } catch (error) {
+      logger.error("create_essentials_preapproval_failed", {
+        userId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
     }
   }
 

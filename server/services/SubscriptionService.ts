@@ -7,7 +7,7 @@ const logger = log.withContext("subscription-service");
 /**
  * Subscription plan types
  */
-type PlanType = "monthly" | "annual";
+type PlanType = "monthly" | "annual" | "essentials";
 
 /**
  * Subscription status
@@ -35,7 +35,7 @@ interface UsuarioData {
  * Calculated subscription status for client
  */
 export interface SubscriptionStatusResponse {
-  plan: "free" | "trial" | "premium_monthly" | "premium_annual";
+  plan: "free" | "trial" | "essentials_monthly" | "premium_monthly" | "premium_annual";
   isPremium: boolean;
   isTrialActive: boolean;
   trialDaysRemaining: number | null;
@@ -150,6 +150,9 @@ export class SubscriptionService {
       if (isInTrial) {
         plan = "trial";
         isPremium = true;
+      } else if (hasAccess && usuario.plan_type === "essentials") {
+        plan = "essentials_monthly";
+        isPremium = true; // Essentials também é considerado premium (tem acesso pago)
       } else if (hasAccess && usuario.plan_type === "monthly") {
         plan = "premium_monthly";
         isPremium = true;
@@ -158,9 +161,9 @@ export class SubscriptionService {
         isPremium = true;
       }
 
-      // Can reactivate if monthly subscription was cancelled but preapproval still exists
+      // Can reactivate if monthly/essentials subscription was cancelled but preapproval still exists
       const canReactivate =
-        usuario.plan_type === "monthly" &&
+        (usuario.plan_type === "monthly" || usuario.plan_type === "essentials") &&
         usuario.subscription_status === "cancelled" &&
         !!usuario.provider_preapproval_id;
 
@@ -285,13 +288,13 @@ export class SubscriptionService {
    * Activate subscription with duration and payment details
    *
    * @param userId - User ID
-   * @param plan - Plan type ("premium_monthly", "premium_annual", "trial")
+   * @param plan - Plan type ("essentials_monthly", "premium_monthly", "premium_annual", "trial")
    * @param durationDays - Duration in days
    * @param paymentDetails - Optional payment metadata
    */
   async activateSubscription(
     userId: string,
-    plan: "premium_monthly" | "premium_annual" | "trial",
+    plan: "essentials_monthly" | "premium_monthly" | "premium_annual" | "trial",
     durationDays: number,
     paymentDetails?: {
       provider?: string;
@@ -300,6 +303,7 @@ export class SubscriptionService {
       payment_status?: string;
       payment_method?: string;
       amount?: number;
+      plan_type?: PlanType; // Para trial, indicar qual plano será após trial
     }
   ): Promise<void> {
     try {
@@ -310,7 +314,10 @@ export class SubscriptionService {
 
       // Determine plan_type and trial dates
       const isTrial = plan === "trial";
-      const planType: PlanType | null = isTrial ? null : (plan === "premium_monthly" ? "monthly" : "annual");
+      const planType: PlanType | null = isTrial
+        ? (paymentDetails?.plan_type || null) // Trial usa plan_type do paymentDetails
+        : (plan === "essentials_monthly" ? "essentials" :
+           plan === "premium_monthly" ? "monthly" : "annual");
 
       const updateData: any = {
         subscription_status: "active",
@@ -323,6 +330,10 @@ export class SubscriptionService {
       if (isTrial) {
         updateData.trial_start_date = now.toISOString();
         updateData.trial_end_date = accessUntil.toISOString();
+        // Salvar plan_type para saber qual plano será após trial
+        if (paymentDetails?.plan_type) {
+          updateData.plan_type = paymentDetails.plan_type;
+        }
       } else {
         updateData.plan_type = planType;
       }
