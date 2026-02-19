@@ -33,13 +33,22 @@ interface UsuarioData {
 
 /**
  * Calculated subscription status for client
+ *
+ * NOTE: `status` is the primary field (matches frontend contract).
+ * `subscriptionStatus` is kept for backward compatibility.
  */
 export interface SubscriptionStatusResponse {
   plan: "free" | "trial" | "essentials_monthly" | "premium_monthly" | "premium_annual";
+  /** Primary status field — matches frontend SubscriptionStatusResponse type */
+  status: SubscriptionStatus;
+  /** Alias for status — kept for backward compatibility */
+  subscriptionStatus: SubscriptionStatus;
   isPremium: boolean;
   isTrialActive: boolean;
   trialDaysRemaining: number | null;
-  subscriptionStatus: SubscriptionStatus;
+  trialStartDate: string | null;
+  trialEndDate: string | null;
+  planType: "essentials" | "monthly" | "annual" | null;
   accessUntil: string | null;
   currentPeriodEnd: string | null;
   canReactivate: boolean;
@@ -123,10 +132,14 @@ export class SubscriptionService {
       if (!usuario) {
         return {
           plan: "free",
+          status: "pending",
+          subscriptionStatus: "pending",
           isPremium: false,
           isTrialActive: false,
           trialDaysRemaining: null,
-          subscriptionStatus: "pending",
+          trialStartDate: null,
+          trialEndDate: null,
+          planType: null,
           accessUntil: null,
           currentPeriodEnd: null,
           canReactivate: false,
@@ -167,12 +180,22 @@ export class SubscriptionService {
         usuario.subscription_status === "cancelled" &&
         !!usuario.provider_preapproval_id;
 
+      // Derive planType from plan_type column
+      const planType: SubscriptionStatusResponse["planType"] =
+        usuario.plan_type === "monthly" ? "monthly" :
+        usuario.plan_type === "annual" ? "annual" :
+        usuario.plan_type === "essentials" ? "essentials" : null;
+
       const status: SubscriptionStatusResponse = {
         plan,
+        status: usuario.subscription_status,
+        subscriptionStatus: usuario.subscription_status,
         isPremium,
         isTrialActive: !!isInTrial,
         trialDaysRemaining,
-        subscriptionStatus: usuario.subscription_status,
+        trialStartDate: usuario.trial_start_date,
+        trialEndDate: usuario.trial_end_date,
+        planType,
         accessUntil: usuario.access_until,
         currentPeriodEnd: usuario.current_period_end,
         canReactivate,

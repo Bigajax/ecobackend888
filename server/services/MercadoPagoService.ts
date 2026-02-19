@@ -127,7 +127,7 @@ export class MercadoPagoService {
               frequency_type: "days",
             },
           } as any,
-          back_url: `${this.config.appUrl}/subscription/success`,
+          back_url: `${this.config.appUrl}/app/subscription/callback`,
           status: "pending",
         },
       });
@@ -187,7 +187,7 @@ export class MercadoPagoService {
               frequency_type: "days",
             },
           } as any,
-          back_url: `${this.config.appUrl}/subscription/success`,
+          back_url: `${this.config.appUrl}/app/subscription/callback`,
           status: "pending",
         },
       });
@@ -244,9 +244,9 @@ export class MercadoPagoService {
           },
           external_reference: userId,
           back_urls: {
-            success: `${this.config.appUrl}/subscription/success`,
-            failure: `${this.config.appUrl}/subscription/failure`,
-            pending: `${this.config.appUrl}/subscription/pending`,
+            success: `${this.config.appUrl}/app/subscription/callback`,
+            failure: `${this.config.appUrl}/app/subscription/callback`,
+            pending: `${this.config.appUrl}/app/subscription/callback`,
           },
           auto_return: "approved",
           notification_url: `${this.config.backendUrl}/api/webhooks/mercadopago`,
