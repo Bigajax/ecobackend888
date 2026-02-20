@@ -1,8 +1,7 @@
-// core/ClaudeAdapter.ts
-
 import { Readable } from "node:stream";
 
 import { httpAgent, httpsAgent } from "../adapters/OpenRouterAdapter";
+import { log } from "../services/promptContext/logger";
 
 export type Msg = { role: "system" | "user" | "assistant"; content: string; name?: string };
 
@@ -18,7 +17,7 @@ type ORContentPiece =
     };
 
 interface ORMessage { role: ORole; content?: string | ORContentPiece[] }
-interface ORChoice { index?: number; message?: ORMessage; finish_reason?: string }
+interface ORChoice { index?: number; message?: ORMessage; finishReason?: string }
 export interface ORUsage {
   prompt_tokens?: number;
   completion_tokens?: number;
@@ -41,9 +40,9 @@ interface ORDeltaChoice {
     text?: string;
     role?: ORole;
     stop_reason?: string;
-    finish_reason?: string;
+    finishReason?: string;
   };
-  finish_reason?: string | null;
+  finishReason?: string | null;
 }
 
 interface ORStreamChunk {
@@ -60,9 +59,10 @@ export type ClaudeStreamControlEvent =
   | { type: "done"; finishReason?: string | null; usage?: ORUsage; model?: string | null };
 
 export interface ClaudeStreamCallbacks {
-  onChunk?: (chunk: { content: string; raw: ORStreamChunk }) => void | Promise<void>;
+  onChunk?: (chunk: { content: string; raw: ORStreamChunk | ORChatCompletion }) => void | Promise<void>;
   onControl?: (event: ClaudeStreamControlEvent) => void | Promise<void>;
   onError?: (error: Error) => void | Promise<void>;
+  onFallback?: (model: string) => void | Promise<void>;
 }
 
 export interface ClaudeStreamOptions {
@@ -86,64 +86,85 @@ function resolveTimeoutMs() {
   return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_TIMEOUT_MS;
 }
 
+/**
+ * Helpers de normalização (KISS) — evitam acessos inseguros a fields opcionais
+ */
 function flattenContentPieces(input: unknown): string[] {
-  if (!input) {
-    return [];
-  }
-
-  if (typeof input === "string") {
-    return [input];
-  }
-
-  if (Array.isArray(input)) {
-    return input.flatMap((entry) => flattenContentPieces(entry));
-  }
-
+  if (!input) return [];
+  if (typeof input === "string") return [input];
+  if (Array.isArray(input)) return input.flatMap((entry) => flattenContentPieces(entry));
   if (typeof input === "object") {
     const obj = input as Record<string, unknown>;
     const pieces: string[] = [];
-
-    if (typeof obj.text === "string") {
-      pieces.push(obj.text);
-    }
-
-    if (typeof obj.value === "string") {
-      pieces.push(obj.value);
-    }
-
-    if (typeof obj.content === "string") {
-      pieces.push(obj.content);
-    } else if (Array.isArray(obj.content)) {
-      pieces.push(...flattenContentPieces(obj.content));
-    }
-
+    if (typeof obj.text === "string") pieces.push(obj.text);
+    if (typeof obj.value === "string") pieces.push(obj.value);
+    if (typeof obj.content === "string") pieces.push(obj.content);
+    else if (Array.isArray(obj.content)) pieces.push(...flattenContentPieces(obj.content));
     return pieces;
   }
-
   return [];
 }
 
 function normalizeOpenRouterText(input: unknown): string {
+  // BACKEND PASSTHROUGH: Return text without transformation
+  // Removed all trimming, filtering, and joining logic
+  // Text is passed raw from OpenRouter to client
   const pieces = flattenContentPieces(input);
-  return pieces.length ? pieces.join("") : "";
+  if (!pieces.length) return "";
+
+  // Concatenate pieces as-is without any normalization
+  return pieces.map((p) => (typeof p === "string" ? p : "")).join("");
 }
 
-function extractDeltaText(delta: ORDeltaChoice["delta"] | undefined): string {
-  if (!delta) {
-    return "";
-  }
+function isObject(x: unknown): x is Record<string, unknown> {
+  return typeof x === "object" && x !== null;
+}
 
-  if (typeof delta.text === "string" && delta.text) {
-    return delta.text;
-  }
+function hasChoices(x: unknown): x is { choices: unknown[] } {
+  return isObject(x) && Array.isArray((x as any).choices);
+}
 
-  return normalizeOpenRouterText(delta.content);
+function pickContentFromChoice(choice: unknown): string | null {
+  if (!isObject(choice)) return null;
+  const c = choice as ORChoice;
+  const payload = c?.message?.content;
+  if (typeof payload === "string") return payload;
+  if (Array.isArray(payload)) return normalizeOpenRouterText(payload) || null;
+  return null;
+}
+
+function pickDeltaFromStreamChunk(raw: unknown): string {
+  if (!isObject(raw)) return "";
+  const chunk = raw as ORStreamChunk;
+  const ch0 = Array.isArray(chunk.choices) ? chunk.choices[0] : undefined;
+  const d = ch0?.delta;
+  if (d) {
+    if (typeof d.text === "string" && d.text) return d.text;
+    const content = (d as any).content;
+    const norm = normalizeOpenRouterText(content);
+    if (norm) return norm;
+  }
+  return "";
+}
+
+function isNonStreamCompletion(x: unknown): x is ORChatCompletion {
+  if (!hasChoices(x)) return false;
+  const first = (x as any).choices[0];
+  return isObject(first) && "message" in first;
+}
+
+function pickContent(chunk: ORStreamChunk | ORChatCompletion): string {
+  if (isNonStreamCompletion(chunk)) {
+    const first = chunk.choices?.[0];
+    return (first ? pickContentFromChoice(first) : null) ?? "";
+  }
+  return pickDeltaFromStreamChunk(chunk);
 }
 
 export async function claudeChatCompletion({
   messages,
-  model = process.env.ECO_CLAUDE_MODEL || "anthropic/claude-3.7-sonnet",
-  fallbackModel = process.env.ECO_CLAUDE_MODEL_FALLBACK || "anthropic/claude-sonnet-4",
+  model = process.env.ECO_CLAUDE_MODEL || "anthropic/claude-sonnet-4.5",
+  fallbackModel = process.env.ECO_CLAUDE_MODEL_FALLBACK || "anthropic/claude-3-haiku-20240307",
   temperature = 0.5,
   maxTokens = 700,
 }: {
@@ -154,9 +175,7 @@ export async function claudeChatCompletion({
   maxTokens?: number;
 }) {
   const apiKey = process.env.OPENROUTER_API_KEY;
-  if (!apiKey) {
-    throw new Error("OPENROUTER_API_KEY ausente no ambiente.");
-  }
+  if (!apiKey) throw new Error("OPENROUTER_API_KEY ausente no ambiente.");
 
   const systemMessages = messages.filter((m) => m.role === "system");
   const system = systemMessages.map((m) => m.content).join("\n\n");
@@ -169,7 +188,7 @@ export async function claudeChatCompletion({
     "Content-Type": "application/json",
     "HTTP-Referer": process.env.PUBLIC_APP_URL || "http://localhost:5173",
     "X-Title": "Eco App - ClaudeAdapter",
-  };
+  } as const;
 
   async function call(modelToUse: string) {
     const payload = {
@@ -185,10 +204,7 @@ export async function claudeChatCompletion({
     const timeoutMs = resolveTimeoutMs();
     const controller = new AbortController();
     const timeoutReason = new ClaudeTimeoutError(timeoutMs);
-    const timeoutHandle: NodeJS.Timeout = setTimeout(
-      () => controller.abort(timeoutReason),
-      timeoutMs
-    );
+    const timeoutHandle: NodeJS.Timeout = setTimeout(() => controller.abort(timeoutReason), timeoutMs);
 
     try {
       const resp = await fetch("https://openrouter.ai/api/v1/chat/completions", {
@@ -196,40 +212,30 @@ export async function claudeChatCompletion({
         headers,
         body: JSON.stringify(payload),
         signal: controller.signal,
-        agent: (parsedURL: URL) =>
-          parsedURL.protocol === "http:" ? httpAgent : httpsAgent,
+        agent: (parsedURL: URL) => (parsedURL.protocol === "http:" ? httpAgent : httpsAgent),
       } as any);
 
-      if (!resp.ok) {
-        throw new Error(`OpenRouter error: ${resp.status} ${resp.statusText}`);
-      }
+      if (!resp.ok) throw new Error(`OpenRouter error: ${resp.status} ${resp.statusText}`);
 
-      const data = (await resp.json()) as unknown as ORChatCompletion;
+      const data: unknown = await resp.json();
+      const json = (isObject(data) ? (data as ORChatCompletion) : ({} as ORChatCompletion));
 
-      if (data.error?.message) {
-        throw new Error(`OpenRouter API error: ${data.error.message}`);
-      }
+      if (json.error?.message) throw new Error(`OpenRouter API error: ${json.error.message}`);
 
-      const primaryChoice = data.choices?.[0];
-      const text =
-        normalizeOpenRouterText(primaryChoice?.message?.content) ||
-        normalizeOpenRouterText((primaryChoice as any)?.message) ||
-        ""; // segura contra undefined
+      const text = pickContent(json);
 
       return {
         content: text,
-        model: data.model ?? modelToUse,
+        model: json.model ?? modelToUse,
         usage: {
-          total_tokens: data.usage?.total_tokens,
-          prompt_tokens: data.usage?.prompt_tokens,
-          completion_tokens: data.usage?.completion_tokens,
+          total_tokens: json.usage?.total_tokens,
+          prompt_tokens: json.usage?.prompt_tokens,
+          completion_tokens: json.usage?.completion_tokens,
         },
-        raw: data,
+        raw: json,
       };
     } catch (err) {
-      if ((err as Error)?.name === "AbortError") {
-        throw resolveAbortError(timeoutReason, controller.signal);
-      }
+      if ((err as Error)?.name === "AbortError") throw resolveAbortError(timeoutReason, controller.signal);
       throw err;
     } finally {
       clearTimeout(timeoutHandle);
@@ -252,8 +258,8 @@ export async function claudeChatCompletion({
 export async function streamClaudeChatCompletion(
   {
     messages,
-    model = process.env.ECO_CLAUDE_MODEL || "anthropic/claude-3.7-sonnet",
-    fallbackModel = process.env.ECO_CLAUDE_MODEL_FALLBACK || "anthropic/claude-sonnet-4",
+    model = process.env.ECO_CLAUDE_MODEL || "anthropic/claude-sonnet-4.5",
+    fallbackModel = process.env.ECO_CLAUDE_MODEL_FALLBACK || "anthropic/claude-3-haiku-20240307",
     temperature = 0.5,
     maxTokens = 700,
   }: {
@@ -267,9 +273,7 @@ export async function streamClaudeChatCompletion(
   options: ClaudeStreamOptions = {}
 ): Promise<void> {
   const apiKey = process.env.OPENROUTER_API_KEY;
-  if (!apiKey) {
-    throw new Error("OPENROUTER_API_KEY ausente no ambiente.");
-  }
+  if (!apiKey) throw new Error("OPENROUTER_API_KEY ausente no ambiente.");
 
   const systemMessages = messages.filter((m) => m.role === "system");
   const system = systemMessages.map((m) => m.content).join("\n\n");
@@ -280,9 +284,10 @@ export async function streamClaudeChatCompletion(
   const headers = {
     Authorization: `Bearer ${apiKey}`,
     "Content-Type": "application/json",
+    Accept: "text/event-stream",
     "HTTP-Referer": process.env.PUBLIC_APP_URL || "http://localhost:5173",
     "X-Title": "Eco App - ClaudeAdapter",
-  };
+  } as const;
 
   const externalSignal = options.externalSignal ?? options.signal;
 
@@ -301,12 +306,11 @@ export async function streamClaudeChatCompletion(
     const timeoutMs = resolveTimeoutMs();
     const controller = new AbortController();
     const timeoutReason = new ClaudeTimeoutError(timeoutMs);
-    const timeoutHandle: NodeJS.Timeout = setTimeout(
-      () => controller.abort(timeoutReason),
-      timeoutMs
-    );
+    const timeoutHandle: NodeJS.Timeout = setTimeout(() => controller.abort(timeoutReason), timeoutMs);
     const linked = linkAbortSignals(controller.signal, externalSignal);
     const requestSignal: AbortSignal = linked.signal ?? controller.signal;
+
+    log.debug("[provider_request]", { stream: payload.stream, model: payload.model });
 
     try {
       const request = async () =>
@@ -321,6 +325,24 @@ export async function streamClaudeChatCompletion(
       let resp: Awaited<ReturnType<typeof fetch>>;
       try {
         resp = await request();
+        log.debug("[provider_response]", { contentType: resp.headers.get("content-type") });
+
+        const isSse = /^text\/event-stream/i.test(resp.headers.get("content-type") || "");
+        if (!isSse) {
+          const data: unknown = await resp.json().catch(() => null);
+          const json = (isObject(data) ? (data as ORChatCompletion) : null);
+          const text = json ? pickContent(json) : "";
+
+          log.warn("[non_sse_fallback]", { used: !!text, contentLength: text?.length || 0 });
+
+          if (text) {
+            await callbacks.onChunk?.({ content: text, raw: json as any });
+            await callbacks.onControl?.({ type: "done", finishReason: "fallback" });
+            return;
+          } else {
+            throw new Error("NON_SSE_EMPTY");
+          }
+        }
       } catch (error) {
         if ((error as Error)?.name === "AbortError") {
           const abortError = resolveAbortError(timeoutReason, requestSignal, controller.signal, externalSignal);
@@ -330,7 +352,25 @@ export async function streamClaudeChatCompletion(
       }
 
       if (!resp.ok) {
-        const err = new Error(`OpenRouter error: ${resp.status} ${resp.statusText}`);
+        let errorDetails = `${resp.status} ${resp.statusText}`;
+        try {
+          const errorBody = await resp.json().catch(() => null);
+          if (errorBody && typeof errorBody === 'object') {
+            const errMsg = (errorBody as any).error?.message || (errorBody as any).message;
+            if (errMsg) {
+              errorDetails += ` - ${errMsg}`;
+            }
+          }
+        } catch (_) {
+          // Ignore JSON parsing errors
+        }
+        const err = new Error(`OpenRouter error: ${errorDetails}`);
+        log.warn("[openrouter_http_error]", {
+          status: resp.status,
+          statusText: resp.statusText,
+          details: errorDetails,
+          model: modelToUse,
+        });
         (err as any).__claudeBeforeStream = true;
         (err as any).__claudeStreamDelivered = false;
         throw err;
@@ -344,7 +384,7 @@ export async function streamClaudeChatCompletion(
         throw err;
       }
 
-      const decoder = new TextDecoder();
+      const decoder = new TextDecoder("utf-8", { fatal: false });
       let buffer = "";
       let reconnectAttempt = 0;
       let doneEmitted = false;
@@ -359,17 +399,13 @@ export async function streamClaudeChatCompletion(
           await callbacks.onChunk?.(chunk);
         },
         onControl: async (event) => {
-          if (event.type !== "reconnect") {
-            deliveredAnyEvents = true;
-          }
+          if (event.type !== "reconnect") deliveredAnyEvents = true;
           await callbacks.onControl?.(event);
         },
         onError: async (error) => {
           const hadDelivered = deliveredAnyEvents;
           deliveredAnyEvents = true;
-          if (emitErrorEvents || hadDelivered) {
-            await callbacks.onError?.(error);
-          }
+          if (emitErrorEvents || hadDelivered) await callbacks.onError?.(error);
         },
       };
 
@@ -379,83 +415,84 @@ export async function streamClaudeChatCompletion(
 
         const lines = trimmed.split(/\r?\n/);
         let eventName = "message";
-      const dataLines: string[] = [];
+        const dataLines: string[] = [];
 
-      for (const line of lines) {
-        if (!line) continue;
-        if (line.startsWith(":")) {
-          // LATENCY: ignora heartbeats imediatos sem gerar carga.
-          continue;
+        for (const line of lines) {
+          if (!line) continue;
+          if (line.startsWith(":")) continue; // heartbeats
+          if (line.startsWith("event:")) { eventName = line.slice(6).trim(); continue; }
+          if (line.startsWith("data:")) { dataLines.push(line.slice(5)); }
         }
-        if (line.startsWith("event:")) {
-          eventName = line.slice(6).trim();
-          continue;
+
+        const dataPayload = dataLines.join("\n");
+        const trimmedData = dataPayload.trim();
+        if (!trimmedData) return;
+
+        if (trimmedData === "[DONE]") {
+          console.debug("[ClaudeAdapter] Stream completed ([DONE] received)");
+          doneEmitted = true;
+          await safeCallbacks.onControl?.({
+            type: "done",
+            finishReason: latestFinish,
+            usage: latestUsage,
+            model: latestModel ?? modelToUse,
+          });
+          return;
         }
-        if (line.startsWith("data:")) {
-          dataLines.push(line.slice(5).trim());
+
+        if (!trimmedData.startsWith("{")) {
+          console.warn("[ClaudeAdapter] Ignoring non-JSON line:", dataPayload);
+          return;
         }
-      }
 
-      const dataPayload = dataLines.join("\n");
-      if (!dataPayload) return;
+        let parsed: ORStreamChunk | null = null;
+        try {
+          parsed = JSON.parse(trimmedData) as ORStreamChunk;
+        } catch (error) {
+          console.warn("[ClaudeAdapter] Ignoring non-JSON line:", dataPayload);
+          return;
+        }
 
-      if (dataPayload === "[DONE]") {
-        doneEmitted = true;
-        await safeCallbacks.onControl?.({
-          type: "done",
-          finishReason: latestFinish,
-          usage: latestUsage,
-          model: latestModel ?? modelToUse,
-        });
-        return;
-      }
+        if (parsed?.error?.message) {
+          const err = new Error(parsed.error.message);
+          await safeCallbacks.onError?.(err);
+          return;
+        }
 
-      let parsed: ORStreamChunk | null = null;
-      try {
-        parsed = JSON.parse(dataPayload) as ORStreamChunk;
-      } catch (error) {
-        const err = error instanceof Error ? error : new Error(String(error));
-        await safeCallbacks.onError?.(err);
-        return;
-      }
+        if (eventName && eventName.toLowerCase().includes("reconnect")) {
+          reconnectAttempt += 1;
+          await safeCallbacks.onControl?.({ type: "reconnect", attempt: reconnectAttempt, raw: parsed });
+          return;
+        }
 
-      if (parsed?.error?.message) {
-        const err = new Error(parsed.error.message);
-        await safeCallbacks.onError?.(err);
-        return;
-      }
+        if ((parsed as any)?.type === "heartbeat") return; // mantém a conexão viva
 
-      if (eventName && eventName.toLowerCase().includes("reconnect")) {
-        reconnectAttempt += 1;
-        await safeCallbacks.onControl?.({ type: "reconnect", attempt: reconnectAttempt, raw: parsed });
-        return;
-      }
+        const choice = Array.isArray(parsed?.choices) ? parsed!.choices![0] : undefined;
+        const deltaText = pickDeltaFromStreamChunk(parsed);
+        const finishReason =
+          (choice?.finishReason ?? choice?.delta?.finishReason ?? choice?.delta?.stop_reason ?? null) || null;
 
-      if ((parsed as any)?.type === "heartbeat") {
-        // LATENCY: heartbeat recebido — apenas mantém a conexão viva.
-        return;
-      }
+        if (parsed?.usage) latestUsage = parsed.usage;
+        if (parsed?.model) latestModel = parsed.model;
+        if (finishReason) latestFinish = finishReason;
 
-      const choice = parsed?.choices?.[0];
-      const deltaText = extractDeltaText(choice?.delta);
-      const finishReason =
-        choice?.finish_reason ?? choice?.delta?.finish_reason ?? choice?.delta?.stop_reason ?? null;
+        // Debug: Log all chunks including empty ones
+        if (process.env.ECO_DEBUG === "1" || process.env.ECO_DEBUG === "true") {
+          console.debug("[ClaudeAdapter] received chunk", {
+            hasText: !!deltaText,
+            textLength: deltaText.length,
+            hasChoice: !!choice,
+            hasDelta: !!choice?.delta,
+            deltaKeys: choice?.delta ? Object.keys(choice.delta) : [],
+            finishReason,
+            parsed: JSON.stringify(parsed).slice(0, 200)
+          });
+        }
 
-      if (parsed?.usage) {
-        latestUsage = parsed.usage;
-      }
-      if (parsed?.model) {
-        latestModel = parsed.model;
-      }
-      if (finishReason) {
-        latestFinish = finishReason;
-      }
-
-      if (deltaText) {
-        // LATENCY: entrega incremental do token renderizável.
-        await safeCallbacks.onChunk?.({ content: deltaText, raw: parsed });
-      }
-    };
+        if (deltaText) {
+          await safeCallbacks.onChunk?.({ content: deltaText, raw: parsed });
+        }
+      };
 
       const flushBuffer = async (force = false) => {
         let separatorIndex = buffer.indexOf("\n\n");
@@ -465,16 +502,13 @@ export async function streamClaudeChatCompletion(
           await handleEvent(rawEvent);
           separatorIndex = buffer.indexOf("\n\n");
         }
-
         if (force && buffer.trim()) {
           await handleEvent(buffer);
           buffer = "";
         }
       };
 
-      const reader = (body as any).getReader?.() as
-        | ReadableStreamDefaultReader<Uint8Array>
-        | undefined;
+      const reader = (body as any).getReader?.() as ReadableStreamDefaultReader<Uint8Array> | undefined;
 
       try {
         if (reader) {
@@ -482,24 +516,19 @@ export async function streamClaudeChatCompletion(
             const { value, done } = await reader.read();
             if (done) break;
             if (value) {
-              // LATENCY: decodifica chunk SSE imediatamente.
               buffer += decoder.decode(value, { stream: true });
               await flushBuffer();
             }
           }
         } else {
           const nodeStream =
-            typeof Readable.fromWeb === "function"
-              ? Readable.fromWeb(body as any)
-              : Readable.from(body as any);
+            typeof Readable.fromWeb === "function" ? Readable.fromWeb(body as any) : Readable.from(body as any);
           for await (const chunk of nodeStream) {
             if (!chunk) continue;
-            // LATENCY: decodifica chunk SSE imediatamente (fallback Node stream).
             buffer += decoder.decode(chunk as Buffer, { stream: true });
             await flushBuffer();
           }
         }
-
         buffer += decoder.decode(new Uint8Array(), { stream: false });
         await flushBuffer(true);
       } catch (error) {
@@ -508,9 +537,7 @@ export async function streamClaudeChatCompletion(
           throw abortError;
         }
         const err = error instanceof Error ? error : new Error(String(error));
-        if (emitErrorEvents || deliveredAnyEvents) {
-          await callbacks.onError?.(err);
-        }
+        if (emitErrorEvents || deliveredAnyEvents) await callbacks.onError?.(err);
         (err as any).__claudeStreamDelivered = deliveredAnyEvents;
         throw err;
       }
@@ -530,9 +557,7 @@ export async function streamClaudeChatCompletion(
   };
 
   const modelsToTry = [model];
-  if (fallbackModel && fallbackModel !== model) {
-    modelsToTry.push(fallbackModel);
-  }
+  if (fallbackModel && fallbackModel !== model) modelsToTry.push(fallbackModel);
 
   let lastError: Error | null = null;
   for (let i = 0; i < modelsToTry.length; i += 1) {
@@ -545,33 +570,22 @@ export async function streamClaudeChatCompletion(
       const err = error instanceof Error ? error : new Error(String(error));
       lastError = err;
       const delivered = (err as any).__claudeStreamDelivered === true;
-      if (isFinalAttempt || delivered) {
-        throw err;
-      }
+      if (isFinalAttempt || delivered) throw err;
       const isTimeout = err instanceof ClaudeTimeoutError;
       const label = isTimeout ? "⏱️" : "⚠️";
-      console.warn(
-        `${label} Claude ${currentModel} falhou, tentando fallback ${modelsToTry[i + 1]}`,
-        err
-      );
+      callbacks.onFallback?.(modelsToTry[i + 1]!);
+      console.warn(`${label} Claude ${currentModel} falhou, tentando fallback ${modelsToTry[i + 1]}`, err);
     }
   }
 
-  if (lastError) {
-    throw lastError;
-  }
+  if (lastError) throw lastError;
 }
 
-function resolveAbortError(
-  timeoutReason: Error,
-  ...signals: (AbortSignal | undefined)[]
-): Error {
+function resolveAbortError(timeoutReason: Error, ...signals: (AbortSignal | undefined)[]): Error {
   for (const signal of signals) {
     if (!signal) continue;
     const reason = (signal as any).reason;
-    if (reason instanceof Error) {
-      return reason;
-    }
+    if (reason instanceof Error) return reason;
     if (typeof reason === "string" && reason.trim()) {
       const err = new Error(reason.trim());
       err.name = "AbortError";
@@ -590,24 +604,17 @@ function linkAbortSignals(
   ...maybeSignals: (AbortSignal | undefined)[]
 ): { signal: AbortSignal | undefined; teardown?: () => void } {
   const signals = maybeSignals.filter(Boolean) as AbortSignal[];
-  if (signals.length === 0) {
-    return { signal: undefined, teardown: undefined };
-  }
+  if (signals.length === 0) return { signal: undefined, teardown: undefined };
 
   const anyFn = (AbortSignal as any).any;
-  if (typeof anyFn === "function") {
-    return { signal: anyFn(signals), teardown: undefined };
-  }
+  if (typeof anyFn === "function") return { signal: anyFn(signals), teardown: undefined };
 
   const controller = new AbortController();
   const listeners = signals.map((signal) => {
     const handler = () => {
       const reason = (signal as any).reason;
-      if (reason !== undefined) {
-        controller.abort(reason);
-      } else {
-        controller.abort();
-      }
+      if (reason !== undefined) controller.abort(reason);
+      else controller.abort();
     };
     signal.addEventListener("abort", handler, { once: true });
     return { signal, handler } as const;
@@ -616,9 +623,7 @@ function linkAbortSignals(
   return {
     signal: controller.signal,
     teardown: () => {
-      for (const { signal, handler } of listeners) {
-        signal.removeEventListener("abort", handler);
-      }
+      for (const { signal, handler } of listeners) signal.removeEventListener("abort", handler);
     },
   };
 }

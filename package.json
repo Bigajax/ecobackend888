@@ -1,9 +1,11 @@
 {
   "scripts": {
+    "clean": "rm -rf dist server/dist node_modules",
     "build": "tsc --noEmit -p tsconfig.json",
     "test": "jest --config jest.contract.config.ts --passWithNoTests",
     "test:contract": "jest --config server/jest.contract.config.ts",
     "test:supabase": "ts-node server/scripts/testSupabasePersistence.ts",
+    "test:meditation-feedback": "ts-node server/scripts/testMeditationFeedback.ts",
     "modules:inventory": "ts-node server/scripts/modulesInventory.ts",
     "smoke:feedback": "bash server/scripts/smokeFeedback.sh",
     "modules:dump": "ts-node --transpile-only server/scripts/modulesInventory.ts --dump-modules",
@@ -11,16 +13,17 @@
     "pilot:smoke": "ts-node server/scripts/pilotSmoke.ts",
     "pilot:health": "ts-node --transpile-only server/scripts/pilotHealth.ts",
     "bandit:cache": "ts-node --transpile-only server/scripts/banditPosteriorCache.ts",
-    "cron:self-test": "ts-node --transpile-only server/scripts/cronSelfTest.ts"
+    "cron:self-test": "ts-node --transpile-only server/scripts/cronSelfTest.ts",
+    "diagnosis:subscription": "ts-node --transpile-only server/scripts/diagnosisSubscription.ts"
   },
   "devDependencies": {
     "@types/express": "^5.0.3",
+    "@types/jest": "^29.5.14",
     "@types/node": "^24.5.2",
-    "@types/jest": "^29.5.12",
     "jest": "^29.7.0",
     "nodemon": "^3.1.10",
+    "ts-jest": "^29.4.5",
     "ts-node": "^10.9.2",
-    "ts-jest": "^29.3.4",
     "typescript": "^5.9.2"
   },
   "dependencies": {
@@ -28,6 +31,8 @@
     "axios": "^1.12.2",
     "cors": "^2.8.5",
     "express": "^5.1.0",
+    "mercadopago": "^2.12.0",
+    "natural": "^8.1.0",
     "zod": "^4.1.11"
   }
 }

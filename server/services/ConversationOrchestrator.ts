@@ -6,14 +6,14 @@ import {
   type GetEcoResult,
   type ChatMessage,
 } from "../utils";
-import { supabaseWithBearer } from "../adapters/SupabaseAdapter";
+import { supabaseWithBearer, supabaseForGuests } from "../adapters/SupabaseAdapter";
 import { claudeChatCompletion } from "../core/ClaudeAdapter";
 import { defaultGreetingPipeline } from "./conversation/greeting";
 import { runFastLaneLLM } from "./conversation/fastLane";
 import { buildFullPrompt, selectBanditArms } from "./conversation/promptPlan";
 import { defaultResponseFinalizer } from "./conversation/responseFinalizer";
 import { firstName } from "./conversation/helpers";
-import { computeEcoDecision, MEMORY_THRESHOLD } from "./conversation/ecoDecisionHub";
+import { computeEcoDecision, computeEcoDecisionAsync, MEMORY_THRESHOLD } from "./conversation/ecoDecisionHub";
 import type { EcoDecisionResult } from "./conversation/ecoDecisionHub";
 import { handlePreLLMShortcuts } from "./conversation/preLLMPipeline";
 import { prepareConversationContext } from "./conversation/contextPreparation";
@@ -221,7 +221,7 @@ async function runPreLLMPipeline({
     return null;
   }
 
-  const ecoDecision = computeEcoDecision(ultimaMsg);
+  const ecoDecision = await computeEcoDecisionAsync(ultimaMsg);
   const retrieveForAnalytics = inferRetrieveMode({ ultimaMsg, hints: null, ecoDecision });
   const tracer = activationTracer || undefined;
   const analyticsContext = {
@@ -230,7 +230,47 @@ async function runPreLLMPipeline({
     userId: !isGuest ? userId : null,
   };
 
+  // --- STREAMING SHIM PARA SAUDAÇÃO/ATALHOS ---
+  // Se o preLLM retornou um resultado final (não-streaming) e temos streamHandler,
+  // emita 1 chunk + done para evitar "Nenhum chunk emitido" na primeira mensagem.
   if (preLLM.kind === "final") {
+    const result = preLLM.result as GetEcoResult;
+
+    if (streamHandler) {
+      const text = (result as any)?.raw ?? (result as any)?.text ?? "";
+      const finishReason = (result as any)?.meta?.finishReason ?? "greeting";
+
+      // prompt_ready
+      await streamHandler.onEvent({ type: "control", name: "prompt_ready", timings: {} });
+      // único chunk
+      if (text && text.length) {
+        await streamHandler.onEvent({
+          type: "chunk",
+          delta: text,
+          index: 0,
+          content: text,
+        });
+      }
+      // done
+      await streamHandler.onEvent({
+        type: "control",
+        name: "done",
+        meta: { finishReason },
+      });
+
+      await persistAnalyticsSafe({ ...analyticsContext, result });
+
+      const timings: EcoLatencyMarks = {};
+      const streamingResult: EcoStreamingResult = {
+        raw: text,
+        modelo: (result as any)?.modelo ?? "prellm_greeting",
+        usage: (result as any)?.usage,
+        finalize: async () => result,
+        timings,
+      };
+      return streamingResult;
+    }
+
     await persistAnalyticsSafe({ ...analyticsContext, result: preLLM.result });
     return preLLM.result;
   }
@@ -249,8 +289,15 @@ function applyMemoryDecision({
   activationTracer?: ActivationTracer;
 }) {
   const crossedThreshold = ecoDecision.intensity >= MEMORY_THRESHOLD;
+  const beforeGuest = ecoDecision.saveMemory;
   ecoDecision.saveMemory = ecoDecision.saveMemory && !isGuest;
   ecoDecision.hasTechBlock = ecoDecision.saveMemory;
+
+  // DEBUG LOG: Guest check
+  if (process.env.ECO_DEBUG === 'true') {
+    console.log(`[applyMemoryDecision] isGuest=${isGuest}, beforeGuest=${beforeGuest}, afterGuest=${ecoDecision.saveMemory}, hasTechBlock=${ecoDecision.hasTechBlock}`);
+  }
+
   activationTracer?.setMemoryDecision(
     ecoDecision.saveMemory,
     ecoDecision.intensity,
@@ -396,6 +443,7 @@ async function maybeRunFastLane({
   ecoDecision,
   activationTracer,
   retrieveDecision,
+  interactionId,
 }: {
   routeDecision: ReturnType<typeof decideRoute>;
   streamHandler: EcoStreamHandler | null;
@@ -411,6 +459,7 @@ async function maybeRunFastLane({
   ecoDecision: EcoDecisionResult;
   activationTracer?: ActivationTracer;
   retrieveDecision: RetrieveDecision;
+  interactionId?: string | null;
 }): Promise<GetEcoResult | null> {
   if (!shouldUseFastLane({ routeDecision, streamHandler })) {
     return null;
@@ -435,6 +484,7 @@ async function maybeRunFastLane({
     isGuest,
     guestId: guestId ?? undefined,
     ecoDecision,
+    interactionId,
   });
 
   await persistAnalyticsSafe({
@@ -472,6 +522,7 @@ export async function getEcoResponse({
   metaFromBuilder,
   sessionMeta,
   stream,
+  interactionId,
   activationTracer,
   isGuest = false,
   guestId = null,
@@ -507,7 +558,21 @@ export async function getEcoResponse({
       throw reason instanceof Error ? reason : new Error(String(reason));
     }
 
-    const supabase = !isGuest && accessToken ? supabaseWithBearer(accessToken) : null;
+    let supabase = null;
+    try {
+      if (!isGuest && accessToken) {
+        supabase = supabaseWithBearer(accessToken);
+      } else if (isGuest) {
+        // Guests get anonymous Supabase client for persisting to guest_sessions and guest_messages
+        supabase = supabaseForGuests();
+      }
+    } catch (e) {
+      log.warn("[getEcoResponse] Supabase init failed", {
+        isGuest,
+        error: e instanceof Error ? e.message : String(e),
+      });
+      // Continue without Supabase
+    }
     const hasAssistantBeforeInThread = thread
       .slice(0, -1)
       .some((msg) => mapRoleForOpenAI(msg.role) === "assistant");
@@ -532,7 +597,7 @@ export async function getEcoResponse({
       return preLLMResult;
     }
 
-    ecoDecision = computeEcoDecision(ultimaMsg);
+    ecoDecision = await computeEcoDecisionAsync(ultimaMsg);
     applyMemoryDecision({ ecoDecision, isGuest, activationTracer: normalizedActivationTracer });
 
     const routeDecision = decideRoute({
@@ -571,6 +636,7 @@ export async function getEcoResponse({
       ecoDecision,
       activationTracer: normalizedActivationTracer,
       retrieveDecision,
+      interactionId,
     });
     if (fastLaneResult) {
       return fastLaneResult;
@@ -618,7 +684,7 @@ export async function getEcoResponse({
       authUid,
     });
 
-    const principalModel = process.env.ECO_CLAUDE_MODEL || "anthropic/claude-3-5-sonnet";
+    const principalModel = process.env.ECO_CLAUDE_MODEL || "anthropic/claude-sonnet-4.5-20250929";
     normalizedActivationTracer?.setModel?.(principalModel);
 
     if (streamHandler) {
@@ -648,6 +714,7 @@ export async function getEcoResponse({
           basePrompt: systemPrompt,
           basePromptHash,
           abortSignal,
+          interactionId: interactionId ?? undefined,
         },
         analytics: {
           retrieveMode: retrieveDecision.mode,
@@ -681,6 +748,7 @@ export async function getEcoResponse({
         contextFlags: context.flags,
         contextMeta: context.meta,
         continuity: context.continuity,
+        interactionId: interactionId ?? undefined,
       },
       analytics: {
         retrieveMode: retrieveDecision.mode,

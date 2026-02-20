@@ -32,7 +32,7 @@ test("runFastLaneLLM substitui resposta genérica por plano personalizado", asyn
     lastMessageId: "msg-1",
     startedAt: Date.now(),
     deps: {
-      claudeClient: async () => ({ content: "Olá! Como posso ajudar?", usage: null, model: "stub" }),
+      claudeClient: async () => ({ content: "Como posso te ajudar?", usage: null, model: "stub" }),
       responseFinalizer: finalizer,
       firstName: (name?: string) => (name ? name.split(/\s+/)[0] : undefined),
     },

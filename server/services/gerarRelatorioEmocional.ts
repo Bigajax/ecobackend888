@@ -91,15 +91,34 @@ function normalizar(valor: number, min: number, max: number): number {
 export async function gerarRelatorioEmocional(userId: string) {
   const emotionStore = await loadEmotionStore();
 
+  // 🔧 FIX: Buscar todas as memórias e filtrar depois (compatibilidade com string/bool/number)
   const { data: memorias, error } = await supabaseAdmin
     .from('memories')
     .select('emocao_principal, dominio_vida, intensidade, created_at, salvar_memoria, tags')
-    .eq('usuario_id', userId)
-    .eq('salvar_memoria', true);
+    .eq('usuario_id', userId);
 
-  if (error || !memorias) throw new Error('Erro ao buscar memórias.');
+  if (error) throw new Error('Erro ao buscar memórias.');
 
-  let significativas = memorias.filter(m => m.intensidade && m.intensidade >= 7);
+  // 📊 Diagnóstico
+  console.log(`[Relatório] Total memórias: ${(memorias || []).length}`);
+
+  // Filtrar manualmente para aceitar true, "true", 1, "1"
+  const memoriasFiltradas = (memorias || []).filter(m => {
+    const salvar = m.salvar_memoria;
+    return salvar === true || salvar === 'true' || salvar === 1 || salvar === '1';
+  });
+
+  console.log(`[Relatório] Memórias após filtro salvar: ${memoriasFiltradas.length}`);
+
+  // 🔧 FIX: Aceitar intensidade >= 5 (ao invés de 7) e normalizar string → número
+  let significativas = memoriasFiltradas.filter(m => {
+    const intensidade = typeof m.intensidade === 'string'
+      ? parseInt(m.intensidade, 10)
+      : m.intensidade;
+    return intensidade && intensidade >= 5; // Reduzido de 7 para 5
+  });
+
+  console.log(`[Relatório] Memórias significativas (intensidade >= 5): ${significativas.length}`);
 
   const agrupadasPorEmocao: Record<string, typeof significativas> = {};
   for (const mem of significativas) {

@@ -189,9 +189,15 @@ async function loadIdentityModulesInternal(): Promise<IdentityModule[]> {
     }
 
     if (availableFiles.size === 0) {
-      const details = { reason: "PROMPT_DIR_EMPTY", searched: PROMPT_DIR_CANDIDATES };
-      markPromptsError("PROMPT_DIR_EMPTY", details);
-      throw buildPromptLoadError(details);
+      // Legacy prompts/ directory not found, but that's okay - new system uses modules.manifest.json
+      log.warn("[identityModules] legacy_prompts_directory_not_found", {
+        reason: "LEGACY_SYSTEM_DISABLED",
+        searched: PROMPT_DIR_CANDIDATES,
+        note: "Using new modules.manifest.json + ModuleStore instead",
+      });
+      // Mark as ready with empty list (graceful degradation)
+      markPromptsReady([]);
+      return [];
     }
 
     const orderedEntries: Array<{ full: string; file: string }> = [...requiredEntries];

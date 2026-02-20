@@ -44,22 +44,40 @@ function blocoEmBranco() {
 // ===== prompt builders =====
 function mkPrompt(enxuto: boolean, mensagemUsuario: string, respostaIa: string) {
   if (enxuto) {
-    return `Retorne SOMENTE este JSON válido, sem comentários e sem markdown:
+    return `Analise a mensagem do usuário abaixo e retorne SOMENTE este JSON válido, sem comentários e sem markdown:
 {"emocao_principal":"","intensidade":0,"tags":[],"dominio_vida":"","padrao_comportamental":"","nivel_abertura":"baixo","categoria":"","analise_resumo":"","tema_recorrente":null,"evolucao_temporal":null,"impacto_resposta_estimado":null,"sugestao_proximo_passo":null,"modo_hibrido_acionado":false,"tipo_referencia":null}
+
+INSTRUÇÕES CRÍTICAS para emocao_principal:
+- Use APENAS estas emoções (case-sensitive): Ansiedade, Frustração, Insegurança, Tristeza, Cansaço, Desejo, Medo, Satisfação, Alegria, Alívio, Solidão, Confusão, Curiosidade, Esperança, Conflito, Culpa, Vazio, Felicidade, Raiva, Calma
+- NUNCA invente emoções novas ou compostas (como "medo de falhar", "cansaço profundo")
+- NUNCA use "Neutro" - sempre escolha a emoção mais próxima da lista acima
+- Se nenhuma emoção clara, use: "Indefinida"
+- Analise: "${mensagemUsuario}"
+
 Baseie no texto do usuário: "${mensagemUsuario}"
-e na resposta da IA: "${respostaIa}"
-Se não souber algum campo, use null, [], "" ou 0.`;
+e na resposta da IA: "${respostaIa}"`;
   }
   return `
-Extraia e retorne apenas o JSON abaixo, sem markdown/comentários.
+Você é um analisador de emoções especializado. Analise CUIDADOSAMENTE a mensagem do usuário e a resposta da IA.
 
-Resposta da IA:
+MENSAGEM DO USUÁRIO (analise a emoção AQUI):
+"""${mensagemUsuario}"""
+
+RESPOSTA DA IA:
 """${respostaIa}"""
 
-Mensagem original:
-"${mensagemUsuario}"
+INSTRUÇÃO CRÍTICA - Use APENAS emoções desta lista:
+- Positivas: Alegria, Felicidade, Satisfação, Alívio, Esperança, Curiosidade, Calma
+- Negativas: Ansiedade, Tristeza, Medo, Frustração, Insegurança, Cansaço, Culpa, Solidão, Vazio, Raiva, Confusão, Conflito
+- Neutras/Mistas: Desejo, Reflexão
+- Se nenhuma se aplica: Indefinida
 
-JSON alvo:
+REGRAS:
+- NUNCA invente emoções novas ou compostas ("medo de falhar" → use "Medo")
+- NUNCA use "Neutro" - escolha a emoção mais próxima da lista
+- Palavras-chave: angustiado/preocupado → Ansiedade, cansado/exausto → Cansaço, inseguro/duvidoso → Insegurança
+
+Retorne apenas este JSON, sem markdown:
 {
   "emocao_principal": "",
   "intensidade": 0,
@@ -107,18 +125,30 @@ export async function gerarBlocoTecnicoSeparado(mensagemUsuario: string, respost
   const fallbackPrompt = mkPrompt(true, mensagemUsuario, respostaIa);
 
   try {
-    // 1) tentativas com os modelos “primários”
+    // 1) tentativas com os modelos "primários"
     for (const model of CANDIDATES_PRIMARY) {
       try {
         const raw = await tryJsonWithModel(model, firstPrompt, 4000);
         if (raw) {
           const m = raw.match(/\{[\s\S]*\}/);
-          if (m) return sanitizeJson(m[0], mensagemUsuario, respostaIa);
+          if (m) {
+            const bloco = sanitizeJson(m[0], mensagemUsuario, respostaIa);
+            if (process.env.ECO_DEBUG === 'true') {
+              console.log(`[blocoTecnico] modelo=${model}, emocao=${bloco.emocao_principal}, intensidade=${bloco.intensidade}`);
+            }
+            return bloco;
+          }
         }
         const raw2 = await tryJsonWithModel(model, fallbackPrompt, 3500);
         if (raw2) {
           const m2 = raw2.match(/\{[\s\S]*\}/);
-          if (m2) return sanitizeJson(m2[0], mensagemUsuario, respostaIa);
+          if (m2) {
+            const bloco = sanitizeJson(m2[0], mensagemUsuario, respostaIa);
+            if (process.env.ECO_DEBUG === 'true') {
+              console.log(`[blocoTecnico] modelo=${model} (fallback), emocao=${bloco.emocao_principal}, intensidade=${bloco.intensidade}`);
+            }
+            return bloco;
+          }
         }
       } catch { /* segue fallback */ }
     }
@@ -129,14 +159,26 @@ export async function gerarBlocoTecnicoSeparado(mensagemUsuario: string, respost
         const raw = await tryJsonWithModel(model, fallbackPrompt, 3500);
         if (raw) {
           const m = raw.match(/\{[\s\S]*\}/);
-          if (m) return sanitizeJson(m[0], mensagemUsuario, respostaIa);
+          if (m) {
+            const bloco = sanitizeJson(m[0], mensagemUsuario, respostaIa);
+            if (process.env.ECO_DEBUG === 'true') {
+              console.log(`[blocoTecnico] modelo_fallback=${model}, emocao=${bloco.emocao_principal}, intensidade=${bloco.intensidade}`);
+            }
+            return bloco;
+          }
         }
       } catch { /* último recurso abaixo */ }
     }
 
     // 3) fallback seguro
+    if (process.env.ECO_DEBUG === 'true') {
+      console.log(`[blocoTecnico] BLOCOBRANCO - nenhum modelo retornou JSON válido`);
+    }
     return blocoEmBranco();
   } catch {
+    if (process.env.ECO_DEBUG === 'true') {
+      console.log(`[blocoTecnico] ERRO - exceção capturada, retornando blocoEmBranco()`);
+    }
     return blocoEmBranco();
   }
 }

@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Teste de Feedback de Meditação</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 800px;
+      margin: 50px auto;
+      padding: 20px;
+      background: #f5f5f5;
+    }
+    .container {
+      background: white;
+      padding: 30px;
+      border-radius: 10px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    }
+    h1 {
+      color: #333;
+      border-bottom: 3px solid #4CAF50;
+      padding-bottom: 10px;
+    }
+    .config-section {
+      background: #f9f9f9;
+      padding: 15px;
+      border-radius: 5px;
+      margin: 20px 0;
+    }
+    label {
+      display: block;
+      margin: 10px 0 5px;
+      font-weight: bold;
+      color: #555;
+    }
+    input, select {
+      width: 100%;
+      padding: 8px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      box-sizing: border-box;
+    }
+    button {
+      background: #4CAF50;
+      color: white;
+      padding: 12px 24px;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+      font-size: 16px;
+      margin: 10px 5px;
+    }
+    button:hover {
+      background: #45a049;
+    }
+    button.negative {
+      background: #f44336;
+    }
+    button.negative:hover {
+      background: #da190b;
+    }
+    .result {
+      margin-top: 20px;
+      padding: 15px;
+      border-radius: 5px;
+      display: none;
+    }
+    .result.success {
+      background: #d4edda;
+      border: 1px solid #c3e6cb;
+      color: #155724;
+      display: block;
+    }
+    .result.error {
+      background: #f8d7da;
+      border: 1px solid #f5c6cb;
+      color: #721c24;
+      display: block;
+    }
+    pre {
+      background: #f4f4f4;
+      padding: 10px;
+      border-radius: 4px;
+      overflow-x: auto;
+    }
+    .checkbox-group {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .checkbox-group label {
+      display: flex;
+      align-items: center;
+      font-weight: normal;
+    }
+    .checkbox-group input[type="checkbox"] {
+      width: auto;
+      margin-right: 8px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🧘 Teste de Feedback de Meditação</h1>
+
+    <div class="config-section">
+      <h3>⚙️ Configuração</h3>
+
+      <label for="backend-url">URL do Backend:</label>
+      <input type="text" id="backend-url" value="http://localhost:3001" placeholder="http://localhost:3001">
+
+      <label for="session-id">Session ID (será gerado automaticamente):</label>
+      <input type="text" id="session-id" readonly>
+
+      <label for="guest-id">Guest ID (será gerado automaticamente):</label>
+      <input type="text" id="guest-id" readonly>
+
+      <button onclick="generateIds()">🔄 Gerar Novos IDs</button>
+    </div>
+
+    <div class="config-section">
+      <h3>📊 Dados da Meditação</h3>
+
+      <label for="meditation-id">Meditation ID:</label>
+      <input type="text" id="meditation-id" value="test_meditation_001">
+
+      <label for="meditation-title">Título:</label>
+      <input type="text" id="meditation-title" value="Meditação de Teste">
+
+      <label for="meditation-duration">Duração (segundos):</label>
+      <input type="number" id="meditation-duration" value="600">
+
+      <label for="meditation-category">Categoria:</label>
+      <input type="text" id="meditation-category" value="mindfulness">
+
+      <label for="actual-play-time">Tempo Real Ouvido (segundos):</label>
+      <input type="number" id="actual-play-time" value="600">
+
+      <label for="completion-percentage">Porcentagem Completada (0-100):</label>
+      <input type="number" id="completion-percentage" value="100" min="0" max="100">
+    </div>
+
+    <div class="config-section" id="negative-reasons-section" style="display:none;">
+      <h3>😞 Motivos do Feedback Negativo</h3>
+      <div class="checkbox-group">
+        <label>
+          <input type="checkbox" name="reason" value="too_long">
+          Muito longo
+        </label>
+        <label>
+          <input type="checkbox" name="reason" value="hard_to_focus">
+          Difícil de focar
+        </label>
+        <label>
+          <input type="checkbox" name="reason" value="voice_music">
+          Problema com voz/música
+        </label>
+        <label>
+          <input type="checkbox" name="reason" value="other">
+          Outro motivo
+        </label>
+      </div>
+    </div>
+
+    <div style="margin: 20px 0;">
+      <button onclick="sendFeedback('positive')">👍 Enviar Feedback Positivo</button>
+      <button class="negative" onclick="showNegativeReasons()">👎 Enviar Feedback Negativo</button>
+    </div>
+
+    <div id="result" class="result"></div>
+  </div>
+
+  <script>
+    // Gerar IDs automaticamente ao carregar
+    window.onload = function() {
+      generateIds();
+    };
+
+    function generateIds() {
+      document.getElementById('session-id').value = crypto.randomUUID();
+      document.getElementById('guest-id').value = crypto.randomUUID();
+    }
+
+    function showNegativeReasons() {
+      const section = document.getElementById('negative-reasons-section');
+      if (section.style.display === 'none') {
+        section.style.display = 'block';
+      } else {
+        sendFeedback('negative');
+      }
+    }
+
+    async function sendFeedback(vote) {
+      const resultDiv = document.getElementById('result');
+      resultDiv.className = 'result';
+      resultDiv.textContent = '⏳ Enviando feedback...';
+      resultDiv.style.display = 'block';
+
+      // Coletar dados
+      const backendUrl = document.getElementById('backend-url').value;
+      const sessionId = document.getElementById('session-id').value;
+      const guestId = document.getElementById('guest-id').value;
+
+      const payload = {
+        vote: vote,
+        meditation_id: document.getElementById('meditation-id').value,
+        meditation_title: document.getElementById('meditation-title').value,
+        meditation_duration_seconds: parseInt(document.getElementById('meditation-duration').value),
+        meditation_category: document.getElementById('meditation-category').value,
+        actual_play_time_seconds: parseInt(document.getElementById('actual-play-time').value),
+        completion_percentage: parseFloat(document.getElementById('completion-percentage').value),
+        pause_count: 0,
+        skip_count: 0,
+        seek_count: 0,
+        feedback_source: 'browser_test'
+      };
+
+      // Se negativo, adicionar reasons
+      if (vote === 'negative') {
+        const checkboxes = document.querySelectorAll('input[name="reason"]:checked');
+        const reasons = Array.from(checkboxes).map(cb => cb.value);
+
+        if (reasons.length === 0) {
+          resultDiv.className = 'result error';
+          resultDiv.innerHTML = '<strong>❌ Erro:</strong> Selecione pelo menos um motivo para feedback negativo.';
+          return;
+        }
+
+        payload.reasons = reasons;
+      }
+
+      console.log('📤 Enviando payload:', payload);
+
+      try {
+        const response = await fetch(`${backendUrl}/api/meditation/feedback`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Session-Id': sessionId,
+            'X-Guest-Id': guestId
+          },
+          body: JSON.stringify(payload)
+        });
+
+        const data = await response.json();
+
+        console.log('📥 Resposta:', data);
+        console.log('Status:', response.status);
+
+        if (response.ok) {
+          resultDiv.className = 'result success';
+          resultDiv.innerHTML = `
+            <strong>✅ Sucesso!</strong><br>
+            <strong>Feedback ID:</strong> ${data.feedback_id}<br>
+            <strong>Mensagem:</strong> ${data.message}<br><br>
+            <strong>Payload enviado:</strong>
+            <pre>${JSON.stringify(payload, null, 2)}</pre>
+            <strong>Resposta completa:</strong>
+            <pre>${JSON.stringify(data, null, 2)}</pre>
+          `;
+        } else {
+          resultDiv.className = 'result error';
+          resultDiv.innerHTML = `
+            <strong>❌ Erro ${response.status}:</strong><br>
+            <strong>Mensagem:</strong> ${data.error || data.message}<br>
+            ${data.details ? `<strong>Detalhes:</strong><ul>${data.details.map(d => `<li>${d}</li>`).join('')}</ul>` : ''}
+            <strong>Payload enviado:</strong>
+            <pre>${JSON.stringify(payload, null, 2)}</pre>
+            <strong>Resposta completa:</strong>
+            <pre>${JSON.stringify(data, null, 2)}</pre>
+          `;
+        }
+      } catch (error) {
+        console.error('❌ Erro de rede:', error);
+        resultDiv.className = 'result error';
+        resultDiv.innerHTML = `
+          <strong>❌ Erro de rede:</strong><br>
+          ${error.message}<br><br>
+          <strong>Possíveis causas:</strong>
+          <ul>
+            <li>Backend não está rodando</li>
+            <li>URL do backend incorreta</li>
+            <li>Problema de CORS</li>
+            <li>Firewall bloqueando a requisição</li>
+          </ul>
+          <strong>Payload que tentou enviar:</strong>
+          <pre>${JSON.stringify(payload, null, 2)}</pre>
+        `;
+      }
+    }
+  </script>
+</body>
+</html>

@@ -1,8 +1,26 @@
 import { log } from "../services/promptContext/logger";
 import type { EcoStreamEvent } from "../services/conversation/types";
-import { extractEventText, sanitizeOutput } from "../utils/textExtractor";
+import { extractEventText } from "../utils/textExtractor";
 import type { SSEConnection } from "../utils/sse";
 import { SseStreamState } from "./sseState";
+
+// Benign finish reasons (não devem ser tratados como erros)
+const BENIGN_FINISH_REASONS = new Set([
+  "stop",
+  "end",
+  "completed",
+  "greeting",
+  "shortcut",
+  "filtered",
+  "stream_done",
+  "fallback_no_stream",
+]);
+
+function isBenignFinishReason(reason: string | null | undefined): boolean {
+  if (!reason) return false;
+  const normalized = reason.trim().toLowerCase();
+  return BENIGN_FINISH_REASONS.has(normalized);
+}
 
 type TelemetryFn = (
   signal: string,
@@ -39,7 +57,6 @@ interface SseEventHandlerOptions {
   recordFirstTokenTelemetry: (chunkBytes: number) => void;
   updateUsageTokens: (meta: any) => void;
   mergeLatencyMarks: (marks?: Record<string, unknown>) => void;
-  buildSummaryFromChunks: (pieces: string[]) => string;
   buildDonePayload: BuildDonePayload;
   finalizeClientMessageReservation: (finishReason?: string | null) => void;
   getResolvedInteractionId: () => string | null | undefined;
@@ -170,13 +187,11 @@ export class SseEventHandlers {
     timings?: Record<string, unknown> | null;
   }) {
     const { finalMeta, donePayload, timings } = options;
-    const summaryText = (() => {
-      if (typeof (donePayload as any)?.content === "string") {
-        return (donePayload as any).content as string;
-      }
-      const fallback = this.options.buildSummaryFromChunks(this.state.contentPieces);
-      return typeof fallback === "string" ? fallback : "";
-    })();
+    const aggregated = this.state.getAggregatedContent();
+    const summaryText =
+      typeof (donePayload as any)?.content === "string"
+        ? ((donePayload as any).content as string)
+        : aggregated;
     const streamId = this.getStreamId();
     const response = {
       messages: [
@@ -342,6 +357,19 @@ export class SseEventHandlers {
     ) {
       return;
     }
+    const normalizedReason = typeof reason === "string" ? reason.trim().toLowerCase() : "";
+    const finishReasonNormalized =
+      typeof this.state.finishReason === "string"
+        ? this.state.finishReason.trim().toLowerCase()
+        : normalizedReason;
+    if (
+      this.state.sawChunk &&
+      (normalizedReason === "stop" || finishReasonNormalized === "stop")
+    ) {
+      this.state.guardFallbackSent = false;
+      this.state.guardFallbackReason = null;
+      return;
+    }
     this.state.markGuardFallback(reason);
     const connection = resolveSseConnection(this.sse, this.options.getSseConnection);
     const canEmitGuard =
@@ -371,8 +399,9 @@ export class SseEventHandlers {
         finishReason: reason || this.state.finishReason || "guard_fallback",
         usage: usageMeta,
       };
+      const summaryText = this.state.getAggregatedContent();
       const donePayload = this.options.buildDonePayload({
-        content: this.options.buildSummaryFromChunks(this.state.contentPieces),
+        content: summaryText.length ? summaryText : null,
         interactionId: this.options.getResolvedInteractionId?.() ?? null,
         tokens: this.state.usageTokens,
         meta: finalMeta,
@@ -396,6 +425,8 @@ export class SseEventHandlers {
 
   sendDone(reason?: string | null) {
     if (this.state.done) return;
+
+    // BACKEND PASSTHROUGH: No buffering, all chunks already sent raw
     this.options.clearFirstTokenWatchdog();
     const nowTs = Date.now();
     this.state.markDone(nowTs);
@@ -414,21 +445,36 @@ export class SseEventHandlers {
     }
 
     if (!this.state.sawChunk && !clientClosed) {
-      if (!this.state.errorEmitted) {
-        this.sendErrorEvent({
-          code: "NO_CHUNKS_EMITTED",
-          message: "Nenhum chunk emitido antes do encerramento",
-          finishReason: finishReason ?? this.state.finishReason ?? "unknown",
+      const resolvedFinishReason = finishReason ?? this.state.finishReason ?? "unknown";
+      const isBenign = isBenignFinishReason(resolvedFinishReason);
+
+      if (isBenign) {
+        // Caso benigno: não emitir erro, apenas log informativo
+        log.info("[ask-eco] benign_no_chunks", {
+          origin: this.options.origin ?? null,
+          clientMessageId: this.options.clientMessageId ?? null,
+          interactionId: this.options.getResolvedInteractionId?.() ?? null,
+          finishReason: resolvedFinishReason,
+          streamId: this.getStreamId(),
+        });
+      } else {
+        // Caso não benigno: emitir erro como antes
+        if (!this.state.errorEmitted) {
+          this.sendErrorEvent({
+            code: "NO_CHUNKS_EMITTED",
+            message: "Nenhum chunk emitido antes do encerramento",
+            finishReason: resolvedFinishReason,
+          });
+        }
+        const interactionId = this.options.getResolvedInteractionId?.() ?? null;
+        log.error("[ask-eco] guard_fallback_missing_chunk", {
+          origin: this.options.origin ?? null,
+          clientMessageId: this.options.clientMessageId ?? null,
+          interactionId,
+          finishReason: this.state.finishReason,
+          streamId: this.getStreamId(),
         });
       }
-      const interactionId = this.options.getResolvedInteractionId?.() ?? null;
-      log.error("[ask-eco] guard_fallback_missing_chunk", {
-        origin: this.options.origin ?? null,
-        clientMessageId: this.options.clientMessageId ?? null,
-        interactionId,
-        finishReason: this.state.finishReason,
-        streamId: this.getStreamId(),
-      });
     }
 
     const finalizeStream = async () => {
@@ -514,7 +560,7 @@ export class SseEventHandlers {
           this.options.sendLatency(latencyPayload);
         }
 
-        const summaryText = this.options.buildSummaryFromChunks(this.state.contentPieces);
+        const summaryText = this.state.getAggregatedContent();
         const streamMetaInteractionId =
           streamMeta?.meta && isRecord(streamMeta.meta)
             ? ((streamMeta.meta as Record<string, unknown>).interaction_id as string | undefined) ?? null
@@ -563,19 +609,39 @@ export class SseEventHandlers {
               });
             }
           } else {
-            const errorPayload = this.buildNoChunkErrorPayload();
-            this.options.setDoneSent(true);
-            this.sendEvent("error", {
-              message: "no_chunks_emitted",
-              details: errorPayload,
-            });
-            log.warn("[ask-eco] sse_no_chunk_ended", {
-              origin: this.options.origin ?? null,
-              clientMessageId: this.options.clientMessageId ?? null,
-              streamId,
-              finishReason: clientFinishReason,
-              providerStatus: (errorPayload as { providerStatus?: number }).providerStatus ?? null,
-            });
+            // Verificar se é caso benigno antes de enviar erro
+            const isBenign = isBenignFinishReason(clientFinishReason);
+
+            if (isBenign) {
+              // Caso benigno: enviar control event em vez de erro
+              this.options.setDoneSent(true);
+              this.sendEvent("control", {
+                name: "no_content",
+                finishReason: clientFinishReason,
+                message: "Nenhum conteúdo retornado (caso benigno)",
+              });
+              log.info("[ask-eco] sse_benign_no_chunk_ended", {
+                origin: this.options.origin ?? null,
+                clientMessageId: this.options.clientMessageId ?? null,
+                streamId,
+                finishReason: clientFinishReason,
+              });
+            } else {
+              // Caso não benigno: enviar erro como antes
+              const errorPayload = this.buildNoChunkErrorPayload();
+              this.options.setDoneSent(true);
+              this.sendEvent("error", {
+                message: "no_chunks_emitted",
+                details: errorPayload,
+              });
+              log.warn("[ask-eco] sse_no_chunk_ended", {
+                origin: this.options.origin ?? null,
+                clientMessageId: this.options.clientMessageId ?? null,
+                streamId,
+                finishReason: clientFinishReason,
+                providerStatus: (errorPayload as { providerStatus?: number }).providerStatus ?? null,
+              });
+            }
           }
         }
 
@@ -624,6 +690,9 @@ export class SseEventHandlers {
         this.options.consoleStreamEnd(Object.keys(endPayload).length ? endPayload : undefined);
 
         const doneValue = clientFinishReason === "completed" ? 1 : 0;
+        const summaryText2 = this.state.getAggregatedContent();
+        const finalTextLen = summaryText2.length;
+
         this.options.onTelemetry(
           "done",
           doneValue,
@@ -635,6 +704,8 @@ export class SseEventHandlers {
             total_latency_ms: totalLatency,
             model: this.state.model ?? undefined,
             saw_chunk: this.state.sawChunk,
+            final_text_len: finalTextLen,
+            is_benign: isBenignFinishReason(clientFinishReason),
           })
         );
       } finally {
@@ -667,16 +738,39 @@ export class SseEventHandlers {
     this.sendDone("idle_timeout");
   }
 
+  // ===== MINIMUM CHUNK SIZE POLICY =====
+  // BACKEND PASSTHROUGH: Removed all buffer/normalization logic
+  // Text from model is sent raw to client without transformation
+
   sendChunk(input: { text: string; index?: number; meta?: Record<string, unknown> }) {
-    if (!input || typeof input.text !== "string") return;
-    if (this.state.clientClosed) {
+    if (!input || typeof input.text !== "string") {
+      if (process.env.ECO_DEBUG === "1" || process.env.ECO_DEBUG === "true") {
+        console.debug("[sendChunk] early return: no input/text");
+      }
       return;
     }
-    const cleaned = sanitizeOutput(input.text);
-    const finalText = cleaned;
-    if (finalText.length === 0) return;
-    if (finalText.trim().toLowerCase() === "ok") {
+    if (this.state.clientClosed) {
+      if (process.env.ECO_DEBUG === "1" || process.env.ECO_DEBUG === "true") {
+        console.debug("[sendChunk] early return: client closed");
+      }
       return;
+    }
+
+    // BACKEND PASSTHROUGH: Send raw text from model without any transformation
+    const text = input.text;
+
+    if (text.length === 0) {
+      if (process.env.ECO_DEBUG === "1" || process.env.ECO_DEBUG === "true") {
+        console.debug("[sendChunk] early return: empty text");
+      }
+      return;
+    }
+
+    // Send raw text directly without buffering or processing
+    const finalText = text;
+
+    if (process.env.ECO_DEBUG === "1" || process.env.ECO_DEBUG === "true") {
+      console.debug("[sendChunk] processing", { textLen: finalText.length, providedIndex: input.index });
     }
 
     this.options.clearEarlyClientAbortTimer();
@@ -712,6 +806,10 @@ export class SseEventHandlers {
     }
 
     if (!this.state.clientClosed) {
+      const sseConnection = this.options.getSseConnection?.();
+      if (process.env.ECO_DEBUG === "1" || process.env.ECO_DEBUG === "true") {
+        console.debug("[sendChunk] calling sendEvent", { hasConnection: !!sseConnection });
+      }
       this.sendEvent(
         "chunk",
         {
@@ -720,6 +818,8 @@ export class SseEventHandlers {
         },
         this.options.getSseConnection
       );
+    } else if (process.env.ECO_DEBUG === "1" || process.env.ECO_DEBUG === "true") {
+      console.debug("[sendChunk] not sending: client closed");
     }
 
     this.hasEmittedChunk = true;

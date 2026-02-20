@@ -14,7 +14,7 @@ type Rng = () => number;
 let currentRng: Rng = () => Math.random();
 
 function createSeededRng(seed?: number): Rng {
-  if (!seed || !Number.isFinite(seed)) {
+  if (seed === undefined || !Number.isFinite(seed)) {
     return () => Math.random();
   }
 

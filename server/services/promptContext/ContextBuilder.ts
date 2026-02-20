@@ -6,6 +6,7 @@ import type { BuildParams, SimilarMemory } from "./contextTypes";
 import type { ContextMeta } from "../../utils/types";
 import { buildInstructionBlocks, renderInstructionBlocks } from "./instructionPolicy";
 import { applyCurrentMessage } from "./promptComposer";
+import ModuleStore, { type EcoManifestEntry, type EcoManifestSnapshot } from "./ModuleStore";
 import { ModuleCatalog } from "./moduleCatalog";
 import { buildContextSections, renderDecBlock } from "./composition/contextSectionsBuilder";
 import { loadIdentitySections } from "./composition/identityInjector";
@@ -26,6 +27,184 @@ import {
   updateDecisionDebug,
   resolveDecisionContext,
 } from "./pipeline/decisionResolver";
+import { buscarMemoriasSemanticas, buscarMemoriasSemanticasComTimeout } from "../supabase/semanticMemoryClient";
+import { formatMemoriesSection, injectMemoriesIntoPrompt, clampTokens } from "./memoryInjector";
+
+const REQUIRED_MANIFEST_IDS = new Set([
+  "identidade_core",
+  "estrutura_resposta",
+  "politica_perguntas",
+  "politica_memoria",
+  "tom_modo",
+  "limites_clinicos",
+]);
+
+type ManifestRuntimeContext = {
+  nivel: 1 | 2 | 3;
+  intensity: number;
+  isVulnerable: boolean;
+  hasContinuity: boolean;
+  hasCrisis: boolean;
+};
+
+type ManifestSelectionResult = {
+  stitched: string;
+  selected: Array<{ entry: EcoManifestEntry; text: string }>;
+  snapshot: EcoManifestSnapshot;
+  dropped: number;
+};
+
+function evaluateActivationCondition(
+  condition: EcoManifestEntry["ativaSe"],
+  ctx: ManifestRuntimeContext
+): boolean {
+  if (!condition) return true;
+
+  if (typeof condition.intensidadeMin === "number" && ctx.intensity < condition.intensidadeMin) {
+    return false;
+  }
+
+  if (
+    typeof condition.vulnerabilidade === "boolean" &&
+    condition.vulnerabilidade !== ctx.isVulnerable
+  ) {
+    return false;
+  }
+
+  if (
+    typeof condition.continuidade === "boolean" &&
+    condition.continuidade !== ctx.hasContinuity
+  ) {
+    return false;
+  }
+
+  if (typeof condition.crise === "boolean" && condition.crise !== ctx.hasCrisis) {
+    return false;
+  }
+
+  if (Array.isArray(condition.todas) && condition.todas.length > 0) {
+    const allPass = condition.todas.every((child) => evaluateActivationCondition(child, ctx));
+    if (!allPass) return false;
+  }
+
+  if (Array.isArray(condition.qualquer) && condition.qualquer.length > 0) {
+    const anyPass = condition.qualquer.some((child) => evaluateActivationCondition(child, ctx));
+    if (!anyPass) return false;
+  }
+
+  return true;
+}
+
+async function loadManifestEntryText(entry: EcoManifestEntry): Promise<{ text: string; source: string } | null> {
+  const fromStore = await ModuleStore.read(entry.path);
+  if (fromStore && fromStore.trim().length > 0) {
+    return { text: fromStore.trim(), source: "asset" };
+  }
+
+  if (typeof entry.conteudo === "string" && entry.conteudo.trim().length > 0) {
+    return { text: entry.conteudo.trim(), source: "inline" };
+  }
+
+  return null;
+}
+
+async function selectManifestModules(
+  snapshot: EcoManifestSnapshot,
+  ctx: ManifestRuntimeContext
+): Promise<ManifestSelectionResult | null> {
+  const level = snapshot.levels.get(ctx.nivel) ?? null;
+  const allowedIds = level ? new Set(level.modulos) : null;
+  const candidates = snapshot.entries.filter((entry) => {
+    if (entry.nivelMin > ctx.nivel || entry.nivelMax < ctx.nivel) return false;
+    if (allowedIds && allowedIds.size > 0 && !allowedIds.has(entry.id) && !REQUIRED_MANIFEST_IDS.has(entry.id)) {
+      return false;
+    }
+    return true;
+  });
+
+  const sorted = candidates.slice().sort((a, b) => {
+    if (a.ordenacao !== b.ordenacao) return a.ordenacao - b.ordenacao;
+    if (a.peso !== b.peso) return b.peso - a.peso;
+    return a.id.localeCompare(b.id);
+  });
+
+  const selected: Array<{ entry: EcoManifestEntry; text: string }> = [];
+  const selectedIds = new Set<string>();
+  const excludedIds = new Set<string>();
+  const maxByLevel = level ? Math.max(level.maxModulos, REQUIRED_MANIFEST_IDS.size) : Math.max(6, REQUIRED_MANIFEST_IDS.size);
+  let dropped = 0;
+
+  for (const entry of sorted) {
+    const isMandatory = REQUIRED_MANIFEST_IDS.has(entry.id);
+    const shouldConsider = isMandatory || evaluateActivationCondition(entry.ativaSe, ctx);
+    if (!shouldConsider) {
+      dropped += 1;
+      continue;
+    }
+
+    if (excludedIds.has(entry.id)) {
+      dropped += 1;
+      continue;
+    }
+
+    if (!isMandatory && selected.length >= maxByLevel) {
+      dropped += 1;
+      continue;
+    }
+
+    const hasConflict = entry.excluiSe.some((target) => selectedIds.has(target));
+    if (hasConflict) {
+      dropped += 1;
+      continue;
+    }
+
+    const loaded = await loadManifestEntryText(entry);
+    if (!loaded) {
+      log.warn("[manifest] missing_asset", { id: entry.id, path: entry.path });
+      dropped += 1;
+      continue;
+    }
+
+    if (loaded.source === "inline") {
+      log.info("[manifest] inline_content", { id: entry.id, path: entry.path });
+    }
+
+    selected.push({ entry, text: loaded.text });
+    selectedIds.add(entry.id);
+    entry.excluiSe.forEach((target) => excludedIds.add(target));
+  }
+
+  if (selected.length === 0) {
+    return null;
+  }
+
+  const stitched = selected
+    .map(({ entry, text }) => {
+      const header = `// ${entry.id}`;
+      return `${header}\n${text}`.trim();
+    })
+    .filter((segment) => segment.length > 0)
+    .join("\n\n");
+
+  return { stitched, selected, snapshot, dropped };
+}
+
+async function buildManifestSelection(
+  ctx: ManifestRuntimeContext
+): Promise<ManifestSelectionResult | null> {
+  const snapshot = await ModuleStore.getManifestSnapshot();
+  if (!snapshot) return null;
+  const selection = await selectManifestModules(snapshot, ctx);
+  if (!selection) return null;
+
+  log.info("[manifest] selection", {
+    nivel: ctx.nivel,
+    selected: selection.selected.length,
+    dropped: selection.dropped,
+  });
+
+  return selection;
+}
 
 export interface ContextBuildResult {
   base: string;
@@ -90,6 +269,33 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
   const heuristicaFlags = mapHeuristicasToFlags(_heuristicas);
   const ecoDecision = decision ?? computeEcoDecision(texto, { heuristicaFlags });
 
+  await ModuleStore.bootstrap();
+  const manifestSelection = await buildManifestSelection({
+    nivel: ecoDecision.openness,
+    intensity: ecoDecision.intensity,
+    isVulnerable: ecoDecision.isVulnerable,
+    hasContinuity,
+    hasCrisis: Boolean(ecoDecision.flags?.crise),
+  });
+
+  if (manifestSelection && activationTracer) {
+    const selectedIds = manifestSelection.selected.map((item) => item.entry.id);
+    selectedIds.forEach((id) => activationTracer.addModule(id, "manifest", "selected"));
+    activationTracer.mergeMetadata({
+      manifest: {
+        nivel: `L${ecoDecision.openness}`,
+        selected: selectedIds,
+        perguntaMax: manifestSelection.snapshot.defaults.perguntaMax ?? null,
+        fluxo: manifestSelection.snapshot.defaults.fluxo ?? null,
+        memoriaPolicy: manifestSelection.snapshot.defaults.registrarMemoriaQuando ?? [],
+        idioma: manifestSelection.snapshot.defaults.idioma ?? null,
+      },
+    });
+    ecoDecision.debug.selectedModules = Array.from(
+      new Set([...(ecoDecision.debug.selectedModules ?? []), ...selectedIds])
+    );
+  }
+
   const identityKey = normalizedUserId || normalizedGuestId || "";
   const decisionContext = resolveDecisionContext({
     ecoDecision,
@@ -137,6 +343,14 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
     modulePipeline;
 
   let stitched = stitchedFromPipeline;
+  if (manifestSelection) {
+    const base = manifestSelection.stitched.trim();
+    const extra = stitchedFromPipeline.trim();
+    stitched = base.length ? base : stitchedFromPipeline;
+    if (base.length && extra.length) {
+      stitched = `${base}\n\n${extra}`;
+    }
+  }
   if (!((contextFlags as any)?.HAS_CONTINUITY)) {
     stitched = stitched.replace(/pe[cç]o desculpas[^.]*mem[oó]ria[^.]*anteriores[^.]*\./gi, "");
     stitched = `[#] Sem continuidade detectada: responda a partir do presente, sem alegar falta de memória.\n\n${stitched}`;
@@ -192,7 +406,55 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
   });
 
   const base = assembly.base;
-  const montarMensagemAtual = (textoAtual: string) => applyCurrentMessage(base, textoAtual);
+  // Inject semantic memories that were already retrieved in parallel fetch
+  let baseWithMemories = base;
+
+  // Use memories from params if available and user is not a guest
+  const isGuestUser = !params.userId || typeof params.userId !== "string" || params.userId.trim().length === 0;
+  const hasMemoriesToInject = Array.isArray(memsSemelhantesNorm) && memsSemelhantesNorm.length > 0;
+
+  if (!isGuestUser && hasMemoriesToInject) {
+    try {
+      if (isDebug()) {
+        log.debug("[ContextBuilder] injecting_semantic_memories", {
+          usuarioId: params.userId,
+          memoryCount: memsSemelhantesNorm.length,
+        });
+      }
+
+      // Convert memories to the format expected by formatMemoriesSection
+      const memoriesFormatted = memsSemelhantesNorm.map((mem: any) => ({
+        id: mem.id || "",
+        texto: mem.resumo_eco || mem.texto || mem.analise_resumo || "",
+        score: typeof mem.similarity === "number" ? mem.similarity : 0.5,
+        tags: Array.isArray(mem.tags) ? mem.tags : [],
+        dominio_vida: mem.dominio_vida || null,
+        created_at: mem.created_at || null,
+      }));
+
+      const memoriesSection = formatMemoriesSection(
+        memoriesFormatted,
+        clampTokens(1500, 2000)
+      );
+
+      if (memoriesSection) {
+        baseWithMemories = injectMemoriesIntoPrompt(base, memoriesSection);
+
+        if (isDebug()) {
+          log.debug("[ContextBuilder] memories_injected", {
+            count: memsSemelhantesNorm.length,
+          });
+        }
+      }
+    } catch (err) {
+      log.warn("[ContextBuilder] memory_injection_failed", {
+        message: err instanceof Error ? err.message : String(err),
+        stack: err instanceof Error ? err.stack : undefined,
+      });
+    }
+  }
+
+  const montarMensagemAtual = (textoAtual: string) => applyCurrentMessage(baseWithMemories, textoAtual);
 
   const promptComTexto = assembly.promptWithText;
 
@@ -229,7 +491,7 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
     });
   }
 
-  return { base, montarMensagemAtual };
+  return { base: baseWithMemories, montarMensagemAtual };
 }
 
 export const __internals = {

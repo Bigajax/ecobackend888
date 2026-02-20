@@ -73,6 +73,7 @@ export function detectarSaudacaoBreve(texto?: string): boolean {
 function isIntense(text: string): boolean {
   const t = text.toLowerCase();
   const gatilhos = [
+    // Crisis patterns
     /p[aâ]nico/,
     /crise/,
     /desesper/,
@@ -81,6 +82,27 @@ function isIntense(text: string): boolean {
     /explod/,
     /taquicard|batimentos/i,
     /ansiedad|ang[uú]st/i,
+
+    // Emotional intensity markers
+    /muito\s+(triste|ansioso|assustado|furioso|frustrado|vazio|sozinho|perdido|confuso)/i,
+    /tristeza?\s+(pesada|profunda|intensa|avassaladora)/i,
+    /me sinto\s+(terrível|horrível|pior|muito mal|tão mal|mal demais|péssimo)/i,
+    /estou\s+(muito\s+)?(triste|angustiado|desesperado|devastado|arrasado|arruinado|destruído)/i,
+    /n[aã]o (aguento|consigo|resistro|funciono|gosto|confio)/i,
+    /tudo (?:est[aá]|é)\s+(errado|ruim|péssimo|horrível|impossível|vazio)/i,
+
+    // Vulnerability markers
+    /sinto\s+(?:muito\s+)?(fraco|impotente|inadequado|fracasso|incapaz|inútil|insignificante)/i,
+    /me(?:u|a)?\s+(?:culpa|medo|vergonha|vazio|vácuo|escuridão)/i,
+    /n[aã]o\s+(?:consigo|conseguir|aguento|merec)/i,
+
+    // Work/relationship stress
+    /trabalho.{0,50}(triste|angustia|frustra|estressa|preocupa|infeliz|mal)/i,
+    /relacionamento.{0,50}(acabou|terminou|t[óo]xic|machuca|dói|sofr)/i,
+
+    // Emotional markers
+    /[!]{2,}|[\?]{2,}/,  // Multiple exclamation or question marks
+    /(muito|demais|d+emais)\s+(\w+\s+){0,2}(mal|ruim|horrível|péssimo|pior)/i,
   ];
   const longo = t.length >= 180;
   return longo || gatilhos.some((r) => r.test(t));
@@ -88,9 +110,59 @@ function isIntense(text: string): boolean {
 
 export function estimarIntensidade0a10(text: string): number {
   if (!text.trim()) return 0;
-  const base = isIntense(text) ? 7 : 3;
-  const extra = Math.min(3, Math.floor(text.length / 200));
-  return Math.max(0, Math.min(10, base + extra));
+
+  const t = text.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  let intensity = 0;
+
+  // Primary emotion detection (high weight)
+  const primaryEmotions = [
+    /triste(za)?|tristonho|melancol/,
+    /depress[aã]o?|depressivo/,
+    /ansiedade?|ansiedad|angustiado?/,
+    /medo|assustado?|apavorado?/,
+    /raiva|raivoso?|furioso?|irritado?|revoltado?/,
+    /frustra[cç][aã]o?|frustrado?/,
+    /culpa|culpado?|remorso/,
+    /vergonha|envergonhado?|humilhado?/,
+    /solidao|sozinho|isolado?/,
+    /desesper|desesperado?/,
+  ];
+
+  const primaryMatch = primaryEmotions.some(r => r.test(t));
+  if (primaryMatch) intensity += 5;
+
+  // Intensity modifiers (add to base)
+  const intensifiers = [
+    /muito\s+(triste|angustia|assusta|furioso|frustrado|vazio|sozinho|deprimido)/,
+    /demais|d+emais/,
+    /pesada|profunda|intensa|avassaladora/,
+    /n[aã]o\s+aguento|n[aã]o\s+consigo|insupor(t|tavel)/,
+    /tudo\s+(?:esta|é)\s+(errado|ruim|pessimo|horrivel|impossivel|vazio)/,
+  ];
+
+  const intensifierCount = intensifiers.filter(r => r.test(t)).length;
+  intensity += Math.min(2, intensifierCount);
+
+  // Length bonus (longer emotional text = more intense)
+  const textLength = text.trim().length;
+  if (textLength >= 100) intensity += 1;
+  if (textLength >= 200) intensity += 1;
+
+  // Punctuation markers
+  if (/[!]{2,}/.test(t)) intensity += 1;  // Multiple exclamation marks
+  if (/\.\.\.|…/.test(t)) intensity += 1;  // Ellipsis (hesitation, emotion)
+
+  // Work/relationship context (adds context but not primary intensity)
+  if (/trabalho|carreira|emprego|chefe|colega/.test(t) && primaryMatch) intensity += 1;
+  if (/relacionamento|namorad|parceiro|casamento|familia/.test(t) && primaryMatch) intensity += 1;
+
+  // Floor baseline: if no emotional detection, still assign baseline
+  if (intensity === 0) {
+    intensity = isIntense(text) ? 7 : 3;
+  }
+
+  // Cap at 10
+  return Math.max(0, Math.min(10, intensity));
 }
 
 export function derivarNivel(texto: string, saudacaoBreve: boolean): 1 | 2 | 3 {

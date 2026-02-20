@@ -56,6 +56,7 @@ export class SseStreamState {
   guardFallbackSent = false;
   guardFallbackReason: string | null = null;
   errorEmitted = false;
+  private contentBuffer = "";
 
   constructor() {
     const now = Date.now();
@@ -196,6 +197,8 @@ export class SseStreamState {
     this.chunksCount = Math.max(this.chunksCount, chunkIndex + 1);
     this.bytesCount = totalBytes;
     this.contentPieces.push(text);
+    // Concat directly (normalizeOpenRouterText already handles spacing within deltas)
+    this.contentBuffer += text;
 
     return { chunkIndex, chunkBytes, totalBytes, firstChunk, timestamp: now };
   }
@@ -293,5 +296,9 @@ export class SseStreamState {
 
   setModel(value: string) {
     this.model = value;
+  }
+
+  getAggregatedContent(): string {
+    return this.contentBuffer;
   }
 }

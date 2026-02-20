@@ -1,0 +1,143 @@
+#!/usr/bin/env node
+/**
+ * build-manifest.cjs
+ * Builds asset manifests from active-modules.json
+ * - Reads active modules list
+ * - Resolves paths, collects metadata (bytes, mtime)
+ * - Generates MANIFEST.json and modules.manifest.json
+ * - Creates retrocompatible mirrors for legacy paths
+ */
+
+const fs = require('fs');
+const path = require('path');
+
+// Paths
+const assetsRoot = path.dirname(path.dirname(__filename)); // assets/
+const configFile = path.join(assetsRoot, 'config', 'active-modules.json');
+const manifestFile = path.join(assetsRoot, 'MANIFEST.json');
+const modulesManifestFile = path.join(assetsRoot, 'modules.manifest.json');
+
+// Ensure config file exists
+if (!fs.existsSync(configFile)) {
+  console.error(`❌ Config file not found: ${configFile}`);
+  process.exit(1);
+}
+
+// Load active modules config
+let config;
+try {
+  config = JSON.parse(fs.readFileSync(configFile, 'utf8'));
+} catch (e) {
+  console.error(`❌ Failed to parse ${configFile}: ${e.message}`);
+  process.exit(1);
+}
+
+const activeModules = config.active || [];
+console.log(`📦 Processing ${activeModules.length} active modules...`);
+
+// Track manifests
+const manifestItems = [];
+const modulesManifestItems = [];
+
+/**
+ * Determine family: "core" or "extra"
+ */
+function determineFamily(modulePath) {
+  if (modulePath.startsWith('modulos_core/')) {
+    return 'core';
+  }
+  return 'extra';
+}
+
+/**
+ * Estimate average tokens (simple heuristic: bytes / 4)
+ */
+function estimateTokens(bytes) {
+  return Math.max(0, Math.floor(bytes / 4));
+}
+
+/**
+ * Determine size category: S (small), M (medium), L (large)
+ * S: < 1500 bytes
+ * M: 1500-5000 bytes
+ * L: > 5000 bytes
+ */
+function determineSize(bytes) {
+  if (bytes < 1500) return 'S';
+  if (bytes < 5000) return 'M';
+  return 'L';
+}
+
+// Process each active module
+for (const modulePath of activeModules) {
+  const fullPath = path.join(assetsRoot, modulePath);
+
+  // Check file exists
+  if (!fs.existsSync(fullPath)) {
+    console.warn(`⚠️  Module not found: ${modulePath}`);
+    continue;
+  }
+
+  // Get file stats
+  let stats;
+  try {
+    stats = fs.statSync(fullPath);
+  } catch (e) {
+    console.warn(`⚠️  Failed to stat ${modulePath}: ${e.message}`);
+    continue;
+  }
+
+  const bytes = stats.size;
+  const mtime = stats.mtime.toISOString();
+
+  // Add to MANIFEST.json
+  manifestItems.push({
+    path: modulePath,
+    bytes,
+    mtime,
+  });
+
+  // Build modules.manifest.json entry
+  const basename = path.basename(modulePath, '.txt').toLowerCase();
+  const family = determineFamily(modulePath);
+  const tokens_avg = estimateTokens(bytes);
+  const size = determineSize(bytes);
+
+  modulesManifestItems.push({
+    id: basename,
+    family,
+    role: 'instruction', // Must be: instruction | context | toolhint
+    tokens_avg,
+    size,
+  });
+
+  console.log(`✓ ${modulePath} (${bytes} bytes, ${family})`);
+}
+
+// Write MANIFEST.json
+try {
+  fs.writeFileSync(
+    manifestFile,
+    JSON.stringify({ items: manifestItems }, null, 2),
+    'utf8'
+  );
+  console.log(`\n✅ Generated: ${path.relative(process.cwd(), manifestFile)}`);
+} catch (e) {
+  console.error(`❌ Failed to write MANIFEST.json: ${e.message}`);
+  process.exit(1);
+}
+
+// Write modules.manifest.json
+try {
+  fs.writeFileSync(
+    modulesManifestFile,
+    JSON.stringify({ version: '2', modules: modulesManifestItems }, null, 2),
+    'utf8'
+  );
+  console.log(`✅ Generated: ${path.relative(process.cwd(), modulesManifestFile)}`);
+} catch (e) {
+  console.error(`❌ Failed to write modules.manifest.json: ${e.message}`);
+  process.exit(1);
+}
+
+console.log(`\n✅ Build complete: ${activeModules.length} active modules processed`);
