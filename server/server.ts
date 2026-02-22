@@ -64,6 +64,28 @@ function countFilesSync(dir: string): number {
   return total;
 }
 
+function assertRequiredEnvVars() {
+  const required = [
+    "SUPABASE_URL",
+    "SUPABASE_SERVICE_ROLE_KEY",
+    "OPENROUTER_API_KEY",
+  ] as const;
+
+  const missing = required.filter((v) => !process.env[v]);
+  if (missing.length > 0) {
+    for (const v of missing) {
+      log.error("missing_required_env_var", { var: v });
+    }
+    process.exit(1);
+  }
+
+  if (!process.env.MP_ACCESS_TOKEN) {
+    log.warn("mp_access_token_not_set", {
+      note: "Payment features will be unavailable",
+    });
+  }
+}
+
 function assertRequiredModules() {
   const assetsInfo = describeAssetsRoot();
   const primaryRoot = path.resolve(assetsInfo.root);
@@ -133,6 +155,7 @@ function assertRequiredModules() {
 }
 
 async function start() {
+  assertRequiredEnvVars();
   assertRequiredModules();
   await configureModuleStore();
   const moduleStats = ModuleCatalog.stats();

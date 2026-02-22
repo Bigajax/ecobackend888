@@ -185,7 +185,11 @@ export class MemoryController {
     const limiteParam = (req.query.limite ?? req.query.limit) as
       | string
       | undefined;
-    const limit = Math.max(0, Number(limiteParam ?? 0)) || undefined;
+    const limitParsed = Number(limiteParam ?? 0);
+    const limit =
+      Number.isNaN(limitParsed) || limitParsed <= 0
+        ? undefined
+        : Math.min(limitParsed, 200);
 
     let tags: string[] = [];
     const queryTags = req.query.tags;
