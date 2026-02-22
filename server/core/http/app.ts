@@ -72,6 +72,16 @@ const RATE_LIMIT_EXCLUSIONS = new Set(["/", "/healthz", "/readyz", "/debug/modul
 type RateBucket = { count: number; resetAt: number };
 const rateBuckets = new Map<string, RateBucket>();
 
+// Sweep expired buckets once per window to prevent unbounded Map growth
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, bucket] of rateBuckets) {
+    if (bucket.resetAt <= now) {
+      rateBuckets.delete(key);
+    }
+  }
+}, RATE_LIMIT_WINDOW_MS).unref();
+
 function hashToken(token: string): string {
   return createHash("sha256").update(token).digest("hex").slice(0, 32);
 }
