@@ -410,8 +410,12 @@ export class MercadoPagoService {
       hmac.update(manifest);
       const computedHash = hmac.digest("hex");
 
-      // Compare hashes
-      const isValid = computedHash === v1;
+      // Constant-time comparison to prevent timing attacks
+      const computedBuffer = Buffer.from(computedHash);
+      const v1Buffer = Buffer.from(v1);
+      const isValid =
+        computedBuffer.length === v1Buffer.length &&
+        crypto.timingSafeEqual(computedBuffer, v1Buffer);
 
       if (!isValid) {
         logger.warn("webhook_signature_mismatch", {
