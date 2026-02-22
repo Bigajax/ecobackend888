@@ -69,20 +69,20 @@ function assertRequiredModules() {
   const primaryRoot = path.resolve(assetsInfo.root);
 
   if (fs.existsSync(path.resolve(process.cwd(), "assets"))) {
-    console.warn("[boot] legacy_assets_detected", { legacyRoot: path.resolve(process.cwd(), "assets") });
+    log.warn("legacy_assets_detected", { legacyRoot: path.resolve(process.cwd(), "assets") });
   }
 
   const rootExists = assetsInfo.exists && fs.existsSync(primaryRoot) && fs.statSync(primaryRoot).isDirectory();
   const filesCount = rootExists ? countFilesSync(primaryRoot) : 0;
 
-  console.info("[boot] assets_root_resolved", {
+  log.info("assets_root_resolved", {
     root: primaryRoot,
     exists: rootExists,
     files: filesCount,
   });
 
   if (!rootExists || filesCount <= 0) {
-    console.error("[boot] assets_root_unavailable", {
+    log.error("assets_root_unavailable", {
       root: primaryRoot,
       exists: rootExists,
       files: filesCount,
@@ -101,7 +101,7 @@ function assertRequiredModules() {
 
   if (missing.length > 0) {
     for (const entry of missing) {
-      console.error("[boot] required_module_missing", entry);
+      log.error("required_module_missing", entry);
     }
     process.exit(1);
   }
@@ -116,14 +116,14 @@ function assertRequiredModules() {
       bytes = Buffer.byteLength(content, "utf-8");
       hadContent = content.trim().length > 0;
     } catch (error) {
-      console.error("[boot] required_module_read_failed", {
+      log.error("required_module_read_failed", {
         file: relativeFile,
         root: primaryRoot,
         message: error instanceof Error ? error.message : String(error),
       });
     }
 
-    console.info("[boot] required_module_ok", {
+    log.info("required_module_ok", {
       file: relativeFile,
       root: fullPath,
       hadContent,
@@ -137,12 +137,12 @@ async function start() {
   await configureModuleStore();
   const moduleStats = ModuleCatalog.stats();
   if (moduleStats.indexedCount > 0) {
-    console.info("[boot] module_index_ready", {
+    log.info("module_index_ready", {
       roots: moduleStats.roots,
       indexedCount: moduleStats.indexedCount,
     });
   } else {
-    console.error("[boot] module_index_empty", {
+    log.error("module_index_empty", {
       roots: moduleStats.roots,
       indexedCount: moduleStats.indexedCount,
     });
