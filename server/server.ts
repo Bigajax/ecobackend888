@@ -28,7 +28,7 @@ import { ModuleCatalog } from "./domains/prompts/ModuleCatalog";
 import registrarTodasHeuristicas from "./services/registrarTodasHeuristicas";
 import registrarModulosFilosoficos from "./services/registrarModulosFilosoficos";
 import { log } from "./services/promptContext/logger";
-import { startBanditRewardSyncScheduler } from "./services/banditRewardsSync";
+import { startBanditRewardSyncScheduler, stopBanditRewardSyncScheduler } from "./services/banditRewardsSync";
 import { analyticsClientMode } from "./services/supabaseClient";
 import { ensureEcoIdentityPromptAvailability } from "./services/promptContext/identityModules";
 import { describeAssetsRoot } from "./src/utils/assetsRoot";
@@ -150,8 +150,22 @@ async function start() {
   await ensureEcoIdentityPromptAvailability();
   startBanditRewardSyncScheduler();
 
+  // Initialize optional modules BEFORE listening to avoid race condition
+  try {
+    if (process.env.REGISTRAR_HEURISTICAS === "true") {
+      await registrarTodasHeuristicas();
+      log.info("🎯 Heurísticas registradas.");
+    }
+    if (process.env.REGISTRAR_FILOSOFICOS === "true") {
+      await registrarModulosFilosoficos();
+      log.info("🧘 Módulos filosóficos registrados.");
+    }
+  } catch (error: any) {
+    log.error("Falha ao registrar recursos iniciais:", { message: error?.message, stack: error?.stack });
+  }
+
   const PORT = Number(process.env.PORT || 3001);
-  app.listen(PORT, async () => {
+  const server = app.listen(PORT, () => {
     log.info(`Servidor Express rodando na porta ${PORT}`);
     log.info("CORS allowlist:", getConfiguredCorsOrigins());
     log.info("Boot", {
@@ -160,21 +174,26 @@ async function start() {
       NODE_ENV: process.env.NODE_ENV ?? "(unset)",
       analyticsClientMode,
     });
-    console.info("[boot] paths", { cwd: process.cwd(), dirname: __dirname });
-
-    try {
-      if (process.env.REGISTRAR_HEURISTICAS === "true") {
-        await registrarTodasHeuristicas();
-        log.info("🎯 Heurísticas registradas.");
-      }
-      if (process.env.REGISTRAR_FILOSOFICOS === "true") {
-        await registrarModulosFilosoficos();
-        log.info("🧘 Módulos filosóficos registrados.");
-      }
-    } catch (error: any) {
-      log.error("Falha ao registrar recursos iniciais:", { message: error?.message, stack: error?.stack });
-    }
+    log.info("[boot] paths", { cwd: process.cwd(), dirname: __dirname });
   });
+
+  // Graceful shutdown: stop accepting new connections, drain existing ones
+  const shutdown = (signal: string) => {
+    log.info(`[shutdown] ${signal} received — shutting down gracefully`);
+    stopBanditRewardSyncScheduler();
+    server.close(() => {
+      log.info("[shutdown] HTTP server closed");
+      process.exit(0);
+    });
+    // Force-kill after 10s if connections don't drain
+    setTimeout(() => {
+      log.error("[shutdown] Forced shutdown after 10s timeout");
+      process.exit(1);
+    }, 10_000).unref();
+  };
+
+  process.on("SIGTERM", () => shutdown("SIGTERM"));
+  process.on("SIGINT",  () => shutdown("SIGINT"));
 }
 
 process.on("unhandledRejection", (reason: any) => {

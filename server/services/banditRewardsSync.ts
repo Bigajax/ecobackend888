@@ -236,3 +236,10 @@ export function startBanditRewardSyncScheduler() {
   ensureInterval();
   requestBanditRewardSync("startup");
 }
+
+export function stopBanditRewardSyncScheduler() {
+  if (intervalHandle) {
+    clearInterval(intervalHandle);
+    intervalHandle = null;
+  }
+}
