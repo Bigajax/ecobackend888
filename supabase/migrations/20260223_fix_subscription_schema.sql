@@ -11,6 +11,7 @@
 -- ============================================================================
 
 ALTER TABLE public.usuarios
+  ADD COLUMN IF NOT EXISTS updated_at              TIMESTAMPTZ DEFAULT NOW(),
   ADD COLUMN IF NOT EXISTS access_until            TIMESTAMPTZ,
   ADD COLUMN IF NOT EXISTS current_period_end      TIMESTAMPTZ,
   ADD COLUMN IF NOT EXISTS trial_start_date        TIMESTAMPTZ,
