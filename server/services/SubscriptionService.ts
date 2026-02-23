@@ -359,6 +359,9 @@ export class SubscriptionService {
         }
       } else {
         updateData.plan_type = planType;
+        // Limpar datas de trial ao transitar para plano pago real
+        updateData.trial_start_date = null;
+        updateData.trial_end_date = null;
       }
 
       // Add payment details if provided
