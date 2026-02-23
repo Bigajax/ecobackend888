@@ -105,10 +105,12 @@ CREATE INDEX IF NOT EXISTS idx_payments_status
 -- RLS
 ALTER TABLE public.payments ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "payments_select_own" ON public.payments;
 CREATE POLICY "payments_select_own" ON public.payments
   FOR SELECT
   USING (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "payments_service_role_all" ON public.payments;
 CREATE POLICY "payments_service_role_all" ON public.payments
   FOR ALL
   USING (auth.role() = 'service_role');
@@ -144,6 +146,7 @@ CREATE INDEX IF NOT EXISTS idx_webhook_logs_received_at_desc
 -- RLS
 ALTER TABLE public.webhook_logs ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "webhook_logs_service_role_all" ON public.webhook_logs;
 CREATE POLICY "webhook_logs_service_role_all" ON public.webhook_logs
   FOR ALL
   USING (auth.role() = 'service_role');
