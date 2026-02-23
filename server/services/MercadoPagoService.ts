@@ -232,10 +232,10 @@ export class MercadoPagoService {
           items: [
             {
               id: "annual_subscription",
-              title: "Assinatura Premium ECO - Anual",
-              description: "Acesso ilimitado ao ECO por 1 ano",
+              title: "Assinatura Premium ECO - Anual (50% OFF)",
+              description: "Acesso ilimitado ao ECO por 1 ano - Oferta especial",
               quantity: 1,
-              unit_price: 299.0,
+              unit_price: 149.0,
               currency_id: "BRL",
             },
           ],

@@ -311,8 +311,8 @@ function extractPlanType(payment: any): "essentials" | "monthly" | "annual" {
 
   // Fallback: inferir pelo valor
   const amount = payment.transaction_amount as number;
-  if (amount >= 200) {
-    return "annual"; // R$ 299
+  if (amount >= 100) {
+    return "annual"; // R$ 149
   } else if (amount >= 20) {
     return "monthly"; // R$ 29.90
   } else {
