@@ -16,6 +16,32 @@ const logger = log.withContext("webhook-controller");
  *
  * Handles annual subscription payments (one-time)
  */
+async function processProductEntitlement(paymentId: string, payment: any): Promise<void> {
+  const supabase = ensureSupabaseConfigured();
+  const extRef = payment.external_reference as string;
+
+  const status = payment.status === "approved" ? "active" : "pending";
+
+  const { error } = await supabase.from("entitlements").upsert(
+    {
+      external_reference: extRef,
+      product_key: "protocolo_sono_7_noites",
+      status,
+      payment_id: String(paymentId),
+      email: payment.payer?.email ?? null,
+      utm_data: payment.metadata?.utm ?? null,
+    },
+    { onConflict: "external_reference" }
+  );
+
+  if (error) {
+    logger.error("entitlement_upsert_failed", { paymentId, extRef, error: error.message });
+    throw error;
+  }
+
+  logger.info("product_entitlement_upserted", { paymentId, extRef, status });
+}
+
 async function processPaymentEvent(paymentId: string): Promise<void> {
   const mpService = getMercadoPagoService();
   const subService = getSubscriptionService();
@@ -32,7 +58,16 @@ async function processPaymentEvent(paymentId: string): Promise<void> {
       return;
     }
 
-    const userId = payment.external_reference;
+    const extRef = payment.external_reference ?? "";
+
+    // ── Produto avulso (Protocolo Sono) ──────────────────────────────────────
+    if (extRef.startsWith("sono_")) {
+      await processProductEntitlement(paymentId, payment);
+      return;
+    }
+
+    // ── Assinatura recorrente (código original) ───────────────────────────────
+    const userId = extRef;
 
     if (!userId) {
       logger.warn("payment_missing_external_reference", { paymentId });

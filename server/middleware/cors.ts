@@ -3,7 +3,9 @@ import type { NextFunction, Request, Response } from "express";
 const DEFAULT_EXACT_ALLOWLIST = [
   "https://ecofrontend888.vercel.app",
   "http://localhost:5173",
+  "http://localhost:5174",  // landing Protocolo-Sono (Vite default alt port)
   "http://localhost:4173",
+  "http://localhost:4174",
 ];
 
 const DEFAULT_REGEX_ALLOWLIST = [/^https:\/\/[a-z0-9-]+\.vercel\.app$/];
