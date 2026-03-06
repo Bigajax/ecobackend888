@@ -35,6 +35,7 @@
     "express": "^5.1.0",
     "mercadopago": "^2.12.0",
     "natural": "^8.1.0",
+    "resend": "^6.9.3",
     "zod": "^4.1.11"
   }
 }

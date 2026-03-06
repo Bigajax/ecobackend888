@@ -8,6 +8,7 @@ import {
   trackPaymentFailed,
   trackSubscriptionCreated,
 } from "../services/mixpanel";
+import { sendSonoWelcomeEmail } from "../services/EmailService";
 
 const logger = log.withContext("webhook-controller");
 
@@ -40,6 +41,18 @@ async function processProductEntitlement(paymentId: string, payment: any): Promi
   }
 
   logger.info("product_entitlement_upserted", { paymentId, extRef, status });
+
+  // Enviar e-mail de boas-vindas apenas para pagamentos aprovados
+  if (status === "active") {
+    const payerEmail = payment.payer?.email as string | undefined;
+    const appUrl = process.env.APP_URL || "https://ecofrontend888.vercel.app";
+
+    if (payerEmail) {
+      await sendSonoWelcomeEmail({ to: payerEmail, externalReference: extRef, appUrl });
+    } else {
+      logger.warn("sono_welcome_email_skipped_no_email", { paymentId, extRef });
+    }
+  }
 }
 
 async function processPaymentEvent(paymentId: string): Promise<void> {
