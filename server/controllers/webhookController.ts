@@ -42,15 +42,38 @@ async function processProductEntitlement(paymentId: string, payment: any): Promi
 
   logger.info("product_entitlement_upserted", { paymentId, extRef, status });
 
-  // Enviar e-mail de boas-vindas apenas para pagamentos aprovados
+  // Enviar e-mail de boas-vindas — apenas quando aprovado e ainda não enviado.
+  // O guard em welcome_email_sent_at protege contra:
+  //   • Retentativas do MP com event_id diferente (payment.created → payment.updated)
+  //   • Pix/boleto: webhook dispara duas vezes (pending e depois approved)
   if (status === "active") {
-    const payerEmail = payment.payer?.email as string | undefined;
-    const appUrl = process.env.APP_URL || "https://ecofrontend888.vercel.app";
+    const { data: current } = await supabase
+      .from("entitlements")
+      .select("welcome_email_sent_at, email")
+      .eq("external_reference", extRef)
+      .maybeSingle();
 
-    if (payerEmail) {
-      await sendSonoWelcomeEmail({ to: payerEmail, externalReference: extRef, appUrl });
+    const alreadySent = !!current?.welcome_email_sent_at;
+
+    if (alreadySent) {
+      logger.info("sono_welcome_email_already_sent", { paymentId, extRef });
     } else {
-      logger.warn("sono_welcome_email_skipped_no_email", { paymentId, extRef });
+      const payerEmail = (current?.email ?? payment.payer?.email) as string | undefined;
+      const appUrl = process.env.APP_URL || "https://ecofrontend888.vercel.app";
+
+      if (payerEmail) {
+        await sendSonoWelcomeEmail({ to: payerEmail, externalReference: extRef, appUrl });
+
+        // Marcar como enviado para evitar duplicatas em futuros webhooks
+        await supabase
+          .from("entitlements")
+          .update({ welcome_email_sent_at: new Date().toISOString() })
+          .eq("external_reference", extRef);
+
+        logger.info("sono_welcome_email_sent_and_marked", { paymentId, extRef, to: payerEmail });
+      } else {
+        logger.warn("sono_welcome_email_skipped_no_email", { paymentId, extRef });
+      }
     }
   }
 }
