@@ -43,33 +43,26 @@ async function processProductEntitlement(paymentId: string, payment: any): Promi
   logger.info("product_entitlement_upserted", { paymentId, extRef, status });
 
   // Enviar e-mail de boas-vindas — apenas quando aprovado e ainda não enviado.
-  // O guard em welcome_email_sent_at protege contra:
-  //   • Retentativas do MP com event_id diferente (payment.created → payment.updated)
-  //   • Pix/boleto: webhook dispara duas vezes (pending e depois approved)
+  // Guard atômico: UPDATE WHERE welcome_email_sent_at IS NULL garante que apenas
+  // um webhook "vence" mesmo quando o MP dispara dois em paralelo
+  // (payment.created → payment.updated, ou Pix pending → approved).
   if (status === "active") {
-    const { data: current } = await supabase
+    const { data: claimed } = await supabase
       .from("entitlements")
-      .select("welcome_email_sent_at, email")
+      .update({ welcome_email_sent_at: new Date().toISOString() })
       .eq("external_reference", extRef)
+      .is("welcome_email_sent_at", null)
+      .select("email")
       .maybeSingle();
 
-    const alreadySent = !!current?.welcome_email_sent_at;
-
-    if (alreadySent) {
+    if (!claimed) {
       logger.info("sono_welcome_email_already_sent", { paymentId, extRef });
     } else {
-      const payerEmail = (current?.email ?? payment.payer?.email) as string | undefined;
+      const payerEmail = (claimed.email ?? payment.payer?.email) as string | undefined;
       const appUrl = process.env.APP_URL || "https://ecofrontend888.vercel.app";
 
       if (payerEmail) {
         await sendSonoWelcomeEmail({ to: payerEmail, externalReference: extRef, appUrl });
-
-        // Marcar como enviado para evitar duplicatas em futuros webhooks
-        await supabase
-          .from("entitlements")
-          .update({ welcome_email_sent_at: new Date().toISOString() })
-          .eq("external_reference", extRef);
-
         logger.info("sono_welcome_email_sent_and_marked", { paymentId, extRef, to: payerEmail });
       } else {
         logger.warn("sono_welcome_email_skipped_no_email", { paymentId, extRef });

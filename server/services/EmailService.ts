@@ -182,8 +182,9 @@ export async function sendSonoWelcomeEmail(params: {
   try {
     const resend = getResendClient();
 
+    const fromAddress = process.env.RESEND_FROM_EMAIL || "onboarding@resend.dev";
     const { error } = await resend.emails.send({
-      from: "Ecotopia <onboarding@resend.dev>",
+      from: `Ecotopia <${fromAddress}>`,
       replyTo: "ecotopia.app777@gmail.com",
       to,
       subject: "🌙 Seu Protocolo Sono Profundo está pronto — acesse agora",
