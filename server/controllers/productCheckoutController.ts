@@ -52,7 +52,7 @@ function buildExternalReference(prefix: string): string {
  */
 export async function createProductPreference(req: Request, res: Response) {
   try {
-    const { productKey, origin, utm } = req.body ?? {};
+    const { productKey, origin, utm, siteUrl } = req.body ?? {};
 
     const product = ALLOWED_PRODUCTS[productKey as string];
     if (!product) {
@@ -69,7 +69,7 @@ export async function createProductPreference(req: Request, res: Response) {
       return res.status(500).json({ error: "INTERNAL_ERROR", message: "Configuração de pagamento ausente" });
     }
 
-    const appUrl = process.env.APP_URL || "https://ecotopia.com";
+    const appUrl = siteUrl || process.env.APP_URL || "https://ecotopia.com";
     const backendUrl = process.env.BACKEND_URL || "https://ecobackend888.onrender.com";
     const webhookUrl = process.env.WEBHOOK_URL || `${backendUrl}/api/webhooks/mercadopago`;
 
