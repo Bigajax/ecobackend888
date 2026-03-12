@@ -5,17 +5,46 @@ import { log } from "../services/promptContext/logger";
 
 const logger = log.withContext("product-checkout-controller");
 
-const PRODUCT_KEY = "protocolo_sono_7_noites";
+interface ProductConfig {
+  title: string;
+  description: string;
+  price: number;
+  externalRefPrefix: string;
+  successPath: string;
+  failurePath: string;
+  statementDescriptor: string;
+}
 
-function buildExternalReference(): string {
+const ALLOWED_PRODUCTS: Record<string, ProductConfig> = {
+  protocolo_sono_7_noites: {
+    title: "Protocolo Sono Profundo – 7 noites",
+    description: "7 meditações guiadas progressivas para recondicionar seu sono",
+    price: 37.0,
+    externalRefPrefix: "sono",
+    successPath: "/sono/obrigado",
+    failurePath: "/sono/erro",
+    statementDescriptor: "ECO Protocolo Sono",
+  },
+  protocolo_abundancia_7_dias: {
+    title: "Código da Abundância – 7 dias",
+    description: "7 meditações guiadas para reprogramar crenças sobre dinheiro e prosperidade",
+    price: 67.0,
+    externalRefPrefix: "abundancia",
+    successPath: "/abundancia/obrigado",
+    failurePath: "/abundancia/erro",
+    statementDescriptor: "ECO Código Abundância",
+  },
+};
+
+function buildExternalReference(prefix: string): string {
   const rand = crypto.randomBytes(3).toString("hex");
-  return `sono_${Date.now()}_${rand}`;
+  return `${prefix}_${Date.now()}_${rand}`;
 }
 
 /**
  * POST /api/mp/create-preference
  *
- * Cria uma Preference do Mercado Pago para o produto avulso Protocolo Sono.
+ * Cria uma Preference do Mercado Pago para produtos avulsos.
  * Rota PÚBLICA — não requer autenticação.
  *
  * Body: { productKey, origin?, utm? }
@@ -25,11 +54,12 @@ export async function createProductPreference(req: Request, res: Response) {
   try {
     const { productKey, origin, utm } = req.body ?? {};
 
-    if (productKey !== PRODUCT_KEY) {
+    const product = ALLOWED_PRODUCTS[productKey as string];
+    if (!product) {
       logger.warn("invalid_product_key", { productKey });
       return res.status(400).json({
         error: "INVALID_PRODUCT_KEY",
-        message: `productKey inválido. Use '${PRODUCT_KEY}'`,
+        message: `productKey inválido. Use: ${Object.keys(ALLOWED_PRODUCTS).join(", ")}`,
       });
     }
 
@@ -43,7 +73,7 @@ export async function createProductPreference(req: Request, res: Response) {
     const backendUrl = process.env.BACKEND_URL || "https://ecobackend888.onrender.com";
     const webhookUrl = process.env.WEBHOOK_URL || `${backendUrl}/api/webhooks/mercadopago`;
 
-    const external_reference = buildExternalReference();
+    const external_reference = buildExternalReference(product.externalRefPrefix);
 
     const client = new MercadoPagoConfig({ accessToken });
     const preferenceClient = new Preference(client);
@@ -52,33 +82,37 @@ export async function createProductPreference(req: Request, res: Response) {
       body: {
         items: [
           {
-            id: PRODUCT_KEY,
-            title: "Protocolo Sono Profundo – 7 noites",
-            description: "7 meditações guiadas progressivas para recondicionar seu sono",
+            id: productKey,
+            title: product.title,
+            description: product.description,
             quantity: 1,
-            unit_price: 37.0,
+            unit_price: product.price,
             currency_id: "BRL",
           },
         ],
         external_reference,
-        metadata: { productKey, origin: origin ?? "landing", utm: utm ?? null },
+        metadata: {
+          product_key: productKey,
+          origin: origin ?? "app",
+          utm: utm ?? null,
+        },
         back_urls: {
-          success: `${appUrl}/sono/obrigado`,
-          pending: `${appUrl}/sono/obrigado`,
-          failure: `${appUrl}/sono/erro`,
+          success: `${appUrl}${product.successPath}`,
+          pending: `${appUrl}${product.successPath}`,
+          failure: `${appUrl}${product.failurePath}`,
         },
         auto_return: "approved",
         notification_url: webhookUrl,
-        statement_descriptor: "ECO Protocolo Sono",
+        statement_descriptor: product.statementDescriptor,
       },
     });
 
     if (!response.init_point) {
-      logger.error("mp_preference_missing_init_point", { external_reference });
+      logger.error("mp_preference_missing_init_point", { external_reference, productKey });
       return res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao criar preferência" });
     }
 
-    logger.info("product_preference_created", { external_reference, origin });
+    logger.info("product_preference_created", { external_reference, productKey, origin });
 
     return res.status(200).json({
       init_point: response.init_point,
