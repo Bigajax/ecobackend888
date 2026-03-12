@@ -116,6 +116,7 @@ export async function createProductPreference(req: Request, res: Response) {
 
     return res.status(200).json({
       init_point: response.init_point,
+      preference_id: response.id,
       external_reference,
     });
   } catch (error) {
