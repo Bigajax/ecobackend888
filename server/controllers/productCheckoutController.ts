@@ -36,6 +36,23 @@ const ALLOWED_PRODUCTS: Record<string, ProductConfig> = {
   },
 };
 
+// Cache dos clientes MP — inicializados uma vez por processo, não por request
+let _mpClient: MercadoPagoConfig | null = null;
+let _preferenceClient: Preference | null = null;
+
+function getMpClients(): { client: MercadoPagoConfig; preferenceClient: Preference } {
+  const accessToken = process.env.MP_ACCESS_TOKEN;
+  if (!accessToken) {
+    throw new Error("MP_ACCESS_TOKEN is required");
+  }
+  if (!_mpClient || !_preferenceClient) {
+    _mpClient = new MercadoPagoConfig({ accessToken });
+    _preferenceClient = new Preference(_mpClient);
+    logger.info("mp_clients_initialized");
+  }
+  return { client: _mpClient, preferenceClient: _preferenceClient };
+}
+
 function buildExternalReference(prefix: string): string {
   const rand = crypto.randomBytes(3).toString("hex");
   return `${prefix}_${Date.now()}_${rand}`;
@@ -63,8 +80,10 @@ export async function createProductPreference(req: Request, res: Response) {
       });
     }
 
-    const accessToken = process.env.MP_ACCESS_TOKEN;
-    if (!accessToken) {
+    let preferenceClient: Preference;
+    try {
+      ({ preferenceClient } = getMpClients());
+    } catch {
       logger.error("mp_access_token_missing");
       return res.status(500).json({ error: "INTERNAL_ERROR", message: "Configuração de pagamento ausente" });
     }
@@ -74,9 +93,6 @@ export async function createProductPreference(req: Request, res: Response) {
     const webhookUrl = process.env.WEBHOOK_URL || `${backendUrl}/api/webhooks/mercadopago`;
 
     const external_reference = buildExternalReference(product.externalRefPrefix);
-
-    const client = new MercadoPagoConfig({ accessToken });
-    const preferenceClient = new Preference(client);
 
     const response = await preferenceClient.create({
       body: {
