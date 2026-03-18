@@ -8,7 +8,7 @@ import {
   trackPaymentFailed,
   trackSubscriptionCreated,
 } from "../services/mixpanel";
-import { sendSonoWelcomeEmail } from "../services/EmailService";
+import { sendSonoWelcomeEmail, sendAbundanciaWelcomeEmail } from "../services/EmailService";
 
 const logger = log.withContext("webhook-controller");
 
@@ -17,7 +17,12 @@ const logger = log.withContext("webhook-controller");
  *
  * Handles annual subscription payments (one-time)
  */
-async function processProductEntitlement(paymentId: string, payment: any): Promise<void> {
+const PRODUCT_KEY_BY_PREFIX: Record<string, string> = {
+  sono: "protocolo_sono_7_noites",
+  abundancia: "protocolo_abundancia_7_dias",
+};
+
+async function processProductEntitlement(paymentId: string, payment: any, productKey: string): Promise<void> {
   const supabase = ensureSupabaseConfigured();
   const extRef = payment.external_reference as string;
 
@@ -26,7 +31,7 @@ async function processProductEntitlement(paymentId: string, payment: any): Promi
   const { error } = await supabase.from("entitlements").upsert(
     {
       external_reference: extRef,
-      product_key: "protocolo_sono_7_noites",
+      product_key: productKey,
       status,
       payment_id: String(paymentId),
       email: payment.payer?.email ?? null,
@@ -36,11 +41,11 @@ async function processProductEntitlement(paymentId: string, payment: any): Promi
   );
 
   if (error) {
-    logger.error("entitlement_upsert_failed", { paymentId, extRef, error: error.message });
+    logger.error("entitlement_upsert_failed", { paymentId, extRef, productKey, error: error.message });
     throw error;
   }
 
-  logger.info("product_entitlement_upserted", { paymentId, extRef, status });
+  logger.info("product_entitlement_upserted", { paymentId, extRef, productKey, status });
 
   // Enviar e-mail de boas-vindas — apenas quando aprovado e ainda não enviado.
   // Guard atômico: UPDATE WHERE welcome_email_sent_at IS NULL garante que apenas
@@ -56,16 +61,20 @@ async function processProductEntitlement(paymentId: string, payment: any): Promi
       .maybeSingle();
 
     if (!claimed) {
-      logger.info("sono_welcome_email_already_sent", { paymentId, extRef });
+      logger.info("product_welcome_email_already_sent", { paymentId, extRef, productKey });
     } else {
       const payerEmail = (claimed.email ?? payment.payer?.email) as string | undefined;
       const appUrl = process.env.APP_URL || "https://ecofrontend888.vercel.app";
 
       if (payerEmail) {
-        await sendSonoWelcomeEmail({ to: payerEmail, externalReference: extRef, appUrl });
-        logger.info("sono_welcome_email_sent_and_marked", { paymentId, extRef, to: payerEmail });
+        if (productKey === "protocolo_abundancia_7_dias") {
+          await sendAbundanciaWelcomeEmail({ to: payerEmail, externalReference: extRef, appUrl });
+        } else {
+          await sendSonoWelcomeEmail({ to: payerEmail, externalReference: extRef, appUrl });
+        }
+        logger.info("product_welcome_email_sent", { paymentId, extRef, productKey, to: payerEmail });
       } else {
-        logger.warn("sono_welcome_email_skipped_no_email", { paymentId, extRef });
+        logger.warn("product_welcome_email_skipped_no_email", { paymentId, extRef, productKey });
       }
     }
   }
@@ -89,9 +98,11 @@ async function processPaymentEvent(paymentId: string): Promise<void> {
 
     const extRef = payment.external_reference ?? "";
 
-    // ── Produto avulso (Protocolo Sono) ──────────────────────────────────────
-    if (extRef.startsWith("sono_")) {
-      await processProductEntitlement(paymentId, payment);
+    // ── Produtos avulsos (Sono, Abundância) ──────────────────────────────────
+    const productPrefix = Object.keys(PRODUCT_KEY_BY_PREFIX).find((p) => extRef.startsWith(`${p}_`));
+    if (productPrefix) {
+      const productKey = PRODUCT_KEY_BY_PREFIX[productPrefix];
+      await processProductEntitlement(paymentId, payment, productKey);
       return;
     }
 
