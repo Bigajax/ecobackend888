@@ -31,7 +31,7 @@ const ALLOWED_PRODUCTS: Record<string, ProductConfig> = {
     price: 67.0,
     externalRefPrefix: "abundancia",
     successPath: "/abundancia/obrigado",
-    failurePath: "/abundancia/erro",
+    failurePath: "/",
     statementDescriptor: "ECO Código Abundância",
   },
 };

@@ -1,6 +1,8 @@
 import { Resend } from "resend";
 import { log } from "./promptContext/logger";
 
+const LP_ABUNDANCIA_URL = "https://lp-888.vercel.app";
+
 const logger = log.withContext("email-service");
 
 function getResendClient(): Resend {
@@ -197,6 +199,202 @@ export async function sendSonoWelcomeEmail(params: {
     }
 
     logger.info("sono_welcome_email_sent", { to, externalReference });
+  } catch (err) {
+    logger.error("resend_unexpected_error", {
+      to,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
+
+/**
+ * Envia e-mail de boas-vindas ao comprador do Código da Abundância.
+ * Disparado pelo webhook do MP após confirmação do pagamento.
+ */
+export async function sendAbundanciaWelcomeEmail(params: {
+  to: string;
+  externalReference: string;
+  appUrl?: string;
+}): Promise<void> {
+  const { to, externalReference, appUrl = LP_ABUNDANCIA_URL } = params;
+
+  const registerUrl = `${appUrl}/register?returnTo=${encodeURIComponent(
+    `/abundancia/obrigado?external_reference=${externalReference}&status=approved`
+  )}`;
+
+  const loginUrl = `${appUrl}/login?returnTo=${encodeURIComponent(
+    `/abundancia/obrigado?external_reference=${externalReference}&status=approved`
+  )}`;
+
+  const html = `
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Seu Código da Abundância está pronto</title>
+</head>
+<body style="margin:0;padding:0;background-color:#0d0d0d;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#0d0d0d;padding:40px 16px;">
+    <tr>
+      <td align="center">
+        <table width="100%" style="max-width:560px;background-color:#141414;border-radius:16px;overflow:hidden;box-shadow:0 4px 40px rgba(0,0,0,0.6);">
+
+          <!-- Header -->
+          <tr>
+            <td style="background:linear-gradient(135deg,#1a1400 0%,#2a1f00 60%,#3d2c00 100%);padding:40px 32px;text-align:center;border-bottom:1px solid rgba(212,175,55,0.25);">
+              <p style="margin:0 0 8px 0;font-size:13px;letter-spacing:3px;color:#D4AF37;text-transform:uppercase;font-weight:600;">Ecotopia</p>
+              <h1 style="margin:0;font-size:26px;font-weight:700;color:#ffffff;line-height:1.3;">
+                Pagamento confirmado ✨
+              </h1>
+              <p style="margin:12px 0 0 0;font-size:15px;color:#c9a84c;line-height:1.5;">
+                Seu <strong style="color:#F7E7B7;">Código da Abundância – 7 dias</strong> está esperando por você.
+              </p>
+            </td>
+          </tr>
+
+          <!-- Body -->
+          <tr>
+            <td style="padding:36px 32px 16px;">
+              <p style="margin:0 0 20px 0;font-size:16px;color:#d1d5db;line-height:1.7;">
+                Olá! Recebemos seu pagamento com sucesso. Para acessar as 7 meditações guiadas do protocolo, basta criar sua conta gratuita na Ecotopia.
+              </p>
+
+              <!-- Steps -->
+              <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:28px;">
+                <tr>
+                  <td style="padding:14px 16px;background:rgba(212,175,55,0.08);border:1px solid rgba(212,175,55,0.2);border-radius:10px;">
+                    <table cellpadding="0" cellspacing="0">
+                      <tr>
+                        <td style="width:32px;vertical-align:top;">
+                          <span style="display:inline-block;width:24px;height:24px;background:#D4AF37;border-radius:50%;text-align:center;line-height:24px;font-size:13px;font-weight:700;color:#000;">1</span>
+                        </td>
+                        <td style="padding-left:10px;vertical-align:top;font-size:14px;color:#e5e7eb;line-height:1.5;">
+                          <strong style="color:#F7E7B7;">Crie sua conta</strong> gratuita na Ecotopia (leva menos de 1 minuto)
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+                <tr><td style="height:8px;"></td></tr>
+                <tr>
+                  <td style="padding:14px 16px;background:rgba(212,175,55,0.05);border:1px solid rgba(212,175,55,0.12);border-radius:10px;">
+                    <table cellpadding="0" cellspacing="0">
+                      <tr>
+                        <td style="width:32px;vertical-align:top;">
+                          <span style="display:inline-block;width:24px;height:24px;background:#b8962e;border-radius:50%;text-align:center;line-height:24px;font-size:13px;font-weight:700;color:#fff;">2</span>
+                        </td>
+                        <td style="padding-left:10px;vertical-align:top;font-size:14px;color:#e5e7eb;line-height:1.5;">
+                          Seu acesso ao protocolo é <strong style="color:#F7E7B7;">liberado automaticamente</strong> após o cadastro
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+                <tr><td style="height:8px;"></td></tr>
+                <tr>
+                  <td style="padding:14px 16px;background:rgba(212,175,55,0.05);border:1px solid rgba(212,175,55,0.12);border-radius:10px;">
+                    <table cellpadding="0" cellspacing="0">
+                      <tr>
+                        <td style="width:32px;vertical-align:top;">
+                          <span style="display:inline-block;width:24px;height:24px;background:#92750a;border-radius:50%;text-align:center;line-height:24px;font-size:13px;font-weight:700;color:#fff;">3</span>
+                        </td>
+                        <td style="padding-left:10px;vertical-align:top;font-size:14px;color:#e5e7eb;line-height:1.5;">
+                          <strong style="color:#F7E7B7;">Comece hoje.</strong> Ouça a Sessão 1 e dê o primeiro passo rumo à abundância
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>
+
+              <!-- CTA principal -->
+              <table width="100%" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td align="center" style="padding-bottom:12px;">
+                    <a href="${registerUrl}"
+                       style="display:inline-block;background:linear-gradient(135deg,#D4AF37,#B8962E);color:#0a0a0a;text-decoration:none;font-size:16px;font-weight:700;padding:16px 40px;border-radius:50px;letter-spacing:0.3px;box-shadow:0 4px 20px rgba(212,175,55,0.4);">
+                      Criar minha conta e acessar →
+                    </a>
+                  </td>
+                </tr>
+                <tr>
+                  <td align="center">
+                    <p style="margin:0;font-size:13px;color:#6b7280;">
+                      Já tem conta?
+                      <a href="${loginUrl}" style="color:#D4AF37;font-weight:600;text-decoration:underline;">Entrar aqui</a>
+                    </p>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- Divider -->
+          <tr>
+            <td style="padding:0 32px;">
+              <hr style="border:none;border-top:1px solid rgba(255,255,255,0.07);margin:24px 0;" />
+            </td>
+          </tr>
+
+          <!-- Order info -->
+          <tr>
+            <td style="padding:0 32px 16px;">
+              <table width="100%" cellpadding="0" cellspacing="0" style="background:rgba(255,255,255,0.04);border-radius:10px;padding:16px;">
+                <tr>
+                  <td style="font-size:12px;color:#6b7280;padding:4px 16px;">
+                    <strong style="color:#9ca3af;">Número do pedido:</strong><br/>
+                    <span style="font-family:monospace;font-size:11px;color:#d1d5db;word-break:break-all;">${externalReference}</span>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="font-size:12px;color:#6b7280;padding:8px 16px 4px;">
+                    Guarde este número caso precise acionar o suporte.
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td style="padding:20px 32px 36px;text-align:center;">
+              <p style="margin:0;font-size:12px;color:#6b7280;line-height:1.6;">
+                Dúvidas? Responda este e-mail ou escreva para
+                <a href="mailto:ecotopia.app777@gmail.com" style="color:#D4AF37;text-decoration:none;">ecotopia.app777@gmail.com</a>
+              </p>
+              <p style="margin:10px 0 0 0;font-size:11px;color:#374151;">
+                © 2025 Ecotopia · Reprogramando a sua relação com a prosperidade.
+              </p>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
+  `.trim();
+
+  try {
+    const resend = getResendClient();
+
+    const fromAddress = process.env.RESEND_FROM_EMAIL || "onboarding@resend.dev";
+    const { error } = await resend.emails.send({
+      from: `Ecotopia <${fromAddress}>`,
+      replyTo: "ecotopia.app777@gmail.com",
+      to,
+      subject: "✨ Seu Código da Abundância está pronto — acesse agora",
+      html,
+    });
+
+    if (error) {
+      logger.error("resend_send_failed", { to, error: error.message });
+      return;
+    }
+
+    logger.info("abundancia_welcome_email_sent", { to, externalReference });
   } catch (err) {
     logger.error("resend_unexpected_error", {
       to,

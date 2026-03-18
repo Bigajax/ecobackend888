@@ -13,6 +13,7 @@ import {
   trackPaymentFailed,
   trackSubscriptionCreated,
 } from "../services/mixpanel";
+import { sendAbundanciaWelcomeEmail } from "../services/EmailService";
 
 // Mapa de prefixo do external_reference → product_key
 const PRODUCT_REF_PREFIXES: Record<string, string> = {
@@ -257,6 +258,15 @@ async function handleProductPayment(params: {
     }
 
     logger.info("product_entitlement_created", { paymentId, productKey, externalReference, transactionAmount });
+
+    // Dispara e-mail de boas-vindas para produtos que têm e-mail do pagador
+    if (payerEmail) {
+      if (productKey === "protocolo_abundancia_7_dias") {
+        sendAbundanciaWelcomeEmail({ to: payerEmail, externalReference }).catch((err) =>
+          logger.error("abundancia_email_dispatch_failed", { payerEmail, error: err instanceof Error ? err.message : String(err) })
+        );
+      }
+    }
   } catch (error) {
     logger.error("handle_product_payment_failed", {
       paymentId,
