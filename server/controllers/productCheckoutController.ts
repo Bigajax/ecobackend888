@@ -34,6 +34,15 @@ const ALLOWED_PRODUCTS: Record<string, ProductConfig> = {
     failurePath: "/",
     statementDescriptor: "ECO Código Abundância",
   },
+  dr_joe_colecao: {
+    title: "Dr. Joe Dispenza — Meditações ECO",
+    description: "Meditações guiadas para sustentar um novo estado mental e emocional",
+    price: 37.0,
+    externalRefPrefix: "drjoe",
+    successPath: "/dr-joe/obrigado",
+    failurePath: "/dr-joe/erro",
+    statementDescriptor: "ECO Dr Joe",
+  },
 };
 
 // Cache dos clientes MP — inicializados uma vez por processo, não por request
