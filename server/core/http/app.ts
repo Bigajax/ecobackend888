@@ -60,6 +60,7 @@ import productCheckoutRoutes from "../../routes/productCheckoutRoutes";
 import entitlementRoutes from "../../routes/entitlementRoutes";
 import requireAdmin from "../../mw/requireAdmin";
 import sseSmokeRouter from "../../routes/sseSmoke";
+import dreamRoutes from "../../routes/dreamRoutes";
 
 declare module "express-serve-static-core" {
   interface Request {
@@ -403,6 +404,7 @@ export function createApp(): Express {
   app.use("/api/rings", ringsRoutes);
   app.use("/api/mp", productCheckoutRoutes);
   app.use("/api/entitlements", entitlementRoutes);
+  app.use("/api/dream", dreamRoutes);
 
   // Aliases sem /api (clientes legados)
   app.use("/memorias", memoryRoutes);
