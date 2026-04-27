@@ -7,6 +7,7 @@ import {
   type RetrieveMode,
 } from "../supabase/memoriaRepository";
 import { buscarReferenciasSemelhantes } from "../../services/buscarReferenciasSemelhantes";
+import { listMemories } from "../../adapters/supabaseMemoryRepository";
 
 export interface ParallelFetchParams {
   ultimaMsg: string;
@@ -37,7 +38,7 @@ interface ParallelFetchDeps {
   debug: typeof isDebug;
 }
 
-const RPC_TIMEOUT_MS = 1200;
+const RPC_TIMEOUT_MS = 3000;
 const CACHE_LIMIT = 5;
 const ANON_KEY = "__anon__";
 
@@ -212,6 +213,35 @@ export class ParallelFetchService {
               }));
               memSource = "live";
               this.memoriaCache.set(cacheKey, memsSemelhantes.slice(0, CACHE_LIMIT));
+            }
+          }
+
+          // Fallback: memórias recentes sem busca semântica (quando tudo falhou)
+          if (memsSemelhantes.length === 0 && !userId.startsWith("guest_")) {
+            try {
+              const recentRows = await listMemories(userId, { limit: 3 });
+              if (recentRows.length) {
+                memsSemelhantes = recentRows.map((row) => ({
+                  id: row.id,
+                  resumo_eco: row.resumo_eco ?? "",
+                  tags: Array.isArray(row.tags) ? row.tags : [],
+                  emocao_principal: row.emocao_principal ?? null,
+                  intensidade: row.intensidade ?? null,
+                  created_at: row.created_at ?? null,
+                }));
+                memSource = "live";
+                this.memoriaCache.set(cacheKey, memsSemelhantes.slice(0, CACHE_LIMIT));
+                this.deps.logger.info("[ParallelFetch] memoria_recente_fallback", {
+                  userId: cacheKey,
+                  count: memsSemelhantes.length,
+                });
+              }
+            } catch (fallbackErr: any) {
+              if (this.deps.debug()) {
+                this.deps.logger.warn(
+                  `[ParallelFetch] memoria_recente_fallback falhou: ${fallbackErr?.message}`
+                );
+              }
             }
           }
         } else {
