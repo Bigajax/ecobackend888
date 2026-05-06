@@ -19,7 +19,7 @@ const ALLOWED_PRODUCTS: Record<string, ProductConfig> = {
   protocolo_sono_7_noites: {
     title: "Protocolo Sono Profundo – 7 noites",
     description: "7 meditações guiadas progressivas para recondicionar seu sono",
-    price: 37.0,
+    price: 97.0,
     externalRefPrefix: "sono",
     successPath: "/sono/obrigado",
     failurePath: "/sono/erro",
