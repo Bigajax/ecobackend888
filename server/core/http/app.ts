@@ -58,6 +58,7 @@ import programRoutes from "../../routes/programRoutes";
 import ringsRoutes from "../../routes/ringsRoutes";
 import productCheckoutRoutes from "../../routes/productCheckoutRoutes";
 import entitlementRoutes from "../../routes/entitlementRoutes";
+import leadsRoutes from "../../routes/leadsRoutes";
 import quizRoutes from "../../routes/quizRoutes";
 import requireAdmin from "../../mw/requireAdmin";
 import sseSmokeRouter from "../../routes/sseSmoke";
@@ -405,6 +406,7 @@ export function createApp(): Express {
   app.use("/api/rings", ringsRoutes);
   app.use("/api/mp", productCheckoutRoutes);
   app.use("/api/entitlements", entitlementRoutes);
+  app.use("/api/leads", leadsRoutes);
   app.use("/api/quiz", quizRoutes);
   app.use("/api/dream", dreamRoutes);
 
