@@ -2,13 +2,21 @@ import express, { Request, Response } from "express";
 import crypto from "crypto";
 import { v4 as uuidv4 } from "uuid";
 import { MercadoPagoConfig, Payment } from "mercadopago";
+import { ensureSupabaseConfigured } from "../lib/supabaseAdmin";
 
 const router = express.Router();
 
 const PRODUCT = {
+  key: "protocolo_sono_7_noites",
   title: "Protocolo Sono Profundo - 7 Noites",
   price: 147.0,
+  externalRefPrefix: "sono",
 };
+
+function buildExternalReference(): string {
+  const rand = crypto.randomBytes(3).toString("hex");
+  return `${PRODUCT.externalRefPrefix}_${Date.now()}_${rand}`;
+}
 
 let _mpClient: MercadoPagoConfig | null = null;
 let _paymentClient: Payment | null = null;
@@ -27,6 +35,57 @@ function logInfo(event: string, data: Record<string, unknown> = {}) {
 }
 function logError(event: string, data: Record<string, unknown> = {}) {
   console.error(JSON.stringify({ level: "error", event, ts: new Date().toISOString(), ...data }));
+}
+
+// ============================================================
+// Entitlement — upsert idempotente na tabela `entitlements`.
+// Reusa a infra já criada para o Checkout Pro (mesma tabela,
+// mesmo formato de external_reference com prefixo "sono_").
+// ============================================================
+async function grantEntitlement(params: {
+  paymentId: string;
+  externalReference: string | null | undefined;
+  payerEmail: string | null | undefined;
+}): Promise<void> {
+  const { paymentId, externalReference, payerEmail } = params;
+  try {
+    const supabase = ensureSupabaseConfigured();
+
+    // Conflict target: payment_id é UNIQUE e estável (external_reference
+    // pode estar ausente se o pagamento veio de uma rota antiga).
+    const row: Record<string, unknown> = {
+      product_key: PRODUCT.key,
+      payment_id: paymentId,
+      email: payerEmail ?? null,
+      status: "active",
+    };
+    if (externalReference) row.external_reference = externalReference;
+
+    const { error } = await supabase
+      .from("entitlements")
+      .upsert(row, { onConflict: "payment_id", ignoreDuplicates: false });
+
+    if (error) {
+      logError("entitlement_upsert_failed", {
+        payment_id: paymentId,
+        external_reference: externalReference,
+        error: error.message,
+      });
+      return;
+    }
+
+    logInfo("entitlement_granted", {
+      payment_id: paymentId,
+      external_reference: externalReference,
+      product_key: PRODUCT.key,
+      has_email: Boolean(payerEmail),
+    });
+  } catch (err: any) {
+    logError("entitlement_grant_exception", {
+      payment_id: paymentId,
+      message: err?.message,
+    });
+  }
 }
 
 function onlyDigits(v: unknown): string {
@@ -66,6 +125,7 @@ router.post("/pix", async (req: Request, res: Response) => {
 
     const { first_name, last_name } = splitName(nome);
     const expiration = new Date(Date.now() + 15 * 60 * 1000);
+    const external_reference = buildExternalReference();
 
     const payment = getPaymentClient();
     const response = await payment.create({
@@ -74,6 +134,8 @@ router.post("/pix", async (req: Request, res: Response) => {
         description: PRODUCT.title,
         payment_method_id: "pix",
         date_of_expiration: expiration.toISOString(),
+        external_reference,
+        metadata: { product_key: PRODUCT.key },
         payer: {
           email,
           first_name,
@@ -89,6 +151,7 @@ router.post("/pix", async (req: Request, res: Response) => {
     logInfo("pix_payment_created", {
       payment_id: response.id,
       status: response.status,
+      external_reference,
       idempotencyKey,
     });
 
@@ -98,6 +161,7 @@ router.post("/pix", async (req: Request, res: Response) => {
       qr_code_base64: tx.qr_code_base64,
       ticket_url: tx.ticket_url,
       expiration_date: response.date_of_expiration ?? expiration.toISOString(),
+      external_reference,
     });
   } catch (err: any) {
     logError("pix_payment_failed", {
@@ -148,6 +212,7 @@ router.post("/card", async (req: Request, res: Response) => {
       });
     }
 
+    const external_reference = buildExternalReference();
     const payment = getPaymentClient();
     const response = await payment.create({
       body: {
@@ -156,6 +221,8 @@ router.post("/card", async (req: Request, res: Response) => {
         token,
         payment_method_id,
         installments: installmentsNum,
+        external_reference,
+        metadata: { product_key: PRODUCT.key },
         payer: {
           email: payer.email,
           identification: {
@@ -167,10 +234,21 @@ router.post("/card", async (req: Request, res: Response) => {
       requestOptions: { idempotencyKey },
     });
 
+    // Cartão aprovado é síncrono: libera entitlement já na resposta para não
+    // depender do webhook (que pode demorar segundos ou falhar).
+    if (response.status === "approved") {
+      await grantEntitlement({
+        paymentId: String(response.id),
+        externalReference: external_reference,
+        payerEmail: payer.email,
+      });
+    }
+
     logInfo("card_payment_created", {
       payment_id: response.id,
       status: response.status,
       status_detail: response.status_detail,
+      external_reference,
       idempotencyKey,
     });
 
@@ -178,6 +256,7 @@ router.post("/card", async (req: Request, res: Response) => {
       id: response.id,
       status: response.status,
       status_detail: response.status_detail,
+      external_reference,
     });
   } catch (err: any) {
     logError("card_payment_failed", {
@@ -288,12 +367,16 @@ router.post("/webhook", async (req: Request, res: Response) => {
         });
 
         if (detail.status === "approved") {
-          // TODO: liberar acesso ao Protocolo Sono Profundo para detail.payer?.email
-          //       (gravar em DB, enviar email com link/credenciais, etc.)
           logInfo("webhook_payment_approved", {
             payment_id: detail.id,
             payer_email: detail.payer?.email,
             external_reference: detail.external_reference,
+          });
+
+          await grantEntitlement({
+            paymentId: String(detail.id),
+            externalReference: detail.external_reference,
+            payerEmail: detail.payer?.email,
           });
         }
       } catch (innerErr: any) {
