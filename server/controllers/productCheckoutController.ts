@@ -21,8 +21,8 @@ const ALLOWED_PRODUCTS: Record<string, ProductConfig> = {
     description: "7 meditações guiadas progressivas para recondicionar seu sono",
     price: 147.0,
     externalRefPrefix: "sono",
-    successPath: "/sono/obrigado",
-    failurePath: "/sono/erro",
+    successPath: "/sucesso",
+    failurePath: "/sucesso?status=failure",
     statementDescriptor: "ECO Protocolo Sono",
   },
   protocolo_abundancia_7_dias: {
