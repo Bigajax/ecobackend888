@@ -193,6 +193,37 @@ router.post("/card", async (req: Request, res: Response) => {
 });
 
 // =============================================================
+// GET /api/payments/status/:id
+// Usado pelo polling do frontend (Pix) para detectar aprovação.
+// =============================================================
+router.get("/status/:id", async (req: Request, res: Response) => {
+  const paymentId = req.params.id;
+  try {
+    if (!paymentId || !/^\d+$/.test(paymentId)) {
+      return res.status(400).json({ error: "INVALID_ID", message: "id de pagamento inválido" });
+    }
+
+    const payment = getPaymentClient();
+    const detail = await payment.get({ id: paymentId });
+
+    return res.status(200).json({
+      id: detail.id,
+      status: detail.status,
+      status_detail: detail.status_detail,
+    });
+  } catch (err: any) {
+    logError("payment_status_failed", {
+      message: err?.message,
+      payment_id: paymentId,
+    });
+    return res.status(502).json({
+      error: "PAYMENT_PROVIDER_ERROR",
+      message: "Não foi possível consultar o pagamento.",
+    });
+  }
+});
+
+// =============================================================
 // POST /api/payments/webhook
 // Valida x-signature (HMAC-SHA256) usando MP_WEBHOOK_SECRET.
 // =============================================================
