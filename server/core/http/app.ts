@@ -57,6 +57,7 @@ import webhookRoutes from "../../routes/webhookRoutes";
 import programRoutes from "../../routes/programRoutes";
 import ringsRoutes from "../../routes/ringsRoutes";
 import productCheckoutRoutes from "../../routes/productCheckoutRoutes";
+import paymentsRoutes from "../../routes/payments";
 import entitlementRoutes from "../../routes/entitlementRoutes";
 import leadsRoutes from "../../routes/leadsRoutes";
 import quizRoutes from "../../routes/quizRoutes";
@@ -405,6 +406,7 @@ export function createApp(): Express {
   app.use("/api/programs", programRoutes);
   app.use("/api/rings", ringsRoutes);
   app.use("/api/mp", productCheckoutRoutes);
+  app.use("/api/payments", paymentsRoutes);
   app.use("/api/entitlements", entitlementRoutes);
   app.use("/api/leads", leadsRoutes);
   app.use("/api/quiz", quizRoutes);
