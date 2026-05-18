@@ -10,8 +10,17 @@ const PRODUCT = {
   key: "protocolo_sono_7_noites",
   title: "Protocolo Sono Profundo - 7 Noites",
   price: 147.0,
+  // Desconto aplicado quando o método de pagamento é Pix.
+  // Pix tem custo de processamento menor, então repassamos parte ao cliente.
+  pixDiscountPct: 10,
   externalRefPrefix: "sono",
 };
+
+// Preço final do Pix com o desconto aplicado.
+// Centralizado para que toda a base use o mesmo cálculo (consistente com o frontend).
+function getPixPrice(): number {
+  return Number((PRODUCT.price * (1 - PRODUCT.pixDiscountPct / 100)).toFixed(2));
+}
 
 function buildExternalReference(): string {
   const rand = crypto.randomBytes(3).toString("hex");
@@ -127,15 +136,26 @@ router.post("/pix", async (req: Request, res: Response) => {
     const expiration = new Date(Date.now() + 15 * 60 * 1000);
     const external_reference = buildExternalReference();
 
+    // Preço sempre calculado server-side. Nunca confiar em valor vindo do body
+    // (front não envia amount — mas mesmo se enviasse seria ignorado).
+    const amount = getPixPrice();
+    const description = `${PRODUCT.title} (Pix ${PRODUCT.pixDiscountPct}% off)`;
+
     const payment = getPaymentClient();
     const response = await payment.create({
       body: {
-        transaction_amount: PRODUCT.price,
-        description: PRODUCT.title,
+        transaction_amount: amount,
+        description,
         payment_method_id: "pix",
         date_of_expiration: expiration.toISOString(),
         external_reference,
-        metadata: { product_key: PRODUCT.key },
+        metadata: {
+          product_key: PRODUCT.key,
+          payment_method: "pix",
+          base_price: PRODUCT.price,
+          discount_pct: PRODUCT.pixDiscountPct,
+          final_price: amount,
+        },
         payer: {
           email,
           first_name,
@@ -152,6 +172,9 @@ router.post("/pix", async (req: Request, res: Response) => {
       payment_id: response.id,
       status: response.status,
       external_reference,
+      base_price: PRODUCT.price,
+      discount_pct: PRODUCT.pixDiscountPct,
+      final_amount: amount,
       idempotencyKey,
     });
 
