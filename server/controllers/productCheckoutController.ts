@@ -129,6 +129,11 @@ export async function createProductPreference(req: Request, res: Response) {
         auto_return: "approved",
         notification_url: webhookUrl,
         statement_descriptor: product.statementDescriptor,
+        payment_methods: {
+          excluded_payment_types: [{ id: "ticket" }],
+          excluded_payment_methods: [{ id: "debvirtualcaixa" }],
+          installments: 3,
+        },
       },
     });
 
