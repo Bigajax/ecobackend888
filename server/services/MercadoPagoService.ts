@@ -180,7 +180,7 @@ export class MercadoPagoService {
           auto_recurring: {
             frequency: 1,
             frequency_type: "months",
-            transaction_amount: 29.9,
+            transaction_amount: 15.9,
             currency_id: "BRL",
             free_trial: {
               frequency: 7,
@@ -232,10 +232,10 @@ export class MercadoPagoService {
           items: [
             {
               id: "annual_subscription",
-              title: "Assinatura Premium ECO - Anual (50% OFF)",
+              title: "Assinatura Premium ECO - Anual (25% OFF)",
               description: "Acesso ilimitado ao ECO por 1 ano - Oferta especial",
               quantity: 1,
-              unit_price: 149.0,
+              unit_price: 142.8,
               currency_id: "BRL",
             },
           ],
