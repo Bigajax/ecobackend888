@@ -124,6 +124,9 @@ export async function createWithCardHandler(req: Request, res: Response) {
       return res.status(400).json({ error: "INVALID_BODY", message: "token do cartão é obrigatório" });
     }
 
+    const planRaw = typeof req.body?.plan === "string" ? req.body.plan.trim().toLowerCase() : "monthly";
+    const plan: "monthly" | "annual" = planRaw === "annual" ? "annual" : "monthly";
+
     const subscriptionService = getSubscriptionService();
     const currentStatus = await subscriptionService.getStatus(userId);
     if (currentStatus.isPremium && currentStatus.subscriptionStatus === "active") {
@@ -131,10 +134,10 @@ export async function createWithCardHandler(req: Request, res: Response) {
     }
 
     const mpService = getMercadoPagoService();
-    const result = await mpService.createMonthlyTrialWithCard(userId, userEmail, cardTokenId);
+    const result = await mpService.createTrialSubscriptionWithCard(userId, userEmail, cardTokenId, plan);
 
     await subscriptionService.recordEvent(userId, "checkout_initiated", {
-      plan: "monthly",
+      plan,
       provider_id: result.id,
     });
 

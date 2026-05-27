@@ -216,27 +216,30 @@ export class MercadoPagoService {
   }
 
   /**
-   * Create monthly subscription with a card token (transparent checkout)
+   * Create a recurring subscription with a card token (transparent checkout)
    * + 7-day free trial. No redirect: the card token is collected on our page
-   * via the MP CardPayment brick. Returns the preapproval id + status.
+   * via the MP CardPayment brick. Works for monthly (R$15,90/mês) and annual
+   * (R$142,80 a cada 12 meses). Returns the preapproval id + status.
    */
-  async createMonthlyTrialWithCard(
+  async createTrialSubscriptionWithCard(
     userId: string,
     userEmail: string,
-    cardTokenId: string
+    cardTokenId: string,
+    plan: "monthly" | "annual"
   ): Promise<{ id: string; status: string }> {
     const preApprovalClient = new PreApproval(this.client);
+    const isAnnual = plan === "annual";
 
     const response = await preApprovalClient.create({
       body: {
-        reason: "Assinatura Premium ECO - Mensal",
+        reason: isAnnual ? "Assinatura Premium ECO - Anual" : "Assinatura Premium ECO - Mensal",
         external_reference: userId,
         payer_email: userEmail,
         card_token_id: cardTokenId,
         auto_recurring: {
-          frequency: 1,
+          frequency: isAnnual ? 12 : 1,
           frequency_type: "months",
-          transaction_amount: 15.9,
+          transaction_amount: isAnnual ? 142.8 : 15.9,
           currency_id: "BRL",
           free_trial: {
             frequency: 7,
@@ -252,8 +255,9 @@ export class MercadoPagoService {
       throw new Error("Invalid preapproval response from Mercado Pago");
     }
 
-    logger.info("monthly_trial_with_card_created", {
+    logger.info("trial_subscription_with_card_created", {
       userId,
+      plan,
       preapprovalId: response.id,
       status: response.status,
     });
