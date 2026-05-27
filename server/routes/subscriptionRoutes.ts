@@ -1,6 +1,7 @@
 import express from "express";
 import {
   createPreferenceHandler,
+  createWithCardHandler,
   getStatusHandler,
   cancelHandler,
   reactivateHandler,
@@ -24,6 +25,13 @@ const router = express.Router();
  * Returns: { initPoint: string, id: string, type: string }
  */
 router.post("/create-preference", requireAuth, createPreferenceHandler);
+
+/**
+ * POST /api/subscription/create-with-card
+ * Start a monthly trial subscription using a card token (transparent).
+ * Body: MP CardPayment formData ({ token, ... }). Returns: { id, status }.
+ */
+router.post("/create-with-card", requireAuth, createWithCardHandler);
 
 /**
  * GET /api/subscription/status

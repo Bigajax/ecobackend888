@@ -103,6 +103,56 @@ export async function createPreferenceHandler(req: Request, res: Response) {
 }
 
 /**
+ * POST /api/subscription/create-with-card
+ *
+ * Start a monthly subscription with a 7-day free trial using a card token
+ * collected on our page (MP CardPayment brick). R$0 charged today.
+ *
+ * Body (MP brick formData): { token, ...payer }
+ * Returns: { id, status } from the created preapproval.
+ */
+export async function createWithCardHandler(req: Request, res: Response) {
+  try {
+    const userId = req.user?.id;
+    const userEmail = req.user?.email;
+    if (!userId || !userEmail) {
+      return res.status(401).json({ error: "UNAUTHORIZED", message: "Usuário não autenticado" });
+    }
+
+    const cardTokenId = req.body?.token;
+    if (!cardTokenId || typeof cardTokenId !== "string") {
+      return res.status(400).json({ error: "INVALID_BODY", message: "token do cartão é obrigatório" });
+    }
+
+    const subscriptionService = getSubscriptionService();
+    const currentStatus = await subscriptionService.getStatus(userId);
+    if (currentStatus.isPremium && currentStatus.subscriptionStatus === "active") {
+      return res.status(400).json({ error: "ALREADY_SUBSCRIBED", message: "Você já possui uma assinatura ativa" });
+    }
+
+    const mpService = getMercadoPagoService();
+    const result = await mpService.createMonthlyTrialWithCard(userId, userEmail, cardTokenId);
+
+    await subscriptionService.recordEvent(userId, "checkout_initiated", {
+      plan: "monthly",
+      provider_id: result.id,
+    });
+
+    logger.info("trial_with_card_created", { userId, preapprovalId: result.id, status: result.status });
+
+    return res.status(200).json({ id: result.id, status: result.status });
+  } catch (error) {
+    logger.error("create_with_card_failed", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return res.status(502).json({
+      error: "PAYMENT_PROVIDER_ERROR",
+      message: "Não foi possível iniciar a assinatura. Verifique os dados do cartão e tente novamente.",
+    });
+  }
+}
+
+/**
  * GET /api/subscription/status
  *
  * Get user's current subscription status
