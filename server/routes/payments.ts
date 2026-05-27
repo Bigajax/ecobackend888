@@ -9,8 +9,7 @@ import { getSubscriptionService } from "../services/SubscriptionService";
 const router = express.Router();
 
 // Plano Anual do ecotopia — pagamento à vista (Pix/Cartão) que libera 1 ano de
-// premium. Diferente do produto avulso `sono` abaixo: aqui ativamos ASSINATURA
-// (access_until +365d) em vez de conceder entitlement.
+// premium. Ativa ASSINATURA (access_until +365d).
 const ANNUAL = {
   key: "premium_annual",
   title: "Ecotopia Premium — Plano Anual",
@@ -18,26 +17,10 @@ const ANNUAL = {
   externalRefPrefix: "annualsub",
 };
 
-const PRODUCT = {
-  key: "protocolo_sono_7_noites",
-  title: "Protocolo Sono Profundo - 7 Noites",
-  price: 147.0,
-  // Desconto aplicado quando o método de pagamento é Pix.
-  // Pix tem custo de processamento menor, então repassamos parte ao cliente.
-  pixDiscountPct: 10,
-  externalRefPrefix: "sono",
-};
-
-// Preço final do Pix com o desconto aplicado.
-// Centralizado para que toda a base use o mesmo cálculo (consistente com o frontend).
-function getPixPrice(): number {
-  return Number((PRODUCT.price * (1 - PRODUCT.pixDiscountPct / 100)).toFixed(2));
-}
-
-function buildExternalReference(): string {
-  const rand = crypto.randomBytes(3).toString("hex");
-  return `${PRODUCT.externalRefPrefix}_${Date.now()}_${rand}`;
-}
+// Produto avulso legado (Protocolo Sono). O checkout único (R$147) foi
+// descontinuado em favor da assinatura; mantemos só a chave para o webhook
+// reconhecer e conceder entitlement a pagamentos `sono_*` criados antes da migração.
+const LEGACY_SONO_PRODUCT_KEY = "protocolo_sono_7_noites";
 
 let _mpClient: MercadoPagoConfig | null = null;
 let _paymentClient: Payment | null = null;
@@ -75,7 +58,7 @@ async function grantEntitlement(params: {
     // Conflict target: payment_id é UNIQUE e estável (external_reference
     // pode estar ausente se o pagamento veio de uma rota antiga).
     const row: Record<string, unknown> = {
-      product_key: PRODUCT.key,
+      product_key: LEGACY_SONO_PRODUCT_KEY,
       payment_id: paymentId,
       email: payerEmail ?? null,
       status: "active",
@@ -98,7 +81,7 @@ async function grantEntitlement(params: {
     logInfo("entitlement_granted", {
       payment_id: paymentId,
       external_reference: externalReference,
-      product_key: PRODUCT.key,
+      product_key: LEGACY_SONO_PRODUCT_KEY,
       has_email: Boolean(payerEmail),
     });
   } catch (err: any) {
@@ -147,191 +130,6 @@ function splitName(nome: unknown): { first_name: string; last_name: string } {
   };
 }
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
-
-// =============================================================
-// POST /api/payments/pix
-// Body: { email, nome, cpf }
-// =============================================================
-router.post("/pix", async (req: Request, res: Response) => {
-  const idempotencyKey = uuidv4();
-  try {
-    const { email, nome, cpf } = req.body ?? {};
-
-    if (!email || !nome || !cpf) {
-      return res.status(400).json({
-        error: "INVALID_BODY",
-        message: "email, nome e cpf são obrigatórios",
-      });
-    }
-    if (typeof email !== "string" || !EMAIL_RE.test(email)) {
-      return res.status(400).json({ error: "INVALID_EMAIL", message: "email inválido" });
-    }
-    const cpfDigits = onlyDigits(cpf);
-    if (cpfDigits.length !== 11) {
-      return res.status(400).json({ error: "INVALID_CPF", message: "CPF deve conter 11 dígitos" });
-    }
-
-    const { first_name, last_name } = splitName(nome);
-    const expiration = new Date(Date.now() + 15 * 60 * 1000);
-    const external_reference = buildExternalReference();
-
-    // Preço sempre calculado server-side. Nunca confiar em valor vindo do body
-    // (front não envia amount — mas mesmo se enviasse seria ignorado).
-    const amount = getPixPrice();
-    const description = `${PRODUCT.title} (Pix ${PRODUCT.pixDiscountPct}% off)`;
-
-    const payment = getPaymentClient();
-    const response = await payment.create({
-      body: {
-        transaction_amount: amount,
-        description,
-        payment_method_id: "pix",
-        date_of_expiration: expiration.toISOString(),
-        external_reference,
-        metadata: {
-          product_key: PRODUCT.key,
-          payment_method: "pix",
-          base_price: PRODUCT.price,
-          discount_pct: PRODUCT.pixDiscountPct,
-          final_price: amount,
-        },
-        payer: {
-          email,
-          first_name,
-          last_name,
-          identification: { type: "CPF", number: cpfDigits },
-        },
-      },
-      requestOptions: { idempotencyKey },
-    });
-
-    const tx = response?.point_of_interaction?.transaction_data ?? {};
-
-    logInfo("pix_payment_created", {
-      payment_id: response.id,
-      status: response.status,
-      external_reference,
-      base_price: PRODUCT.price,
-      discount_pct: PRODUCT.pixDiscountPct,
-      final_amount: amount,
-      idempotencyKey,
-    });
-
-    return res.status(200).json({
-      id: response.id,
-      qr_code: tx.qr_code,
-      qr_code_base64: tx.qr_code_base64,
-      ticket_url: tx.ticket_url,
-      expiration_date: response.date_of_expiration ?? expiration.toISOString(),
-      external_reference,
-    });
-  } catch (err: any) {
-    logError("pix_payment_failed", {
-      message: err?.message,
-      mp_cause: err?.cause,
-      idempotencyKey,
-    });
-    return res.status(502).json({
-      error: "PAYMENT_PROVIDER_ERROR",
-      message: "Não foi possível gerar o Pix. Tente novamente em instantes.",
-    });
-  }
-});
-
-// =============================================================
-// POST /api/payments/card
-// Body: { token, payment_method_id, installments, payer: { email, identification } }
-// O token vem do SDK do MP no browser — cartão NUNCA passa por aqui.
-// =============================================================
-router.post("/card", async (req: Request, res: Response) => {
-  const idempotencyKey = uuidv4();
-  try {
-    const { token, payment_method_id, installments, payer } = req.body ?? {};
-
-    if (!token || !payment_method_id || !installments || !payer?.email || !payer?.identification) {
-      return res.status(400).json({
-        error: "INVALID_BODY",
-        message: "token, payment_method_id, installments e payer.{email,identification} são obrigatórios",
-      });
-    }
-    if (typeof payer.email !== "string" || !EMAIL_RE.test(payer.email)) {
-      return res.status(400).json({ error: "INVALID_EMAIL", message: "payer.email inválido" });
-    }
-
-    const installmentsNum = Number(installments);
-    if (!Number.isInteger(installmentsNum) || installmentsNum < 1 || installmentsNum > 3) {
-      return res.status(400).json({
-        error: "INVALID_INSTALLMENTS",
-        message: "installments deve ser inteiro entre 1 e 3",
-      });
-    }
-
-    const idNumber = onlyDigits(payer.identification.number);
-    if (!idNumber) {
-      return res.status(400).json({
-        error: "INVALID_IDENTIFICATION",
-        message: "payer.identification.number inválido",
-      });
-    }
-
-    const external_reference = buildExternalReference();
-    const payment = getPaymentClient();
-    const response = await payment.create({
-      body: {
-        transaction_amount: PRODUCT.price,
-        description: PRODUCT.title,
-        token,
-        payment_method_id,
-        installments: installmentsNum,
-        external_reference,
-        metadata: { product_key: PRODUCT.key },
-        payer: {
-          email: payer.email,
-          identification: {
-            type: payer.identification.type ?? "CPF",
-            number: idNumber,
-          },
-        },
-      },
-      requestOptions: { idempotencyKey },
-    });
-
-    // Cartão aprovado é síncrono: libera entitlement já na resposta para não
-    // depender do webhook (que pode demorar segundos ou falhar).
-    if (response.status === "approved") {
-      await grantEntitlement({
-        paymentId: String(response.id),
-        externalReference: external_reference,
-        payerEmail: payer.email,
-      });
-    }
-
-    logInfo("card_payment_created", {
-      payment_id: response.id,
-      status: response.status,
-      status_detail: response.status_detail,
-      external_reference,
-      idempotencyKey,
-    });
-
-    return res.status(200).json({
-      id: response.id,
-      status: response.status,
-      status_detail: response.status_detail,
-      external_reference,
-    });
-  } catch (err: any) {
-    logError("card_payment_failed", {
-      message: err?.message,
-      mp_cause: err?.cause,
-      idempotencyKey,
-    });
-    return res.status(502).json({
-      error: "PAYMENT_PROVIDER_ERROR",
-      message: "Não foi possível processar o pagamento. Verifique os dados e tente novamente.",
-    });
-  }
-});
 
 // =============================================================
 // POST /api/payments/annual/pix  (auth)
