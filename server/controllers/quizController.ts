@@ -15,14 +15,24 @@ const logger = log.withContext("quiz-controller");
  */
 export async function saveQuizResponse(req: Request, res: Response) {
   try {
-    const { answers, utm, quiz_source } = req.body ?? {};
+    const { answers, utm, quiz_source, skipped } = req.body ?? {};
+    const skippedFlag = skipped === true;
 
-    if (!Array.isArray(answers) || answers.length === 0) {
+    if (!Array.isArray(answers)) {
       return res.status(400).json({
         error: "INVALID_PAYLOAD",
-        message: "answers deve ser um array não-vazio",
+        message: "answers deve ser um array",
       });
     }
+    if (answers.length === 0 && !skippedFlag) {
+      return res.status(400).json({
+        error: "INVALID_PAYLOAD",
+        message: "answers deve ser não-vazio (ou skipped: true)",
+      });
+    }
+
+    const guestHeader = req.headers["x-eco-guest-id"];
+    const guestId = typeof guestHeader === "string" && guestHeader.length > 0 ? guestHeader : null;
 
     const supabase = ensureSupabaseConfigured();
 
@@ -32,6 +42,8 @@ export async function saveQuizResponse(req: Request, res: Response) {
         answers,
         utm_data: utm ?? null,
         quiz_source: quiz_source ?? "quiz_sono",
+        skipped: skippedFlag,
+        guest_id: guestId,
       })
       .select("id")
       .single();
@@ -41,7 +53,12 @@ export async function saveQuizResponse(req: Request, res: Response) {
       return res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao salvar respostas" });
     }
 
-    logger.info("quiz_response_saved", { id: data.id, quiz_source: quiz_source ?? "quiz_sono" });
+    logger.info("quiz_response_saved", {
+      id: data.id,
+      quiz_source: quiz_source ?? "quiz_sono",
+      skipped: skippedFlag,
+      hasGuestId: Boolean(guestId),
+    });
 
     return res.status(201).json({ id: data.id });
   } catch (error) {
