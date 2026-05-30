@@ -1,5 +1,6 @@
 import express from "express";
 import { createSonoLead } from "../controllers/leadsController";
+import { subscribeNewsletter } from "../controllers/newsletterController";
 
 const router = express.Router();
 
@@ -10,5 +11,13 @@ const router = express.Router();
  * Rota PÚBLICA — sem requireAuth.
  */
 router.post("/sono-noite1", createSonoLead);
+
+/**
+ * POST /api/leads/newsletter
+ *
+ * Inscrição na newsletter geral (footer "Fique por dentro").
+ * Rota PÚBLICA — sem requireAuth.
+ */
+router.post("/newsletter", subscribeNewsletter);
 
 export default router;
