@@ -44,6 +44,21 @@ export function renderDecBlock(dec: {
   ].join("\n");
 }
 
+function formatRelativeDate(createdAt: unknown): string | null {
+  if (typeof createdAt !== "string" || !createdAt.trim()) return null;
+  const parsed = Date.parse(createdAt);
+  if (!Number.isFinite(parsed)) return null;
+  const days = Math.floor((Date.now() - parsed) / (1000 * 60 * 60 * 24));
+  if (days < 0) return null;
+  if (days === 0) return "hoje";
+  if (days === 1) return "ontem";
+  if (days <= 6) return `há ${days} dias`;
+  if (days <= 13) return "há ~1 semana";
+  if (days <= 30) return `há ~${Math.round(days / 7)} semanas`;
+  if (days <= 60) return "há ~1 mês";
+  return `há ~${Math.round(days / 30)} meses`;
+}
+
 export function buildContextSections({
   hasMemories,
   mems,
@@ -57,10 +72,21 @@ export function buildContextSections({
 }: BuildParams): ContextSectionsResult {
   const contextSections: string[] = [];
 
-  if (hasMemories) {
+  // As memórias realmente recuperadas chegam em `memsSemelhantesNorm` (busca
+  // semântica + fallbacks). O caminho `recall` (`mems`/`hasMemories`) raramente
+  // é preenchido, então usamos a lista efetiva para não perder o histórico.
+  const effectiveMems: SimilarMemory[] =
+    Array.isArray(mems) && mems.length > 0
+      ? mems
+      : Array.isArray(memsSemelhantesNorm)
+      ? memsSemelhantesNorm
+      : [];
+  const effectiveHasMemories = hasMemories || effectiveMems.length > 0;
+
+  if (effectiveHasMemories && effectiveMems.length > 0) {
     const bloco =
       "MEMÓRIAS PERTINENTES\n" +
-      mems
+      effectiveMems
         .slice(0, 5)
         .map((m, i) => {
           const rawSimilarity =
@@ -69,13 +95,14 @@ export function buildContextSections({
               : typeof (m as any)?.similaridade === "number"
               ? ((m as any).similaridade as number)
               : 0;
-          const score = Number(rawSimilarity ?? 0).toFixed(3);
+          const score = Number(rawSimilarity ?? 0).toFixed(2);
           const tagArray = Array.isArray((m as any)?.tags)
             ? ((m as any).tags as unknown[])
                 .filter((tag) => typeof tag === "string" && tag.trim().length > 0)
                 .map((tag) => (tag as string).trim())
             : [];
           const tagsLabel = tagArray.length ? tagArray.join(", ") : "—";
+          const quando = formatRelativeDate((m as any)?.created_at);
           const resumo =
             (typeof m?.resumo_eco === "string" && m.resumo_eco) ||
             (typeof (m as any)?.analise_resumo === "string" &&
@@ -85,7 +112,12 @@ export function buildContextSections({
               ((m as any).conteudo as string)) ||
             "";
           const corpo = String(resumo ?? "").trim();
-          const header = `• [${i + 1}] score=${score} tags=${tagsLabel}`;
+          const metaParts = [
+            quando ? quando : null,
+            `relevância ${score}`,
+            `tags: ${tagsLabel}`,
+          ].filter(Boolean);
+          const header = `• [${i + 1}] (${metaParts.join(" · ")})`;
           return corpo.length ? `${header}\n${corpo}` : header;
         })
         .filter((entry) => entry.length > 0)
@@ -97,13 +129,15 @@ export function buildContextSections({
   }
 
   const extras: string[] = [];
-  const memoryTagHighlights = collectTagsFromMemories(memsSemelhantesNorm);
-  if (hasMemories) {
+  const memoryTagHighlights = collectTagsFromMemories(
+    effectiveMems.length > 0 ? effectiveMems : memsSemelhantesNorm
+  );
+  if (effectiveHasMemories) {
     const tagLine = memoryTagHighlights.length
       ? memoryTagHighlights.join(", ")
-      : "os padrões que você já registrou";
+      : "o que a pessoa já registrou";
     extras.unshift(
-      `Quando houver MEMÓRIAS PERTINENTES, comece com: "Estou acessando o que você já compartilhou. Vejo registros sobre ${tagLine} — especialmente {resumo curto}. Queremos retomar a partir daí?" Substitua {resumo curto} por uma síntese breve da memória mais relevante.`
+      `Há MEMÓRIAS PERTINENTES sobre ${tagLine}. Use-as: reconheça de forma breve e natural o que essa pessoa já compartilhou e conecte com o que ela traz agora. Sem fórmula fixa, sem citar datas — no máximo uma referência leve, com suas próprias palavras.`
     );
   }
 
@@ -139,11 +173,11 @@ export function buildContextSections({
 
   const askedAboutMemory =
     /\b(lembr(a|ou)|record(a|a-se)|mem[oó]ria(s)?|conversas? anteriores?)\b/i.test(texto);
-  if (askedAboutMemory && hasMemories) {
+  if (askedAboutMemory && effectiveHasMemories) {
     extras.push(
       "Se perguntarem se você lembra: responda afirmativamente e cite 1-2 pontos de MEMÓRIAS PERTINENTES brevemente."
     );
-  } else if (askedAboutMemory && !hasMemories) {
+  } else if (askedAboutMemory && !effectiveHasMemories) {
     extras.push(
       "Se perguntarem se você lembra e não houver MEMÓRIAS PERTINENTES: diga que não encontrou memórias relacionadas desta vez e convide a resumir em 1 frase para registrar."
     );

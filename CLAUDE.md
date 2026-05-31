@@ -582,7 +582,7 @@ USE_STUB_ECO=true npm run dev
 ## External API Integrations
 
 ### OpenRouter/Claude
-- **Endpoint**: `https://openrouter.io/api/v1/chat/completions`
+- **Endpoint**: `https://openrouter.ai/api/v1/chat/completions`
 - **Auth**: `Authorization: Bearer ${OPENROUTER_API_KEY}`
 - **Models**: anthropic/claude-sonnet-4.5-20250929 (principal), anthropic/claude-3-haiku (fast-lane, configurable)
 - **Streaming**: Supported via `stream: true`
@@ -609,6 +609,7 @@ USE_STUB_ECO=true npm run dev
 ## Additional Resources
 
 - **Architecture Docs**: `ARCHITECTURE.md`, `API_REFERENCE.md`, `DATA_MODEL.md`
+- **Prompt real (o que entra no system prompt)**: `docs/prompt-architecture.md` — identidade/voz vivem em `server/core/promptIdentity.ts` e `instructionPolicy.ts`, NÃO na maioria dos `.txt`. Use `npm run prompt:dump` para inspecionar.
 - **Environment Guide**: `ENVIRONMENT.md` (comprehensive variable reference)
 - **Security**: `SECURITY.md` (RLS policies, JWT validation, CORS)
 - **Observability**: `OBSERVABILITY.md` (logging, metrics, debugging)

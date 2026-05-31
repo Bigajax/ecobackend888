@@ -5,6 +5,32 @@ import { log } from "../services/promptContext/logger";
 
 export type Msg = { role: "system" | "user" | "assistant"; content: string; name?: string };
 
+/**
+ * Monta a(s) mensagem(ns) de sistema, com prompt caching opcional.
+ *
+ * Gated por ECO_PROMPT_CACHE (off por padrão → comportamento idêntico ao anterior).
+ * Quando "1", marca o bloco de sistema com cache_control ephemeral (OpenRouter/Anthropic).
+ *
+ * IMPORTANTE: o cache da Anthropic é por PREFIXO. Só haverá cache hit se o conteúdo marcado
+ * for um prefixo estável entre requests. Hoje o prompt montado coloca conteúdo dinâmico
+ * (bloco MEMÓRIAS PERTINENTES, DEC, nome) no início, então este flag só rende após reordenar
+ * o prompt para a identidade estática vir primeiro. Ver docs/prompt-architecture.md.
+ */
+function buildSystemMessages(system: string): ORMessage[] {
+  if (!system) return [];
+  if (process.env.ECO_PROMPT_CACHE === "1") {
+    return [
+      {
+        role: "system",
+        content: [
+          { type: "text", text: system, cache_control: { type: "ephemeral" } } as any,
+        ],
+      },
+    ];
+  }
+  return [{ role: "system", content: system }];
+}
+
 /** Tipos mínimos do retorno da OpenRouter (compatível com strict) */
 type ORole = "system" | "user" | "assistant";
 type ORContentPiece =
@@ -196,7 +222,7 @@ export async function claudeChatCompletion({
       temperature,
       max_tokens: maxTokens,
       messages: [
-        ...(system ? [{ role: "system", content: system } as ORMessage] : []),
+        ...buildSystemMessages(system),
         ...turns,
       ],
     };
@@ -298,7 +324,7 @@ export async function streamClaudeChatCompletion(
       max_tokens: maxTokens,
       stream: true,
       messages: [
-        ...(system ? [{ role: "system", content: system } as ORMessage] : []),
+        ...buildSystemMessages(system),
         ...turns,
       ],
     };

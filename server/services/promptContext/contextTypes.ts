@@ -41,5 +41,4 @@ export type BuildParams = {
   contextFlags?: Record<string, unknown>;
   contextMeta?: ContextMeta;
   passiveSignals?: string[] | null;
-  recall?: { items?: SimilarMemory[] | null; memories?: SimilarMemory[] | null } | null;
 };

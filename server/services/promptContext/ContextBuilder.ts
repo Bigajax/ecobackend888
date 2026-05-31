@@ -27,8 +27,6 @@ import {
   updateDecisionDebug,
   resolveDecisionContext,
 } from "./pipeline/decisionResolver";
-import { buscarMemoriasSemanticas, buscarMemoriasSemanticasComTimeout } from "../supabase/semanticMemoryClient";
-import { formatMemoriesSection, injectMemoriesIntoPrompt, clampTokens } from "./memoryInjector";
 
 const REQUIRED_MANIFEST_IDS = new Set([
   "identidade_core",
@@ -388,9 +386,14 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
     nivel: ecoDecision.openness,
   });
 
+  // O cabeçalho do prompt reporta "Memórias" — reflita as memórias pertinentes realmente
+  // injetadas (memsSemelhantesNorm), não a lista compacta (memsCompact), quase sempre vazia.
+  const headerMemCount =
+    (Array.isArray(memsSemelhantesNorm) ? memsSemelhantesNorm.length : 0) || memCount;
+
   const assembly = assemblePrompt({
     nivel: ecoDecision.openness,
-    memCount,
+    memCount: headerMemCount,
     forcarMetodoViva: ecoDecision.vivaSteps.length ? true : forcarMetodoViva,
     extras: sectionsResult.extras,
     stitched,
@@ -406,55 +409,21 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
   });
 
   const base = assembly.base;
-  // Inject semantic memories that were already retrieved in parallel fetch
-  let baseWithMemories = base;
-
-  // Use memories from params if available and user is not a guest
-  const isGuestUser = !params.userId || typeof params.userId !== "string" || params.userId.trim().length === 0;
-  const hasMemoriesToInject = Array.isArray(memsSemelhantesNorm) && memsSemelhantesNorm.length > 0;
-
-  if (!isGuestUser && hasMemoriesToInject) {
-    try {
-      if (isDebug()) {
-        log.debug("[ContextBuilder] injecting_semantic_memories", {
-          usuarioId: params.userId,
-          memoryCount: memsSemelhantesNorm.length,
-        });
-      }
-
-      // Convert memories to the format expected by formatMemoriesSection
-      const memoriesFormatted = memsSemelhantesNorm.map((mem: any) => ({
-        id: mem.id || "",
-        texto: mem.resumo_eco || mem.texto || mem.analise_resumo || "",
-        score: typeof mem.similarity === "number" ? mem.similarity : 0.5,
-        tags: Array.isArray(mem.tags) ? mem.tags : [],
-        dominio_vida: mem.dominio_vida || null,
-        created_at: mem.created_at || null,
-      }));
-
-      const memoriesSection = formatMemoriesSection(
-        memoriesFormatted,
-        clampTokens(1500, 2000)
-      );
-
-      if (memoriesSection) {
-        baseWithMemories = injectMemoriesIntoPrompt(base, memoriesSection);
-
-        if (isDebug()) {
-          log.debug("[ContextBuilder] memories_injected", {
-            count: memsSemelhantesNorm.length,
-          });
-        }
-      }
-    } catch (err) {
-      log.warn("[ContextBuilder] memory_injection_failed", {
-        message: err instanceof Error ? err.message : String(err),
-        stack: err instanceof Error ? err.stack : undefined,
-      });
-    }
+  // As memórias recuperadas já são montadas como o bloco "MEMÓRIAS PERTINENTES"
+  // no topo do system prompt por buildContextSections (sectionsResult.contextSections),
+  // junto das instruções de uso. Não há injeção adicional aqui para evitar duplicar
+  // a seção em um ponto de baixa saliência (fim do prompt).
+  const isGuestUser =
+    !params.userId || typeof params.userId !== "string" || params.userId.trim().length === 0;
+  if (isDebug()) {
+    log.debug("[ContextBuilder] memory_section_status", {
+      usuarioId: params.userId ?? null,
+      isGuest: isGuestUser,
+      memoryCount: Array.isArray(memsSemelhantesNorm) ? memsSemelhantesNorm.length : 0,
+    });
   }
 
-  const montarMensagemAtual = (textoAtual: string) => applyCurrentMessage(baseWithMemories, textoAtual);
+  const montarMensagemAtual = (textoAtual: string) => applyCurrentMessage(base, textoAtual);
 
   const promptComTexto = assembly.promptWithText;
 
@@ -491,7 +460,7 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
     });
   }
 
-  return { base: baseWithMemories, montarMensagemAtual };
+  return { base, montarMensagemAtual };
 }
 
 export const __internals = {

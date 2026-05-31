@@ -114,18 +114,20 @@ export function estimarIntensidade0a10(text: string): number {
   const t = text.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
   let intensity = 0;
 
-  // Primary emotion detection (high weight)
+  // Primary emotion detection (high weight). `t` já está sem acento/lowercase.
   const primaryEmotions = [
     /triste(za)?|tristonho|melancol/,
-    /depress[aã]o?|depressivo/,
-    /ansiedade?|ansiedad|angustiado?/,
-    /medo|assustado?|apavorado?/,
-    /raiva|raivoso?|furioso?|irritado?|revoltado?/,
-    /frustra[cç][aã]o?|frustrado?/,
-    /culpa|culpado?|remorso/,
-    /vergonha|envergonhado?|humilhado?/,
-    /solidao|sozinho|isolado?/,
-    /desesper|desesperado?/,
+    /depress[ao]o?|depressivo/,
+    /ansiedade?|ansiedad|ansios[oa]?|angustiad[oa]?/, // inclui "ansioso/ansiosa"
+    /medo|assustad[oa]?|apavorad[oa]?/,
+    /raiva|raivos[oa]?|furios[oa]?|irritad[oa]?|revoltad[oa]?/,
+    /frustra[cc][ao][ao]?|frustrad[oa]?/,
+    /culpa|culpad[oa]?|remorso/,
+    /vergonha|envergonhad[oa]?|humilhad[oa]?/,
+    /solidao|sozinh[oa]?|isolad[oa]?/,
+    /desesper|desesperad[oa]?/,
+    // Sofrimento agudo conta como sinal primário (não apenas modificador):
+    /nao\s+aguento|insuport|no\s+limite/,
   ];
 
   const primaryMatch = primaryEmotions.some(r => r.test(t));
@@ -133,15 +135,20 @@ export function estimarIntensidade0a10(text: string): number {
 
   // Intensity modifiers (add to base)
   const intensifiers = [
-    /muito\s+(triste|angustia|assusta|furioso|frustrado|vazio|sozinho|deprimido)/,
+    /muito\s+(triste|ansios|angustia|assusta|furios|frustrad|vazio|sozinh|deprimid|medo)/,
     /demais|d+emais/,
-    /pesada|profunda|intensa|avassaladora/,
-    /n[aã]o\s+aguento|n[aã]o\s+consigo|insupor(t|tavel)/,
-    /tudo\s+(?:esta|é)\s+(errado|ruim|pessimo|horrivel|impossivel|vazio)/,
+    /pesad[ao]|profund[ao]|intens[ao]|avassalador/,
+    /nao\s+aguento|nao\s+consigo|insuport/,
+    /tudo\s+(?:esta|e)\s+(errado|ruim|pessimo|horrivel|impossivel|vazio)/,
   ];
 
   const intensifierCount = intensifiers.filter(r => r.test(t)).length;
   intensity += Math.min(2, intensifierCount);
+
+  // Bônus: "muito + emoção" explícito é um sinal forte por si só (canônico para salvar memória).
+  if (primaryMatch && /muito\s+(triste|ansios|angustiad|frustrad|sozinh|deprimid|vazio)/.test(t)) {
+    intensity += 1;
+  }
 
   // Length bonus (longer emotional text = more intense)
   const textLength = text.trim().length;

@@ -1,9 +1,5 @@
 import { loadEcoIdentityModules, type IdentityModule } from "../identityModules";
-import {
-  ID_ECO_FULL,
-  STYLE_HINTS_FULL,
-  MEMORY_POLICY_EXPLICIT,
-} from "../promptIdentity";
+import { ID_ECO_FULL } from "../promptIdentity";
 
 export interface IdentityInjectionResult {
   identityModules: IdentityModule[];
@@ -24,9 +20,10 @@ export async function loadIdentitySections(): Promise<IdentityInjectionResult> {
     .map((module) => formatIdentityModuleSection(module))
     .filter((section) => section.length > 0);
 
-  const staticSections = [ID_ECO_FULL.trim(), STYLE_HINTS_FULL.trim(), MEMORY_POLICY_EXPLICIT.trim()].filter(
-    (section) => section.length > 0
-  );
+  // ID_ECO_FULL já inclui ECO_VOICE (LINGUAGEM E TOM) e MEMORY_PROTOCOL (MEMÓRIA E
+  // CONTINUIDADE). Incluir STYLE_HINTS_FULL e MEMORY_POLICY_EXPLICIT duplicava ~2k tokens
+  // verbatim no prompt. Mantemos apenas a versão completa única.
+  const staticSections = [ID_ECO_FULL.trim()].filter((section) => section.length > 0);
 
   return { identityModules, identitySections, staticSections };
 }

@@ -132,14 +132,10 @@ export async function selectModules({
   };
 
   const intentModules = inferIntentModules(texto);
-  const flagFooters: string[] = [];
-  if (ecoDecision.flags?.useMemories) {
-    flagFooters.push("MEMORIA_COSTURA_REGRAS.txt");
-  }
-  if (ecoDecision.flags?.patternSynthesis) {
-    flagFooters.push("SINTETIZADOR_PADRAO.txt");
-  }
-  const intentAndFlagModules = toUnique([...intentModules, ...flagFooters]);
+  // Footers por flag foram removidos: os módulos MEMORIA_COSTURA_REGRAS.txt e
+  // SINTETIZADOR_PADRAO.txt não existem mais em assets/ (referências mortas). A política
+  // de memória/continuidade é canônica em server/core/promptIdentity.ts (MEMORY_PROTOCOL).
+  const intentAndFlagModules = toUnique([...intentModules]);
 
   const modulesRawBase = ensureDeveloperPromptFirst(
     toUnique([...toUnique(baseSelection.raw), ...intentAndFlagModules])
