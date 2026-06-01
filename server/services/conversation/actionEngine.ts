@@ -170,11 +170,19 @@ function build(id: AcaoId, prioridade: number, descricaoOverride?: string): Acao
 const RE_SONO =
   /\b(?:insonia|inson|nao consigo dormir|nao durmo|durmo mal|sono ruim|sem dormir|mal dormid|acordad|acordo de madrugada|acordo varias vezes|rolando na cama|pregar o olho|madrugada|de noite|a noite|sono|dormir)/;
 const RE_ATIVACAO =
-  /\b(?:ansios|ansiedade|angusti|panico|acelerad|coracao disparad|peito apertad|nao paro de pensar|nao consigo relaxar|agitad|estressad|estresse|sobrecarregad|no limite|surtand|tens[ao]|nervos|aflit|ofegante)/;
+  /\b(?:ansios|ansiedade|angusti|panico|acelerad|coracao disparad|peito apertad|nao paro de pensar|nao consigo relaxar|agitad|surtand|nervos|aflit|ofegante)/;
 const RE_AUTOCOBRANCA =
   /\b(?:me cobro|me cobrar|cobranca|me culpo|exigente comigo|perfeccionis|deveria ter|nunca e suficiente|nao sou bom o suficiente|nao sou boa o suficiente|tenho que dar conta|nao posso falhar)/;
 const RE_CONFUSAO =
   /\b(?:confus|nao sei o que|sem direcao|sem rumo|perdid|indecis|em duvida|nao sei se|cabeca a mil|pensamento embolad)/;
+const RE_ESTRESSE =
+  /\b(?:estress|tensao|tenso|sobrecarregad|no limite|dia pesado|dia dificil|preciso relaxar|preciso descarregar|exausto do trabalho|fim de expediente|nao aguento mais o dia)/;
+const RE_DISCIPLINA =
+  /\b(?:procrastin|deixo pra depois|deixo para depois|adio|adiar|enrol|sempre desisto|desisto sempre|nunca termino|nao consigo manter|falta de disciplina|sem disciplina|sem constancia|nao tenho constancia|nao crio habito|preguica de|comeco e paro)/;
+const RE_DINHEIRO =
+  /\b(?:dinheiro|grana|dividas|divida|financ|sem dinheiro|falta de dinheiro|escassez|contas para pagar|contas pra pagar|boletos|boleto|salario|prosperidade|ganhar mais|mente financeira|mindset financeiro|pobre)/;
+const RE_ENERGIA =
+  /\b(?:sem energia|sem animo|desanimad|desmotivad|exaust|esgotad|apatic|sem vontade|sem forcas|abatid|prostrad|drenad)/;
 
 // ── Anti-repetição (cooldown por usuário+ação) ───────────────────────────────
 // Estado em memória, best-effort (zera em restart). Mapa: usuarioId → (tipo → epochMs).
@@ -226,6 +234,11 @@ export function decideAcaoRecomendada(input: DecideAcaoInput): AcaoRecomendada |
     candidatos.push(build("meditacao", 90));
   }
 
+  // 2.5) ESTRESSE — tensão acumulada do dia (distinto de ansiedade aguda).
+  if (RE_ESTRESSE.test(t)) {
+    candidatos.push(build("liberar_estresse", 85));
+  }
+
   // 3) ESTOICISMO — autocrítica/culpa/vergonha/catastrofização/autocobrança.
   if (
     flag(flags, "autocritica") ||
@@ -240,6 +253,21 @@ export function decideAcaoRecomendada(input: DecideAcaoInput): AcaoRecomendada |
   // 4) DIÁRIO — confusão/dúvida emocional ou desabafo solto.
   if (RE_CONFUSAO.test(t) || flag(flags, "desabafo")) {
     candidatos.push(build("diario", 70));
+  }
+
+  // 6) ANÉIS — falta de constância/disciplina.
+  if (RE_DISCIPLINA.test(t)) {
+    candidatos.push(build("aneis", 68));
+  }
+
+  // 7) RIQUEZA MENTAL — dinheiro/escassez/mindset financeiro.
+  if (RE_DINHEIRO.test(t)) {
+    candidatos.push(build("riqueza_mental", 62));
+  }
+
+  // 8) ENERGY BLESSINGS — desânimo/energia baixa.
+  if (RE_ENERGIA.test(t)) {
+    candidatos.push(build("energy_blessings", 58));
   }
 
   // 5) RELATÓRIO — padrão recorrente ao longo do tempo (tema frequente).

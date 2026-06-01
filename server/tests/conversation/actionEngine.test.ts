@@ -144,3 +144,34 @@ test("sem usuarioId não há cooldown (comportamento puro)", () => {
   assert.equal(decideAcaoRecomendada(input)?.tipo, "sono");
   assert.equal(decideAcaoRecomendada(input)?.tipo, "sono");
 });
+
+test("estresse do dia → liberar_estresse (não meditacao)", () => {
+  const acao = decideAcaoRecomendada({ texto: "que dia estressante, não aguento mais", intensidade: 5, openness: 2 });
+  assert.equal(acao?.id, "liberar_estresse");
+  assert.equal(acao?.kind, "meditacao");
+});
+
+test("ansiedade aguda continua → meditacao", () => {
+  const acao = decideAcaoRecomendada({ texto: "meu coração está disparado, panico", intensidade: 7, openness: 2 });
+  assert.equal(acao?.id, "meditacao");
+});
+
+test("procrastinação/constância → aneis", () => {
+  const acao = decideAcaoRecomendada({ texto: "começo as coisas e sempre desisto, não tenho constância", intensidade: 4, openness: 2 });
+  assert.equal(acao?.id, "aneis");
+});
+
+test("dinheiro/escassez → riqueza_mental", () => {
+  const acao = decideAcaoRecomendada({ texto: "estou sem dinheiro e com contas pra pagar", intensidade: 5, openness: 2 });
+  assert.equal(acao?.id, "riqueza_mental");
+});
+
+test("desânimo/energia baixa → energy_blessings", () => {
+  const acao = decideAcaoRecomendada({ texto: "acordo esgotado, sem ânimo e sem vontade de nada", intensidade: 4, openness: 2 });
+  assert.equal(acao?.id, "energy_blessings");
+});
+
+test("crise bloqueia os novos gatilhos também", () => {
+  const acao = decideAcaoRecomendada({ texto: "sem dinheiro e sem vontade de viver", intensidade: 9, openness: 3, flags: { ideacao: true } });
+  assert.equal(acao, null);
+});
