@@ -373,7 +373,7 @@ const RATE_LIMITS = {
 Configuration:
 ```typescript
 {
-  model: 'anthropic/claude-3-5-sonnet',
+  model: 'anthropic/claude-sonnet-4.6',
   api_key: OPENROUTER_API_KEY,
   temperature: 0.7,
   max_tokens: 4096,

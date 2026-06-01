@@ -124,7 +124,7 @@ export async function runFastLaneLLM({
 
   const payload: ClaudeClientParams = {
     messages: [{ role: "system", content: system }, ...slimHistory],
-    model: process.env.ECO_FAST_MODEL || "anthropic/claude-3-5-haiku",
+    model: process.env.ECO_FAST_MODEL || "anthropic/claude-haiku-4.5",
     temperature: 0.5,
     maxTokens: 220,
   };

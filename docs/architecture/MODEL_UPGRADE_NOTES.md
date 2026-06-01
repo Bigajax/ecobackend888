@@ -144,10 +144,27 @@ npm run dev
 - [ ] Fine-tune de prompts se necessário
 - [ ] Documentar lições aprendidas
 
+## Atualização 2026-06-01 — Sonnet 4.5 → Sonnet 4.6 + Haiku 4.5
+
+Atualizados os três modelos LLM via OpenRouter (slugs verificados na API `https://openrouter.ai/api/v1/models`):
+
+| Papel | Antes | Depois | Env var |
+|-------|-------|--------|---------|
+| Principal | `anthropic/claude-sonnet-4.5(-20250929)` | `anthropic/claude-sonnet-4.6` | `ECO_CLAUDE_MODEL` |
+| Fast-lane | `anthropic/claude-3-5-haiku` | `anthropic/claude-haiku-4.5` | `ECO_FAST_MODEL` |
+| Fallback | `anthropic/claude-3-haiku-20240307` | `anthropic/claude-haiku-4.5` | `ECO_CLAUDE_MODEL_FALLBACK` |
+
+**Arquivos alterados (defaults):** `server/core/ClaudeAdapter.ts`, `server/services/ConversationOrchestrator.ts`, `server/services/conversation/fastLane.ts`. Config explícita adicionada em `server/.env`.
+
+**Validação:** `tsc --noEmit` sem erros; nenhum teste fixa slugs antigos.
+
+**Deploy:** definir `ECO_CLAUDE_MODEL`, `ECO_FAST_MODEL` e `ECO_CLAUDE_MODEL_FALLBACK` no painel de env vars do **backend** (onde o OpenRouter é chamado), não no projeto do frontend.
+
 ## Histórico de Modelos
 
 | Data | Modelo | Razão |
 |------|--------|-------|
+| 2026-06-01 | claude-sonnet-4.6 + claude-haiku-4.5 | Upgrade de principal/fast-lane/fallback para gerações 4.x atuais |
 | 2025-11-06 | claude-sonnet-4.5 | Upgrade para melhor qualidade + menor custo |
 | (anterior) | claude-3-5-sonnet | Modelo anterior |
 

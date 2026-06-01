@@ -77,7 +77,9 @@ CORS_ALLOWLIST=http://localhost:5173
 
 # LLM
 OPENROUTER_API_KEY=chave
-ECO_CLAUDE_MODEL=anthropic/claude-3-haiku
+ECO_CLAUDE_MODEL=anthropic/claude-sonnet-4.6
+ECO_CLAUDE_MODEL_FALLBACK=anthropic/claude-haiku-4.5
+ECO_FAST_MODEL=anthropic/claude-haiku-4.5
 
 # Supabase
 SUPABASE_URL=https://...supabase.co

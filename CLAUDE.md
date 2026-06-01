@@ -513,9 +513,9 @@ Use `npm run verify:assets` before deploying to ensure all modules are bundled.
 
 ### OpenRouter/Claude Configuration
 
-The system currently defaults to `anthropic/claude-sonnet-4.5-20250929` via OpenRouter. To change:
+The system currently defaults to `anthropic/claude-sonnet-4.6` (principal) via OpenRouter, with `anthropic/claude-haiku-4.5` for fast-lane and fallback. To change:
 
-1. Set `ECO_CLAUDE_MODEL=anthropic/claude-3-haiku` (or other OpenRouter model)
+1. Set `ECO_CLAUDE_MODEL=anthropic/claude-sonnet-4.6` (principal), `ECO_FAST_MODEL` (fast-lane) and `ECO_CLAUDE_MODEL_FALLBACK` (fallback on timeout/error) — use any valid OpenRouter slug
 2. Adjust `ECO_MAX_PROMPT_TOKENS` if needed for model context limits
 3. Test streaming behavior via `npm run shadow:smoke`
 
@@ -584,7 +584,7 @@ USE_STUB_ECO=true npm run dev
 ### OpenRouter/Claude
 - **Endpoint**: `https://openrouter.ai/api/v1/chat/completions`
 - **Auth**: `Authorization: Bearer ${OPENROUTER_API_KEY}`
-- **Models**: anthropic/claude-sonnet-4.5-20250929 (principal), anthropic/claude-3-haiku (fast-lane, configurable)
+- **Models**: anthropic/claude-sonnet-4.6 (principal), anthropic/claude-haiku-4.5 (fast-lane + fallback, configurable)
 - **Streaming**: Supported via `stream: true`
 - **Timeout**: Configurable via `OPENROUTER_TIMEOUT_MS` (30s default)
 

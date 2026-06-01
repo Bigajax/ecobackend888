@@ -189,8 +189,8 @@ function pickContent(chunk: ORStreamChunk | ORChatCompletion): string {
 
 export async function claudeChatCompletion({
   messages,
-  model = process.env.ECO_CLAUDE_MODEL || "anthropic/claude-sonnet-4.5",
-  fallbackModel = process.env.ECO_CLAUDE_MODEL_FALLBACK || "anthropic/claude-3-haiku-20240307",
+  model = process.env.ECO_CLAUDE_MODEL || "anthropic/claude-sonnet-4.6",
+  fallbackModel = process.env.ECO_CLAUDE_MODEL_FALLBACK || "anthropic/claude-haiku-4.5",
   temperature = 0.5,
   maxTokens = 700,
 }: {
@@ -284,8 +284,8 @@ export async function claudeChatCompletion({
 export async function streamClaudeChatCompletion(
   {
     messages,
-    model = process.env.ECO_CLAUDE_MODEL || "anthropic/claude-sonnet-4.5",
-    fallbackModel = process.env.ECO_CLAUDE_MODEL_FALLBACK || "anthropic/claude-3-haiku-20240307",
+    model = process.env.ECO_CLAUDE_MODEL || "anthropic/claude-sonnet-4.6",
+    fallbackModel = process.env.ECO_CLAUDE_MODEL_FALLBACK || "anthropic/claude-haiku-4.5",
     temperature = 0.5,
     maxTokens = 700,
   }: {
