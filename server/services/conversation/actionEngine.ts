@@ -17,15 +17,26 @@
 //
 // O frontend mapeia `tipo` → rota/ícone; este módulo só decide a ação semântica + copy.
 
+/** Ids legados (compat de payload). */
 export type TipoAcao = "meditacao" | "sono" | "diario" | "estoicismo" | "relatorio";
 
+/** Catálogo completo de ações recomendáveis (v2). */
+export type AcaoId = TipoAcao | "aneis" | "riqueza_mental" | "energy_blessings" | "liberar_estresse";
+
+/** Como o frontend navega: programa abre rota; meditação abre o player. */
+export type AcaoKind = "programa" | "meditacao";
+
 export interface AcaoRecomendada {
-  tipo: TipoAcao;
+  /** Contrato compartilhado com o frontend (chave do CATALOG). */
+  id: AcaoId;
+  kind: AcaoKind;
   titulo: string;
   descricao: string;
   cta: string;
-  /** Maior = mais prioritário (apenas para depuração/ordenação; o engine já retorna 1). */
+  /** Maior = mais prioritário. */
   prioridade: number;
+  /** Alias legado: presente apenas para os 5 ids antigos (id === tipo). */
+  tipo?: TipoAcao;
 }
 
 export interface DecideAcaoInput {
@@ -74,50 +85,83 @@ const FLAGS_BLOQUEIO_CRISE = [
   "autodesvalorizacao",
 ] as const;
 
-const TEMPLATES: Record<TipoAcao, Omit<AcaoRecomendada, "prioridade">> = {
+type CatalogTemplate = Pick<AcaoRecomendada, "id" | "kind" | "titulo" | "descricao" | "cta">;
+
+const CATALOG: Record<AcaoId, CatalogTemplate> = {
   meditacao: {
-    tipo: "meditacao",
+    id: "meditacao", kind: "programa",
     titulo: "Uma pausa para desacelerar",
     descricao:
       "Tem bastante coisa ativada aí agora. Às vezes o corpo precisa desacelerar antes da cabeça entender — 5 minutos de respiração ajudam.",
     cta: "Respirar por 5 minutos",
   },
   sono: {
-    tipo: "sono",
+    id: "sono", kind: "programa",
     titulo: "Preparar para a noite",
     descricao:
       "O que você descreve soa mais como mente que não desliga do que cansaço. Tenho uma prática pra ajudar o corpo a entrar no modo noite.",
     cta: "Abrir práticas de sono",
   },
   estoicismo: {
-    tipo: "estoicismo",
+    id: "estoicismo", kind: "programa",
     titulo: "Uma reflexão sobre a autocobrança",
     descricao:
       "Tem uma distância aí entre o que você exige de si e o que de fato cabe a você. Os estoicos escreveram bastante sobre isso.",
     cta: "Ler uma reflexão",
   },
   diario: {
-    tipo: "diario",
+    id: "diario", kind: "programa",
     titulo: "Colocar no papel",
     descricao:
       "Quando a cabeça embola assim, escrever costuma clarear mais do que continuar remoendo. Topa um exercício rápido?",
     cta: "Abrir o diário",
   },
   relatorio: {
-    tipo: "relatorio",
+    id: "relatorio", kind: "programa",
     titulo: "Ver seus padrões",
     descricao:
       "Esse tema tem aparecido com frequência nas suas conversas. Talvez valha acompanhar como ele evolui ao longo do tempo.",
     cta: "Ver meu relatório",
   },
+  aneis: {
+    id: "aneis", kind: "programa",
+    titulo: "Construir constância",
+    descricao:
+      "Quando a vontade vai e volta assim, o que costuma faltar não é força — é um sistema que segure você nos dias difíceis.",
+    cta: "Conhecer os Cinco Anéis",
+  },
+  riqueza_mental: {
+    id: "riqueza_mental", kind: "programa",
+    titulo: "Reprogramar a mente financeira",
+    descricao:
+      "A relação com dinheiro costuma começar antes do bolso, na cabeça. Tem um programa que trabalha justamente essa raiz.",
+    cta: "Abrir Riqueza Mental",
+  },
+  energy_blessings: {
+    id: "energy_blessings", kind: "programa",
+    titulo: "Reativar sua energia",
+    descricao:
+      "Esse esvaziamento que você descreve pede menos esforço e mais recarga. Uma prática curta de energia pode ajudar a religar.",
+    cta: "Ativar seus centros de energia",
+  },
+  liberar_estresse: {
+    id: "liberar_estresse", kind: "meditacao",
+    titulo: "Soltar a tensão do dia",
+    descricao:
+      "Parece tensão que foi se acumulando ao longo do dia. Cinco minutos pra descarregar o corpo costumam aliviar mais do que parece.",
+    cta: "Liberar o estresse (5 min)",
+  },
 };
 
-function build(tipo: TipoAcao, prioridade: number, descricaoOverride?: string): AcaoRecomendada {
-  const base = TEMPLATES[tipo];
+const LEGACY_TIPOS = new Set<AcaoId>(["meditacao", "sono", "diario", "estoicismo", "relatorio"]);
+
+function build(id: AcaoId, prioridade: number, descricaoOverride?: string): AcaoRecomendada {
+  const base = CATALOG[id];
   return {
     ...base,
     descricao: descricaoOverride ?? base.descricao,
     prioridade,
+    ...(LEGACY_TIPOS.has(id) ? { tipo: id as TipoAcao } : {}),
   };
 }
 
@@ -134,17 +178,17 @@ const RE_CONFUSAO =
 
 // ── Anti-repetição (cooldown por usuário+ação) ───────────────────────────────
 // Estado em memória, best-effort (zera em restart). Mapa: usuarioId → (tipo → epochMs).
-const ultimaAcaoPorUsuario = new Map<string, Map<TipoAcao, number>>();
+const ultimaAcaoPorUsuario = new Map<string, Map<AcaoId, number>>();
 
-function emCooldown(usuarioId: string, tipo: TipoAcao, agora: number): boolean {
+function emCooldown(usuarioId: string, tipo: AcaoId, agora: number): boolean {
   const ts = ultimaAcaoPorUsuario.get(usuarioId)?.get(tipo);
   return typeof ts === "number" && agora - ts < COOLDOWN_MS;
 }
 
-function registrarAcao(usuarioId: string, tipo: TipoAcao, agora: number): void {
+function registrarAcao(usuarioId: string, tipo: AcaoId, agora: number): void {
   let porTipo = ultimaAcaoPorUsuario.get(usuarioId);
   if (!porTipo) {
-    porTipo = new Map<TipoAcao, number>();
+    porTipo = new Map<AcaoId, number>();
     ultimaAcaoPorUsuario.set(usuarioId, porTipo);
   }
   porTipo.set(tipo, agora);
@@ -224,11 +268,11 @@ export function decideAcaoRecomendada(input: DecideAcaoInput): AcaoRecomendada |
   }
 
   const agora = input.agoraMs ?? Date.now();
-  const escolhido = candidatos.find((c) => !emCooldown(usuarioId, c.tipo, agora));
+  const escolhido = candidatos.find((c) => !emCooldown(usuarioId, c.id, agora));
   if (!escolhido) {
     return null; // Tudo recém-sugerido: não insistir neste turno.
   }
 
-  registrarAcao(usuarioId, escolhido.tipo, agora);
+  registrarAcao(usuarioId, escolhido.id, agora);
   return escolhido;
 }
