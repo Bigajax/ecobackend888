@@ -13,6 +13,7 @@ import {
 import { buildStreamingMetaPayload, buildFinalizedStreamText } from "./responseMetadata";
 import { salvarMemoriaViaRPC } from "./memoryPersistence";
 import { defaultResponseFinalizer, type PrecomputedFinalizeArtifacts } from "./responseFinalizer";
+import { decideAcaoRecomendada } from "./actionEngine";
 import type { EcoDecisionResult } from "./ecoDecisionHub";
 
 import { executeFullLLM } from "./fullOrchestrator";
@@ -91,6 +92,8 @@ interface StreamingExecutionParams {
     similarity?: number | null;
     diasDesde?: number | null;
   };
+  /** Tema recorrente do perfil (top_temas_30d). Habilita a ação "ver evolução" (relatório). */
+  temaRecorrente?: { tema: string; freq: number } | null;
   abortSignal?: AbortSignal;
 }
 
@@ -119,6 +122,7 @@ export async function executeStreamingLLM({
   contextFlags,
   contextMeta,
   continuity,
+  temaRecorrente,
   abortSignal,
 }: StreamingExecutionParams): Promise<EcoStreamingResult> {
   console.log("[ECO-SSE] início streaming", { timestamp: new Date().toISOString() });
@@ -997,6 +1001,32 @@ export async function executeStreamingLLM({
       log.debug("[StreamingLLM] interaction_id_mismatch", {
         source: analyticsInteractionId,
         fromFinalize: interactionIdFromResult,
+      });
+    }
+
+    // Action Engine: decide a próxima ação ("próximo passo natural"). Só para autenticados.
+    // Emitido como evento `meta` → entra no `done` via aggregatedMeta (state.metaPayload).
+    try {
+      const acao = isGuest
+        ? null
+        : decideAcaoRecomendada({
+            texto: ultimaMsg,
+            intensidade: ecoDecision.intensity,
+            openness: ecoDecision.openness,
+            flags: (ecoDecision.flags ?? null) as Record<string, unknown> | null,
+            temaRecorrente: temaRecorrente ?? null,
+            usuarioId: userId,
+          });
+      if (acao) {
+        await emitStream({
+          type: "control",
+          name: "meta",
+          meta: { acao_recomendada: acao } as any,
+        });
+      }
+    } catch (acaoErr) {
+      log.debug("[actionEngine] decide_failed", {
+        message: acaoErr instanceof Error ? acaoErr.message : String(acaoErr),
       });
     }
   } catch (error) {

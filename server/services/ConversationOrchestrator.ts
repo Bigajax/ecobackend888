@@ -711,6 +711,12 @@ export async function getEcoResponse({
           contextFlags: context.flags,
           contextMeta: context.meta,
           continuity: context.continuity,
+          temaRecorrente: (() => {
+            const top = (context?.derivados as any)?.top_temas_30d?.[0];
+            return top && typeof top.tema === "string" && typeof top.freq_30d === "number"
+              ? { tema: top.tema, freq: top.freq_30d }
+              : null;
+          })(),
           basePrompt: systemPrompt,
           basePromptHash,
           abortSignal,
