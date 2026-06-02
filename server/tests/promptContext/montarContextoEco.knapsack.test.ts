@@ -36,7 +36,11 @@ const MVS_EXPECTED = [
 
 test("ContextBuilder mantém MVS e respeita orçamento aditivo", async () => {
   const originalBudget = process.env.ECO_KNAPSACK_BUDGET_TOKENS;
+  const originalContextBudget = process.env.ECO_CONTEXT_BUDGET_TOKENS;
   process.env.ECO_KNAPSACK_BUDGET_TOKENS = "100";
+  // Orçamento geral generoso: o MVS (módulos vitais) deve sempre caber; o knapsack
+  // (aditivo, 100) é quem deve limitar os módulos extras.
+  process.env.ECO_CONTEXT_BUDGET_TOKENS = "6000";
 
   qualityAnalyticsStore.reset();
   ModuleStore.configure([]);
@@ -100,6 +104,11 @@ test("ContextBuilder mantém MVS e respeita orçamento aditivo", async () => {
       delete process.env.ECO_KNAPSACK_BUDGET_TOKENS;
     } else {
       process.env.ECO_KNAPSACK_BUDGET_TOKENS = originalBudget;
+    }
+    if (originalContextBudget === undefined) {
+      delete process.env.ECO_CONTEXT_BUDGET_TOKENS;
+    } else {
+      process.env.ECO_CONTEXT_BUDGET_TOKENS = originalContextBudget;
     }
   }
 });
