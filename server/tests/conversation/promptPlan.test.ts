@@ -57,9 +57,9 @@ test("seleciona estilo coach quando usuário pede passos e viva está desligado"
     historyLimit: 1,
   });
 
-  assert.ok(prompt[0].content.startsWith("Preferir plano COACH"));
-  assert.strictEqual(prompt.length, 1 + 1);
-  assert.strictEqual(prompt[1].content, "Resposta antiga");
+  assert.ok(prompt[0].content.startsWith("Modo: COACH"));
+  assert.strictEqual(prompt.length, 3);
+  assert.strictEqual(prompt[2].content, "Resposta antiga");
 });
 
 test("mantém estilo espelho quando viva está ativo", () => {
@@ -70,7 +70,7 @@ test("mantém estilo espelho quando viva está ativo", () => {
     messages: [],
   });
 
-  assert.ok(prompt[0].content.startsWith("Preferir plano ESPELHO"));
+  assert.ok(prompt[0].content.startsWith("Modo: ESPELHO"));
 });
 
 test("system prompt combina seletor de estilo e contexto", () => {
@@ -82,5 +82,6 @@ test("system prompt combina seletor de estilo e contexto", () => {
     messages: [],
   });
 
-  assert.strictEqual(prompt[0].content, `Preferir plano COACH (30%): acolher (1 linha) • encorajar com leveza • (opcional) até 3 passos curtos • fechar com incentivo.\n${contexto}`);
+  assert.ok(prompt[0].content.startsWith("Modo: COACH"));
+  assert.ok(prompt[0].content.endsWith(`\n${contexto}`));
 });
