@@ -69,6 +69,12 @@ class AnalyticsStub {
 }
 
 test("POST /api/signal persiste payload e responde 204 vazio", async () => {
+  const guestId = "11111111-1111-4111-8111-111111111111";
+  // O controller exige X-Eco-Guest-Id (UUID v4) e que a interação esteja
+  // registrada no interactionIdentityStore (senão 404). Registramos antes.
+  const store = require("../../services/conversation/interactionIdentityStore");
+  store.rememberInteractionGuest("interaction-123", guestId);
+
   const analytics = new AnalyticsStub();
   const router = await loadRouterWithStubs({
     "../services/supabaseClient": { getAnalyticsClient: () => analytics },
@@ -81,6 +87,7 @@ test("POST /api/signal persiste payload e responde 204 vazio", async () => {
   const response = await request(app)
     .post("/api/signal")
     .set("X-Eco-Interaction-Id", "interaction-123")
+    .set("X-Eco-Guest-Id", guestId)
     .send({ signal: "view", interaction_id: "interaction-123" });
 
   assert.equal(response.status, 204);
