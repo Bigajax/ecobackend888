@@ -64,6 +64,7 @@ test("ConversationOrchestrator normalizes nullable values", async (t) => {
     }
     if (request === "./conversation/promptPlan") {
       return {
+        selectBanditArms: () => ({}),
         buildFullPrompt: ({ messages }: { messages: any[] }) => ({
           prompt: [
             { role: "system", content: "STYLE" },

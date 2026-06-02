@@ -65,6 +65,7 @@ function setupOrchestratorTest({ planHint, materializedScore = 0.85 }: Orchestra
     }
     if (request === "./conversation/promptPlan") {
       return {
+        selectBanditArms: () => ({}),
         buildFullPrompt: ({ messages }: { messages: any[] }) => ({
           prompt: [
             { role: "system", content: "STYLE\nBASE_PROMPT" },

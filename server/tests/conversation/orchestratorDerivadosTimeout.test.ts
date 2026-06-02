@@ -107,6 +107,7 @@ test("streaming segue sem derivados e cache é preenchido quando prontos", async
     }
     if (request === "./conversation/promptPlan") {
       return {
+        selectBanditArms: () => ({}),
         buildFullPrompt: ({ messages }: { messages: any[] }) => ({
           prompt: [
             { role: "system", content: "system prompt" },
