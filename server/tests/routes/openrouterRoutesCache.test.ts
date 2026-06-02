@@ -3,7 +3,7 @@ import { EventEmitter } from "node:events";
 import crypto from "node:crypto";
 import Module from "module";
 import type { Request, Response } from "express";
-import { clearResponseCache, RESPONSE_CACHE } from "../server/services/CacheService";
+import { clearResponseCache, RESPONSE_CACHE } from "../../services/CacheService";
 
 process.env.SUPABASE_URL = process.env.SUPABASE_URL ?? "https://example.supabase.co";
 process.env.SUPABASE_SERVICE_ROLE_KEY =
@@ -60,6 +60,14 @@ class MockRequest extends EventEmitter {
     this.body = body;
     this.headers = headers;
   }
+
+  // Express req.get(name): lookup case-insensitive de header (o handler usa).
+  get(name: string) {
+    const key = Object.keys(this.headers).find(
+      (k) => k.toLowerCase() === name.toLowerCase()
+    );
+    return key ? this.headers[key] : undefined;
+  }
 }
 
 class MockResponse extends EventEmitter {
@@ -67,6 +75,7 @@ class MockResponse extends EventEmitter {
   headers: Record<string, string> = {};
   chunks: string[] = [];
   jsonPayload: any = null;
+  headersSent = false;
 
   status(this: this, code: number) {
     this.statusCode = code;
@@ -75,6 +84,26 @@ class MockResponse extends EventEmitter {
 
   setHeader(name: string, value: string) {
     this.headers[name] = value;
+  }
+
+  getHeader(name: string) {
+    return this.headers[name];
+  }
+
+  removeHeader(name: string) {
+    delete this.headers[name];
+  }
+
+  // O streamSession abre o canal SSE via writeHead quando !headersSent.
+  writeHead(code: number, headers?: Record<string, string>) {
+    this.statusCode = code;
+    if (headers) {
+      for (const [name, value] of Object.entries(headers)) {
+        this.headers[name] = String(value);
+      }
+    }
+    this.headersSent = true;
+    return this;
   }
 
   write(chunk: string) {
@@ -105,12 +134,15 @@ test("cache hit rewrites legacy payload before streaming", async () => {
     .update(`${userId}:${ultimaMsg}`)
     .digest("hex")}`;
 
+  // intensidade >= 7: o bloco técnico ```json só é reconstruído acima desse limiar
+  // (buildStreamingMetaPayload retorna null abaixo de 7 — ver responseMetadata.ts).
+  // É justamente o caso que o "rewrite do legacy payload" exercita.
   const legacyPayload = {
     raw: "Resposta curtinha",
     meta: {
       resumo: "Resumo curto",
       emocao: "alegre",
-      intensidade: 3,
+      intensidade: 8,
       tags: ["saudacao"],
       categoria: "saudacao",
     },
@@ -119,8 +151,8 @@ test("cache hit rewrites legacy payload before streaming", async () => {
   RESPONSE_CACHE.set(cacheKey, JSON.stringify(legacyPayload), 60_000);
 
   const [{ default: router }, { supabase }] = await Promise.all([
-    import("../server/routes/openrouterRoutes"),
-    import("../server/lib/supabaseAdmin"),
+    import("../../routes/openrouterRoutes"),
+    import("../../lib/supabaseAdmin"),
   ]);
 
   (supabase.auth.getUser as any) = async () => ({
@@ -150,10 +182,13 @@ test("cache hit rewrites legacy payload before streaming", async () => {
 
   await handler!(req as unknown as Request, res as unknown as Response);
 
+  // Cada chunk é um frame SSE multi-linha ("id: N\nevent: X\ndata: {...}\n\n"),
+  // então a linha `data:` fica DENTRO do frame — divide por linha antes de filtrar.
   const ssePayloads = res.chunks
-    .map((chunk) => chunk.toString())
+    .flatMap((chunk) => chunk.toString().split("\n"))
     .filter((line) => line.startsWith("data: "))
     .map((line) => line.replace(/^data: /, "").trim())
+    .filter(Boolean)
     .map((line) => JSON.parse(line));
 
   const chunkPayload = ssePayloads.find(

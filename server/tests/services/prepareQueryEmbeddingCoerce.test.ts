@@ -3,8 +3,8 @@ import assert from "node:assert/strict";
 import {
   coerceToNumberArray,
   prepareQueryEmbedding,
-} from "../server/services/prepareQueryEmbedding";
-import { MAX_EMBEDDING_VECTOR_LENGTH } from "../server/adapters/embeddingService";
+} from "../../services/prepareQueryEmbedding";
+import { MAX_EMBEDDING_VECTOR_LENGTH } from "../../adapters/embeddingService";
 
 interface TestCase {
   name: string;

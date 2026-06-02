@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { ContextCache, type ContextCacheParams } from "../server/services/conversation/contextCache";
+import { ContextCache, type ContextCacheParams } from "../../services/conversation/contextCache";
 
 interface TestCase {
   name: string;

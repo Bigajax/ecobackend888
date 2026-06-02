@@ -3,7 +3,7 @@ import {
   DEFAULT_RELATORIO_VIEW,
   extractDistinctId,
   extractRelatorioView,
-} from "../server/routes/relatorioEmocionalView";
+} from "../../routes/relatorioEmocionalView";
 
 type RelatorioRequest = Parameters<typeof extractRelatorioView>[0];
 
