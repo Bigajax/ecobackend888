@@ -17,18 +17,28 @@ interface OrchestratorSetupOptions {
 function setupOrchestratorTest({ planHint, materializedScore = 0.85 }: OrchestratorSetupOptions) {
   const originalLoad = Module._load;
   const modulePath = require.resolve("../../services/ConversationOrchestrator");
+  // Módulos transitivos que capturam os stubs no topo (binding fixado no 1º require).
+  // Sem limpar o cache deles, o 2º teste reusa o materializeHints do 1º (score stale).
+  const transientPaths = [
+    require.resolve("../../services/decision/calPlanner"),
+    require.resolve("../../services/decision/pathSelector"),
+  ];
+  const purgeCache = () => {
+    delete require.cache[modulePath];
+    for (const p of transientPaths) delete require.cache[p];
+  };
   const capturedPrompts: any[][] = [];
 
   Module._load = function patched(request: string, parent: any, isMain: boolean) {
     if (request === "../adapters/SupabaseAdapter") {
       return { supabaseWithBearer: () => ({}) };
     }
-    if (request === "../core/ResponsePlanner") {
+    if (request === "../core/ResponsePlanner" || request === "../../core/ResponsePlanner") {
       return {
         planHints: () => (planHint ? { ...planHint } : null),
       };
     }
-    if (request === "../core/ResponseGenerator") {
+    if (request === "../core/ResponseGenerator" || request === "../../core/ResponseGenerator") {
       return {
         materializeHints: (hints: any, _text: string) => {
           if (!hints) return null;
@@ -47,7 +57,7 @@ function setupOrchestratorTest({ planHint, materializedScore = 0.85 }: Orchestra
     if (request === "./conversation/greeting") {
       return { defaultGreetingPipeline: { handle: () => ({ handled: false }) } };
     }
-    if (request === "./conversation/router") {
+    if (request === "./conversation/router" || request === "../conversation/router") {
       return {
         defaultConversationRouter: {
           decide: () => ({
@@ -115,12 +125,12 @@ function setupOrchestratorTest({ planHint, materializedScore = 0.85 }: Orchestra
     return originalLoad(request, parent, isMain);
   };
 
-  delete require.cache[modulePath];
+  purgeCache();
   const orchestrator = require(modulePath) as typeof import("../../services/ConversationOrchestrator");
 
   const cleanup = () => {
     Module._load = originalLoad;
-    delete require.cache[modulePath];
+    purgeCache();
   };
 
   return { orchestrator, capturedPrompts, cleanup };
