@@ -61,7 +61,12 @@ function setupOrchestratorTest({ planHint, materializedScore = 0.85 }: Orchestra
       };
     }
     if (request === "./conversation/contextPreparation") {
-      return { prepareConversationContext: async () => ({ systemPrompt: "BASE_PROMPT" }) };
+      return {
+        prepareConversationContext: async () => ({
+          systemPrompt: "BASE_PROMPT",
+          context: { flags: {}, meta: {}, continuity: null },
+        }),
+      };
     }
     if (request === "./conversation/promptPlan") {
       return {
@@ -75,20 +80,21 @@ function setupOrchestratorTest({ planHint, materializedScore = 0.85 }: Orchestra
         }),
       };
     }
-    if (request === "./conversation/fullOrchestrator") {
+    if (request === "./orchestration/fullPath") {
       return {
-        executeFullLLM: async (params: any) => {
-          capturedPrompts.push(params.prompt);
-          return params.decision?.hasAssistantBefore
+        runFullPath: async (params: any) => {
+          capturedPrompts.push(params.llmParams.prompt);
+          return params.llmParams.decision?.hasAssistantBefore
             ? ({ message: "assistido" } as GetEcoResult)
             : ({ message: "final" } as GetEcoResult);
         },
       };
     }
-    if (request === "./conversation/streamingOrchestrator") {
+    if (request === "./orchestration/streamingPath") {
       return {
-        executeStreamingLLM: async (params: any) => {
-          capturedPrompts.push(params.prompt);
+        finalizePreLLM: (finalize: any) => finalize,
+        runStreamingPath: async (params: any) => {
+          capturedPrompts.push(params.llmParams.prompt);
           return {
             raw: "stream",
             modelo: "stub",
