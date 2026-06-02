@@ -78,15 +78,17 @@ test("ConversationOrchestrator normalizes nullable values", async (t) => {
       return { defaultResponseFinalizer: { finalize: async (input: any) => input.raw } };
     }
     if (request === "./conversation/ecoDecisionHub") {
+      const decision = () => ({
+        intensity: 0.5,
+        openness: 2,
+        saveMemory: true,
+        hasTechBlock: false,
+        debug: {},
+        signals: {},
+      });
       return {
-        computeEcoDecision: () => ({
-          intensity: 0.5,
-          openness: 2,
-          saveMemory: true,
-          hasTechBlock: false,
-          debug: {},
-          signals: {},
-        }),
+        computeEcoDecision: decision,
+        computeEcoDecisionAsync: async () => decision(),
         MEMORY_THRESHOLD: 0.75,
       };
     }
