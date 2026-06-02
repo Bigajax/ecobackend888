@@ -73,7 +73,7 @@ test("propaga metadados quando guestId presente", async () => {
   assert.ok(req.guest, "espera metadados guest preenchidos");
   assert.equal(req.guest?.id, guestId);
   assert.match(req.guest!.id, UUID_V4_REGEX);
-  assert.equal(headers.get("x-guest-id"), guestId);
+  assert.equal(headers.get("x-eco-guest-id"), guestId);
 });
 
 test("continua fluxo quando guestId ausente", async () => {
