@@ -42,7 +42,10 @@ test("applyModuleMetadata respeita abertura", async () => {
   });
   decNv3.flags.crise = false;
   const resultNv3 = Selector.applyModuleMetadata({ dec: decNv3, baseOrder, candidates });
-  assert.ok(resultNv3.footers.some((module) => module.name === "ENCERRAMENTO_SENSIVEL.txt"));
+  // ENCERRAMENTO_SENSIVEL passou a ser módulo regular (regra nivel>=1), não footer.
+  assert.ok(resultNv3.regular.some((module) => module.name === "ENCERRAMENTO_SENSIVEL.txt"));
+  // abertura_superficie é específico de NV1: não deve ativar em NV3 (gating de abertura).
+  assert.ok(!resultNv3.regular.some((module) => module.name === "abertura_superficie.txt"));
 });
 
 test("inclui BLOCO_TECNICO_MEMORIA quando intensidade alta e hasTechBlock", async () => {
