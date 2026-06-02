@@ -1,6 +1,7 @@
 // services/updateEmotionalProfile.ts
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { ensureSupabaseConfigured } from "../lib/supabaseAdmin";
+import { gerarResumoPerfilIA } from "./perfilResumoIA";
 
 interface Memoria {
   emocao_principal?: string;
@@ -71,6 +72,7 @@ export async function updateEmotionalProfile(
     const emocoesOrdenadas = ordenarPorFrequencia(emocoesFreq);
     const temasOrdenados = ordenarPorFrequencia(temasFreq);
 
+    // Template determinístico — usado como fallback se a IA não retornar nada.
     let resumoGerado = "";
     if (emocoesOrdenadas.length && temasOrdenados.length) {
       resumoGerado =
@@ -82,6 +84,17 @@ export async function updateEmotionalProfile(
     } else {
       resumoGerado =
         "Ainda não há elementos suficientes para compor um retrato sensível do seu momento atual.";
+    }
+
+    // Retrato narrativo via Claude; cai no template em caso de falha/desabilitado.
+    const resumoIA = await gerarResumoPerfilIA({
+      emocoesFreq,
+      temasFreq,
+      totalMemorias: memSignificativas.length,
+      ultimaInteracao: ultimaDataSignificativa,
+    });
+    if (resumoIA) {
+      resumoGerado = resumoIA;
     }
 
     const { error: upsertError } = await supabase

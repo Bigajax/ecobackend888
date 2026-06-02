@@ -28,7 +28,7 @@ import { ModuleCatalog } from "./domains/prompts/ModuleCatalog";
 import registrarTodasHeuristicas from "./services/registrarTodasHeuristicas";
 import registrarModulosFilosoficos from "./services/registrarModulosFilosoficos";
 import { log } from "./services/promptContext/logger";
-import { startBanditRewardSyncScheduler } from "./services/banditRewardsSync";
+import { startBanditRewardSyncScheduler, stopBanditRewardSyncScheduler } from "./services/banditRewardsSync";
 import { analyticsClientMode } from "./services/supabaseClient";
 import { ensureEcoIdentityPromptAvailability } from "./services/promptContext/identityModules";
 import { describeAssetsRoot } from "./src/utils/assetsRoot";
@@ -37,12 +37,12 @@ const app = createApp();
 
 const REQUIRED_MODULE_PATHS = [
   "modulos_core/developer_prompt.txt",
-  "modulos_core/nv1_core.txt",
-  "modulos_core/identidade_mini.txt",
+  "modulos_core/abertura_superficie.txt",
+  "modulos_core/sistema_identidade.txt",
   "modulos_extras/escala_abertura_1a3.txt",
-  "modulos_core/eco_estrutura_de_resposta.txt",
+  "modulos_core/formato_resposta.txt",
   "modulos_core/usomemorias.txt",
-  "modulos_extras/bloco_tecnico_memoria.txt",
+  "modulos_core/tecnico_bloco_memoria.txt",
   "modulos_extras/metodo_viva_enxuto.txt",
 ] as const;
 
@@ -64,25 +64,47 @@ function countFilesSync(dir: string): number {
   return total;
 }
 
+function assertRequiredEnvVars() {
+  const required = [
+    "SUPABASE_URL",
+    "SUPABASE_SERVICE_ROLE_KEY",
+    "OPENROUTER_API_KEY",
+  ] as const;
+
+  const missing = required.filter((v) => !process.env[v]);
+  if (missing.length > 0) {
+    for (const v of missing) {
+      log.error("missing_required_env_var", { var: v });
+    }
+    process.exit(1);
+  }
+
+  if (!process.env.MP_ACCESS_TOKEN) {
+    log.warn("mp_access_token_not_set", {
+      note: "Payment features will be unavailable",
+    });
+  }
+}
+
 function assertRequiredModules() {
   const assetsInfo = describeAssetsRoot();
   const primaryRoot = path.resolve(assetsInfo.root);
 
   if (fs.existsSync(path.resolve(process.cwd(), "assets"))) {
-    console.warn("[boot] legacy_assets_detected", { legacyRoot: path.resolve(process.cwd(), "assets") });
+    log.warn("legacy_assets_detected", { legacyRoot: path.resolve(process.cwd(), "assets") });
   }
 
   const rootExists = assetsInfo.exists && fs.existsSync(primaryRoot) && fs.statSync(primaryRoot).isDirectory();
   const filesCount = rootExists ? countFilesSync(primaryRoot) : 0;
 
-  console.info("[boot] assets_root_resolved", {
+  log.info("assets_root_resolved", {
     root: primaryRoot,
     exists: rootExists,
     files: filesCount,
   });
 
   if (!rootExists || filesCount <= 0) {
-    console.error("[boot] assets_root_unavailable", {
+    log.error("assets_root_unavailable", {
       root: primaryRoot,
       exists: rootExists,
       files: filesCount,
@@ -101,7 +123,7 @@ function assertRequiredModules() {
 
   if (missing.length > 0) {
     for (const entry of missing) {
-      console.error("[boot] required_module_missing", entry);
+      log.error("required_module_missing", entry);
     }
     process.exit(1);
   }
@@ -116,14 +138,14 @@ function assertRequiredModules() {
       bytes = Buffer.byteLength(content, "utf-8");
       hadContent = content.trim().length > 0;
     } catch (error) {
-      console.error("[boot] required_module_read_failed", {
+      log.error("required_module_read_failed", {
         file: relativeFile,
         root: primaryRoot,
         message: error instanceof Error ? error.message : String(error),
       });
     }
 
-    console.info("[boot] required_module_ok", {
+    log.info("required_module_ok", {
       file: relativeFile,
       root: fullPath,
       hadContent,
@@ -133,16 +155,17 @@ function assertRequiredModules() {
 }
 
 async function start() {
+  assertRequiredEnvVars();
   assertRequiredModules();
   await configureModuleStore();
   const moduleStats = ModuleCatalog.stats();
   if (moduleStats.indexedCount > 0) {
-    console.info("[boot] module_index_ready", {
+    log.info("module_index_ready", {
       roots: moduleStats.roots,
       indexedCount: moduleStats.indexedCount,
     });
   } else {
-    console.error("[boot] module_index_empty", {
+    log.error("module_index_empty", {
       roots: moduleStats.roots,
       indexedCount: moduleStats.indexedCount,
     });
@@ -150,8 +173,22 @@ async function start() {
   await ensureEcoIdentityPromptAvailability();
   startBanditRewardSyncScheduler();
 
+  // Initialize optional modules BEFORE listening to avoid race condition
+  try {
+    if (process.env.REGISTRAR_HEURISTICAS === "true") {
+      await registrarTodasHeuristicas();
+      log.info("🎯 Heurísticas registradas.");
+    }
+    if (process.env.REGISTRAR_FILOSOFICOS === "true") {
+      await registrarModulosFilosoficos();
+      log.info("🧘 Módulos filosóficos registrados.");
+    }
+  } catch (error: any) {
+    log.error("Falha ao registrar recursos iniciais:", { message: error?.message, stack: error?.stack });
+  }
+
   const PORT = Number(process.env.PORT || 3001);
-  app.listen(PORT, async () => {
+  const server = app.listen(PORT, () => {
     log.info(`Servidor Express rodando na porta ${PORT}`);
     log.info("CORS allowlist:", getConfiguredCorsOrigins());
     log.info("Boot", {
@@ -160,21 +197,26 @@ async function start() {
       NODE_ENV: process.env.NODE_ENV ?? "(unset)",
       analyticsClientMode,
     });
-    console.info("[boot] paths", { cwd: process.cwd(), dirname: __dirname });
-
-    try {
-      if (process.env.REGISTRAR_HEURISTICAS === "true") {
-        await registrarTodasHeuristicas();
-        log.info("🎯 Heurísticas registradas.");
-      }
-      if (process.env.REGISTRAR_FILOSOFICOS === "true") {
-        await registrarModulosFilosoficos();
-        log.info("🧘 Módulos filosóficos registrados.");
-      }
-    } catch (error: any) {
-      log.error("Falha ao registrar recursos iniciais:", { message: error?.message, stack: error?.stack });
-    }
+    log.info("[boot] paths", { cwd: process.cwd(), dirname: __dirname });
   });
+
+  // Graceful shutdown: stop accepting new connections, drain existing ones
+  const shutdown = (signal: string) => {
+    log.info(`[shutdown] ${signal} received — shutting down gracefully`);
+    stopBanditRewardSyncScheduler();
+    server.close(() => {
+      log.info("[shutdown] HTTP server closed");
+      process.exit(0);
+    });
+    // Force-kill after 10s if connections don't drain
+    setTimeout(() => {
+      log.error("[shutdown] Forced shutdown after 10s timeout");
+      process.exit(1);
+    }, 10_000).unref();
+  };
+
+  process.on("SIGTERM", () => shutdown("SIGTERM"));
+  process.on("SIGINT",  () => shutdown("SIGINT"));
 }
 
 process.on("unhandledRejection", (reason: any) => {

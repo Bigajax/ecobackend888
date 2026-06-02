@@ -1,3 +1,10 @@
+/**
+ * @deprecated (caminho crítico) — Sob `ECO_MODULE_SELECTION=deterministic` (padrão), este planner
+ * roda apenas em SHADOW: suas decisões são logadas para telemetria, mas NÃO influenciam os módulos
+ * efetivamente costurados no prompt (ver `selection/moduleSelector.ts`). A seleção de conteúdo vive
+ * em `promptIdentity.ts` + `instructionPolicy.ts` + `lenses/index.ts` (camadas A/B/C). Reativar a
+ * influência só com `ECO_MODULE_SELECTION=bandit`, e idealmente após um harness de avaliação real.
+ */
 import { log } from "./logger";
 import type { HeuristicsRuntime } from "./heuristicsV2";
 import type { Flags } from "./Selector";

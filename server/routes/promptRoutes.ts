@@ -8,7 +8,7 @@ import type { EcoStreamHandler, EcoStreamEvent } from "../services/conversation/
 import { createHttpError, isHttpError } from "../utils/http";
 import { getSupabaseAdmin } from "../lib/supabaseAdmin";
 import { createSSE, prepareSse } from "../utils/sse";
-import { smartJoin } from "../utils/streamJoin";
+import { UUID_V4 } from "../core/http/guestIdentity";
 import {
   rememberInteractionGuest,
   updateInteractionGuest,
@@ -24,7 +24,7 @@ import {
   type RequestWithIdentity as RequestWithEcoIdentity,
 } from "../middleware/ensureIdentity";
 import { createInteraction } from "../services/conversation/interactionAnalytics";
-import { extractTextLoose, sanitizeOutput } from "../utils/textExtractor";
+import { extractTextLoose } from "../utils/textExtractor";
 import { getGuestIdFromCookies, resolveGuestId } from "../utils/guestIdResolver";
 import {
   validateAskEcoPayload,
@@ -60,6 +60,24 @@ import { extractStringCandidate } from "../utils/requestIdentity";
 
 const GUARD_FALLBACK_TEXT = "Não consegui responder agora. Vamos tentar de novo?";
 const INVALID_INPUT_MESSAGE = "Entrada inválida. Escreva uma mensagem para o Eco.";
+
+// === Benign finish reasons (não devem ser tratados como erros) ===
+const BENIGN_FINISH_REASONS = new Set([
+  "stop",
+  "end",
+  "completed",
+  "greeting",
+  "shortcut",
+  "filtered",
+  "stream_done",
+  "fallback_no_stream",
+]);
+
+function isBenignFinishReason(reason: string | null | undefined): boolean {
+  if (!reason) return false;
+  const normalized = reason.trim().toLowerCase();
+  return BENIGN_FINISH_REASONS.has(normalized);
+}
 
 // === Tipos utilitários ===
 
@@ -126,13 +144,9 @@ const askEcoRouter = Router();
 
 function buildSummaryFromChunks(pieces: string[]): string {
   if (!Array.isArray(pieces) || pieces.length === 0) return "";
-  const summary = smartJoin(
-    pieces.filter((piece): piece is string => typeof piece === "string")
-  );
-  if (!summary) return "";
-  let normalized = summary.replace(/[ \t]*\n[ \t]*/g, "\n");
-  normalized = normalized.replace(/([a-zá-ú])([A-ZÁ-Ú])/g, "$1 $2");
-  return normalized;
+  return pieces
+    .filter((piece): piece is string => typeof piece === "string")
+    .join("");
 }
 
 function parseJsonRecord(raw: string | undefined): Record<string, unknown> | undefined {
@@ -317,7 +331,6 @@ type MakeHandlersParams = {
   recordFirstTokenTelemetry: (chunkBytes: number) => void;
   updateUsageTokens: (meta: any) => void;
   mergeLatencyMarks: (marks?: Record<string, unknown>) => void;
-  buildSummaryFromChunks: typeof buildSummaryFromChunks;
   buildDonePayload: typeof buildDonePayload;
   finalizeClientMessageReservation: (finishReason?: string | null) => void;
   getResolvedInteractionId: () => string | undefined;
@@ -365,7 +378,6 @@ function makeHandlers(params: MakeHandlersParams): MakeHandlersResult {
     recordFirstTokenTelemetry,
     updateUsageTokens,
     mergeLatencyMarks,
-    buildSummaryFromChunks: buildSummary,
     buildDonePayload: buildDone,
     finalizeClientMessageReservation,
     getResolvedInteractionId,
@@ -401,7 +413,6 @@ function makeHandlers(params: MakeHandlersParams): MakeHandlersResult {
     recordFirstTokenTelemetry,
     updateUsageTokens,
     mergeLatencyMarks,
-    buildSummaryFromChunks: buildSummary,
     buildDonePayload: buildDone,
     finalizeClientMessageReservation,
     getResolvedInteractionId,
@@ -697,7 +708,6 @@ async function handleAskEcoRequest(req: Request, res: Response, _next: NextFunct
   const pingIntervalMs = streamPingIntervalMs;
   const firstTokenTimeoutMs = firstTokenWatchdogMs;
 
-  let readyEmitted = false;
   let streamSummaryLogged = false;
 
   let sse: ReturnType<typeof createSSE> | null = null;
@@ -809,6 +819,15 @@ async function handleAskEcoRequest(req: Request, res: Response, _next: NextFunct
     guestIdFromRequest,
     guestIdFromSession
   );
+  const canonicalGuestUserId = (() => {
+    if (typeof guestIdResolved !== "string" || !guestIdResolved.trim()) return null;
+    const trimmed = guestIdResolved.trim();
+    if (trimmed.startsWith("guest_")) {
+      const suffix = trimmed.slice(6);
+      return UUID_V4.test(suffix) ? `guest_${suffix}` : trimmed;
+    }
+    return UUID_V4.test(trimmed) ? `guest_${trimmed}` : null;
+  })();
 
   log.info("[ask-eco] payload_valid", {
     guestId: reqWithIdentity.guestId ?? null,
@@ -876,18 +895,33 @@ async function handleAskEcoRequest(req: Request, res: Response, _next: NextFunct
     if (typeof clientHour === "number" && Number.isFinite(clientHour)) (params as any).clientHour = clientHour;
     if (sessionMetaObject) (params as any).sessionMeta = sessionMetaObject;
     if (typeof nome_usuario === "string" && nome_usuario.trim()) (params as any).userName = nome_usuario.trim();
-    if (typeof usuario_id === "string" && usuario_id.trim()) (params as any).userId = usuario_id.trim();
     if (typeof reqWithIdentity.guestId === "string" && reqWithIdentity.guestId.trim()) (params as any).guestId = reqWithIdentity.guestId.trim();
     else if (guestIdResolved) (params as any).guestId = guestIdResolved;
 
+    const bodyUserId =
+      typeof usuario_id === "string" && usuario_id.trim().length ? usuario_id.trim() : null;
+    const normalizedAuthUid = typeof authUid === "string" && authUid.trim().length ? authUid.trim() : null;
+    const memoryUserId =
+      normalizedAuthUid ??
+      bodyUserId ??
+      (typeof reqWithIdentity.user?.id === "string" && reqWithIdentity.user.id.trim().length
+        ? reqWithIdentity.user.id.trim()
+        : null) ??
+      canonicalGuestUserId ??
+      (identityKey && identityKey.trim().length ? identityKey.trim() : null);
+
+    if (memoryUserId) {
+      (params as any).userId = memoryUserId;
+    }
+
     if (identityKey && typeof (params as any).distinctId !== "string") (params as any).distinctId = identityKey;
-    if (identityKey && typeof (params as any).userId !== "string") (params as any).userId = identityKey;
 
     // JSON mode
     if (!wantsStream) {
       try {
         const result = await getEcoResponse(params as any);
-        const textOut = sanitizeOutput(extractTextLoose(result) ?? "");
+        // BACKEND PASSTHROUGH: Send raw text from model without sanitization
+        const textOut = extractTextLoose(result) ?? "";
         log.info("[ask-eco] response", { mode: "json", hasContent: textOut.length > 0 });
 
         const tokens = (() => {
@@ -1012,12 +1046,11 @@ async function handleAskEcoRequest(req: Request, res: Response, _next: NextFunct
 
     const telemetry = new SseTelemetry(telemetryClient, { origin: origin ?? undefined, clientMessageId: clientMessageId ?? undefined });
 
-    const fallbackInteractionId = randomUUID();
-    (params as any).interactionId = fallbackInteractionId;
+    const requestInteractionId = randomUUID();
+    (params as any).interactionId = requestInteractionId;
     (params as any).abortSignal = abortSignal;
 
-    registerActiveInteractionKey(buildActiveInteractionKey("interaction", fallbackInteractionId));
-    telemetry.setFallbackInteractionId(fallbackInteractionId);
+    telemetry.setFallbackInteractionId(requestInteractionId);
 
     const getResolvedInteractionId = createGetResolvedInteractionId(telemetry);
     const isInteractionIdReady = () => telemetry.isInteractionIdReady();
@@ -1060,6 +1093,8 @@ async function handleAskEcoRequest(req: Request, res: Response, _next: NextFunct
         log.warn("[ask-eco] active_interaction_conflict", { interactionId, clientMessageId: clientMessageId ?? null, origin: origin ?? null });
       }
     };
+
+    captureInteractionId(requestInteractionId);
 
     const enqueuePassiveSignal = (signal: string, value?: number | null, meta?: Record<string, unknown>) => {
       telemetry.enqueuePassiveSignal(signal, value ?? null, meta);
@@ -1153,7 +1188,6 @@ async function handleAskEcoRequest(req: Request, res: Response, _next: NextFunct
         origin: origin ?? null,
         clientMessageId: clientMessageId ?? null,
         streamId,
-        ready_emitted: readyEmitted,
         chunks_emitted: state.chunksCount,
         finish_reason: reason ?? state.finishReason ?? null,
       });
@@ -1282,28 +1316,57 @@ async function handleAskEcoRequest(req: Request, res: Response, _next: NextFunct
     sseConnection = streamSse;
     sseConnectionRef.current = streamSse;
 
-    if (wantsStream) {
+    const bootstrapInteraction = async () => {
       try {
-        const readyPayload = {
-          server_ts: new Date().toISOString(),
-          client_message_id: clientMessageId ?? null,
-          stream_id: streamId,
-        };
-        streamSse.ready(readyPayload);
-        readyEmitted = true;
-        log.info("[ask-eco] sse_ready", {
-          origin: origin ?? null,
-          clientMessageId: clientMessageId ?? null,
-          streamId,
-          ready_emitted: true,
+        const createdInteractionId = await createInteraction({
+          id: requestInteractionId,
+          userId:
+            !isGuestRequest && typeof (params as any).userId === "string"
+              ? ((params as any).userId as string).trim()
+              : null,
+          sessionId:
+            typeof reqWithIdentity.ecoSessionId === "string" && reqWithIdentity.ecoSessionId.trim()
+              ? reqWithIdentity.ecoSessionId.trim()
+              : null,
+          messageId: lastMessageId,
+          promptHash: null,
         });
-        flushSse();
+
+        if (typeof createdInteractionId === "string" && createdInteractionId.trim()) {
+          captureInteractionId(createdInteractionId);
+          (params as any).interactionId = createdInteractionId;
+          return;
+        }
       } catch (error) {
-        log.warn("[ask-eco] sse_ready_emit_failed", {
-          origin: origin ?? null,
+        log.warn("[ask-eco] interaction_create_failed", {
           message: error instanceof Error ? error.message : String(error),
         });
       }
+
+      if (!isInteractionIdReady()) captureInteractionId(requestInteractionId);
+    };
+
+    const bootstrapPromise = bootstrapInteraction(); // Start creating interaction immediately
+
+    // CRITICAL: Ensure interaction is persisted BEFORE emitting prompt_ready
+    // This prevents race condition where eco_passive_signals tries to reference
+    // a non-existent eco_interactions row (FK 23503 error)
+    try {
+      await Promise.race([
+        bootstrapPromise,
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error("bootstrap_timeout")), 5000)
+        ),
+      ]);
+      log.info("[ask-eco] interaction_bootstrapped", {
+        origin: origin ?? null,
+        streamId: streamId ?? null,
+      });
+    } catch (error) {
+      // Log but continue - fallback captureInteractionId already called in bootstrapInteraction
+      log.warn("[ask-eco] bootstrap_race_failed", {
+        message: error instanceof Error ? error.message : String(error),
+      });
     }
 
     const handlerResult = makeHandlers({
@@ -1324,7 +1387,6 @@ async function handleAskEcoRequest(req: Request, res: Response, _next: NextFunct
       recordFirstTokenTelemetry,
       updateUsageTokens: (meta) => state.updateUsageTokens(meta),
       mergeLatencyMarks: (marks) => state.mergeLatencyMarks(marks ?? {}),
-      buildSummaryFromChunks,
       buildDonePayload,
       finalizeClientMessageReservation,
       getResolvedInteractionId,
@@ -1428,27 +1490,6 @@ async function handleAskEcoRequest(req: Request, res: Response, _next: NextFunct
       isClosed = true;
     });
 
-    const bootstrapInteraction = async () => {
-      try {
-        const interactionId = await createInteraction({
-          userId: !isGuestRequest && typeof (params as any).userId === "string" ? ((params as any).userId as string).trim() : null,
-          sessionId: typeof reqWithIdentity.ecoSessionId === "string" && reqWithIdentity.ecoSessionId.trim() ? reqWithIdentity.ecoSessionId.trim() : null,
-          messageId: lastMessageId,
-          promptHash: null,
-        });
-
-        if (interactionId && typeof interactionId === "string") {
-          captureInteractionId(interactionId);
-          (params as any).interactionId = interactionId;
-          return;
-        }
-      } catch (error) {
-        log.warn("[ask-eco] interaction_create_failed", { message: error instanceof Error ? error.message : String(error) });
-      }
-
-      if (!isInteractionIdReady()) captureInteractionId(getResolvedInteractionId());
-    };
-
     abortListenerRef.current = () => {
       if (state.done) {
         clearAbortListenerRef();
@@ -1479,16 +1520,27 @@ async function handleAskEcoRequest(req: Request, res: Response, _next: NextFunct
     };
     abortSignal.addEventListener("abort", abortListenerRef.current);
 
-    interactionBootstrapPromise = bootstrapInteraction();
+    interactionBootstrapPromise = bootstrapPromise;
 
     try {
       const stream: EcoStreamHandler = {
         onEvent: (event) => forwardEvent(event),
         onChunk: async (payload) => {
-          if (!payload) return;
+          if (process.env.ECO_DEBUG === "1" || process.env.ECO_DEBUG === "true") {
+            console.debug("[stream.onChunk] called", { hasPayload: !!payload, keys: payload ? Object.keys(payload) : [] });
+          }
+          if (!payload) {
+            if (process.env.ECO_DEBUG === "1" || process.env.ECO_DEBUG === "true") {
+              console.debug("[stream.onChunk] no payload, returning");
+            }
+            return;
+          }
           const metaValue = payload.meta && typeof payload.meta === "object" ? (payload.meta as Record<string, unknown>) : undefined;
 
           if ((payload as any).done) {
+            if (process.env.ECO_DEBUG === "1" || process.env.ECO_DEBUG === "true") {
+              console.debug("[stream.onChunk] has done flag");
+            }
             if (metaValue) {
               state.mergeDoneMeta(metaValue);
               if (!state.finishReason) {
@@ -1505,11 +1557,21 @@ async function handleAskEcoRequest(req: Request, res: Response, _next: NextFunct
           }
 
           if (typeof (payload as any).text === "string" && (payload as any).text) {
+            if (process.env.ECO_DEBUG === "1" || process.env.ECO_DEBUG === "true") {
+              console.debug("[stream.onChunk] has text, calling sendChunk", { textLen: ((payload as any).text as string).length, index: (payload as any).index });
+            }
             sendChunk({ text: (payload as any).text, index: (payload as any).index, meta: metaValue });
             return;
           }
 
-          if (metaValue) sendMeta(metaValue);
+          if (metaValue) {
+            if (process.env.ECO_DEBUG === "1" || process.env.ECO_DEBUG === "true") {
+              console.debug("[stream.onChunk] has meta, calling sendMeta");
+            }
+            sendMeta(metaValue);
+          } else if (process.env.ECO_DEBUG === "1" || process.env.ECO_DEBUG === "true") {
+            console.debug("[stream.onChunk] no text or meta, ignoring");
+          }
         },
       };
 
@@ -1527,35 +1589,66 @@ async function handleAskEcoRequest(req: Request, res: Response, _next: NextFunct
 
       if (!state.done) {
   if (!state.sawChunk) {
-    // Tenta extrair texto do resultado
-    const textOut = sanitizeOutput(extractTextLoose(result) ?? "");
-    
+    // Extrair texto final e finishReason do resultado
+    // BACKEND PASSTHROUGH: Send raw text from model without sanitization
+    const textOut = extractTextLoose(result) ?? "";
+    const resultMeta = (result as any)?.meta;
+    const finishReasonFromResult =
+      (resultMeta as any)?.finishReason ??
+      (result as any)?.finishReason ??
+      state.finishReason ??
+      "done";
+
+    const finalTextLen = textOut.length;
+    const isBenign = isBenignFinishReason(finishReasonFromResult);
+
+    // Telemetria: registrar finishReason, finalTextLen, sawChunk
+    enqueuePassiveSignal("no_chunks_emitted_handling", 1, {
+      finishReason: finishReasonFromResult,
+      finalTextLen,
+      sawChunk: false,
+      isBenign,
+    });
+
     if (textOut) {
-      // ✅ Tem texto: envia como chunk
+      // ✅ Tem finalText: envia como chunk (não é erro)
       sendChunk({ text: textOut });
-      sendDone("fallback_no_stream");
-    } else {
-      // ✅ SEM texto: envia chunk de erro/fallback antes do done
-      log.error("[ask-eco] sse_error", {
-        code: "NO_CHUNKS_EMITTED",
-        message: "Nenhum chunk emitido antes do encerramento",
-        finishReason: "done",
-        reason: "NO_CHUNKS_EMITTED"
+      log.info("[ask-eco] final_text_sent", {
+        origin: origin ?? null,
+        clientMessageId: clientMessageId ?? null,
+        finishReason: finishReasonFromResult,
+        textLen: finalTextLen,
+        isBenign,
       });
-      
-      // Envia chunk de fallback obrigatório
-      sendChunk({ text: GUARD_FALLBACK_TEXT });
-      
-      // Registra o fallback nos logs
-      log.error("[ask-eco] guard_fallback_missing_chunk", {
+      sendDone(finishReasonFromResult);
+    } else if (isBenign) {
+      // ✅ Caso benigno sem texto: envia control event no_content
+      streamSse.sendControl("no_content", {
+        finishReason: finishReasonFromResult,
+        message: "Resposta vazia (caso benigno)"
+      });
+      log.info("[ask-eco] benign_no_content", {
+        origin: origin ?? null,
+        clientMessageId: clientMessageId ?? null,
+        finishReason: finishReasonFromResult,
+        streamId: streamId ?? null,
+      });
+      sendDone(finishReasonFromResult);
+    } else {
+      // ❌ Caso NÃO benigno sem texto: erro real
+      log.error("[ask-eco] no_chunks_emitted_error", {
+        code: "NO_CHUNKS_EMITTED",
+        message: "Nenhum chunk emitido (não benigno)",
+        finishReason: finishReasonFromResult,
         origin: origin ?? null,
         clientMessageId: clientMessageId ?? null,
         interactionId: getResolvedInteractionId() ?? null,
-        finishReason: "done",
         streamId: streamId ?? null,
       });
-      
-      sendDone("fallback_empty");
+
+      // Envia chunk de fallback obrigatório
+      sendChunk({ text: GUARD_FALLBACK_TEXT });
+      sendDone("no_chunks_emitted");
     }
   } else {
     sendDone("stream_done");

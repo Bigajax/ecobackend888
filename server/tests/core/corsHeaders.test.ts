@@ -1,19 +1,14 @@
 import assert from "node:assert/strict";
+import { test } from "node:test";
 import type { AddressInfo } from "node:net";
 import type { Server } from "node:http";
 
 import { createApp } from "../../core/http/app";
+import { CORS_ALLOWED_HEADERS_VALUE } from "../../middleware/cors";
 
-interface TestCase {
-  name: string;
-  run: () => Promise<void> | void;
-}
-
-const tests: TestCase[] = [];
-
-function test(name: string, run: () => Promise<void> | void) {
-  tests.push({ name, run });
-}
+const ALLOW_HEADERS_LOWER = CORS_ALLOWED_HEADERS_VALUE.split(",")
+  .map((value) => value.trim().toLowerCase())
+  .filter(Boolean);
 
 async function closeServer(server: Server) {
   await new Promise<void>((resolve, reject) => {
@@ -62,7 +57,7 @@ test("OPTIONS /api/ask-eco responde 204 com allowlist padrão", async () => {
       .map((value) => value.trim().toLowerCase())
       .filter(Boolean);
     assert.ok(Array.isArray(allowHeaders) && allowHeaders.length > 0, "preflight deve informar allow-headers");
-    assert.deepEqual(allowHeaders, ["content-type", "accept"], "allow-headers deve seguir especificação");
+    assert.deepEqual(allowHeaders, ALLOW_HEADERS_LOWER, "allow-headers deve seguir especificação");
     assert.equal(
       response.headers.get("access-control-allow-methods"),
       "GET,POST,OPTIONS,HEAD",
@@ -99,7 +94,7 @@ test("GET /api/health responde payload esperado com headers CORS", async () => {
       "deve permitir credenciais",
     );
     assert.equal(response.headers.get("access-control-allow-methods"), "GET,POST,OPTIONS,HEAD");
-    assert.equal(response.headers.get("access-control-allow-headers"), "Content-Type, Accept");
+    assert.equal(response.headers.get("access-control-allow-headers"), CORS_ALLOWED_HEADERS_VALUE);
     assert.equal(response.headers.get("access-control-max-age"), "86400");
 
     const payload = (await response.json()) as Record<string, unknown>;
@@ -147,7 +142,7 @@ test("POST /api/ask-eco com payload inválido responde 400 com headers CORS", as
       "deve permitir credenciais",
     );
     assert.equal(response.headers.get("access-control-allow-methods"), "GET,POST,OPTIONS,HEAD");
-    assert.equal(response.headers.get("access-control-allow-headers"), "Content-Type, Accept");
+    assert.equal(response.headers.get("access-control-allow-headers"), CORS_ALLOWED_HEADERS_VALUE);
     assert.equal(response.headers.get("access-control-max-age"), "86400");
 
     const payload = (await response.json()) as Record<string, unknown>;
@@ -185,7 +180,7 @@ test("GET /api/memorias/similares_v2 existe sob /api e aplica headers CORS", asy
       "deve permitir credenciais",
     );
     assert.equal(response.headers.get("access-control-allow-methods"), "GET,POST,OPTIONS,HEAD");
-    assert.equal(response.headers.get("access-control-allow-headers"), "Content-Type, Accept");
+    assert.equal(response.headers.get("access-control-allow-headers"), CORS_ALLOWED_HEADERS_VALUE);
     assert.equal(response.headers.get("access-control-max-age"), "86400");
 
     await response.json();
@@ -219,7 +214,7 @@ test("GET /api/rota_inexistente responde 404 com headers CORS", async () => {
       "deve permitir credenciais",
     );
     assert.equal(response.headers.get("access-control-allow-methods"), "GET,POST,OPTIONS,HEAD");
-    assert.equal(response.headers.get("access-control-allow-headers"), "Content-Type, Accept");
+    assert.equal(response.headers.get("access-control-allow-headers"), CORS_ALLOWED_HEADERS_VALUE);
     assert.equal(response.headers.get("access-control-max-age"), "86400");
 
     const payload = (await response.json()) as Record<string, unknown>;
@@ -269,7 +264,7 @@ test("Erros 500 também aplicam headers CORS", async () => {
       "deve permitir credenciais",
     );
     assert.equal(response.headers.get("access-control-allow-methods"), "GET,POST,OPTIONS,HEAD");
-    assert.equal(response.headers.get("access-control-allow-headers"), "Content-Type, Accept");
+    assert.equal(response.headers.get("access-control-allow-headers"), CORS_ALLOWED_HEADERS_VALUE);
     assert.equal(response.headers.get("access-control-max-age"), "86400");
 
     const payload = (await response.json()) as Record<string, unknown>;
@@ -278,24 +273,3 @@ test("Erros 500 também aplicam headers CORS", async () => {
     await closeServer(server);
   }
 });
-
-(async () => {
-  let failures = 0;
-  for (const { name, run } of tests) {
-    try {
-      await run();
-      console.log(`✓ ${name}`);
-    } catch (error) {
-      failures += 1;
-      console.error(`✗ ${name}`);
-      console.error(error);
-    }
-  }
-
-  if (failures > 0) {
-    console.error(`${failures} test(s) failed.`);
-    process.exitCode = 1;
-  } else {
-    console.log(`All ${tests.length} test(s) passed.`);
-  }
-})();

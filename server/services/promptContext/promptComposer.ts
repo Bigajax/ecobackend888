@@ -30,7 +30,9 @@ export function composePromptBase({
 }: PromptComposerBaseInput): string {
   const header = [
     `Nível de abertura: ${nivel}`,
-    memCount > 0 ? `Memórias (internas): ${memCount} itens` : `Memórias: none`,
+    memCount > 0
+      ? `Memórias: ${memCount} ${memCount === 1 ? "registro pertinente" : "registros pertinentes"}`
+      : `Memórias: nenhuma pertinente`,
     forcarMetodoViva ? "Forçar VIVA: sim" : "Forçar VIVA: não",
   ].join(" | ");
 

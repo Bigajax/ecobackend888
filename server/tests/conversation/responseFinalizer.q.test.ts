@@ -43,6 +43,8 @@ test("finalize calcula Q completo e registra evento", async () => {
     domain: null,
     flags: {} as any,
     signals: {},
+    activeBiases: [],
+    decayedActiveBiases: [],
     debug: {
       intensitySignals: [],
       vulnerabilitySignals: [],
@@ -116,6 +118,11 @@ test("finalize atualiza bandit quando módulo é usado", async () => {
     })
   );
 
+  // Contrato real: o selector anexa as decisões do bandit em
+  // ecoDecision.debug.banditPlan.decisions (FamilyDecisionLog[]), e o finalizer
+  // grava o posterior usando a própria arm escolhida (chosen === arm.id do
+  // manifesto) como armId — vide familyBanditPlanner + moduleSelector.
+  const chosenArm = "LINGUAGEM_NATURAL_rules.txt";
   const ecoDecision: EcoDecisionResult = {
     intensity: 6,
     openness: 2,
@@ -127,33 +134,50 @@ test("finalize atualiza bandit quando módulo é usado", async () => {
     domain: null,
     flags: {} as any,
     signals: {},
+    activeBiases: [],
+    decayedActiveBiases: [],
     debug: {
       intensitySignals: [],
       vulnerabilitySignals: [],
       modules: [],
-      selectedModules: ["LINGUAGEM_NATURAL_rules.txt"],
+      selectedModules: [chosenArm],
       knapsack: null,
-      bandits: {
-        Linguagem: {
-          pilar: "Linguagem",
-          arm: "_rules",
-          baseModule: "LINGUAGEM_NATURAL.txt",
-          module: "LINGUAGEM_NATURAL_rules.txt",
-        },
+      banditPlan: {
+        decisions: [
+          {
+            familyId: "Linguagem",
+            // reward_key da família: "like_bias" => reward = clamp(Q), e Q=1
+            // com estrutura + memória citada, então reward > 0 e o evento dispara.
+            rewardKey: "like_bias",
+            baseline: chosenArm,
+            chosen: chosenArm,
+            chosenBy: "ts",
+            tokensPlanned: 100,
+          },
+        ],
+        excluded: [],
+        dependencies: [],
+        tokensPlanned: 100,
       },
-    },
-    banditArms: {
-      Linguagem: {
-        pilar: "Linguagem",
-        arm: "_rules",
-        baseModule: "LINGUAGEM_NATURAL.txt",
-        module: "LINGUAGEM_NATURAL_rules.txt",
-      },
-    },
+    } as any,
   };
 
+  // raw com as 4 seções + memória citada (mem_id) garante Q=1 (estruturado_ok,
+  // memoria_ok e bloco_ok), o que torna o like_bias positivo.
+  const raw = [
+    "## 1. Espelho de segunda ordem",
+    "Você reconhece o esforço em nomear o que sente.",
+    "## 2. Insight ou padrão",
+    "Uma hipótese é que mem_id:xyz aponta para um vínculo recorrente.",
+    "## 3. Convite prático",
+    "- Observe o corpo quando isso aparece.",
+    "## 4. Pergunta única",
+    "O que essa parte de você precisa agora?",
+    '{"emocao_principal":"medo","analise_resumo":"Resumo","intensidade":7,"tags":["vinculo"]}',
+  ].join("\n");
+
   await finalizer.finalize({
-    raw: "## 1. Bloco\nCite memórias mem_id:xyz\n{}",
+    raw,
     ultimaMsg: "Preciso de ajuda",
     hasAssistantBefore: true,
     mode: "full",
@@ -161,13 +185,13 @@ test("finalize atualiza bandit quando módulo é usado", async () => {
     usageTokens: 500,
     ecoDecision,
     moduleCandidates: [],
-    selectedModules: ["LINGUAGEM_NATURAL_rules.txt"],
-    memsSemelhantes: [{ id: "xyz" }],
+    selectedModules: [chosenArm],
+    memsSemelhantes: [{ id: "xyz", tags: ["vinculo"] }],
   });
 
-  const posterior = qualityAnalyticsStore.getBanditPosterior("Linguagem", "_rules");
+  const posterior = qualityAnalyticsStore.getBanditPosterior("Linguagem", chosenArm);
   assert.equal(posterior.count, 1);
   assert.equal(banditEvents.length, 1);
-  assert.equal(banditEvents[0].arm, "_rules");
+  assert.equal(banditEvents[0].arm, chosenArm);
   assert.equal(banditEvents[0].pilar, "Linguagem");
 });

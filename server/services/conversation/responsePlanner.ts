@@ -21,7 +21,7 @@ interface DomainPlan {
 const DOMAIN_PLANS: DomainPlan[] = [
   {
     id: "ansiedade",
-    regex: /ansios|agitado|preocupad|tens[ao]|inquiet|nervos|apreensiv|acelerad|angust/,
+    regex: /ansiedad|ansios|agitado|preocupad|tens[ao]|inquiet|nervos|apreensiv|acelerad|angust/,
     foco: "Cuidar da ansiedade e mapear o que ativa essa tensão.",
     passos: [
       "Acolher a sensação sem tentar resolver rápido.",

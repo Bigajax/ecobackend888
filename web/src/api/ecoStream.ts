@@ -369,6 +369,10 @@ function extractClientMessageId(payload: unknown): string | null {
   return extractClientMessageIdFromMessages(source.messages);
 }
 
+// KISS FIX: Constantes para timeout e warning
+const STREAM_TIMEOUT_MS = 30_000; // 30 segundos
+const STREAM_WARNING_MS = 5_000;  // 5 segundos
+
 export function startEcoStream({
   body,
   token,
@@ -469,8 +473,48 @@ export function startEcoStream({
     }
   };
 
+  // KISS FIX: Timers para timeout e warning
+  let warningTimer: ReturnType<typeof setTimeout> | null = null;
+  let timeoutTimer: ReturnType<typeof setTimeout> | null = null;
+  let receivedData = false;
+
+  const clearTimers = () => {
+    if (warningTimer) {
+      clearTimeout(warningTimer);
+      warningTimer = null;
+    }
+    if (timeoutTimer) {
+      clearTimeout(timeoutTimer);
+      timeoutTimer = null;
+    }
+  };
+
   const finished = (async () => {
     try {
+      // KISS FIX: Timeout de 30 segundos
+      timeoutTimer = setTimeout(() => {
+        if (!receivedData) {
+          logStreamDebug("stream_timeout", {
+            streamId: label,
+            timeoutMs: STREAM_TIMEOUT_MS,
+            message: "Stream timeout - no data received in 30s",
+          });
+          const timeoutError = new Error("Stream timeout: no data received in 30 seconds");
+          onError?.(timeoutError);
+          controller.abort(createAbortError("stream_timeout"));
+        }
+      }, STREAM_TIMEOUT_MS);
+
+      // KISS FIX: Warning de 5 segundos
+      warningTimer = setTimeout(() => {
+        if (!receivedData) {
+          console.warn("[SSE] No data received in 5 seconds", {
+            streamId: label,
+            elapsedMs: safeTimestamp() - startedAt,
+          });
+        }
+      }, STREAM_WARNING_MS);
+
       const guestId = getGuestIdHeader();
       const sessionId = getSessionIdHeader();
       const requestHeaders: Record<string, string> = {
@@ -547,6 +591,17 @@ export function startEcoStream({
         const { value, done } = await reader.read();
         if (done) break;
         if (!value) continue;
+
+        // KISS FIX: Marcar que recebemos dados e limpar timers
+        if (!receivedData) {
+          receivedData = true;
+          clearTimers();
+          logStreamDebug("stream_first_data", {
+            streamId: label,
+            elapsedMs: safeTimestamp() - startedAt,
+          });
+        }
+
         // LATENCY: decodifica chunk do fetch imediatamente para minimizar atraso visual.
         buffer += decoder.decode(value, { stream: true });
 
@@ -615,6 +670,9 @@ export function startEcoStream({
         buffered: buffer.length,
       });
     } catch (error) {
+      // KISS FIX: Limpar timers em caso de erro
+      clearTimers();
+
       if (controller.signal.aborted) {
         logStreamDebug("stream_aborted", {
           streamId: label,
@@ -633,6 +691,9 @@ export function startEcoStream({
     }
   })()
     .finally(() => {
+      // KISS FIX: Sempre limpar timers no finally
+      clearTimers();
+
       logStreamDebug("stream_finalize", {
         streamId: label,
         elapsedMs: safeTimestamp() - startedAt,
@@ -642,6 +703,9 @@ export function startEcoStream({
 
   const handle: EcoStreamHandle = {
     close: () => {
+      // KISS FIX: Limpar timers ao fechar
+      clearTimers();
+
       logClientAbort(label, "client_closed", {
         elapsedMs: safeTimestamp() - startedAt,
       });

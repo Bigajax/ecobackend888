@@ -3,7 +3,9 @@ import type { NextFunction, Request, Response } from "express";
 const DEFAULT_EXACT_ALLOWLIST = [
   "https://ecofrontend888.vercel.app",
   "http://localhost:5173",
+  "http://localhost:5174",  // landing Protocolo-Sono (Vite default alt port)
   "http://localhost:4173",
+  "http://localhost:4174",
 ];
 
 const DEFAULT_REGEX_ALLOWLIST = [/^https:\/\/[a-z0-9-]+\.vercel\.app$/];
@@ -63,12 +65,15 @@ export const PRIMARY_CORS_ORIGIN = CORS_ALLOWED_ORIGINS[0];
 
 export const CORS_ALLOWED_METHODS = ["GET", "POST", "OPTIONS", "HEAD"] as const;
 export const CORS_ALLOWED_HEADERS = [
-  "content-type",
-  "accept",
-  "x-client-id",
-  "x-eco-client-message-id",
-  "x-eco-guest-id",
-  "x-eco-session-id",
+  "Content-Type",
+  "Accept",
+  "X-Eco-Client-Message-Id",
+  "X-Eco-Guest-Id",
+  "X-Eco-Session-Id",
+  "X-Session-Id",          // Frontend meditation feedback
+  "X-Guest-Id",            // Frontend meditation feedback
+  "X-Client-Id",
+  "Authorization",
 ] as const;
 
 export const CORS_ALLOWED_METHODS_VALUE = CORS_ALLOWED_METHODS.join(",");

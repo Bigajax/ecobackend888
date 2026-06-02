@@ -21,7 +21,7 @@ const matrizPromptBaseV2: MatrizPromptBaseV2 = {
       "escala_abertura_1a3.txt",
       "ESCALA_INTENSIDADE_0a10.txt",
       "metodo_viva_enxuto.txt",
-      "bloco_tecnico_memoria.txt",
+      "tecnico_bloco_memoria.txt",
       "usomemorias.txt",     // normalizado (ASCII)
     ],
   },
@@ -30,8 +30,8 @@ const matrizPromptBaseV2: MatrizPromptBaseV2 = {
   byNivelV2: (({
     1: {
       specific: [
-        "nv1_core.txt",
-        "identidade_mini.txt",
+        "abertura_superficie.txt",
+        "sistema_identidade.txt",
         "ANTISALDO_MIN.txt",
         "escala_abertura_1a3.txt",
       ],
@@ -45,7 +45,7 @@ const matrizPromptBaseV2: MatrizPromptBaseV2 = {
   alwaysInclude: [
     "developer_prompt.txt",
     "PRINCIPIOS_CHAVE.txt",
-    "eco_estrutura_de_resposta.txt", // ✅ agora incluído
+    "formato_resposta.txt", // ✅ agora incluído
   ],
   byNivel: { 1: ["ENCERRAMENTO_SENSIVEL.txt"], 2: [], 3: [] },
 
@@ -73,7 +73,7 @@ const matrizPromptBaseV2: MatrizPromptBaseV2 = {
     },
 
     // Estrutura contemplativa (tua versão)
-    "eco_estrutura_de_resposta.txt": {
+    "formato_resposta.txt": {
       descricao: "Arquitetura de presença filosófica (espelho, exploração, paradoxo, presença).",
       regra: "nivel>=1",
     },
@@ -84,7 +84,7 @@ const matrizPromptBaseV2: MatrizPromptBaseV2 = {
       regra: "nivel>=1 && !pedido_pratico",
     },
 
-    "bloco_tecnico_memoria.txt": {
+    "tecnico_bloco_memoria.txt": {
       descricao: "Gerar bloco técnico quando DEC.hasTechBlock=true",
       regra: "hasTechBlock==true",
     },
@@ -213,8 +213,8 @@ const matrizPromptBaseV2: MatrizPromptBaseV2 = {
       "DETECÇÃOCRISE.txt",
 
       // NV1
-      "nv1_core.txt",
-      "identidade_mini.txt",
+      "abertura_superficie.txt",
+      "sistema_identidade.txt",
       "ANTISALDO_MIN.txt",
 
       // Pedido prático
@@ -231,7 +231,7 @@ const matrizPromptBaseV2: MatrizPromptBaseV2 = {
       // Core
       "PRINCIPIOS_CHAVE.txt",
       "IDENTIDADE.txt",
-      "eco_estrutura_de_resposta.txt", // ✅ entra no core agora
+      "formato_resposta.txt", // ✅ entra no core agora
       "MODULACAO_TOM_REGISTRO.txt",
       "LINGUAGEM_NATURAL.txt",
       "ENCERRAMENTO_SENSIVEL.txt",
@@ -262,7 +262,7 @@ const matrizPromptBaseV2: MatrizPromptBaseV2 = {
 
       // Intervenções / Técnico
       "metodo_viva_enxuto.txt",
-      "bloco_tecnico_memoria.txt",
+      "tecnico_bloco_memoria.txt",
     ],
   },
 };

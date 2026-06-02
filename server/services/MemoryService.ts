@@ -13,22 +13,11 @@ import {
 } from "../analytics/events/mixpanelEvents"; // seu arquivo
 import type { EcoDecisionResult } from "./conversation/ecoDecisionHub";
 import { log } from "./promptContext/logger";
+import { resolveEmotion, normalizeToken } from "./emotionNormalization";
 
 export interface SaveMemoryOutcome {
   memoryId?: string | null;
 }
-
-const KNOWN_EMOTIONS: Record<string, string> = {
-  alegria: "Alegria",
-  tristeza: "Tristeza",
-  raiva: "Raiva",
-  medo: "Medo",
-  nojo: "Nojo",
-  surpresa: "Surpresa",
-  calma: "Calma",
-  neutra: "Neutro",
-  neutro: "Neutro",
-};
 
 const DOMAIN_ALIASES: Record<string, string> = {
   trabalho: "trabalho",
@@ -82,15 +71,6 @@ const VALID_DOMAINS = new Set<string>([
   "outros",
 ]);
 
-function normalizeToken(value: string): string {
-  return value
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[^a-z0-9]+/g, "_")
-    .replace(/_{2,}/g, "_")
-    .replace(/^_|_$/g, "");
-}
-
 function sanitizeTagsInput(raw: unknown): string[] {
   if (!raw) return [];
   let values: unknown[] = [];
@@ -116,28 +96,6 @@ function sanitizeTagsInput(raw: unknown): string[] {
     result.push(trimmed);
   }
   return result;
-}
-
-function resolveEmotion(primary: unknown, tags: string[]): string {
-  if (typeof primary === "string") {
-    const trimmed = primary.trim();
-    const normalized = normalizeToken(trimmed);
-    if (normalized && KNOWN_EMOTIONS[normalized]) {
-      return KNOWN_EMOTIONS[normalized];
-    }
-    if (normalized !== "indefinida") {
-      return trimmed;
-    }
-  }
-
-  for (const tag of tags) {
-    const key = normalizeToken(tag);
-    if (key && KNOWN_EMOTIONS[key]) {
-      return KNOWN_EMOTIONS[key];
-    }
-  }
-
-  return "Neutro";
 }
 
 function normalizeDomain(value: unknown): string | null {
@@ -206,13 +164,47 @@ export async function saveMemoryOrReference(opts: {
   referenciaAnteriorId = (ultimaMemoria as any)?.id ?? null;
 
   const blocoTags = sanitizeTagsInput(bloco?.tags);
-  const emocaoPrincipal = resolveEmotion(bloco?.emocao_principal, blocoTags);
+  let emocaoPrincipal = resolveEmotion(bloco?.emocao_principal, blocoTags);
   const intensidadeNum = coerceIntensity(bloco?.intensidade, Math.max(0, Math.round(decision.intensity)));
+
+  // If emotion is "Indefinida" but we have high intensity, try to infer from context
+  // This prevents misleading "Indefinida" labels for clearly emotional moments
+  if (emocaoPrincipal === "Indefinida" && intensidadeNum >= 7) {
+    // For high-intensity moments, check if there are emotional keywords in tags or message
+    const emotionalKeywords = ["angustia", "ansiedade", "medo", "raiva", "tristeza", "frustração", "desespero"];
+    const messageText = ultimaMsg?.toLowerCase() || "";
+    const tagText = blocoTags.map(t => t.toLowerCase()).join(" ");
+
+    const hasAnxietySignals = ["angustia", "angustiado", "ansiedade", "ansioso", "preocupado", "preocupacao"].some(
+      word => messageText.includes(word) || tagText.includes(word)
+    );
+
+    if (hasAnxietySignals) {
+      emocaoPrincipal = "Ansiedade";
+    } else if (intensidadeNum >= 8) {
+      // For very high intensity, if no emotion detected, use "Emoção Intensa"
+      emocaoPrincipal = "Emoção Intensa";
+    }
+  }
   const nivelNumerico = coerceNivelAbertura(bloco?.nivel_abertura, decision.openness ?? null);
   const shouldSaveMemory = decision.saveMemory && intensidadeNum >= 7;
   const shouldSaveReference = !shouldSaveMemory && intensidadeNum > 0;
   const dominioPadronizado = normalizeDomain(bloco?.dominio_vida);
   const analiseResumo = analiseResumoSafe || null;
+
+  // DEBUG LOG: Decisão de memória
+  if (process.env.ECO_DEBUG === 'true') {
+    console.log(`[MemoryService] Emotion Resolution:`, {
+      rawEmocao: bloco?.emocao_principal,
+      blocoTags: blocoTags,
+      resolvedEmotion: emocaoPrincipal,
+      intensidade: intensidadeNum,
+      decision_saveMemory: decision.saveMemory,
+      shouldSaveMemory: shouldSaveMemory,
+      shouldSaveReference: shouldSaveReference,
+      messagePreview: ultimaMsg?.slice(0, 100),
+    });
+  }
 
   const payloadBase = {
     usuario_id: userId,
@@ -250,6 +242,11 @@ export async function saveMemoryOrReference(opts: {
         .insert([{ ...payloadBase, salvar_memoria: true, created_at: new Date().toISOString() }])
         .select("id")
         .maybeSingle();
+
+      if (process.env.ECO_DEBUG === 'true') {
+        console.log(`[MemoryService.INSERT] shouldSaveMemory=true, error=${error?.message || 'null'}, insertedId=${data?.id || 'null'}`);
+      }
+
       if (!error) {
         const insertedId =
           data && typeof (data as any)?.id === "string" && (data as any).id.trim().length

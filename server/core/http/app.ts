@@ -38,6 +38,8 @@ import voiceFullRoutes from "../../routes/voiceFullRoutes";
 import openrouterRoutes from "../../routes/openrouterRoutes";
 import relatorioRoutes from "../../routes/relatorioEmocionalRoutes";
 import feedbackRoutes from "../../routes/feedbackRoutes";
+import userFeedbackRoutes from "../../routes/userFeedbackRoutes";
+import meditationRoutes from "../../routes/meditationRoutes";
 import mensagemRoutes from "../../domains/mensagem/routes";
 import signalRoutes from "../../routes/signalRoutes";
 import moduleUsageRoutes from "../../routes/moduleUsageRoutes";
@@ -50,8 +52,18 @@ import { log } from "../../services/promptContext/logger";
 import { isSupabaseConfigured } from "../../lib/supabaseAdmin";
 import { guestSessionMiddleware } from "./middlewares/guestSession";
 import guestRoutes from "../../routes/guestRoutes";
+import subscriptionRoutes from "../../routes/subscriptionRoutes";
+import webhookRoutes from "../../routes/webhookRoutes";
+import programRoutes from "../../routes/programRoutes";
+import ringsRoutes from "../../routes/ringsRoutes";
+import productCheckoutRoutes from "../../routes/productCheckoutRoutes";
+import paymentsRoutes from "../../routes/payments";
+import entitlementRoutes from "../../routes/entitlementRoutes";
+import leadsRoutes from "../../routes/leadsRoutes";
+import quizRoutes from "../../routes/quizRoutes";
 import requireAdmin from "../../mw/requireAdmin";
 import sseSmokeRouter from "../../routes/sseSmoke";
+import dreamRoutes from "../../routes/dreamRoutes";
 
 declare module "express-serve-static-core" {
   interface Request {
@@ -65,6 +77,16 @@ const RATE_LIMIT_EXCLUSIONS = new Set(["/", "/healthz", "/readyz", "/debug/modul
 
 type RateBucket = { count: number; resetAt: number };
 const rateBuckets = new Map<string, RateBucket>();
+
+// Sweep expired buckets once per window to prevent unbounded Map growth
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, bucket] of rateBuckets) {
+    if (bucket.resetAt <= now) {
+      rateBuckets.delete(key);
+    }
+  }
+}, RATE_LIMIT_WINDOW_MS).unref();
 
 function hashToken(token: string): string {
   return createHash("sha256").update(token).digest("hex").slice(0, 32);
@@ -372,11 +394,23 @@ export function createApp(): Express {
   app.use("/api/relatorio_emocional", relatorioRoutes);
   app.use("/api/v1/relatorio-emocional", relatorioRoutes);
   app.use("/api/feedback", feedbackRoutes);
+  app.use("/api/user-feedback", userFeedbackRoutes);
+  app.use("/api/meditation", meditationRoutes);
   app.use("/api/mensagens", mensagemRoutes);
   app.use("/api/signal", signalRoutes);
   app.use("/api/module-usage", moduleUsageRoutes);
   app.use("/api/bandit", banditRoutes);
   app.use("/api/policy", policyRoutes);
+  app.use("/api/subscription", subscriptionRoutes);
+  app.use("/api/webhooks", webhookRoutes);
+  app.use("/api/programs", programRoutes);
+  app.use("/api/rings", ringsRoutes);
+  app.use("/api/mp", productCheckoutRoutes);
+  app.use("/api/payments", paymentsRoutes);
+  app.use("/api/entitlements", entitlementRoutes);
+  app.use("/api/leads", leadsRoutes);
+  app.use("/api/quiz", quizRoutes);
+  app.use("/api/dream", dreamRoutes);
 
   // Aliases sem /api (clientes legados)
   app.use("/memorias", memoryRoutes);

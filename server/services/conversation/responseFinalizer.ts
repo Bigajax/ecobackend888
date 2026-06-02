@@ -6,6 +6,7 @@ import {
 } from "../../utils";
 import { gerarBlocoTecnicoComCache } from "../../core/EmotionalAnalyzer";
 import { saveMemoryOrReference } from "../../services/MemoryService";
+import { persistGuestMessage } from "./guestPersistence";
 import {
   trackEcoDemorou,
   trackMensagemEnviada,
@@ -1216,6 +1217,18 @@ export class ResponseFinalizer {
       contextMeta,
       continuity,
     });
+
+    // Persist guest messages to guest_sessions and guest_messages tables
+    if (isGuest && guestId && supabase) {
+      void persistGuestMessage({
+        supabase,
+        guestId,
+        userMessage: ultimaMsg,
+        assistantResponse: cleaned,
+        ip: (sessionMeta as any)?.ip,
+        ua: (sessionMeta as any)?.ua,
+      });
+    }
 
     if (calHints && typeof calHints.score === "number") {
       response.meta = {

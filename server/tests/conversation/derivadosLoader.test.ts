@@ -3,14 +3,16 @@ import assert from "node:assert";
 
 import { loadConversationContext } from "../../services/conversation/derivadosLoader";
 import type { Derivados } from "../../services/derivadosService";
+import type { ParallelFetchResult } from "../../services/conversation/parallelFetch";
 
 process.env.SUPABASE_URL ||= "http://localhost";
 process.env.SUPABASE_SERVICE_ROLE_KEY ||= "test";
 
-const parallelResult = {
+const parallelResult: ParallelFetchResult = {
   heuristicas: ["h1"],
   userEmbedding: [0.1, 0.2],
   memsSemelhantes: ["mem"],
+  sources: { heuristicas: "live", mems: "live" },
 };
 
 test("usa derivados do cache quando disponíveis", async () => {
@@ -87,7 +89,12 @@ test("retorna null para derivados quando timeout ocorre", async () => {
       },
     },
     parallelFetchService: {
-      run: async () => ({ heuristicas: [], userEmbedding: [], memsSemelhantes: [] }),
+      run: async (): Promise<ParallelFetchResult> => ({
+        heuristicas: [],
+        userEmbedding: [],
+        memsSemelhantes: [],
+        sources: { heuristicas: "empty", mems: "empty" },
+      }),
     },
     withTimeoutOrNullFn: async () => null,
   });
@@ -142,10 +149,11 @@ test("transforma efeitos em estrutura compatível com insight de abertura", asyn
 
   const result = await loadConversationContext("user-3", "quero refletir", supabase, {
     parallelFetchService: {
-      run: async () => ({
+      run: async (): Promise<ParallelFetchResult> => ({
         heuristicas: ["hx"],
         userEmbedding: [1, 2],
         memsSemelhantes: ["memx"],
+        sources: { heuristicas: "live", mems: "live" },
       }),
     },
   });

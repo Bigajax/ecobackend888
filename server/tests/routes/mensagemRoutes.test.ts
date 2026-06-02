@@ -34,22 +34,28 @@ const loadAppWithStubs = async (stubs: StubMap) => {
   });
 };
 
-test("POST /api/mensagem persiste mensagem usando Supabase e retorna payload", async () => {
+test("POST /api/mensagens/registrar persiste mensagem usando Supabase e retorna payload", async () => {
   const insertedRows: any[] = [];
+  const userId = "f4e9b1c2-1234-4a5b-9cde-1234567890ab";
 
-  const supabaseStub = {
+  const supabaseStub: any = {
+    // O controller autentica via Bearer token (req.supabase.auth.getUser).
+    auth: {
+      getUser: async (_token: string) => ({ data: { user: { id: userId } }, error: null }),
+    },
     from(table: string) {
       assert.equal(table, "mensagem");
       return {
-        insert(rows: any[]) {
-          insertedRows.push(...rows);
+        // O controller insere um objeto único (não array): .insert(payload)
+        insert(payload: any) {
+          insertedRows.push(payload);
           return {
             select() {
               return {
                 single: async () => ({
                   data: {
                     id: "mensagem-123",
-                    ...rows[0],
+                    ...payload,
                     created_at: "2024-01-01T00:00:00.000Z",
                     updated_at: "2024-01-01T00:00:00.000Z",
                   },
@@ -79,23 +85,23 @@ test("POST /api/mensagem persiste mensagem usando Supabase e retorna payload", a
   });
 
   const payload = {
-    usuario_id: "f4e9b1c2-1234-4a5b-9cde-1234567890ab",
     conteudo: "Olá Eco, quero registrar uma mensagem",
-    sentimento: "alegria",
     salvar_memoria: true,
   };
 
-  const response = await request(app).post("/api/mensagem").send(payload);
+  const response = await request(app)
+    .post("/api/mensagens/registrar")
+    .set("Authorization", "Bearer test-token")
+    .send(payload);
 
-  assert.equal(response.status, 204);
-  assert.equal(response.text, "");
-  assert.deepEqual(response.body, {});
+  assert.equal(response.status, 201);
+  assert.equal(response.body.id, "mensagem-123");
 
   assert.equal(insertedRows.length, 1);
   const inserted = insertedRows[0];
-  assert.equal(inserted.usuario_id, payload.usuario_id);
+  // usuario_id vem do usuário autenticado (JWT), não do body.
+  assert.equal(inserted.usuario_id, userId);
   assert.equal(inserted.conteudo, payload.conteudo);
-  assert.equal(inserted.sentimento, payload.sentimento);
   assert.equal(inserted.salvar_memoria, true);
   assert.equal(typeof inserted.data_hora, "string");
 });

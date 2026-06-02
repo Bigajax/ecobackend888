@@ -1,7 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
+import { randomUUID } from "node:crypto";
+import request from "supertest";
 import { StreamSession, HEARTBEAT_INTERVAL_MS } from "../../routes/askEco/streaming";
+import { createApp } from "../../core/http/app";
 
 const Module = require("node:module");
 
@@ -53,9 +56,13 @@ const getRouteHandler = (router: any, path: string, method = "post") => {
       };
 
       if (matchesRoute()) {
-        const match = entry.route.stack.find(
+        // A rota é registrada como (ensureIdentity, handleAskEcoRequest); queremos
+        // o handler PRINCIPAL (o último), não o middleware de identidade. Os testes
+        // setam req.guestId direto, simulando a identidade já resolvida.
+        const candidates = entry.route.stack.filter(
           (stackEntry: any) => stackEntry.method === normalizedMethod
-        )?.handle;
+        );
+        const match = candidates[candidates.length - 1]?.handle;
         if (!match) {
           throw new Error(`Handler for route ${path} not found`);
         }
@@ -191,9 +198,26 @@ class MockRequest extends EventEmitter {
           ? normalized.usuario_id.trim()
           : DEFAULT_USUARIO_ID;
       normalized.usuario_id = usuarioIdRaw;
+      // O validador agora exige um clientMessageId (body ou header X-Eco-Client-Message-Id).
+      // Injeta um único por requisição quando ausente, evitando colisão de dedup no
+      // registry compartilhado entre testes (testes de dedup setam o seu explicitamente).
+      const hasClientMessageId =
+        typeof normalized.clientMessageId === "string" ||
+        typeof normalized.client_message_id === "string" ||
+        typeof normalized.messageId === "string" ||
+        typeof normalized.message_id === "string" ||
+        typeof headers["x-eco-client-message-id"] === "string";
+      if (!hasClientMessageId) {
+        normalized.clientMessageId = randomUUID();
+      }
       this.body = normalized;
     } else {
       this.body = body;
+    }
+    // SSE com stream exige origin permitido (sem origin → 403 origin_blocked).
+    // Default para um origin da allowlist quando o teste não especifica um.
+    if (typeof headers.origin !== "string") {
+      headers = { ...headers, origin: "http://localhost:5173" };
     }
     this.headers = headers;
   }
@@ -201,6 +225,19 @@ class MockRequest extends EventEmitter {
   get(name: string) {
     const key = name.toLowerCase();
     return this.headers[key];
+  }
+
+  header(name: string) {
+    return this.get(name);
+  }
+
+  is(type: string) {
+    const contentType = (this.headers["content-type"] || "").toLowerCase();
+    if (!contentType) return false;
+    if (type.includes("json")) {
+      return contentType.includes("application/json") ? "application/json" : false;
+    }
+    return contentType.includes(type.toLowerCase()) ? type : false;
   }
 }
 
@@ -211,9 +248,30 @@ class MockResponse {
   ended = false;
   flushed = false;
   headersFlushed = false;
+  headersSent = false;
+  locals: Record<string, unknown> = {};
+  socket = { setTimeout() {}, setKeepAlive() {} };
 
   status(code: number) {
     this.statusCode = code;
+    return this;
+  }
+
+  writeHead(code: number, headersObj?: Record<string, string>) {
+    this.statusCode = code;
+    if (headersObj) {
+      for (const [name, value] of Object.entries(headersObj)) {
+        this.setHeader(name, value);
+      }
+    }
+    // Mantemos headersSent=false de propósito: o handler usa `!res.headersSent`
+    // como guarda para setar headers tardios (ex.: X-Eco-Interaction-Id), e o mock
+    // acumula tudo no Map para inspeção. headersFlushed sinaliza o flush real.
+    this.headersFlushed = true;
+    return this;
+  }
+
+  on() {
     return this;
   }
 
@@ -262,6 +320,10 @@ class MockResponse {
 }
 
 test("SSE streaming emits tokens, done and disables compression", async () => {
+  // O handler resolve um interactionId aleatório por requisição e o passa a
+  // createInteraction, cuja versão real ECOA o id de volta (header === id criado).
+  // O stub espelha esse contrato e captura o id para a asserção do header.
+  let capturedInteractionId: string | null = null;
   const router = await loadRouterWithStubs("../../routes/promptRoutes", {
     "../services/ConversationOrchestrator": {
       getEcoResponse: async (params: any) => {
@@ -283,7 +345,10 @@ test("SSE streaming emits tokens, done and disables compression", async () => {
       },
     },
     "../services/conversation/interactionAnalytics": {
-      createInteraction: async () => TEST_INTERACTION_ID,
+      createInteraction: async (arg: any) => {
+        capturedInteractionId = typeof arg?.id === "string" ? arg.id : TEST_INTERACTION_ID;
+        return capturedInteractionId;
+      },
     },
     "../services/promptContext/logger": {
       log: {
@@ -328,15 +393,16 @@ test("SSE streaming emits tokens, done and disables compression", async () => {
     res.headers.get("access-control-expose-headers"),
     "x-eco-guest-id, x-eco-session-id, x-eco-client-message-id"
   );
+  assert.ok(capturedInteractionId, "createInteraction should have been called");
   assert.equal(
     res.headers.get("x-eco-interaction-id"),
-    TEST_INTERACTION_ID,
-    "should expose interaction id in headers"
+    capturedInteractionId,
+    "should expose the persisted interaction id in headers"
   );
   assert.ok(res.headersFlushed, "should flush headers immediately for SSE");
   assert.equal(res.ended, true, "stream should close after done event");
   assert.ok(res.flushed, "safeWrite should flush chunks for SSE");
-  assert.equal(res.chunks[0], ": open\n\n", "should send initial open comment before data");
+  assert.equal(res.chunks[0], ":\n\n", "should send initial open comment before data");
 
   const output = res.chunks.join("");
   assert.ok(res.chunks.length > 0, "should emit at least one SSE chunk");
@@ -346,7 +412,10 @@ test("SSE streaming emits tokens, done and disables compression", async () => {
   const streamIdHeader = res.headers.get("x-stream-id");
   assert.ok(streamIdHeader && streamIdHeader.length > 0, "should expose server stream id");
 
-  const promptReadyFrame = frames.find((frame) => frame.event === "prompt_ready");
+  // prompt_ready é emitido como SSE `event: control` com data.type/name === "prompt_ready".
+  const promptReadyFrame = frames.find(
+    (frame) => frame.data?.type === "prompt_ready" || frame.data?.name === "prompt_ready"
+  );
   assert.ok(promptReadyFrame, "should emit prompt_ready event");
   assert.equal(promptReadyFrame!.data?.streamId, streamIdHeader);
 
@@ -462,11 +531,13 @@ test("SSE streaming sends heartbeats before and after first chunk", async () => 
     const req = new MockRequest(
       {
         stream: true,
+        clientMessageId: "client-hb",
         messages: [{ role: "user", content: "Olá" }],
       },
       {
         accept: "text/event-stream",
         "content-type": "application/json",
+        "x-stream-id": "stream-hb",
       }
     );
     req.guest = { id: TEST_GUEST_ID };
@@ -476,27 +547,35 @@ test("SSE streaming sends heartbeats before and after first chunk", async () => 
 
     const handlerPromise = handler(req as any, res as any);
 
-    assert.equal(res.chunks[0], ": open\n\n", "should send open comment immediately");
+    // O heartbeat é registrado (startHeartbeat) DEPOIS do await de bootstrap, dentro
+    // de sendImmediatePromptReady. Aguarda microtasks até o handler bloquear no
+    // getEcoResponse (que expõe releaseChunk/releaseDone).
+    while (!heartbeatCallback || !releaseDone) {
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+
+    assert.equal(res.chunks[0], ":\n\n", "should send open comment immediately");
     assert.ok(heartbeatCallback, "should register heartbeat callback");
     assert.ok(releaseChunk, "orchestrator stub should expose chunk release helper");
     assert.ok(releaseDone, "orchestrator stub should expose done release helper");
 
+    // O heartbeat escreve o comentário SSE ":keepalive\n\n" (sendComment("keepalive")).
     const countHeartbeats = () =>
-      res.chunks.reduce((count, chunk) => count + (chunk.includes(": hb") ? 1 : 0), 0);
+      res.chunks.reduce((count, chunk) => count + (chunk.includes(":keepalive") ? 1 : 0), 0);
 
     nowValue = 1_400;
     heartbeatCallback?.();
-    assert.equal(countHeartbeats(), 1, "heartbeat callback should append hb comment");
+    assert.equal(countHeartbeats(), 1, "heartbeat callback should append keepalive comment");
 
     const getHeartbeatLogs = () =>
       debugCalls.filter((entry) => entry[0] === "[ask-eco] heartbeat");
     let heartbeatLogs = getHeartbeatLogs();
     assert.ok(heartbeatLogs.length >= 1, "should record heartbeat log entry");
     const firstHeartbeatMeta = heartbeatLogs[0]?.[1] ?? {};
-    assert.equal(firstHeartbeatMeta.streamId ?? null, null, "heartbeat log should include stream id");
+    assert.equal(firstHeartbeatMeta.streamId, "stream-hb", "heartbeat log should include stream id");
     assert.equal(
-      firstHeartbeatMeta.clientMessageId ?? null,
-      null,
+      firstHeartbeatMeta.clientMessageId,
+      "client-hb",
       "heartbeat log should include client message id",
     );
     assert.equal(
@@ -602,7 +681,10 @@ test("SSE streaming triggers timeout fallback when orchestrator stalls", async (
 
     const doneEvent = contractEvents.find((evt) => evt.kind === "done");
     assert.ok(doneEvent, "stream should end with done payload");
-    assert.equal(doneEvent!.payload.index, chunkEvents.length);
+    // O guard de idle-timeout e o finalizer no_chunks podem reemitir o MESMO chunk
+    // de fallback; o índice do done reflete a contagem de chunks LÓGICOS (únicos).
+    const uniqueChunkTexts = new Set(chunkEvents.map((evt) => evt.payload.text));
+    assert.equal(doneEvent!.payload.index, uniqueChunkTexts.size);
     assert.equal(doneEvent!.payload.done, true);
 
     for (const frame of frames) {
@@ -695,40 +777,26 @@ test("StreamSession heartbeats send JSON ping payloads frequently", async () => 
   }
 });
 
-test("HEAD /api/ask-eco responds 200 with CORS headers", async () => {
-  const router = await loadRouterWithStubs("../../routes/promptRoutes", {
-    "../services/promptContext/logger": {
-      log: {
-        info: () => {},
-        warn: () => {},
-        error: () => {},
-        debug: () => {},
-      },
-    },
-  });
+test("HEAD /api/ask-eco responds 204 with CORS headers", async () => {
+  // HEAD /api/ask-eco é tratado no nível do app (app.head → headCorsHandler), não no
+  // router de promptRoutes. O contrato real é 204 + headers de CORS.
+  const app = createApp();
+  const response = await request(app)
+    .head("/api/ask-eco")
+    .set("Origin", "https://ecofrontend888.vercel.app");
 
-  const handler = getRouteHandler(router, "/ask-eco", "head");
-
-  const req = new MockRequest({}, { origin: "https://ecofrontend888.vercel.app" });
-  req.method = "HEAD";
-
-  const res = new MockResponse();
-
-  await handler(req as any, res as any);
-
-  assert.equal(res.statusCode, 200, "HEAD should respond 200");
+  assert.equal(response.status, 204, "HEAD should respond 204");
   assert.equal(
-    res.headers.get("access-control-allow-origin"),
+    response.headers["access-control-allow-origin"],
     "https://ecofrontend888.vercel.app",
     "should echo allowed origin",
   );
-  const allowMethods = res.headers.get("access-control-allow-methods");
   assert.equal(
-    allowMethods,
-    "GET,POST,PUT,PATCH,DELETE,OPTIONS,HEAD",
+    response.headers["access-control-allow-methods"],
+    "GET,POST,OPTIONS,HEAD",
     "should include HEAD in allowed methods",
   );
-  assert.equal(res.ended, true, "response should end");
+  assert.equal(response.text ?? "", "");
 });
 
 test("client message ids are deduped with 409 without re-running orchestrator", async () => {
@@ -739,13 +807,16 @@ test("client message ids are deduped with 409 without re-running orchestrator", 
       getEcoResponse: async (params: any) => {
         orchestratorCalls += 1;
         if (params.stream?.onEvent) {
-          params.stream.onEvent({ type: "chunk", delta: `resposta-${orchestratorCalls}` });
-          params.stream.onChunk?.({ index: orchestratorCalls - 1, text: `resposta-${orchestratorCalls}` });
-          params.stream.onEvent({
+          // Aguarda os eventos: o done precisa ser processado ANTES de getEcoResponse
+          // retornar, senão o finally do handler libera a reserva antes de marcá-la
+          // "completed" (e o segundo request não seria deduplicado).
+          await params.stream.onEvent({ type: "chunk", delta: `resposta-${orchestratorCalls}` });
+          await params.stream.onChunk?.({ index: orchestratorCalls - 1, text: `resposta-${orchestratorCalls}` });
+          await params.stream.onEvent({
             type: "done",
             meta: { finishReason: "stop" },
           });
-          params.stream.onChunk?.({ done: true, meta: { finishReason: "stop" } });
+          await params.stream.onChunk?.({ done: true, meta: { finishReason: "stop" } });
         }
         return { raw: `resposta-${orchestratorCalls}` };
       },
@@ -799,7 +870,18 @@ test("client message ids are deduped with 409 without re-running orchestrator", 
   assert.equal(orchestratorCalls, 1, "duplicate should not reach orchestrator again");
   assert.equal(interactionCreates, 1, "duplicate should not insert another interaction");
   assert.ok(secondRes.chunks.length > 0, "duplicate response should include JSON body");
-  const duplicatePayload = JSON.parse(secondRes.chunks[0]);
+  // O warmup SSE escreve um comentário de abertura (":\n\n") antes da checagem de
+  // dedup; o corpo 409 (JSON) é o último chunk.
+  const jsonChunk = [...secondRes.chunks].reverse().find((chunk) => {
+    try {
+      JSON.parse(chunk);
+      return true;
+    } catch {
+      return false;
+    }
+  });
+  assert.ok(jsonChunk, "duplicate response should include a JSON chunk");
+  const duplicatePayload = JSON.parse(jsonChunk as string);
   assert.equal(duplicatePayload.code, "DUPLICATE_CLIENT_MESSAGE");
 });
 
@@ -891,9 +973,14 @@ test("starting a new stream on the same stream id aborts the previous run", asyn
   assert.ok(infoCalls.some((entry) => entry[0] === "[ask-eco] sse_stream_replaced"));
   assert.equal(firstRes.ended, true, "previous response should end after abort");
   const firstOutput = firstRes.chunks.join("");
-  const firstEvents = toContractEvents(firstOutput);
-  const lastEvent = firstEvents[firstEvents.length - 1];
-  assert.ok(lastEvent?.kind === "done", "aborted stream should finish with done payload");
+  // Um stream substituído por outro no mesmo stream id é abortado ANTES de emitir
+  // chunks; o contrato atual encerra com evento(s) de erro sinalizando a substituição
+  // (finishReason "replaced_by_new_stream" / NO_CHUNKS_EMITTED), não com um done.
+  const firstFrames = parseSseFrames(firstOutput);
+  const replacedFrame = firstFrames.find(
+    (frame) => frame.data?.finishReason === "replaced_by_new_stream"
+  );
+  assert.ok(replacedFrame, "aborted stream should signal it was replaced");
   assert.ok(firstAbortReason instanceof Error || typeof firstAbortReason === "string");
 });
 

@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Teste: Endpoint de Feedback de Meditação</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 20px;
+        }
+        .input-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 600;
+            color: #555;
+        }
+        input, select {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 14px;
+            box-sizing: border-box;
+        }
+        button {
+            background: #4CAF50;
+            color: white;
+            padding: 12px 30px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            margin-right: 10px;
+            margin-top: 10px;
+        }
+        button:hover {
+            background: #45a049;
+        }
+        button.secondary {
+            background: #2196F3;
+        }
+        button.secondary:hover {
+            background: #0b7dda;
+        }
+        #result {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 5px;
+            white-space: pre-wrap;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        .success {
+            background: #d4edda;
+            border: 1px solid #c3e6cb;
+            color: #155724;
+        }
+        .error {
+            background: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+        }
+        .info {
+            background: #d1ecf1;
+            border: 1px solid #bee5eb;
+            color: #0c5460;
+        }
+        .warning {
+            background: #fff3cd;
+            border: 1px solid #ffeaa7;
+            color: #856404;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🧪 Teste: Endpoint de Feedback de Meditação</h1>
+
+        <div class="input-group">
+            <label for="backendUrl">URL do Backend:</label>
+            <input type="text" id="backendUrl" value="https://ecobackend888.onrender.com" placeholder="https://ecobackend888.onrender.com">
+        </div>
+
+        <div class="input-group">
+            <label for="vote">Tipo de Feedback:</label>
+            <select id="vote">
+                <option value="positive">Positivo</option>
+                <option value="negative">Negativo</option>
+            </select>
+        </div>
+
+        <div class="input-group">
+            <label for="sessionId">Session ID (UUID):</label>
+            <input type="text" id="sessionId" value="" placeholder="Gerado automaticamente">
+        </div>
+
+        <div class="input-group">
+            <label for="guestId">Guest ID (UUID):</label>
+            <input type="text" id="guestId" value="" placeholder="Gerado automaticamente">
+        </div>
+
+        <button onclick="testEndpoint()">🚀 Testar Endpoint</button>
+        <button onclick="testHealth()" class="secondary">❤️ Testar Health</button>
+        <button onclick="generateIds()" class="secondary">🔄 Gerar Novos IDs</button>
+
+        <div id="result"></div>
+    </div>
+
+    <script>
+        // Gerar UUIDs v4
+        function generateUUID() {
+            return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+                const r = Math.random() * 16 | 0;
+                const v = c === 'x' ? r : (r & 0x3 | 0x8);
+                return v.toString(16);
+            });
+        }
+
+        // Inicializar com IDs aleatórios
+        function generateIds() {
+            document.getElementById('sessionId').value = generateUUID();
+            document.getElementById('guestId').value = generateUUID();
+            showResult('✅ Novos IDs gerados!', 'info');
+        }
+
+        // Gerar IDs ao carregar a página
+        window.onload = generateIds;
+
+        function showResult(message, type = 'info') {
+            const resultDiv = document.getElementById('result');
+            resultDiv.textContent = message;
+            resultDiv.className = type;
+        }
+
+        async function testHealth() {
+            const backendUrl = document.getElementById('backendUrl').value.trim();
+            showResult('⏳ Testando conexão com o backend...', 'info');
+
+            try {
+                const startTime = Date.now();
+                const response = await fetch(`${backendUrl}/health`, {
+                    method: 'GET'
+                });
+                const duration = Date.now() - startTime;
+                const data = await response.text();
+
+                if (response.ok) {
+                    showResult(`✅ Backend está ONLINE!\n\nStatus: ${response.status}\nTempo: ${duration}ms\nResposta: ${data}`, 'success');
+                } else {
+                    showResult(`❌ Backend retornou erro!\n\nStatus: ${response.status}\nResposta: ${data}`, 'error');
+                }
+            } catch (error) {
+                showResult(`❌ Erro de conexão!\n\nMensagem: ${error.message}\n\nPossíveis causas:\n- Backend está offline\n- URL incorreta\n- Problema de CORS\n- Sem internet`, 'error');
+            }
+        }
+
+        async function testEndpoint() {
+            const backendUrl = document.getElementById('backendUrl').value.trim();
+            const vote = document.getElementById('vote').value;
+            const sessionId = document.getElementById('sessionId').value || generateUUID();
+            const guestId = document.getElementById('guestId').value || generateUUID();
+
+            showResult('⏳ Enviando requisição...', 'info');
+
+            const payload = {
+                vote: vote,
+                meditation_id: "test_meditation_001",
+                meditation_title: "Meditação de Teste",
+                meditation_duration_seconds: 600,
+                meditation_category: "mindfulness",
+                actual_play_time_seconds: 600,
+                completion_percentage: 100,
+                pause_count: 0,
+                skip_count: 0,
+                seek_count: 0,
+                feedback_source: "browser_test"
+            };
+
+            // Adicionar reasons se for negativo
+            if (vote === 'negative') {
+                payload.reasons = ['too_long', 'hard_to_focus'];
+            }
+
+            try {
+                const startTime = Date.now();
+                const response = await fetch(`${backendUrl}/api/meditation/feedback`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Session-Id': sessionId,
+                        'X-Guest-Id': guestId
+                    },
+                    body: JSON.stringify(payload)
+                });
+
+                const duration = Date.now() - startTime;
+                const contentType = response.headers.get('content-type');
+                let data;
+
+                if (contentType && contentType.includes('application/json')) {
+                    data = await response.json();
+                } else {
+                    data = await response.text();
+                }
+
+                let resultMessage = `📊 RESULTADO DO TESTE\n\n`;
+                resultMessage += `Status Code: ${response.status} ${response.statusText}\n`;
+                resultMessage += `Tempo de resposta: ${duration}ms\n`;
+                resultMessage += `Content-Type: ${contentType}\n\n`;
+                resultMessage += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n`;
+                resultMessage += `Headers Enviados:\n`;
+                resultMessage += `  X-Session-Id: ${sessionId}\n`;
+                resultMessage += `  X-Guest-Id: ${guestId}\n\n`;
+                resultMessage += `Payload Enviado:\n${JSON.stringify(payload, null, 2)}\n\n`;
+                resultMessage += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n`;
+                resultMessage += `Resposta do Servidor:\n`;
+                resultMessage += typeof data === 'object' ? JSON.stringify(data, null, 2) : data;
+
+                if (response.status === 201) {
+                    showResult('✅ SUCESSO! Feedback enviado e salvo!\n\n' + resultMessage, 'success');
+                } else if (response.status === 404) {
+                    showResult('❌ ENDPOINT NÃO ENCONTRADO (404)\n\n' + resultMessage + '\n\n⚠️ O Render ainda não fez deploy do código atualizado!', 'error');
+                } else if (response.status === 400) {
+                    showResult('⚠️ ERRO DE VALIDAÇÃO (400)\n\n' + resultMessage, 'warning');
+                } else if (response.status === 500) {
+                    showResult('❌ ERRO NO SERVIDOR (500)\n\n' + resultMessage + '\n\n⚠️ Possível causa: Migration não foi aplicada no Supabase!', 'error');
+                } else {
+                    showResult('⚠️ RESPOSTA INESPERADA\n\n' + resultMessage, 'warning');
+                }
+            } catch (error) {
+                let errorMessage = `❌ ERRO DE CONEXÃO!\n\n`;
+                errorMessage += `Mensagem: ${error.message}\n\n`;
+                errorMessage += `Possíveis causas:\n`;
+                errorMessage += `  • Backend está offline\n`;
+                errorMessage += `  • URL incorreta: ${backendUrl}\n`;
+                errorMessage += `  • Problema de CORS\n`;
+                errorMessage += `  • Timeout da requisição\n`;
+                errorMessage += `  • Sem conexão com internet\n\n`;
+                errorMessage += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n`;
+                errorMessage += `Stack Trace:\n${error.stack}`;
+
+                showResult(errorMessage, 'error');
+            }
+        }
+    </script>
+</body>
+</html>

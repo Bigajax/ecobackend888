@@ -109,15 +109,19 @@ export function buildContinuityModuleText(ref: any): string {
 
   const emotion = continuityEmotion(ref);
   const diasValue = continuityDias(ref);
-  const diasLabel = diasValue != null ? `${diasValue} dia${diasValue === 1 ? "" : "s"}` : "? dias";
   const similarity = continuitySimilarity(ref);
-  const similarityLabel = similarity != null ? similarity.toFixed(2) : "?";
   const tags = continuityTags(ref);
 
-  const lines = [
-    `Referência-base: emoção ${emotion}, há ${diasLabel}, similaridade ${similarityLabel}.`,
-  ];
+  // Inclui apenas o que é conhecido — evita imprimir "emoção ?, há ? dias".
+  const refParts: string[] = [];
+  if (emotion && emotion !== "?") refParts.push(`emoção ${emotion}`);
+  if (diasValue != null) refParts.push(`há ${diasValue} dia${diasValue === 1 ? "" : "s"}`);
+  if (similarity != null) refParts.push(`similaridade ${similarity.toFixed(2)}`);
 
+  const lines: string[] = [];
+  if (refParts.length) {
+    lines.push(`Referência-base: ${refParts.join(", ")}.`);
+  }
   if (tags.length) {
     lines.push(`Tags recentes: ${tags.join(", ")}.`);
   }

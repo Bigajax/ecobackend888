@@ -73,6 +73,7 @@ export function detectarSaudacaoBreve(texto?: string): boolean {
 function isIntense(text: string): boolean {
   const t = text.toLowerCase();
   const gatilhos = [
+    // Crisis patterns
     /p[aâ]nico/,
     /crise/,
     /desesper/,
@@ -81,6 +82,27 @@ function isIntense(text: string): boolean {
     /explod/,
     /taquicard|batimentos/i,
     /ansiedad|ang[uú]st/i,
+
+    // Emotional intensity markers
+    /muito\s+(triste|ansioso|assustado|furioso|frustrado|vazio|sozinho|perdido|confuso)/i,
+    /tristeza?\s+(pesada|profunda|intensa|avassaladora)/i,
+    /me sinto\s+(terrível|horrível|pior|muito mal|tão mal|mal demais|péssimo)/i,
+    /estou\s+(muito\s+)?(triste|angustiado|desesperado|devastado|arrasado|arruinado|destruído)/i,
+    /n[aã]o (aguento|consigo|resistro|funciono|gosto|confio)/i,
+    /tudo (?:est[aá]|é)\s+(errado|ruim|péssimo|horrível|impossível|vazio)/i,
+
+    // Vulnerability markers
+    /sinto\s+(?:muito\s+)?(fraco|impotente|inadequado|fracasso|incapaz|inútil|insignificante)/i,
+    /me(?:u|a)?\s+(?:culpa|medo|vergonha|vazio|vácuo|escuridão)/i,
+    /n[aã]o\s+(?:consigo|conseguir|aguento|merec)/i,
+
+    // Work/relationship stress
+    /trabalho.{0,50}(triste|angustia|frustra|estressa|preocupa|infeliz|mal)/i,
+    /relacionamento.{0,50}(acabou|terminou|t[óo]xic|machuca|dói|sofr)/i,
+
+    // Emotional markers
+    /[!]{2,}|[\?]{2,}/,  // Multiple exclamation or question marks
+    /(muito|demais|d+emais)\s+(\w+\s+){0,2}(mal|ruim|horrível|péssimo|pior)/i,
   ];
   const longo = t.length >= 180;
   return longo || gatilhos.some((r) => r.test(t));
@@ -88,9 +110,79 @@ function isIntense(text: string): boolean {
 
 export function estimarIntensidade0a10(text: string): number {
   if (!text.trim()) return 0;
-  const base = isIntense(text) ? 7 : 3;
-  const extra = Math.min(3, Math.floor(text.length / 200));
-  return Math.max(0, Math.min(10, base + extra));
+
+  const t = text.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  let intensity = 0;
+
+  // Primary emotion detection (high weight). `t` já está sem acento/lowercase.
+  const primaryEmotions = [
+    /triste(za)?|tristonho|melancol/,
+    /depress[ao]o?|depressivo/,
+    /ansiedade?|ansiedad|ansios[oa]?|angustiad[oa]?/, // inclui "ansioso/ansiosa"
+    /medo|assustad[oa]?|apavorad[oa]?/,
+    /raiva|raivos[oa]?|furios[oa]?|irritad[oa]?|revoltad[oa]?/,
+    /frustra[cc][ao][ao]?|frustrad[oa]?/,
+    /culpa|culpad[oa]?|remorso/,
+    /vergonha|envergonhad[oa]?|humilhad[oa]?/,
+    /solidao|sozinh[oa]?|isolad[oa]?/,
+    /desesper|desesperad[oa]?/,
+    // Sofrimento agudo conta como sinal primário (não apenas modificador):
+    /nao\s+aguento|insuport|no\s+limite/,
+  ];
+
+  const primaryMatch = primaryEmotions.some(r => r.test(t));
+  if (primaryMatch) intensity += 5;
+
+  // Intensity modifiers (add to base)
+  const intensifiers = [
+    /muito\s+(triste|ansios|angustia|assusta|furios|frustrad|vazio|sozinh|deprimid|medo)/,
+    /demais|d+emais/,
+    /pesad[ao]|profund[ao]|intens[ao]|avassalador/,
+    /nao\s+aguento|nao\s+consigo|insuport/,
+    /tudo\s+(?:esta|e)\s+(errado|ruim|pessimo|horrivel|impossivel|vazio)/,
+  ];
+
+  const intensifierCount = intensifiers.filter(r => r.test(t)).length;
+  intensity += Math.min(2, intensifierCount);
+
+  // Bônus: "muito + emoção" explícito é um sinal forte por si só (canônico para salvar memória).
+  if (primaryMatch && /muito\s+(triste|ansios|angustiad|frustrad|sozinh|deprimid|vazio)/.test(t)) {
+    intensity += 1;
+  }
+
+  // Length bonus (longer emotional text = more intense)
+  const textLength = text.trim().length;
+  if (textLength >= 100) intensity += 1;
+  if (textLength >= 200) intensity += 1;
+
+  // Punctuation markers
+  if (/[!]{2,}/.test(t)) intensity += 1;  // Multiple exclamation marks
+  if (/\.\.\.|…/.test(t)) intensity += 1;  // Ellipsis (hesitation, emotion)
+
+  // Work/relationship context (adds context but not primary intensity)
+  if (/trabalho|carreira|emprego|chefe|colega/.test(t) && primaryMatch) intensity += 1;
+  if (/relacionamento|namorad|parceiro|casamento|familia/.test(t) && primaryMatch) intensity += 1;
+  // Dinheiro / transição de identidade / sensação de atraso (`t` sem acento)
+  if (/dinheiro|divida|financ|empreend|patrimonio|investiment|salario|atrasad|comparac/.test(t) && primaryMatch)
+    intensity += 1;
+
+  // Floor baseline: if no emotional detection, still assign baseline
+  if (intensity === 0) {
+    intensity = isIntense(text) ? 7 : 3;
+  }
+
+  // Piso para sinais fortes e de baixa ambiguidade que o léxico primário não capturava:
+  // Luto/perda por morte → alta intensidade (`t` sem acento).
+  if (/faleceu|faleceram|morreu|morreram|\bluto\b|velorio|enterro|sepultamento/.test(t)) {
+    intensity = Math.max(intensity, 7);
+  }
+  // Crise/ideação/autolesão → sempre alta (segurança; pareado com o gate determinístico de crise).
+  if (/suicid|me matar|tirar (?:a |minha )?vida|acabar com tudo|nao quero (?:mais )?viver/.test(t)) {
+    intensity = Math.max(intensity, 8);
+  }
+
+  // Cap at 10
+  return Math.max(0, Math.min(10, intensity));
 }
 
 export function derivarNivel(texto: string, saudacaoBreve: boolean): 1 | 2 | 3 {

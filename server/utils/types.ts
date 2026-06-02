@@ -50,6 +50,7 @@ export type GetEcoParams = {
   sessionMeta?: SessionMetadata;
   isGuest?: boolean;
   guestId?: string | null;
+  interactionId?: string | null;
   activationTracer?: ActivationTracer;
 };
 

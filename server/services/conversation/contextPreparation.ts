@@ -50,8 +50,9 @@ export async function prepareConversationContext({
   retrieveMode,
   authUid,
 }: PrepareContextParams): Promise<PreparedContext> {
-  const effectiveUserId = supabase && !isGuest ? userId : undefined;
-  const context = await loadConversationContext(effectiveUserId, ultimaMsg, supabase, {
+  const normalizedUserId =
+    typeof userId === "string" && userId.trim().length ? userId.trim() : undefined;
+  const context = await loadConversationContext(normalizedUserId, ultimaMsg, supabase, {
     promptOverride,
     metaFromBuilder,
     onDerivadosError,

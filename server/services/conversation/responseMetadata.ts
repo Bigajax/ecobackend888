@@ -1,5 +1,6 @@
 import type { GetEcoResult } from "../../utils";
 import { extractJson } from "../../utils/text";
+import { resolveEmotion } from "../emotionNormalization";
 
 import type { EcoStreamMetaPayload } from "./types";
 
@@ -86,7 +87,9 @@ export function buildStreamingMetaPayload(
       ? bloco.intensidade
       : null;
   const resumo = typeof bloco.analise_resumo === "string" ? bloco.analise_resumo.trim() : "";
-  const emocao = typeof bloco.emocao_principal === "string" ? bloco.emocao_principal.trim() : "";
+  // emoção bruta usada apenas como gate (o modelo precisa ter produzido algo);
+  // o valor persistido passa por resolveEmotion (rejeita "neutro", normaliza taxonomia).
+  const rawEmocao = typeof bloco.emocao_principal === "string" ? bloco.emocao_principal.trim() : "";
   const categoria = typeof bloco.categoria === "string" ? bloco.categoria.trim() : "";
   const tags = Array.isArray(bloco.tags)
     ? bloco.tags
@@ -97,17 +100,23 @@ export function buildStreamingMetaPayload(
   if (
     intensidade === null ||
     resumo.length === 0 ||
-    emocao.length === 0 ||
+    rawEmocao.length === 0 ||
     categoria.length === 0 ||
     tags.length === 0
   ) {
     return null;
   }
 
+  // ⚠️ CRITICAL VALIDATION: Intensidade deve ser >= 7 para salvar memória
+  // Isso é um gate adicional antes de retornar o payload
+  if (intensidade < 7) {
+    return null;
+  }
+
   return {
     intensidade,
     resumo: resumo || cleanedFallback,
-    emocao,
+    emocao: resolveEmotion(bloco.emocao_principal, tags),
     categoria,
     tags,
   };

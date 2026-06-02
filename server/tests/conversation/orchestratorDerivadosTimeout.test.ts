@@ -15,11 +15,18 @@ test("streaming segue sem derivados e cache é preenchido quando prontos", async
   const expectedDerivados = { tema: "sono", resumo: "cached" };
   let capturedDerivadosParam: any = undefined;
 
-  const supabaseDelayMs = 50;
+  // Gate manual em vez de timer fixo: o fetch de derivados (via supabase) só
+  // resolve quando o teste libera. Com um setTimeout fixo de 300ms a race era
+  // dupla — sob carga a orquestração podia atrasar e o fetch resolvia ANTES do
+  // prompt_ready, preenchendo o cache cedo demais e quebrando a assertion.
+  let releaseDerivadosFetch!: () => void;
+  const derivadosFetchGate = new Promise<void>((resolve) => {
+    releaseDerivadosFetch = resolve;
+  });
   const originalLoad = Module._load;
   const modulePath = require.resolve("../../services/ConversationOrchestrator");
 
-  function createSupabaseStub(delay: number) {
+  function createSupabaseStub() {
     const datasets: Record<string, any[]> = {
       user_theme_stats: [{ tema: "sono" }],
       user_temporal_milestones: [{ tema: "sono", resumo_evolucao: "ok" }],
@@ -40,9 +47,7 @@ test("streaming segue sem derivados e cache é preenchido quando prontos", async
             return this;
           },
           limit() {
-            return new Promise((resolve) => {
-              setTimeout(() => resolve({ data }), delay);
-            });
+            return derivadosFetchGate.then(() => ({ data }));
           },
         };
       },
@@ -55,7 +60,7 @@ test("streaming segue sem derivados e cache é preenchido quando prontos", async
   Module._load = function patched(request: string, parent: any, isMain: boolean) {
     if (request === "../adapters/SupabaseAdapter") {
       return {
-        supabaseWithBearer: () => createSupabaseStub(supabaseDelayMs),
+        supabaseWithBearer: () => createSupabaseStub(),
       };
     }
     if (request === "../core/ResponsePlanner") {
@@ -107,6 +112,7 @@ test("streaming segue sem derivados e cache é preenchido quando prontos", async
     }
     if (request === "./conversation/promptPlan") {
       return {
+        selectBanditArms: () => ({}),
         buildFullPrompt: ({ messages }: { messages: any[] }) => ({
           prompt: [
             { role: "system", content: "system prompt" },
@@ -133,7 +139,7 @@ test("streaming segue sem derivados e cache é preenchido quando prontos", async
         },
       };
     }
-    if (request === "../core/ClaudeAdapter") {
+    if (request === "../core/ClaudeAdapter" || request === "../../core/ClaudeAdapter") {
       return {
         streamClaudeChatCompletion: async (_opts: any, callbacks: any) => {
           await callbacks.onChunk?.({ content: "resposta final", raw: {} });
@@ -151,7 +157,10 @@ test("streaming segue sem derivados e cache é preenchido quando prontos", async
         }),
       };
     }
-    if (request === "../services/derivadosService") {
+    if (
+      request === "../services/derivadosService" ||
+      request === "../derivadosService"
+    ) {
       return {
         getDerivados: () => expectedDerivados,
         insightAbertura: () => ({ abertura: true }),
@@ -197,14 +206,20 @@ test("streaming segue sem derivados e cache é preenchido quando prontos", async
     },
   })) as import("../../services/ConversationOrchestrator").EcoStreamingResult;
 
-  assert.strictEqual(capturedDerivadosParam, null, "contexto deve receber derivados nulos quando timeout");
+  assert.ok(capturedDerivadosParam == null, "contexto deve receber derivados nulos/ausentes quando timeout");
   assert.ok(
     events.some((event) => event.type === "control" && event.name === "prompt_ready"),
     "deve emitir prompt_ready mesmo sem derivados"
   );
   assert.strictEqual(cacheAtPromptReady, null, "cache não deve estar preenchido no prompt_ready");
 
-  await new Promise((resolve) => setTimeout(resolve, supabaseDelayMs * 2));
+  // Com o prompt_ready já verificado (cache vazio), libera o fetch em background
+  // e aguarda (poll) ele preencher o cache.
+  releaseDerivadosFetch();
+  const deadline = Date.now() + 5000;
+  while (DERIVADOS_CACHE.get(cacheKey) === undefined && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
 
   const cached = DERIVADOS_CACHE.get(cacheKey);
   assert.deepStrictEqual(cached, expectedDerivados, "cache deve ser preenchido após fetch em background");

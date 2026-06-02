@@ -23,7 +23,10 @@ test("buscarHeuristicasSemelhantes normalizes embeddings before RPC", async () =
     import("../../lib/supabaseAdmin"),
   ]);
 
-  const supabase = supabaseModule.supabase ?? supabaseModule.default;
+  // O serviço usa o client retornado por ensureSupabaseConfigured(). O export
+  // `supabase` é um Proxy só-leitura, então atribuir nele não tem efeito —
+  // precisamos patchar o client real e cacheado.
+  const supabase = supabaseModule.ensureSupabaseConfigured();
   const calls: Array<{ fn: string; params: Record<string, any> }> = [];
   const originalRpc = supabase.rpc.bind(supabase);
   (supabase as any).rpc = async (fn: string, params: Record<string, any>) => {

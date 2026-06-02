@@ -1,23 +1,16 @@
-/** Sanitiza a saída removendo blocos ```json``` e JSON final pendurado */
-export function sanitizeOutput(input?: string): string {
-  const txt = input ?? "";
-  return txt
-    // remove blocos ```json ... ```
-    .replace(/```(?:json)?[\s\S]*?```/gi, "")
-    // remove possível payload JSON final
-    .replace(/\{[\s\S]*?\}\s*$/g, "")
-    // remove caracteres de controle perigosos, preservando espaços comuns
-    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, "");
-}
+// REMOVED: sanitizeOutput function
+// BACKEND PASSTHROUGH: All text from model is sent raw to client without transformation
+// Sanitization responsibility moved entirely to frontend
 
 /** Extrai texto de payloads em formatos variados (defensivo) */
+// BACKEND PASSTHROUGH: Extract text without trimming to preserve spacing
 export function extractTextLoose(payload: any): string | undefined {
   if (!payload) return undefined;
-  if (typeof payload === "string" && payload.trim()) return payload.trim();
+  if (typeof payload === "string" && payload) return payload;
 
   const tryList = (val: any): string | undefined => {
     if (!val) return undefined;
-    if (typeof val === "string" && val.trim()) return val.trim();
+    if (typeof val === "string" && val) return val;
 
     if (Array.isArray(val)) {
       for (const v of val) {

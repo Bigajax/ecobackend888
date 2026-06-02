@@ -21,7 +21,6 @@ export function initializeContext(params: BuildParams): ContextInitialization {
     memoriasSemelhantes,
     contextFlags: contextFlagsParam = {},
     contextMeta: contextMetaParam = {},
-    recall: recallParam = null,
     userId: _userId,
     guestId: _guestId = null,
     texto,
@@ -36,30 +35,14 @@ export function initializeContext(params: BuildParams): ContextInitialization {
       ? { ...(contextMetaParam as ContextMeta) }
       : {};
 
-  const recallFromParams =
-    recallParam && typeof recallParam === "object" && recallParam !== null
-      ? recallParam
-      : null;
-  const recallMetaCandidate = (contextMetaBase as any)?.recall;
-  const recallFromMeta =
-    recallMetaCandidate && typeof recallMetaCandidate === "object"
-      ? (recallMetaCandidate as unknown)
-      : null;
-  const recall = (recallFromParams ?? recallFromMeta ?? null) as
-    | { items?: SimilarMemory[] | null; memories?: SimilarMemory[] | null }
-    | null;
-
-  const recallItemsCandidate = (recall?.items ?? recall?.memories) as unknown;
-  const mems = Array.isArray(recallItemsCandidate)
-    ? (recallItemsCandidate as SimilarMemory[])
-    : [];
-  const hasMemories: boolean = mems.length > 0;
-
-  const memsFallback =
-    (memsSemelhantes && Array.isArray(memsSemelhantes) && memsSemelhantes.length
+  // Memórias recuperadas (busca semântica + fallbacks de referências/recentes).
+  // O antigo caminho `recall` nunca era preenchido em produção e foi removido.
+  const mems: SimilarMemory[] =
+    ((Array.isArray(memsSemelhantes) && memsSemelhantes.length
       ? memsSemelhantes
-      : memoriasSemelhantes) || [];
-  const memsSemelhantesNorm = hasMemories ? mems : (memsFallback as SimilarMemory[]);
+      : memoriasSemelhantes) as SimilarMemory[] | undefined) ?? [];
+  const hasMemories: boolean = mems.length > 0;
+  const memsSemelhantesNorm = mems;
 
   const normalizedUserId =
     typeof _userId === "string" && _userId.trim().length ? _userId.trim() : "";

@@ -5,9 +5,10 @@ import { buildFinalizedStreamText } from "../../services/conversation/responseMe
 import { extractJson } from "../../utils/text";
 
 test("buildFinalizedStreamText adiciona bloco JSON com metadados completos", () => {
+  // intensidade na escala 0-10 (>= 7) para passar pelo gate de memória significativa
   const texto = buildFinalizedStreamText({
     message: "Oi! Aqui vai um resumo.",
-    intensidade: 0.75,
+    intensidade: 8,
     resumo: "Resumo sintético",
     emocao: "alegria",
     categoria: "apoio",
@@ -18,9 +19,10 @@ test("buildFinalizedStreamText adiciona bloco JSON com metadados completos", () 
 
   const payload = extractJson<Record<string, any>>(texto);
   assert.ok(payload, "bloco JSON deve ser parseável");
-  assert.strictEqual(payload?.intensidade, 0.75);
+  assert.strictEqual(payload?.intensidade, 8);
   assert.strictEqual(payload?.resumo, "Resumo sintético");
-  assert.strictEqual(payload?.emocao, "alegria");
+  // emoção é normalizada para a taxonomia canônica (Title Case)
+  assert.strictEqual(payload?.emocao, "Alegria");
   assert.strictEqual(payload?.categoria, "apoio");
   assert.deepStrictEqual(payload?.tags, ["apoio", "escuta"]);
 });

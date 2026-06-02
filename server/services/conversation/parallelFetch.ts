@@ -3,8 +3,11 @@ import { getEmbeddingCached } from "../../adapters/EmbeddingAdapter";
 import { buscarHeuristicasSemelhantes } from "../../services/heuristicaService";
 import {
   buscarMemoriasComModo,
+  retrieveConfigs,
   type RetrieveMode,
 } from "../supabase/memoriaRepository";
+import { buscarReferenciasSemelhantes } from "../../services/buscarReferenciasSemelhantes";
+import { listMemories } from "../../adapters/supabaseMemoryRepository";
 
 export interface ParallelFetchParams {
   ultimaMsg: string;
@@ -30,11 +33,12 @@ interface ParallelFetchDeps {
   getEmbedding: typeof getEmbeddingCached;
   getHeuristicas: typeof buscarHeuristicasSemelhantes;
   getMemorias: typeof buscarMemoriasComModo;
+  getReferencias: typeof buscarReferenciasSemelhantes;
   logger: typeof log;
   debug: typeof isDebug;
 }
 
-const RPC_TIMEOUT_MS = 1200;
+const RPC_TIMEOUT_MS = 3000;
 const CACHE_LIMIT = 5;
 const ANON_KEY = "__anon__";
 
@@ -44,6 +48,7 @@ export class ParallelFetchService {
       getEmbedding: getEmbeddingCached,
       getHeuristicas: buscarHeuristicasSemelhantes,
       getMemorias: buscarMemoriasComModo,
+      getReferencias: buscarReferenciasSemelhantes,
       logger: log,
       debug: isDebug,
     }
@@ -82,6 +87,15 @@ export class ParallelFetchService {
 
     if (userEmbedding.length > 0) {
       const cacheKey = userId ?? ANON_KEY;
+      const referenceFallbackThreshold = Number(
+        process.env.SEMANTIC_MEMORY_REFERENCE_FALLBACK_THRESHOLD ?? "0.5"
+      );
+      const referenceThreshold = Number.isFinite(referenceFallbackThreshold)
+        ? referenceFallbackThreshold
+        : 0.5;
+      const referenceK =
+        retrieveConfigs[retrieveMode]?.k ??
+        Number(process.env.SEMANTIC_MEMORY_REFERENCE_TOP_K ?? 4);
 
       const heuristicasPromise = withTimeoutOrNull(
         this.deps
@@ -96,7 +110,8 @@ export class ParallelFetchService {
                 `[ParallelFetch] heuristica_rpc falhou: ${error?.message}`
               );
             }
-            return [];
+            // Re-lança para que withTimeoutOrNull resolva em null e dispare o cache.
+            throw error;
           }),
         RPC_TIMEOUT_MS,
         "heuristica_rpc",
@@ -123,12 +138,13 @@ export class ParallelFetchService {
                     `[ParallelFetch] buscarMemoriasSemelhantes falhou: ${e?.message}`
                   );
                 }
-                return [];
+                // Re-lança para que withTimeoutOrNull resolva em null e dispare o cache.
+                throw e;
               }),
             RPC_TIMEOUT_MS,
             "mem_lookup",
             { logger: this.deps.logger }
-          ).then((result) => result ?? [])
+          )
         : Promise.resolve([]);
 
       const [heuristicasResult, memsResult] = await Promise.all([
@@ -154,6 +170,81 @@ export class ParallelFetchService {
           memSource = memsSemelhantes.length ? "live" : "empty";
           if (memsSemelhantes.length) {
             this.memoriaCache.set(cacheKey, memsSemelhantes.slice(0, CACHE_LIMIT));
+          } else if (userEmbedding.length > 0) {
+            const refsResult = await withTimeoutOrNull(
+              this.deps
+                .getReferencias(userId, {
+                  userEmbedding,
+                  k: referenceK,
+                  threshold: referenceThreshold,
+                })
+                .catch((error: any) => {
+                  if (this.deps.debug()) {
+                    this.deps.logger.warn(
+                      `[ParallelFetch] referencias_rpc falhou: ${error?.message}`
+                    );
+                  }
+                  return [];
+                }),
+              RPC_TIMEOUT_MS,
+              "ref_lookup",
+              { logger: this.deps.logger }
+            );
+            if (Array.isArray(refsResult) && refsResult.length) {
+              memsSemelhantes = refsResult.map((ref, index) => ({
+                id:
+                  typeof (ref as any)?.id === "string" && (ref as any).id.trim().length
+                    ? (ref as any).id.trim()
+                    : `ref_${index}`,
+                resumo_eco: ref.resumo_eco,
+                tags: Array.isArray(ref.tags) ? ref.tags : [],
+                emocao_principal: ref.emocao_principal ?? null,
+                intensidade:
+                  typeof ref.intensidade === "number" && Number.isFinite(ref.intensidade)
+                    ? ref.intensidade
+                    : null,
+                created_at: ref.created_at ?? null,
+                similarity:
+                  typeof ref.similarity === "number" && Number.isFinite(ref.similarity)
+                    ? ref.similarity
+                    : undefined,
+                distancia:
+                  typeof ref.distancia === "number" && Number.isFinite(ref.distancia)
+                    ? ref.distancia
+                    : undefined,
+              }));
+              memSource = "live";
+              this.memoriaCache.set(cacheKey, memsSemelhantes.slice(0, CACHE_LIMIT));
+            }
+          }
+
+          // Fallback: memórias recentes sem busca semântica (quando tudo falhou)
+          if (memsSemelhantes.length === 0 && !userId.startsWith("guest_")) {
+            try {
+              const recentRows = await listMemories(userId, { limit: 3 });
+              if (recentRows.length) {
+                memsSemelhantes = recentRows.map((row) => ({
+                  id: row.id,
+                  resumo_eco: row.resumo_eco ?? "",
+                  tags: Array.isArray(row.tags) ? row.tags : [],
+                  emocao_principal: row.emocao_principal ?? null,
+                  intensidade: row.intensidade ?? null,
+                  created_at: row.created_at ?? null,
+                }));
+                memSource = "live";
+                this.memoriaCache.set(cacheKey, memsSemelhantes.slice(0, CACHE_LIMIT));
+                this.deps.logger.info("[ParallelFetch] memoria_recente_fallback", {
+                  userId: cacheKey,
+                  count: memsSemelhantes.length,
+                });
+              }
+            } catch (fallbackErr: any) {
+              if (this.deps.debug()) {
+                this.deps.logger.warn(
+                  `[ParallelFetch] memoria_recente_fallback falhou: ${fallbackErr?.message}`
+                );
+              }
+            }
           }
         } else {
           const cached = this.memoriaCache.get(cacheKey) ?? [];

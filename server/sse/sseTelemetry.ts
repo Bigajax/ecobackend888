@@ -160,39 +160,71 @@ export class SseTelemetry {
     }, {});
   }
 
-  private sendSignalRow(interactionId: string, signal: string, meta: Record<string, unknown>): void {
+  private async sendSignalRowWithRetry(
+    interactionId: string,
+    signal: string,
+    meta: Record<string, unknown>,
+    attempt: number = 1,
+    maxAttempts: number = 3
+  ): Promise<void> {
     if (!this.supabaseClient) return;
     const payload = { interaction_id: interactionId, signal, meta };
-    void Promise.resolve(
-      this.supabaseClient
+
+    try {
+      const { error } = await this.supabaseClient
         .from("eco_passive_signals")
-        .insert([payload])
-    )
-      .then(({ error }: { error: { message: string; code?: string } | null }) => {
-        if (error) {
-          log.error("[ask-eco] telemetry_failed", {
+        .insert([payload]);
+
+      if (error) {
+        // FK 23503: Foreign key violation (interaction doesn't exist yet)
+        const isFkViolation = error.code === "23503" || error.message?.includes("23503");
+
+        if (isFkViolation && attempt < maxAttempts) {
+          // Exponential backoff: 100ms * 2^(attempt-1)
+          const delayMs = 100 * Math.pow(2, attempt - 1);
+          log.warn("[ask-eco] telemetry_fk_retry", {
             signal,
-            message: error.message,
-            code: error.code ?? null,
-            table: "eco_passive_signals",
-            payload,
+            attempt,
+            delayMs,
+            code: error.code,
           });
-          return;
+
+          await new Promise(resolve => setTimeout(resolve, delayMs));
+          return this.sendSignalRowWithRetry(interactionId, signal, meta, attempt + 1, maxAttempts);
         }
-        log.info("[ask-eco] telemetry_inserted", {
-          signal,
-          table: "eco_passive_signals",
-          interaction_id: interactionId,
-        });
-      })
-      .catch((error: unknown) => {
+
         log.error("[ask-eco] telemetry_failed", {
           signal,
-          message: error instanceof Error ? error.message : String(error),
+          message: error.message,
+          code: error.code ?? null,
+          attempt,
           table: "eco_passive_signals",
           payload,
+          isFkViolation,
         });
+        return;
+      }
+
+      log.info("[ask-eco] telemetry_inserted", {
+        signal,
+        table: "eco_passive_signals",
+        interaction_id: interactionId,
+        attempt,
       });
+    } catch (error: unknown) {
+      log.error("[ask-eco] telemetry_failed", {
+        signal,
+        message: error instanceof Error ? error.message : String(error),
+        attempt,
+        table: "eco_passive_signals",
+        payload,
+      });
+    }
+  }
+
+  private sendSignalRow(interactionId: string, signal: string, meta: Record<string, unknown>): void {
+    // Fire-and-forget with retry logic for FK violations
+    void this.sendSignalRowWithRetry(interactionId, signal, meta);
   }
 }
 

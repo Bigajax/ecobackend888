@@ -18,12 +18,12 @@ interface GenericPatternRule {
 const GENERIC_PATTERNS: GenericPatternRule[] = [
   {
     label: "como_posso_ajudar",
-    regex: /^(?:oi+|ola+|ol[aá]|oie+|opa+|hey+|hello+|ei+|e\s*a[eií]?|fala+|bom\s+dia|boa\s+(?:tarde|noite)|tudo\s+bem|salve)?[\s,!.-]*como\s+posso\s+ajudar/,
+    regex: /^(?:oi+|ola+|ol[aá]|oie+|opa+|hey+|hello+|ei+|e\s*a[eií]?|fala+|bom\s+dia|boa\s+(?:tarde|noite)|tudo\s+bem|salve)?[\s,!.-]*como\s+posso\s+(?:te\s+|lhe\s+|voc[eê]\s+|vos\s+)?ajudar/,
     weight: 4,
   },
   {
     label: "em_que_posso_ajudar",
-    regex: /^(?:oi+|ola+|ol[aá]|oie+|opa+|hey+|hello+|ei+|e\s*a[eií]?|fala+|bom\s+dia|boa\s+(?:tarde|noite)|tudo\s+bem|salve)?[\s,!.-]*em\s+que\s+posso\s+ajudar/,
+    regex: /^(?:oi+|ola+|ol[aá]|oie+|opa+|hey+|hello+|ei+|e\s*a[eií]?|fala+|bom\s+dia|boa\s+(?:tarde|noite)|tudo\s+bem|salve)?[\s,!.-]*em\s+que\s+posso\s+(?:te\s+|lhe\s+|voc[eê]\s+|vos\s+)?ajudar/,
     weight: 4,
   },
   {

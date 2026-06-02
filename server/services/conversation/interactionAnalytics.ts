@@ -12,6 +12,7 @@ export function sha1Hash(input: string | null | undefined): string {
 }
 
 export interface InteractionSeed {
+  id?: string | null;
   userId?: string | null;
   sessionId?: string | null;
   messageId?: string | null;
@@ -81,6 +82,8 @@ export async function createInteraction(seed: InteractionSeed): Promise<string |
 
   try {
     const analytics = getAnalyticsClient();
+    const providedId =
+      typeof seed.id === "string" && seed.id.trim().length ? seed.id.trim() : null;
     const normalizedMessageId =
       typeof seed.messageId === "string" && seed.messageId.trim().length
         ? seed.messageId.trim()
@@ -91,6 +94,7 @@ export async function createInteraction(seed: InteractionSeed): Promise<string |
       .upsert(
         [
           {
+            ...(providedId ? { id: providedId } : {}),
             user_id: seed.userId ?? null,
             session_id: seed.sessionId ?? null,
             message_id: normalizedMessageId,
@@ -112,6 +116,7 @@ export async function createInteraction(seed: InteractionSeed): Promise<string |
         code: error.code ?? null,
         table: "eco_interactions",
         payload: {
+          id: providedId ?? null,
           user_id: seed.userId ?? null,
           session_id: seed.sessionId ?? null,
           message_id: seed.messageId ?? null,
@@ -122,6 +127,13 @@ export async function createInteraction(seed: InteractionSeed): Promise<string |
     }
 
     const interactionId = (data as { id?: string } | null)?.id ?? null;
+    if (providedId && interactionId && interactionId !== providedId) {
+      logger.warn("interaction.insert_id_mismatch", {
+        requested: providedId,
+        received: interactionId,
+        message_id: normalizedMessageId,
+      });
+    }
     if (!interactionId) {
       if (!normalizedMessageId) {
         logger.warn("interaction.create_missing_id");
@@ -151,6 +163,14 @@ export async function createInteraction(seed: InteractionSeed): Promise<string |
         return null;
       }
 
+      if (providedId && reusedId !== providedId) {
+        logger.warn("interaction.lookup_id_mismatch", {
+          requested: providedId,
+          received: reusedId,
+          message_id: normalizedMessageId,
+        });
+      }
+
       logger.info("interaction.reused_existing", {
         table: "eco_interactions",
         interaction_id: reusedId,
@@ -163,7 +183,7 @@ export async function createInteraction(seed: InteractionSeed): Promise<string |
       interaction_id: interactionId,
     });
 
-    return interactionId;
+    return interactionId ?? providedId;
   } catch (error) {
     logger.error("interaction.create_unexpected", {
       message: error instanceof Error ? error.message : String(error),

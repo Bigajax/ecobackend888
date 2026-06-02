@@ -4,6 +4,7 @@ import express from "express";
 import request from "supertest";
 import Module from "node:module";
 import { createApp as createHttpApp } from "../../core/http/app";
+import { ensureGuestIdentity } from "../../core/http/guestIdentity";
 
 type StubMap = Record<string, unknown>;
 
@@ -121,6 +122,11 @@ const loadAskEcoRouter = async () => {
       corsMiddleware: (_req: express.Request, _res: express.Response, next: express.NextFunction) =>
         next(),
       resolveCorsOrigin: () => null,
+      // Constantes consumidas por applyAskEcoCorsHeaders (promptRoutes).
+      PRIMARY_CORS_ORIGIN: "https://ecofrontend888.vercel.app",
+      ASK_ECO_ALLOWED_METHODS_VALUE: "GET,POST,OPTIONS,HEAD",
+      ASK_ECO_ALLOWED_HEADERS_VALUE:
+        "Content-Type, Accept, X-Eco-Client-Message-Id, X-Eco-Guest-Id, X-Eco-Session-Id, X-Session-Id, X-Guest-Id, X-Client-Id, Authorization",
     },
     "../services/conversation/interactionAnalytics": {
       createInteraction: async () => "interaction-stub",
@@ -244,6 +250,9 @@ const createApp = async () => {
   logger.reset();
   const app = express();
   app.use(express.json());
+  // A resolução de identidade (req.guestId/ecoSessionId + headers de resposta)
+  // vive no middleware ensureGuestIdentity, montado no app real antes do router.
+  app.use(ensureGuestIdentity);
   app.use("/api/ask-eco", router);
   return { app, logger };
 };
@@ -300,13 +309,16 @@ test("HEAD /api/ask-eco responde 204 com CORS básico", async () => {
     .set("Origin", "https://ecofrontend888.vercel.app");
 
   assert.equal(response.status, 204);
-  assert.equal(response.text, "");
+  assert.equal(response.text ?? "", "");
   assert.equal(
     response.headers["access-control-allow-origin"],
     "https://ecofrontend888.vercel.app",
   );
   assert.equal(response.headers["access-control-allow-methods"], "GET,POST,OPTIONS,HEAD");
-  assert.equal(response.headers["access-control-allow-headers"], "Content-Type, Accept");
+  assert.equal(
+    response.headers["access-control-allow-headers"],
+    "Content-Type, Accept, X-Eco-Client-Message-Id, X-Eco-Guest-Id, X-Eco-Session-Id, X-Session-Id, X-Guest-Id, X-Client-Id, Authorization",
+  );
   assert.equal(response.headers["access-control-max-age"], "86400");
   const varyHeader = response.headers["vary"];
   assert.ok(typeof varyHeader === "string" && varyHeader.includes("Origin"));

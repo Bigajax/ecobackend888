@@ -374,12 +374,13 @@ class AnalyticsStore {
         }
       };
 
+      // Query bandit_rewards with correct column names (pilar, arm, not family/arm_id)
       const { data: newData, error: newError } = await client
         .from("bandit_rewards")
-        .select("reward, created_at")
+        .select("recompensa as reward, created_at")
         .gte("created_at", sinceIso)
-        .eq("family", pilar)
-        .eq("arm_id", arm)
+        .eq("pilar", pilar)
+        .eq("arm", arm)
         .order("created_at", { ascending: true });
       if (newError && newError.code !== "42703") {
         banditLogger.warn("bandit_history_fetch_failed", {
@@ -390,23 +391,6 @@ class AnalyticsStore {
         });
       }
       collectRows(newData);
-
-      const { data: legacyData, error: legacyError } = await client
-        .from("bandit_rewards")
-        .select("reward, created_at")
-        .gte("created_at", sinceIso)
-        .eq("pilar", pilar)
-        .eq("arm", arm)
-        .order("created_at", { ascending: true });
-      if (legacyError && legacyError.code !== "42703") {
-        banditLogger.warn("bandit_history_legacy_failed", {
-          family: pilar,
-          arm,
-          code: legacyError.code ?? null,
-          message: legacyError.message,
-        });
-      }
-      collectRows(legacyData);
 
       if (rows.length > 0) {
         const dedup = new Map<string, BanditArmSample>();

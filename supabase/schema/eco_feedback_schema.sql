@@ -86,10 +86,23 @@ create table if not exists analytics.eco_policy_config (
     updated_at timestamptz not null default now()
 );
 
+create table if not exists analytics.bandit_rewards (
+    id uuid primary key default gen_random_uuid(),
+    response_id text not null,
+    interaction_id uuid references analytics.eco_interactions (id) on delete cascade,
+    pilar text not null,
+    arm text not null,
+    recompensa numeric not null,
+    created_at timestamptz not null default now()
+);
+
 create index if not exists eco_feedback_interaction_idx on analytics.eco_feedback (interaction_id);
 create index if not exists eco_interactions_created_idx on analytics.eco_interactions (created_at desc);
 create index if not exists eco_passive_signals_interaction_idx on analytics.eco_passive_signals (interaction_id);
 create index if not exists eco_module_usages_interaction_idx on analytics.eco_module_usages (interaction_id);
+create index if not exists bandit_rewards_response_id_idx on analytics.bandit_rewards (response_id);
+create index if not exists bandit_rewards_arm_idx on analytics.bandit_rewards (arm);
+create index if not exists bandit_rewards_created_at_idx on analytics.bandit_rewards (created_at desc);
 
 create or replace view analytics.vw_interactions as
 select
@@ -121,6 +134,17 @@ select
   arm,
   recompensa
 from analytics.bandit_rewards;
+
+-- View for banditRewardsSync: aggregated reward metrics per arm
+-- Used by banditRewardsSync.ts to compute alpha/beta and update eco_bandit_arms
+create or replace view analytics.eco_bandit_feedback_rewards as
+select
+  arm as arm_key,
+  sum(case when recompensa >= 0.5 then 1 else 0 end)::bigint as feedback_count,
+  sum(recompensa)::numeric as reward_sum,
+  sum(recompensa * recompensa)::numeric as reward_sq_sum
+from analytics.bandit_rewards
+group by arm;
 
 grant usage on schema analytics to service_role;
 grant select, insert, update, delete on all tables in schema analytics to service_role;

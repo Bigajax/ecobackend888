@@ -1,5 +1,6 @@
 import { composePromptBase, applyCurrentMessage } from "../promptComposer";
 import { buildContinuityModuleText, buildContinuityPromptLine } from "../pipeline/continuityResolver";
+import { CACHE_PREFIX_SENTINEL } from "../../../utils/promptCache";
 
 export interface PromptAssemblyParams {
   nivel: 1 | 2 | 3;
@@ -59,6 +60,24 @@ export function assemblePrompt({
     decBlock,
     prelude: continuityPrelude || undefined,
   });
+
+  // Modo cache (ECO_PROMPT_CACHE=1): identidade ESTÁVEL como prefixo cacheável + sentinela +
+  // dinâmico (memória/DEC/instruções/mensagem). Default (flag off): ordem original, sem sentinela
+  // → comportamento e golden tests idênticos. A reordenação muda a saliência da memória, por isso
+  // fica atrás de flag e deve ser medida com `npm run eval:run` antes de virar padrão.
+  if (process.env.ECO_PROMPT_CACHE === "1") {
+    const stablePrefix = [...identitySections, ...staticSections]
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0)
+      .join("\n\n");
+    const dynamic = [...contextSections.map((s) => s.trim()), promptCoreBase.trim()]
+      .filter((s) => s.length > 0)
+      .join("\n\n");
+    const base = [stablePrefix, CACHE_PREFIX_SENTINEL, dynamic]
+      .filter((s) => s.length > 0)
+      .join("\n\n");
+    return { base, promptWithText: applyCurrentMessage(base, texto) };
+  }
 
   const baseSections = [
     promptCoreBase.trim(),

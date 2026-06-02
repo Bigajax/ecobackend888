@@ -5,8 +5,8 @@ import montarContextoEco from "../../services/promptContext/ContextBuilder";
 import { ModuleStore } from "../../services/promptContext/ModuleStore";
 
 const inlineModules: Record<string, string> = {
-  "nv1_core.txt": "Conteúdo NV1 core",
-  "identidade_mini.txt": "Conteúdo identidade mini",
+  "abertura_superficie.txt": "Conteúdo NV1 core",
+  "sistema_identidade.txt": "Conteúdo identidade mini",
   "ANTISALDO_MIN.txt": "Conteúdo antissaldo mínimo",
   "escala_abertura_1a3.txt": "Conteúdo escala de abertura",
 };
@@ -27,6 +27,6 @@ test("ContextBuilder inclui lembrete com o nome do usuário", async () => {
   const prompt = resultado.montarMensagemAtual(params.texto);
   assert.match(
     prompt,
-    /Usuário se chama Maria; use o nome apenas quando fizer sentido\./
+    /Usuário: Maria\. Use nome quando natural na conversa/
   );
 });

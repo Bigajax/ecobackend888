@@ -1,7 +1,8 @@
 /// <reference types="node" />
 
 import * as path from "path";
-import { promises as fs, Dirent } from "fs";
+import { promises as fs, Dirent, Stats } from "fs";
+import { createHash } from "crypto";
 import { log, isDebug } from "./logger";
 import { getAssetsRoot } from "../../src/utils/assetsRoot";
 
@@ -32,10 +33,84 @@ function normKey(name: string) {
 /** Extensões suportadas para módulos. */
 const ALLOWED_EXT = new Set([".txt", ".md"]);
 
+const MANIFEST_FILENAME = "modules.manifest.json";
+
+export interface EcoManifestActivationCondition {
+  intensidadeMin?: number;
+  vulnerabilidade?: boolean;
+  continuidade?: boolean;
+  crise?: boolean;
+  todas?: EcoManifestActivationCondition[];
+  qualquer?: EcoManifestActivationCondition[];
+  [key: string]: unknown;
+}
+
+export interface EcoManifestEntry {
+  id: string;
+  path: string;
+  role: "system" | "assistant" | "policy";
+  categoria: string;
+  nivelMin: number;
+  nivelMax: number;
+  ativaSe?: EcoManifestActivationCondition | null;
+  excluiSe: string[];
+  peso: number;
+  ordenacao: number;
+  conteudo?: string | null;
+}
+
+export interface EcoManifestLevel {
+  id: 1 | 2 | 3;
+  nome?: string;
+  descricao?: string;
+  maxModulos: number;
+  modulos: string[];
+}
+
+export interface EcoManifestDefaults {
+  perguntaMax?: number;
+  idioma?: string;
+  fluxo?: string;
+  registrarMemoriaQuando?: string[];
+  estilo?: Record<string, unknown>;
+}
+
+export interface EcoManifestSnapshot {
+  path: string;
+  entries: EcoManifestEntry[];
+  defaults: EcoManifestDefaults;
+  levels: Map<1 | 2 | 3, EcoManifestLevel>;
+  hash: string;
+  mtimeMs: number;
+  raw: unknown;
+}
+
 type FileMetadata = {
   full: string;
   name: string;
   rel: string;
+};
+
+/** -------------------------- Helpers de tipo -------------------------- */
+
+/** Converte um valor potencialmente desconhecido em array de strings limpas. */
+const asStringArray = (value: unknown): string[] => {
+  if (!Array.isArray(value)) return [];
+  return (value as unknown[])
+    .map((item: unknown) => (typeof item === "string" ? item.trim() : ""))
+    .filter((s: string) => s.length > 0);
+};
+
+/** Garante array de condições normalizadas. */
+const asNormalizedCondArray = (
+  arr: unknown,
+  normalizer: (v: unknown) => EcoManifestActivationCondition | undefined
+): EcoManifestActivationCondition[] | undefined => {
+  if (!Array.isArray(arr)) return undefined;
+  const out = (arr as unknown[])
+    .map((child: unknown) => normalizer(child))
+    .filter((child): child is EcoManifestActivationCondition => Boolean(child));
+  return out.length ? out : undefined;
 };
 
 /** -------------------------- Helpers de path -------------------------- */
@@ -147,6 +222,11 @@ export class ModuleStore {
   private cacheSources = new Map<string, { root: string | null; path: string | null }>();
   private buildLock: Promise<void> | null = null;
   private bootstrapped = false;
+  private manifestSnapshot: EcoManifestSnapshot | null = null;
+  private manifestSignature: string | null = null;
+  private manifestLoadLock: Promise<void> | null = null;
+  private manifestNotFoundLogged = false;
+  private manifestInvalidSignature: string | null = null;
 
   /** --------------------- Configuração & util --------------------- */
 
@@ -160,6 +240,10 @@ export class ModuleStore {
     this.tokenCountCache.clear();
     this.cacheSources.clear();
     this.bootstrapped = this.roots.length > 0;
+    this.manifestSnapshot = null;
+    this.manifestSignature = null;
+    this.manifestNotFoundLogged = false;
+    this.manifestInvalidSignature = null;
     if (isDebug()) log.debug("[ModuleStore.configure]", { roots: this.roots });
   }
 
@@ -186,6 +270,7 @@ export class ModuleStore {
   async bootstrap() {
     await this.ensureBootstrapped();
     await this.buildFileIndexOnce();
+    await this.ensureManifestLoaded();
   }
 
   /** Estatísticas rápidas (para debug endpoints). */
@@ -196,6 +281,11 @@ export class ModuleStore {
       cachedCount: this.cacheModulos.size,
       built: this.fileIndexBuilt,
     };
+  }
+
+  async getManifestSnapshot(): Promise<EcoManifestSnapshot | null> {
+    await this.ensureManifestLoaded();
+    return this.manifestSnapshot;
   }
 
   /** Lista até N nomes indexados (sem caminhos), útil para debug. */
@@ -213,7 +303,7 @@ export class ModuleStore {
 
   async listNames(): Promise<string[]> {
     await this.buildFileIndexOnce();
-    return Array.from(this.uniqueFiles.values()).map((item) => item.name);
+    return Array.from(this.uniqueFiles.values()).map((item: FileMetadata) => item.name);
   }
 
   /** Invalida caches (tudo ou só um módulo). */
@@ -249,6 +339,9 @@ export class ModuleStore {
   static async read(name: string): Promise<string | null> { return this.I.read(name); }
   static tokenCountOf(name: string, content?: string): number { return this.I.tokenCountOf(name, content); }
   static stats() { return this.I.stats(); }
+  static async getManifestSnapshot(): Promise<EcoManifestSnapshot | null> {
+    return this.I.getManifestSnapshot();
+  }
   static listIndexed(limit?: number) { return this.I.listIndexed(limit); }
   static async listNames(): Promise<string[]> { return this.I.listNames(); }
   static invalidate(name?: string) { return this.I.invalidate(name); }
@@ -333,6 +426,220 @@ export class ModuleStore {
     }
 
     await this.buildLock;
+  }
+
+  private getManifestPath(): string {
+    return path.resolve(process.cwd(), "dist", "assets", MANIFEST_FILENAME);
+  }
+
+  private async ensureManifestLoaded(force = false): Promise<void> {
+    const manifestPath = this.getManifestPath();
+    let stat: Stats | null = null;
+    try {
+      stat = await fs.stat(manifestPath);
+    } catch (error) {
+      if (!this.manifestNotFoundLogged) {
+        log.warn("[manifest] not_found", { path: manifestPath });
+        this.manifestNotFoundLogged = true;
+      }
+      this.manifestSnapshot = null;
+      this.manifestSignature = null;
+      return;
+    }
+
+    this.manifestNotFoundLogged = false;
+    const signature = `${stat.mtimeMs}:${stat.size}`;
+    if (!force && this.manifestSnapshot && this.manifestSignature === signature) {
+      return;
+    }
+
+    if (this.manifestLoadLock) {
+      await this.manifestLoadLock;
+      return;
+    }
+
+    this.manifestLoadLock = (async () => {
+      await this.loadManifestFromDisk(manifestPath, stat!, signature);
+    })();
+
+    try {
+      await this.manifestLoadLock;
+    } finally {
+      this.manifestLoadLock = null;
+    }
+  }
+
+  private normalizeActivationCondition(
+    raw: unknown
+  ): EcoManifestActivationCondition | undefined {
+    if (!raw || typeof raw !== "object") return undefined;
+    const input = raw as Record<string, unknown>;
+    const condition: EcoManifestActivationCondition = {};
+    if (typeof input.intensidadeMin === "number") condition.intensidadeMin = input.intensidadeMin;
+    if (typeof input.vulnerabilidade === "boolean") condition.vulnerabilidade = input.vulnerabilidade;
+    if (typeof input.continuidade === "boolean") condition.continuidade = input.continuidade;
+    if (typeof input.crise === "boolean") condition.crise = input.crise;
+
+    const todas = asNormalizedCondArray(input.todas, (c) => this.normalizeActivationCondition(c));
+    if (todas) condition.todas = todas;
+
+    const qualquer = asNormalizedCondArray(input.qualquer, (c) => this.normalizeActivationCondition(c));
+    if (qualquer) condition.qualquer = qualquer;
+
+    const keys = Object.keys(condition);
+    return keys.length ? condition : undefined;
+  }
+
+  private buildManifestSnapshot(
+    manifestPath: string,
+    rawContent: string,
+    parsed: any,
+    stat: Stats
+  ): EcoManifestSnapshot | null {
+    if (!parsed || typeof parsed !== "object") {
+      return null;
+    }
+
+    const defaultsRaw = typeof parsed.defaults === "object" && parsed.defaults != null ? parsed.defaults : {};
+    const defaults: EcoManifestDefaults = {};
+    if (typeof defaultsRaw.perguntaMax === "number") defaults.perguntaMax = defaultsRaw.perguntaMax;
+    if (typeof defaultsRaw.idioma === "string") defaults.idioma = defaultsRaw.idioma;
+    if (typeof defaultsRaw.fluxo === "string") defaults.fluxo = defaultsRaw.fluxo;
+    if (Array.isArray(defaultsRaw.registrarMemoriaQuando)) {
+      defaults.registrarMemoriaQuando = asStringArray(defaultsRaw.registrarMemoriaQuando);
+    }
+    if (defaultsRaw.estilo && typeof defaultsRaw.estilo === "object") {
+      defaults.estilo = defaultsRaw.estilo as Record<string, unknown>;
+    }
+
+    const modulesRaw = Array.isArray(parsed.modules) ? parsed.modules : [];
+    const entries: EcoManifestEntry[] = [];
+    for (let i = 0; i < modulesRaw.length; i += 1) {
+      const rawEntry = modulesRaw[i];
+      if (!rawEntry || typeof rawEntry !== "object") {
+        log.warn("[manifest] invalid_entry", { index: i, reason: "not_object" });
+        continue;
+      }
+      const entry = rawEntry as Record<string, unknown>;
+      const id = typeof entry.id === "string" ? entry.id.trim() : "";
+      const entryPath = typeof entry.path === "string" ? entry.path.trim() : "";
+      const role = typeof entry.role === "string" ? entry.role.trim() : "";
+      const categoria = typeof entry.categoria === "string" ? entry.categoria.trim() : "";
+      const nivelMin = Number(entry.nivelMin);
+      const nivelMax = Number(entry.nivelMax);
+      const peso = Number(entry.peso);
+      const ordenacao = Number(entry.ordenacao);
+
+      if (!id || !entryPath || !role || !categoria || !Number.isFinite(nivelMin) || !Number.isFinite(nivelMax)) {
+        log.warn("[manifest] invalid_entry", { id, index: i, reason: "missing_fields" });
+        continue;
+      }
+      if (!Number.isFinite(peso) || !Number.isFinite(ordenacao)) {
+        log.warn("[manifest] invalid_entry", { id, index: i, reason: "invalid_weight" });
+        continue;
+      }
+
+      const excluiSe = asStringArray(entry.excluiSe);
+
+      const conteudo = typeof entry.conteudo === "string" ? entry.conteudo : undefined;
+
+      const activation = this.normalizeActivationCondition(entry.ativaSe);
+
+      const normalizedRole = role === "assistant" || role === "policy" || role === "system" ? role : null;
+      if (!normalizedRole) {
+        log.warn("[manifest] invalid_entry", { id, index: i, reason: "invalid_role", role });
+        continue;
+      }
+
+      entries.push({
+        id,
+        path: entryPath,
+        role: normalizedRole,
+        categoria,
+        nivelMin,
+        nivelMax,
+        ativaSe: activation,
+        excluiSe,
+        peso,
+        ordenacao,
+        conteudo,
+      });
+    }
+
+    const levels = new Map<1 | 2 | 3, EcoManifestLevel>();
+    if (parsed.niveis && typeof parsed.niveis === "object") {
+      for (const key of Object.keys(parsed.niveis)) {
+        const nivelNumber = Number(key);
+        if (nivelNumber !== 1 && nivelNumber !== 2 && nivelNumber !== 3) continue;
+        const rawLevel = (parsed.niveis as Record<string, unknown>)[key];
+        if (!rawLevel || typeof rawLevel !== "object") continue;
+        const levelRecord = rawLevel as Record<string, unknown>;
+        const modulos = asStringArray(levelRecord.modulos);
+        const maxRaw = levelRecord.maxModulos;
+        const maxModulos = Number.isFinite(Number(maxRaw)) ? Number(maxRaw) : modulos.length || (nivelNumber === 1 ? 6 : 8);
+        const nome = typeof levelRecord.nome === "string" ? levelRecord.nome : undefined;
+        const descricao = typeof levelRecord.descricao === "string" ? levelRecord.descricao : undefined;
+        levels.set(nivelNumber as 1 | 2 | 3, {
+          id: nivelNumber as 1 | 2 | 3,
+          nome,
+          descricao,
+          maxModulos,
+          modulos,
+        });
+      }
+    }
+
+    const hash = createHash("sha1").update(rawContent).digest("hex");
+
+    return {
+      path: manifestPath,
+      entries,
+      defaults,
+      levels,
+      hash,
+      mtimeMs: stat.mtimeMs,
+      raw: parsed,
+    };
+  }
+
+  private async loadManifestFromDisk(manifestPath: string, stat: Stats, signature: string): Promise<void> {
+    try {
+      const rawContent = await fs.readFile(manifestPath, "utf-8");
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(rawContent);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (this.manifestInvalidSignature !== signature) {
+          log.error("[manifest] invalid_json", { path: manifestPath, message });
+          this.manifestInvalidSignature = signature;
+        }
+        this.manifestSnapshot = null;
+        this.manifestSignature = signature;
+        return;
+      }
+
+      const snapshot = this.buildManifestSnapshot(manifestPath, rawContent, parsed, stat);
+      if (!snapshot) {
+        if (this.manifestInvalidSignature !== signature) {
+          log.error("[manifest] invalid_structure", { path: manifestPath });
+          this.manifestInvalidSignature = signature;
+        }
+        this.manifestSnapshot = null;
+        this.manifestSignature = signature;
+        return;
+      }
+
+      this.manifestSnapshot = snapshot;
+      this.manifestSignature = signature;
+      this.manifestInvalidSignature = null;
+      log.info("[manifest] loaded", { entries: snapshot.entries.length, path: manifestPath });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      log.error("[manifest] read_failed", { path: manifestPath, message });
+      this.manifestSnapshot = null;
+      this.manifestSignature = null;
+    }
   }
 
   /** ----------------------- Leitura e tokens ---------------------- */
