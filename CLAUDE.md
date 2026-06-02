@@ -13,11 +13,11 @@ The backend orchestrates a sophisticated pipeline: guest/identity validation →
 - **Runtime**: Node.js 18+ with TypeScript 5.8
 - **Web Framework**: Express.js 5.1
 - **Database**: Supabase (PostgreSQL + pgvector for semantic search)
-- **LLM**: Claude Sonnet 4.5 via OpenRouter API
+- **LLM**: Claude Sonnet 4.6 (principal) + Haiku 4.5 (fast-lane/fallback) via OpenRouter API
 - **Real-time**: Server-Sent Events (SSE) for streaming responses
 - **Analytics**: Mixpanel + internal analytics tables (Supabase)
 - **Voice**: ElevenLabs (TTS) + Google Cloud Speech-to-Text (transcription)
-- **Testing**: Jest 30 + ts-jest
+- **Testing**: `node:test` (suíte principal, `server/tests/**`) + Jest/ts-jest (testes em `tests/{quality,bandits,orchestrator}` e contract tests em `server/tests/contract/*.spec.ts`). `npm test` roda as três.
 - **Validation**: Zod 3.25
 
 ## Project Structure
@@ -81,12 +81,13 @@ ecobackend888/
 │   │   ├── feedbackController.ts    # Feedback submission
 │   │   ├── signalController.ts      # Signal reception
 │   │   └── voiceController.ts       # Voice processing
-│   ├── adapters/
-│   │   ├── ClaudeAdapter.ts         # Claude LLM adapter (duplicate in core/)
+│   ├── adapters/                    # (ClaudeAdapter vive só em core/, não aqui)
 │   │   ├── SupabaseAdapter.ts       # Supabase client wrapper
 │   │   ├── OpenRouterAdapter.ts     # OpenRouter API wrapper
+│   │   ├── EmbeddingAdapter.ts      # Embedding adapter
 │   │   ├── embeddingService.ts      # OpenAI embeddings
-│   │   └── supabaseMemoryRepository.ts # Memory persistence layer
+│   │   ├── supabaseMemoryRepository.ts # Memory persistence layer
+│   │   └── supabaseDreamRepository.ts  # Dream persistence layer
 │   ├── middleware/
 │   │   ├── cors.ts                  # CORS configuration & whitelist
 │   │   ├── ensureIdentity.ts        # JWT validation & header injection
@@ -252,11 +253,14 @@ npm run modules:dump
 # Test Supabase persistence layer
 npm run test:supabase
 
-# Run all Jest tests
+# Run the full test suite (node:test + jest raiz + jest contract)
 npm test
 
-# Run specific test suite
-npm test -- --testNamePattern="ecoDecision"
+# Run only the node:test suite (server/tests/**)
+npm run test:node
+
+# Run only the jest contract tests (server/tests/contract/*.spec.ts)
+npm run test:contract
 
 # Run smoke tests
 npm run shadow:smoke
@@ -383,22 +387,21 @@ ECO_ANALYTICS_ENABLED=true
 
 ### Testing
 
-The project uses Jest with TypeScript support. Key test directories:
+`npm test` encadeia **três** suítes (todas gateadas no CI via `npm test`):
 
-- **Contract Tests** (`server/tests/contract/`): API contract tests
-  - `askEco.sse.spec.ts` - SSE endpoint behavior
-  - `feedback.spec.ts` - Feedback API
-  - `similaresV2.spec.ts` - Memory search RPC
-- **Unit Tests** (`tests/`): Service logic tests
-  - `ecoDecisionPipeline.test.ts` - Emotional decision calculations
-  - `contextBuilder.test.ts` - Prompt assembly
-  - `fastLane.test.ts` - Greeting detection
+1. **`node:test`** (`npm run test:node`) — suíte principal, `server/tests/**/*.test.ts`. Roda com `--test-force-exit`/`--test-timeout` e preload de env (`-r ./server/tests/setupEnv.js`). É onde vive a maior parte dos testes (unit + integração de orquestração/SSE).
+2. **Jest raiz** (`npm run test:jest`, config `jest.config.ts`) — `tests/{quality,bandits,orchestrator}/**/*.test.ts`.
+3. **Jest contract** (`npm run test:contract`, config `server/jest.contract.config.ts`) — contract tests de API em `server/tests/contract/*.spec.ts` (`askEco.sse`, `feedback`, `signal`, `similaresV2`, `guestClaim`). Usa `setupEnv.js` (dummies de env), shim CJS de `uuid` e `forceExit`.
 
-Run tests:
+Notas:
+- A suíte é `node:test`, **não Jest**, para os arquivos `.test.ts` em `server/tests/` — flags Jest como `--testNamePattern`/`--watch` não se aplicam ali. Para filtrar no node:test use o filtro nativo do runner.
+- Alguns arquivos soltos em `tests/` na raiz (ex.: `contextCache.test.ts`, `prepareQueryEmbedding.test.ts`) usam node:test/harness próprio e **não** são cobertos por nenhum runner hoje (ver nota de higiene em `jest.config.ts`).
+
 ```bash
-npm test                          # All tests
-npm test -- --watch               # Watch mode
-npm run test:supabase            # Integration tests
+npm test                 # as três suítes
+npm run test:node        # só node:test
+npm run test:contract    # só contract (jest)
+npm run test:supabase    # integração real com Supabase (script)
 ```
 
 ## Database Schema
@@ -475,7 +478,7 @@ RLS enforces user isolation in all memory queries. Service role used only for ad
 1. Edit `ecoDecisionHub.ts` intensity calculation thresholds
 2. Adjust openness level breakpoints (currently 5, 6, 7)
 3. Modify vulnerability patterns in pattern matching
-4. Run tests: `npm test -- --testNamePattern="ecoDecision"`
+4. Run tests: `npm run test:node` (os testes de ecoDecision vivem em `server/tests/`; para rodar um arquivo só, aponte o `node --test` para ele)
 5. Check impact via `npm run modules:inventory` output
 
 ### Optimizing Context Assembly
