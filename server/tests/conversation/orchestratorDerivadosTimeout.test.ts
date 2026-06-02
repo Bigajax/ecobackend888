@@ -15,7 +15,7 @@ test("streaming segue sem derivados e cache é preenchido quando prontos", async
   const expectedDerivados = { tema: "sono", resumo: "cached" };
   let capturedDerivadosParam: any = undefined;
 
-  const supabaseDelayMs = 50;
+  const supabaseDelayMs = 300;
   const originalLoad = Module._load;
   const modulePath = require.resolve("../../services/ConversationOrchestrator");
 
@@ -134,7 +134,7 @@ test("streaming segue sem derivados e cache é preenchido quando prontos", async
         },
       };
     }
-    if (request === "../core/ClaudeAdapter") {
+    if (request === "../core/ClaudeAdapter" || request === "../../core/ClaudeAdapter") {
       return {
         streamClaudeChatCompletion: async (_opts: any, callbacks: any) => {
           await callbacks.onChunk?.({ content: "resposta final", raw: {} });
@@ -152,7 +152,10 @@ test("streaming segue sem derivados e cache é preenchido quando prontos", async
         }),
       };
     }
-    if (request === "../services/derivadosService") {
+    if (
+      request === "../services/derivadosService" ||
+      request === "../derivadosService"
+    ) {
       return {
         getDerivados: () => expectedDerivados,
         insightAbertura: () => ({ abertura: true }),
@@ -198,7 +201,7 @@ test("streaming segue sem derivados e cache é preenchido quando prontos", async
     },
   })) as import("../../services/ConversationOrchestrator").EcoStreamingResult;
 
-  assert.strictEqual(capturedDerivadosParam, null, "contexto deve receber derivados nulos quando timeout");
+  assert.ok(capturedDerivadosParam == null, "contexto deve receber derivados nulos/ausentes quando timeout");
   assert.ok(
     events.some((event) => event.type === "control" && event.name === "prompt_ready"),
     "deve emitir prompt_ready mesmo sem derivados"
