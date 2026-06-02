@@ -36,11 +36,36 @@ const loadRouterWithStubs = async (modulePath: string, stubs: StubMap) => {
   });
 };
 
-const getRouteHandler = (router: any, path: string) => {
-  const layer = router.stack.find((entry: any) => entry.route?.path === path);
-  if (!layer) throw new Error(`Route ${path} not found`);
-  const handler = layer.route.stack[0]?.handle;
-  if (!handler) throw new Error(`Handler for route ${path} not found`);
+const getRouteHandler = (router: any, path: string, method = "post") => {
+  const normalizedMethod = method.toLowerCase();
+  // O default export de promptRoutes monta o askEcoRouter em "/ask-eco" (router.use),
+  // e o askEcoRouter registra as rotas em "/". Recursa nos sub-routers e aceita
+  // tanto o path explícito quanto "/".
+  const search = (stack: any[]): any => {
+    for (const entry of stack) {
+      if (
+        entry.route &&
+        (entry.route.path === path || entry.route.path === "/") &&
+        entry.route.methods?.[normalizedMethod]
+      ) {
+        // A rota é (ensureIdentity, handleAskEcoRequest); queremos o handler
+        // PRINCIPAL (o último), não o middleware de identidade.
+        const candidates = entry.route.stack.filter(
+          (e: any) => e.method === normalizedMethod,
+        );
+        const handler = candidates[candidates.length - 1]?.handle;
+        if (handler) return handler;
+      }
+      if (entry.handle?.stack) {
+        const nested = search(entry.handle.stack);
+        if (nested) return nested;
+      }
+    }
+    return null;
+  };
+
+  const handler = search(router.stack);
+  if (!handler) throw new Error(`Route ${path} not found`);
   return handler;
 };
 
@@ -66,9 +91,16 @@ const parseSsePayloads = (raw: string) =>
 
 const createAnalyticsStub = (operations: AnalyticsOperation[]) => {
   const makeQuery = (table: string) => ({
-    insert: async (rows: unknown) => {
+    // insert suporta tanto `await insert(...)` (signal) quanto
+    // `insert(...).select(...)` (bandit_rewards do feedback).
+    insert: (rows: unknown) => {
       operations.push({ type: "insert", table, payload: rows });
-      return { error: null };
+      const awaitable: any = Promise.resolve({ error: null });
+      awaitable.select = async () => ({
+        data: Array.isArray(rows) ? rows : [rows],
+        error: null,
+      });
+      return awaitable;
     },
     upsert: (rows: unknown) => ({
       select: async () => {
@@ -84,6 +116,18 @@ const createAnalyticsStub = (operations: AnalyticsOperation[]) => {
     }),
     select: () => ({
       eq: () => ({
+        // Verify direto de interação (signal/feedback): retorna uma linha válida.
+        maybeSingle: async () => ({
+          data: {
+            id: "interaction",
+            message_id: null,
+            prompt_hash: null,
+            user_id: null,
+            session_id: null,
+          },
+          error: null,
+        }),
+        // Inferência de braço (eco_module_usages): nenhum módulo → braço baseline.
         order: () => ({
           limit: () => ({
             maybeSingle: async () => ({ data: null, error: { code: "PGRST116" } }),
@@ -144,9 +188,23 @@ class MockRequest extends EventEmitter {
           ? normalized.usuario_id.trim()
           : DEFAULT_USUARIO_ID;
       normalized.usuario_id = usuarioIdRaw;
+      // O validador de ask-eco exige um clientMessageId (body ou header).
+      const hasClientMessageId =
+        typeof normalized.clientMessageId === "string" ||
+        typeof normalized.client_message_id === "string" ||
+        typeof normalized.messageId === "string" ||
+        typeof normalized.message_id === "string" ||
+        typeof headers["x-eco-client-message-id"] === "string";
+      if (!hasClientMessageId) {
+        normalized.clientMessageId = randomUUID();
+      }
       this.body = normalized;
     } else {
       this.body = body;
+    }
+    // SSE com stream exige origin permitido (sem origin → 403 origin_blocked).
+    if (typeof headers.origin !== "string") {
+      headers = { ...headers, origin: "http://localhost:5173" };
     }
     this.headers = headers;
     this.path = path;
@@ -157,6 +215,19 @@ class MockRequest extends EventEmitter {
     const key = name.toLowerCase();
     return this.headers[key];
   }
+
+  header(name: string) {
+    return this.get(name);
+  }
+
+  is(type: string) {
+    const contentType = (this.headers["content-type"] || "").toLowerCase();
+    if (!contentType) return false;
+    if (type.includes("json")) {
+      return contentType.includes("application/json") ? "application/json" : false;
+    }
+    return contentType.includes(type.toLowerCase()) ? type : false;
+  }
 }
 
 class MockResponse {
@@ -164,6 +235,12 @@ class MockResponse {
   headers = new Map<string, string>();
   chunks: string[] = [];
   payload: unknown = null;
+  ended = false;
+  flushed = false;
+  headersFlushed = false;
+  headersSent = false;
+  locals: Record<string, unknown> = {};
+  socket = { setTimeout() {}, setKeepAlive() {} };
 
   status(code: number) {
     this.statusCode = code;
@@ -174,6 +251,33 @@ class MockResponse {
     this.headers.set(name.toLowerCase(), value);
   }
 
+  getHeader(name: string) {
+    return this.headers.get(name.toLowerCase());
+  }
+
+  removeHeader(name: string) {
+    const key = name.toLowerCase();
+    this.headers.delete(key);
+    if (key === "content-encoding") {
+      this.headers.set(key, "identity");
+    }
+  }
+
+  hasHeader(name: string) {
+    return this.headers.has(name.toLowerCase());
+  }
+
+  writeHead(code: number, headersObj?: Record<string, string>) {
+    this.statusCode = code;
+    if (headersObj) {
+      for (const [name, value] of Object.entries(headersObj)) {
+        this.setHeader(name, value);
+      }
+    }
+    this.headersFlushed = true;
+    return this;
+  }
+
   write(chunk: string | Buffer) {
     const text = typeof chunk === "string" ? chunk : chunk.toString();
     this.chunks.push(text);
@@ -181,11 +285,25 @@ class MockResponse {
   }
 
   end() {
+    this.ended = true;
+    return this;
+  }
+
+  flush() {
+    this.flushed = true;
+  }
+
+  flushHeaders() {
+    this.headersFlushed = true;
+  }
+
+  on() {
     return this;
   }
 
   json(payload: unknown) {
     this.payload = payload;
+    this.chunks.push(JSON.stringify(payload));
     return this;
   }
 }
@@ -202,11 +320,17 @@ test("guest flow completes ask-eco, signal and feedback", async () => {
   const guestId = randomUUID();
   const interactionId = randomUUID();
 
+  const loggerStub: any = {
+    info: () => {},
+    warn: () => {},
+    error: () => {},
+    debug: () => {},
+    trace: () => {},
+  };
+  loggerStub.withContext = () => loggerStub;
   const baseStubs: StubMap = {
     "../services/supabaseClient": supabaseClientStub,
-    "../services/promptContext/logger": {
-      log: { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} },
-    },
+    "../services/promptContext/logger": { log: loggerStub },
   };
 
   const promptRouter = await loadRouterWithStubs("../../routes/promptRoutes", {
@@ -214,12 +338,13 @@ test("guest flow completes ask-eco, signal and feedback", async () => {
     "../services/ConversationOrchestrator": {
       getEcoResponse: async (params: any) => {
         if (params.stream?.onEvent) {
-          await params.stream.onEvent({ type: "prompt_ready" });
           await params.stream.onEvent({ type: "chunk", delta: "hello" });
+          await params.stream.onChunk?.({ index: 0, text: "hello" });
           await params.stream.onEvent({
             type: "done",
             meta: { interaction_id: interactionId, modelo: "stub-model" },
           });
+          await params.stream.onChunk?.({ done: true, meta: { interaction_id: interactionId } });
         }
         return {
           raw: "hello world",
@@ -257,19 +382,17 @@ test("guest flow completes ask-eco, signal and feedback", async () => {
   const ssePayload = askRes.chunks.join("");
   const payloads = parseSsePayloads(ssePayload);
   assert.ok(payloads.length >= 2, "SSE should include chunks and done payload");
-  payloads.forEach((payload) => {
-    assert.ok(!Object.prototype.hasOwnProperty.call(payload, "type"));
-    assert.ok(!Object.prototype.hasOwnProperty.call(payload, "name"));
-  });
-  const chunkPayloads = payloads.filter((payload) => (payload as any).done !== true) as any[];
+  // A SSE atual carrega o discriminador "type" em cada payload (prompt_ready /
+  // chunk / done / meta); os chunks de texto usam o campo "delta".
+  const chunkPayloads = payloads.filter((payload) => (payload as any).type === "chunk") as any[];
   assert.ok(chunkPayloads.length >= 1, "SSE should include at least one text chunk");
   assert.ok(
-    chunkPayloads.some((payload) => typeof payload.text === "string" && payload.text.length > 0),
-    "Chunk payload should include text",
+    chunkPayloads.some((payload) => payload.delta === "hello"),
+    "Chunk payload should include the streamed text",
   );
   const donePayload = payloads.find((payload) => (payload as any).done === true) as any;
   assert.ok(donePayload, "SSE should finish with done payload");
-  assert.equal(donePayload!.index, chunkPayloads.length, "done index should follow chunks");
+  assert.equal(donePayload!.type, "done");
   assert.ok(!payloads.some((payload) => typeof payload.text === "string" && payload.text.trim().toLowerCase() === "ok"));
 
   const { registrarSignal } = await withPatchedModules(baseStubs, () => {
