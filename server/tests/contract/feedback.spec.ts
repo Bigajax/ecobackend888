@@ -13,31 +13,51 @@ jest.mock("../../services/supabaseClient", () => ({
 }));
 
 function createAnalyticsStub() {
-  const passiveSignals: any[] = [];
   const feedbackRows: any[] = [];
+  const rewardRows: any[] = [];
 
-  const ecoModuleSelect = {
-    eq: () => ecoModuleOrder,
-  };
-  const ecoModuleOrder = {
-    order: () => ecoModuleLimit,
-  };
-  const ecoModuleLimit = {
-    limit: () => ecoModuleMaybeSingle,
-  };
-  const ecoModuleMaybeSingle = {
-    maybeSingle: () => Promise.resolve({ data: null, error: null }),
+  // Contrato atual do feedbackController:
+  //  eco_interactions:   select().eq("id").maybeSingle()  -> lookup da interação
+  //  eco_module_usages:  select().eq().order().limit().maybeSingle() -> inferência de arm
+  //  eco_feedback:       insert([...])
+  //  bandit_rewards:     insert([...]).select("response_id,arm")
+  //  rpc("update_bandit_arm")
+  let interactionRow: any = {
+    id: "interaction-123",
+    message_id: "message-123",
+    prompt_hash: "hash-123",
+    user_id: null,
+    session_id: null,
   };
 
   return {
     feedbackRows,
-    passiveSignals,
+    rewardRows,
+    setInteraction: (row: any) => {
+      interactionRow = row;
+    },
     client: {
       from: (table: string) => {
         switch (table) {
+          case "eco_interactions":
+            return {
+              select: () => ({
+                eq: () => ({
+                  maybeSingle: async () => ({ data: interactionRow, error: null }),
+                }),
+              }),
+            };
           case "eco_module_usages":
             return {
-              select: () => ecoModuleSelect,
+              select: () => ({
+                eq: () => ({
+                  order: () => ({
+                    limit: () => ({
+                      maybeSingle: async () => ({ data: null, error: null }),
+                    }),
+                  }),
+                }),
+              }),
             };
           case "eco_feedback":
             return {
@@ -48,19 +68,15 @@ function createAnalyticsStub() {
             };
           case "bandit_rewards":
             return {
-              upsert: () => ({
-                select: async () => ({
-                  data: [{ response_id: "interaction-123", arm: "baseline" }],
-                  error: null,
-                }),
+              insert: (payload: any[]) => ({
+                select: async () => {
+                  rewardRows.push(...payload);
+                  return {
+                    data: [{ response_id: "interaction-123", arm: "baseline" }],
+                    error: null,
+                  };
+                },
               }),
-            };
-          case "eco_passive_signals":
-            return {
-              insert: async (payload: any[]) => {
-                passiveSignals.push(...payload);
-                return { error: null };
-              },
             };
           default:
             return {
@@ -109,7 +125,7 @@ describe("/api/feedback contract", () => {
     expect(analyticsStub.feedbackRows[0]).toMatchObject({
       interaction_id: "interaction-123",
       vote: "up",
-      source: "api",
+      arm: "baseline",
     });
   });
 

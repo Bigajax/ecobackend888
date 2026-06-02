@@ -101,6 +101,12 @@ describe("/api/signal contract", () => {
     };
 
     analyticsStub.ensureInteraction(payload.interaction_id);
+    // O controller exige que a interação esteja registrada no interactionIdentityStore
+    // (getInteractionGuest !== undefined), senão 404 antes do lookup no DB.
+    const { rememberInteractionGuest } = await import(
+      "../../services/conversation/interactionIdentityStore"
+    );
+    rememberInteractionGuest(payload.interaction_id, guestId);
 
     const response = await agent
       .post("/api/signal")
@@ -155,8 +161,15 @@ describe("/api/signal contract", () => {
     analyticsStub.setInsertError(error);
     const interactionId = "123e4567-e89b-42d3-a456-426614174000";
     analyticsStub.ensureInteraction(interactionId);
+    // Registra a interação (sem guest header → guest null) para passar do gate de
+    // identidade e chegar no insert, que falha com o insertError configurado.
+    const { rememberInteractionGuest } = await import(
+      "../../services/conversation/interactionIdentityStore"
+    );
+    rememberInteractionGuest(interactionId, null);
 
-    const consoleSpy = jest.spyOn(console, "error").mockImplementation(() => {});
+    // O logger (services/promptContext/logger) padroniza saída em console.log.
+    const consoleSpy = jest.spyOn(console, "log").mockImplementation(() => {});
 
     const response = await agent.post("/api/signal").send({
       name: "view",
