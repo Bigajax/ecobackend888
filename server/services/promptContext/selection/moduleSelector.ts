@@ -160,11 +160,6 @@ export async function selectModules({
       : modulesAfterGatingBase
   );
 
-  ecoDecision.banditArms = undefined;
-  if (ecoDecision.debug) {
-    (ecoDecision.debug as any).bandits = undefined;
-  }
-
   const familyPlan = planFamilyModules(orderedBase, intentAndFlagModules, {
     openness: nivel,
     intensity: ecoDecision.intensity,

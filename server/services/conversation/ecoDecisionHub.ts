@@ -1,5 +1,4 @@
 import { estimarIntensidade0a10, derivarFlags, type Flags, type ModuleDebugEntry } from "../promptContext/Selector";
-import type { BanditSelectionMap } from "../orchestrator/bandits/ts";
 import type { FamilyDecisionLog } from "../promptContext/familyBanditPlanner";
 import type { HeuristicaFlagRecord } from "../promptContext/heuristicaFlags";
 
@@ -20,7 +19,6 @@ export interface EcoDecisionDebug {
     marginalGain: number;
     tokensAditivos: number;
   } | null;
-  bandits?: BanditSelectionMap;
   banditFamilies?: FamilyDecisionLog[];
   signals?: string[];
   selectorStages?: Record<string, unknown>;
@@ -40,7 +38,6 @@ export interface EcoDecisionResult {
   flags: Flags;
   signals: Record<string, boolean>;
   debug: EcoDecisionDebug;
-  banditArms?: BanditSelectionMap;
   activeBiases: ActiveBiasSnapshot[];
   decayedActiveBiases: string[];
 }
@@ -207,11 +204,9 @@ export function computeEcoDecision(texto: string, options: EcoDecisionOptions = 
       modules: [],
       selectedModules: [],
       knapsack: null,
-      bandits: undefined,
       activeBiases: [],
       decayedActiveBiases: [],
     },
-    banditArms: undefined,
     activeBiases: [],
     decayedActiveBiases: [],
   };

@@ -10,7 +10,7 @@ import { supabaseWithBearer, supabaseForGuests } from "../adapters/SupabaseAdapt
 import { claudeChatCompletion } from "../core/ClaudeAdapter";
 import { defaultGreetingPipeline } from "./conversation/greeting";
 import { runFastLaneLLM } from "./conversation/fastLane";
-import { buildFullPrompt, selectBanditArms } from "./conversation/promptPlan";
+import { buildFullPrompt } from "./conversation/promptPlan";
 import { defaultResponseFinalizer } from "./conversation/responseFinalizer";
 import { firstName } from "./conversation/helpers";
 import { computeEcoDecision, computeEcoDecisionAsync, MEMORY_THRESHOLD } from "./conversation/ecoDecisionHub";
@@ -652,13 +652,6 @@ export async function getEcoResponse({
     retrieveDecision = inferRetrieveMode({ ultimaMsg, hints: calHints ?? undefined, ecoDecision });
 
     emitRetrieveModeTelemetry({ retrieveDecision, sessionMeta, isGuest, guestId, userId });
-
-    const banditDistinctId = sessionMeta?.distinctId ?? (isGuest ? guestId ?? undefined : userId);
-    selectBanditArms({
-      decision: ecoDecision,
-      distinctId: banditDistinctId ?? undefined,
-      userId: !isGuest ? userId : undefined,
-    });
 
     const { prompt, maxTokens, basePromptHash, context, memsSemelhantes, systemPrompt } = await buildPromptContext({
       timings,
