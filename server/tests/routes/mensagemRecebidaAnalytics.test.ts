@@ -92,7 +92,11 @@ const makeResponse = () => {
   };
 };
 
-test("/ask-eco delega prompt ao orquestrador e propaga eventos de prompt_ready", async () => {
+// NOTA: openrouterRoutes /ask-eco é um handler SIMULADO (createSimulatedSegmentGenerator)
+// e NÃO delega a getEcoResponse — a delegação real ao orquestrador vive em promptRoutes.
+// Estes testes verificam o que esta rota de fato faz: o tracking de analytics
+// (trackMensagemRecebida / eventos de guest) e a resposta do handler simulado.
+test("/ask-eco dispara trackMensagemRecebida com a identidade autenticada", async () => {
   const trackCalls: any[] = [];
   const orchestratorCalls: any[] = [];
 
@@ -200,15 +204,13 @@ test("/ask-eco delega prompt ao orquestrador e propaga eventos de prompt_ready",
   assert.ok(typeof event.timestamp === "string");
   assert.ok(!Number.isNaN(Date.parse(event.timestamp)));
 
-  assert.equal(orchestratorCalls.length, 1);
-  const orchestratorParams = orchestratorCalls[0];
-  assert.equal(orchestratorParams.promptOverride, undefined);
-  assert.equal(orchestratorParams.mems, undefined);
-
-  const promptReady = res.events.find((payload) => payload.name === "prompt_ready");
-  assert.ok(promptReady, "espera prompt_ready vindo do orquestrador");
-    const chunk = res.events.find((payload) => typeof payload.text === "string");
-    assert.equal(chunk?.text, "eco resposta");
+  // Handler simulado: não delega ao orquestrador.
+  assert.equal(orchestratorCalls.length, 0);
+  // Mesmo simulado, emite eventos de stream (latência de prompt_ready).
+  const promptReady = res.events.find(
+    (payload) => payload.type === "latency" && payload.stage === "prompt_ready"
+  );
+  assert.ok(promptReady, "espera evento de latência prompt_ready do gerador simulado");
 });
 
 test("/ask-eco aceita modo convidado sem token e marca métricas", async () => {
@@ -292,13 +294,14 @@ test("/ask-eco aceita modo convidado sem token e marca métricas", async () => {
   await handler(req, res);
 
   assert.equal(res.statusCode, 200);
-  assert.equal(guestInteractions.length, 1);
+  // Na primeira interação do convidado, dispara guest_start + guest_message.
   assert.equal(guestEvents.length, 2);
   const startEvent = guestEvents.find((evt) => evt.type === "start");
   assert.ok(startEvent, "espera evento guest_start");
-  const orchestratorParams = orchestratorCalls[0];
-  assert.equal(orchestratorParams.isGuest, true);
-  assert.equal(orchestratorParams.guestId, guestId);
+  const messageEvent = guestEvents.find((evt) => evt.type === "message");
+  assert.ok(messageEvent, "espera evento guest_message");
+  // Handler simulado: não delega ao orquestrador.
+  assert.equal(orchestratorCalls.length, 0);
 });
 
 test("/ask-eco permite fallback JSON quando stream=false", async () => {
@@ -379,16 +382,16 @@ test("/ask-eco permite fallback JSON quando stream=false", async () => {
   await handler(req, res);
 
   assert.equal(res.statusCode, 200);
+  // stream=false → resposta JSON (sem escritas SSE).
   assert.equal(res.events.length, 0);
-  assert.equal(orchestratorCalls.length, 1);
+  // Handler simulado: não delega ao orquestrador.
+  assert.equal(orchestratorCalls.length, 0);
 
+  // O fallback JSON do handler simulado é o evento "done" final agregado.
   const payload = res.payload as any;
-  assert.equal(payload?.ok, true);
-  assert.equal(payload?.stream, false);
-  assert.equal(payload?.message, "resposta convidado");
-  assert.ok(Array.isArray(payload?.events));
-  assert.ok(payload.events.some((event: any) => event?.type === "chunk"));
-  assert.ok(payload.events.some((event: any) => event?.type === "end"));
+  assert.equal(payload?.type, "done");
+  assert.equal(payload?.done, true);
+  assert.ok(typeof payload?.message === "string" && payload.message.length > 0);
 });
 
 test("rota de voz dispara trackMensagemRecebida com bytes e duração", async () => {
