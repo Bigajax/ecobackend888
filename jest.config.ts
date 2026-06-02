@@ -7,14 +7,14 @@ const config: Config = {
   moduleFileExtensions: ["ts", "tsx", "js", "jsx", "json", "node"],
   collectCoverage: false,
   coverageDirectory: "coverage",
-  // NOTA DE HIGIENE (ver docs/prompt-architecture.md › Testes): o diretório tests/ mistura
-  // dois frameworks. Os arquivos em quality/bandits/orchestrator são jest (rodam aqui). Vários
-  // arquivos em tests/ na raiz (contextCache, prepareQueryEmbedding, relatorioEmocionalRoutes,
-  // openrouterRoutesCache) usam node:test/harness próprio e NÃO rodam sob jest. E
-  // intensity-detection.test.ts é jest, mas tem assertions desatualizadas (intensidade dá 6
-  // onde espera ≥7 — investigar junto da calibração de intensidade / MEMORY_THRESHOLD).
-  // Ampliar para tests/**/*.test.ts só traz ruído até esses serem migrados/corrigidos.
+  // NOTA DE HIGIENE: os arquivos jest vivem em quality/bandits/orchestrator + o
+  // intensity-detection.test.ts na raiz. Os antigos órfãos node:test da raiz
+  // (contextCache, prepareQueryEmbedding, relatorioEmocionalRoutes, openrouterRoutesCache)
+  // foram movidos para server/tests/ e agora rodam sob node:test (npm run test:node).
+  // `tests/*.test.ts` casa só os arquivos no nível da raiz (não desce em subdirs),
+  // então não duplica os globs de quality/bandits/orchestrator.
   testMatch: [
+    "<rootDir>/tests/*.test.ts",
     "<rootDir>/tests/quality/**/*.test.ts",
     "<rootDir>/tests/bandits/**/*.test.ts",
     "<rootDir>/tests/orchestrator/**/*.test.ts",
