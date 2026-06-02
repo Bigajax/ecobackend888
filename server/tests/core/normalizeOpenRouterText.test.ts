@@ -5,6 +5,9 @@
  * fixing the issue where responses were concatenated without spaces.
  */
 
+import { describe, it } from "node:test";
+import assert from "node:assert/strict";
+
 describe("normalizeOpenRouterText space preservation", () => {
   // We need to extract the function from ClaudeAdapter for testing
   // Since it's not exported, we'll test through the behavior
@@ -23,7 +26,7 @@ describe("normalizeOpenRouterText space preservation", () => {
       // spaces are NOT trimmed during normalization
       const concatenated = mockDelta1 + mockDelta2;
 
-      expect(concatenated).toBe("é o que significa");
+      assert.strictEqual(concatenated, "é o que significa");
     });
 
     it("should handle multiple chunks with proper spacing", () => {
@@ -35,7 +38,7 @@ describe("normalizeOpenRouterText space preservation", () => {
       ];
 
       const result = chunks.join("");
-      expect(result).toBe("O futuro da inteligência artificial é promissor");
+      assert.strictEqual(result, "O futuro da inteligência artificial é promissor");
     });
 
     it("should still handle structured content arrays correctly", () => {
@@ -52,7 +55,7 @@ describe("normalizeOpenRouterText space preservation", () => {
         .filter(p => p.length > 0)
         .join(" ");
 
-      expect(normalized).toBe("hello world");
+      assert.strictEqual(normalized, "hello world");
     });
 
     it("should not double-space when chunks end without space", () => {
@@ -61,14 +64,14 @@ describe("normalizeOpenRouterText space preservation", () => {
 
       const concatenated = chunk1 + chunk2;
       // This is expected when chunks don't include spacing
-      expect(concatenated).toBe("helloworld");
+      assert.strictEqual(concatenated, "helloworld");
 
       // The real fix: chunks FROM OpenRouter/Claude that need spacing
       // will INCLUDE the space in the chunk itself
       const correctChunk1 = "hello ";  // With space
       const correctChunk2 = "world";
 
-      expect(correctChunk1 + correctChunk2).toBe("hello world");
+      assert.strictEqual(correctChunk1 + correctChunk2, "hello world");
     });
   });
 
@@ -77,21 +80,21 @@ describe("normalizeOpenRouterText space preservation", () => {
       const chunk1 = "This is a sentence. ";
       const chunk2 = "This is another one!";
 
-      expect(chunk1 + chunk2).toBe("This is a sentence. This is another one!");
+      assert.strictEqual(chunk1 + chunk2, "This is a sentence. This is another one!");
     });
 
     it("should handle accent characters correctly", () => {
       const chunk1 = "Café com açúcar. ";
       const chunk2 = "É delicioso!";
 
-      expect(chunk1 + chunk2).toBe("Café com açúcar. É delicioso!");
+      assert.strictEqual(chunk1 + chunk2, "Café com açúcar. É delicioso!");
     });
 
     it("should handle markdown formatting", () => {
       const chunk1 = "**Bold text** ";
       const chunk2 = "and *italic text*";
 
-      expect(chunk1 + chunk2).toBe("**Bold text** and *italic text*");
+      assert.strictEqual(chunk1 + chunk2, "**Bold text** and *italic text*");
     });
   });
 });

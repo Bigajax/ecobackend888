@@ -3,198 +3,200 @@
  * Validar que os 3 módulos refatorados com exemplos funcionam corretamente
  */
 
-import { readFileSync } from 'fs';
-import { resolve } from 'path';
+import { describe, it, before } from "node:test";
+import assert from "node:assert/strict";
+import { readFileSync } from "fs";
+import { resolve } from "path";
 
-describe('Few-Shot Examples Phase 1 — Validation', () => {
+describe("Few-Shot Examples Phase 1 — Validation", () => {
   let nv1Content: string;
   let nv2Content: string;
   let nv3Content: string;
 
-  beforeAll(() => {
-    const assetsRoot = resolve(__dirname, '../../assets/modulos_core');
+  before(() => {
+    const assetsRoot = resolve(__dirname, "../../assets/modulos_core");
 
     // Ler módulos refatorados
-    nv1Content = readFileSync(resolve(assetsRoot, 'abertura_superficie.txt'), 'utf-8');
-    nv2Content = readFileSync(resolve(assetsRoot, 'nv2_reflexao_core.txt'), 'utf-8');
-    nv3Content = readFileSync(resolve(assetsRoot, 'nv3_profundo_core.txt'), 'utf-8');
+    nv1Content = readFileSync(resolve(assetsRoot, "abertura_superficie.txt"), "utf-8");
+    nv2Content = readFileSync(resolve(assetsRoot, "nv2_reflexao_core.txt"), "utf-8");
+    nv3Content = readFileSync(resolve(assetsRoot, "nv3_profundo_core.txt"), "utf-8");
   });
 
-  describe('NV1 — Clareza Executiva', () => {
-    it('contém header front-matter YAML válido', () => {
-      expect(nv1Content).toMatch(/^---\nid: NV1_CORE_ENHANCED/);
-      expect(nv1Content).toContain('maxIntensity: 4');
-      expect(nv1Content).toContain('opennessIn: [1]');
+  describe("NV1 — Clareza Executiva", () => {
+    it("contém header front-matter YAML válido", () => {
+      assert.match(nv1Content, /^---\nid: NV1_CORE_ENHANCED/);
+      assert.ok(nv1Content.includes("maxIntensity: 4"));
+      assert.ok(nv1Content.includes("opennessIn: [1]"));
     });
 
-    it('contém exatamente 3 exemplos de few-shot', () => {
+    it("contém exatamente 3 exemplos de few-shot", () => {
       const exampleMatches = nv1Content.match(/### Exemplo \d+:/g) || [];
-      expect(exampleMatches.length).toBe(3);
+      assert.strictEqual(exampleMatches.length, 3);
     });
 
-    it('cada exemplo tem estrutura [USUÁRIO, ECO]', () => {
-      const examples = nv1Content.split('### Exemplo');
+    it("cada exemplo tem estrutura [USUÁRIO, ECO]", () => {
+      const examples = nv1Content.split("### Exemplo");
       examples.slice(1).forEach((example) => {
-        expect(example).toContain('**USUÁRIO**:');
-        expect(example).toContain('**ECO (Resposta esperada)**:');
-        expect(example).toMatch(/Intensidade: \d+-\d+/);
+        assert.ok(example.includes("**USUÁRIO**:"));
+        assert.ok(example.includes("**ECO (Resposta esperada)**:"));
+        assert.match(example, /Intensidade: \d+-\d+/);
       });
     });
 
-    it('contém protocolos de resposta claros', () => {
-      expect(nv1Content).toContain('## PROTOCOLO DE RESPOSTA NV1');
-      expect(nv1Content).toContain('Espelho-Flash');
-      expect(nv1Content).toContain('Ação concreta');
-      expect(nv1Content).toContain('Pergunta focal');
+    it("contém protocolos de resposta claros", () => {
+      assert.ok(nv1Content.includes("## PROTOCOLO DE RESPOSTA NV1"));
+      assert.ok(nv1Content.includes("Espelho-Flash"));
+      assert.ok(nv1Content.includes("Ação concreta"));
+      assert.ok(nv1Content.includes("Pergunta focal"));
     });
 
-    it('exemplos são distintos (cenários diferentes)', () => {
+    it("exemplos são distintos (cenários diferentes)", () => {
       const cenarios = nv1Content.match(/\*\*Cenário\*\*: ([^\n]+)/g) || [];
-      expect(cenarios.length).toBe(3);
+      assert.strictEqual(cenarios.length, 3);
     });
   });
 
-  describe('NV2 — Reflexão & Exploração', () => {
-    it('contém header front-matter YAML válido', () => {
-      expect(nv2Content).toContain('id: NV2_CORE_REFLECTION');
-      expect(nv2Content).toContain('minIntensity: 4');
-      expect(nv2Content).toContain('maxIntensity: 6');
-      expect(nv2Content).toContain('opennessIn: [2]');
+  describe("NV2 — Reflexão & Exploração", () => {
+    it("contém header front-matter YAML válido", () => {
+      assert.ok(nv2Content.includes("id: NV2_CORE_REFLECTION"));
+      assert.ok(nv2Content.includes("minIntensity: 4"));
+      assert.ok(nv2Content.includes("maxIntensity: 6"));
+      assert.ok(nv2Content.includes("opennessIn: [2]"));
     });
 
-    it('contém exatamente 3 exemplos de few-shot', () => {
+    it("contém exatamente 3 exemplos de few-shot", () => {
       const exampleMatches = nv2Content.match(/### Exemplo \d+:/g) || [];
-      expect(exampleMatches.length).toBe(3);
+      assert.strictEqual(exampleMatches.length, 3);
     });
 
-    it('respostas NV2 são mais longas que NV1', () => {
+    it("respostas NV2 são mais longas que NV1", () => {
       const responseMatches = nv2Content.match(/\*\*ECO \(Resposta esperada\)\*\*:/g) || [];
-      expect(responseMatches.length).toBe(3);
+      assert.strictEqual(responseMatches.length, 3);
 
       // Validar que tem elementos estruturados
-      expect(nv2Content).toContain('Percebo um movimento');
-      expect(nv2Content).toContain('Experimento');
+      assert.ok(nv2Content.includes("Percebo um movimento"));
+      assert.ok(nv2Content.includes("Experimento"));
     });
 
-    it('contém protocolo de integração de memória', () => {
-      expect(nv2Content).toContain('## Protocolo de Integração de Memória');
-      expect(nv2Content).toContain('Máximo 2 referências');
+    it("contém protocolo de integração de memória", () => {
+      assert.ok(nv2Content.includes("## Protocolo de Integração de Memória"));
+      assert.ok(nv2Content.includes("Máximo 2 referências"));
     });
 
-    it('3º exemplo integra memória anterior', () => {
-      expect(nv2Content).toContain('Exemplo 3: Integração com Memória Anterior');
-      expect(nv2Content).toContain('Como você trouxe antes');
+    it("3º exemplo integra memória anterior", () => {
+      assert.ok(nv2Content.includes("Exemplo 3: Integração com Memória Anterior"));
+      assert.ok(nv2Content.includes("Como você trouxe antes"));
     });
 
-    it('contém protocolos de resposta claros', () => {
-      expect(nv2Content).toContain('## PROTOCOLO DE RESPOSTA NV2');
-      expect(nv2Content).toContain('Espelhamento com movimento');
-      expect(nv2Content).toContain('Padrão hipotético');
-      expect(nv2Content).toContain('Convite experimental');
+    it("contém protocolos de resposta claros", () => {
+      assert.ok(nv2Content.includes("## PROTOCOLO DE RESPOSTA NV2"));
+      assert.ok(nv2Content.includes("Espelhamento com movimento"));
+      assert.ok(nv2Content.includes("Padrão hipotético"));
+      assert.ok(nv2Content.includes("Convite experimental"));
     });
   });
 
-  describe('NV3 — Profundo & Acolhimento', () => {
-    it('contém header front-matter YAML válido', () => {
-      expect(nv3Content).toContain('id: NV3_CORE_DEPTH');
-      expect(nv3Content).toContain('minIntensity: 7');
-      expect(nv3Content).toContain('maxIntensity: 10');
-      expect(nv3Content).toContain('opennessIn: [3]');
+  describe("NV3 — Profundo & Acolhimento", () => {
+    it("contém header front-matter YAML válido", () => {
+      assert.ok(nv3Content.includes("id: NV3_CORE_DEPTH"));
+      assert.ok(nv3Content.includes("minIntensity: 7"));
+      assert.ok(nv3Content.includes("maxIntensity: 10"));
+      assert.ok(nv3Content.includes("opennessIn: [3]"));
     });
 
-    it('contém exatamente 4 exemplos de few-shot', () => {
+    it("contém exatamente 4 exemplos de few-shot", () => {
       const exampleMatches = nv3Content.match(/### Exemplo \d+:/g) || [];
-      expect(exampleMatches.length).toBe(4);
+      assert.strictEqual(exampleMatches.length, 4);
     });
 
-    it('respostas NV3 são profundas e validam', () => {
+    it("respostas NV3 são profundas e validam", () => {
       const responseMatches = nv3Content.match(/\*\*ECO \(Resposta esperada\)\*\*:/g) || [];
-      expect(responseMatches.length).toBe(4);
+      assert.strictEqual(responseMatches.length, 4);
 
       // Validar que tem elementos de acolhimento
-      expect(nv3Content.toLowerCase()).toContain('acolhimento');
-      expect(nv3Content.toLowerCase()).toContain('profundo');
+      assert.ok(nv3Content.toLowerCase().includes("acolhimento"));
+      assert.ok(nv3Content.toLowerCase().includes("profundo"));
     });
 
-    it('contém protocolo de segurança', () => {
-      expect(nv3Content).toContain('Gatilhos de Escalada a Protocolos de Segurança');
-      expect(nv3Content).toContain('VERMELHO');
-      expect(nv3Content).toContain('LARANJA');
-      expect(nv3Content).toContain('AMARELO');
+    it("contém protocolo de segurança", () => {
+      assert.ok(nv3Content.includes("Gatilhos de Escalada a Protocolos de Segurança"));
+      assert.ok(nv3Content.includes("VERMELHO"));
+      assert.ok(nv3Content.includes("LARANJA"));
+      assert.ok(nv3Content.includes("AMARELO"));
     });
 
-    it('3º exemplo trata ideação suicida com protocolo', () => {
-      expect(nv3Content).toContain('Crise com Integração');
-      expect(nv3Content).toContain('CVV');
-      expect(nv3Content).toContain('188');
+    it("3º exemplo trata ideação suicida com protocolo", () => {
+      assert.ok(nv3Content.includes("Crise com Integração"));
+      assert.ok(nv3Content.includes("CVV"));
+      assert.ok(nv3Content.includes("188"));
     });
 
-    it('4º exemplo integra padrão geracional/sistêmico', () => {
-      expect(nv3Content).toContain('Exemplo 4: Integração Profunda com Memória Sistêmica');
-      expect(nv3Content.toLowerCase()).toContain('geracional');
+    it("4º exemplo integra padrão geracional/sistêmico", () => {
+      assert.ok(nv3Content.includes("Exemplo 4: Integração Profunda com Memória Sistêmica"));
+      assert.ok(nv3Content.toLowerCase().includes("geracional"));
     });
 
-    it('contém protocolos de resposta claros', () => {
-      expect(nv3Content).toContain('## PROTOCOLO DE RESPOSTA NV3');
-      expect(nv3Content).toContain('Acolhimento sem minimização');
-      expect(nv3Content).toContain('Espelhamento de sistema');
+    it("contém protocolos de resposta claros", () => {
+      assert.ok(nv3Content.includes("## PROTOCOLO DE RESPOSTA NV3"));
+      assert.ok(nv3Content.includes("Acolhimento sem minimização"));
+      assert.ok(nv3Content.includes("Espelhamento de sistema"));
     });
   });
 
-  describe('Validação Comparativa entre NV1, NV2, NV3', () => {
-    it('cada nível tem identidade clara (NV1, NV2, NV3)', () => {
-      expect(nv1Content).toContain('NV1_CORE_ENHANCED');
-      expect(nv2Content).toContain('NV2_CORE_REFLECTION');
-      expect(nv3Content).toContain('NV3_CORE_DEPTH');
+  describe("Validação Comparativa entre NV1, NV2, NV3", () => {
+    it("cada nível tem identidade clara (NV1, NV2, NV3)", () => {
+      assert.ok(nv1Content.includes("NV1_CORE_ENHANCED"));
+      assert.ok(nv2Content.includes("NV2_CORE_REFLECTION"));
+      assert.ok(nv3Content.includes("NV3_CORE_DEPTH"));
     });
 
-    it('intensidade escalona: NV1(0-4) → NV2(4-6) → NV3(7-10)', () => {
-      expect(nv1Content).toContain('maxIntensity: 4');
-      expect(nv2Content).toContain('minIntensity: 4');
-      expect(nv2Content).toContain('maxIntensity: 6');
-      expect(nv3Content).toContain('minIntensity: 7');
+    it("intensidade escalona: NV1(0-4) → NV2(4-6) → NV3(7-10)", () => {
+      assert.ok(nv1Content.includes("maxIntensity: 4"));
+      assert.ok(nv2Content.includes("minIntensity: 4"));
+      assert.ok(nv2Content.includes("maxIntensity: 6"));
+      assert.ok(nv3Content.includes("minIntensity: 7"));
     });
 
-    it('openness escalona: NV1(1) → NV2(2) → NV3(3)', () => {
-      expect(nv1Content).toContain('opennessIn: [1]');
-      expect(nv2Content).toContain('opennessIn: [2]');
-      expect(nv3Content).toContain('opennessIn: [3]');
+    it("openness escalona: NV1(1) → NV2(2) → NV3(3)", () => {
+      assert.ok(nv1Content.includes("opennessIn: [1]"));
+      assert.ok(nv2Content.includes("opennessIn: [2]"));
+      assert.ok(nv3Content.includes("opennessIn: [3]"));
     });
 
-    it('todos têm exemplos (few-shot learning)', () => {
+    it("todos têm exemplos (few-shot learning)", () => {
       const nv1Examples = (nv1Content.match(/### Exemplo/g) || []).length;
       const nv2Examples = (nv2Content.match(/### Exemplo/g) || []).length;
       const nv3Examples = (nv3Content.match(/### Exemplo/g) || []).length;
 
-      expect(nv1Examples).toBeGreaterThan(0);
-      expect(nv2Examples).toBeGreaterThan(0);
-      expect(nv3Examples).toBeGreaterThan(0);
+      assert.ok(nv1Examples > 0);
+      assert.ok(nv2Examples > 0);
+      assert.ok(nv3Examples > 0);
     });
   });
 
-  describe('Validação de Completeness', () => {
-    it('todos os módulos têm protocolo de resposta', () => {
-      expect(nv1Content).toContain('## PROTOCOLO DE RESPOSTA NV1');
-      expect(nv2Content).toContain('## PROTOCOLO DE RESPOSTA NV2');
-      expect(nv3Content).toContain('## PROTOCOLO DE RESPOSTA NV3');
+  describe("Validação de Completeness", () => {
+    it("todos os módulos têm protocolo de resposta", () => {
+      assert.ok(nv1Content.includes("## PROTOCOLO DE RESPOSTA NV1"));
+      assert.ok(nv2Content.includes("## PROTOCOLO DE RESPOSTA NV2"));
+      assert.ok(nv3Content.includes("## PROTOCOLO DE RESPOSTA NV3"));
     });
 
-    it('todos os módulos têm contexto refinado', () => {
-      expect(nv1Content).toContain('## Contexto Refinado');
-      expect(nv2Content).toContain('## Contexto Refinado');
-      expect(nv3Content).toContain('## Contexto Refinado');
+    it("todos os módulos têm contexto refinado", () => {
+      assert.ok(nv1Content.includes("## Contexto Refinado"));
+      assert.ok(nv2Content.includes("## Contexto Refinado"));
+      assert.ok(nv3Content.includes("## Contexto Refinado"));
     });
 
-    it('todos os módulos têm métrica de sucesso', () => {
-      expect(nv1Content).toContain('## Métricas de Sucesso');
-      expect(nv2Content).toContain('## Métricas de Sucesso');
-      expect(nv3Content).toContain('## Métricas de Sucesso');
+    it("todos os módulos têm métrica de sucesso", () => {
+      assert.ok(nv1Content.includes("## Métricas de Sucesso"));
+      assert.ok(nv2Content.includes("## Métricas de Sucesso"));
+      assert.ok(nv3Content.includes("## Métricas de Sucesso"));
     });
 
-    it('todos os módulos têm tom adaptativo', () => {
-      expect(nv1Content).toContain('## Tom Adaptativo');
-      expect(nv2Content).toContain('## Tom Adaptativo');
-      expect(nv3Content).toContain('## Tom Adaptativo');
+    it("todos os módulos têm tom adaptativo", () => {
+      assert.ok(nv1Content.includes("## Tom Adaptativo"));
+      assert.ok(nv2Content.includes("## Tom Adaptativo"));
+      assert.ok(nv3Content.includes("## Tom Adaptativo"));
     });
   });
 });

@@ -1,9 +1,13 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+
 import { StreamSession } from "../../routes/askEco/streaming";
 
 const createMockResponse = () => ({
   headers: new Map<string, string>(),
   write: () => {},
   end: () => {},
+  on: () => {},
   setHeader(name: string, value: string) {
     this.headers.set(name.toLowerCase(), value);
   },
@@ -29,11 +33,11 @@ test("StreamSession aggregates text and records offline events when not streamin
   session.dispatchEvent({ type: "message", text: " mundo" });
   session.dispatchEvent({ type: "done" });
 
-  expect(session.aggregatedText).toBe("Olá mundo");
-  expect(session.chunkReceived).toBe(true);
-  expect(session.lastChunkIndex).toBe(1);
+  assert.strictEqual(session.aggregatedText, "Olá mundo");
+  assert.strictEqual(session.chunkReceived, true);
+  assert.strictEqual(session.lastChunkIndex, 1);
 
   const eventTypes = session.offlineEvents.map((event) => event.type);
-  expect(eventTypes).toContain("message");
-  expect(eventTypes[eventTypes.length - 1]).toBe("done");
+  assert.ok(eventTypes.includes("message"));
+  assert.strictEqual(eventTypes[eventTypes.length - 1], "done");
 });
