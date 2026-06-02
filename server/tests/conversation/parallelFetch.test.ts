@@ -10,6 +10,7 @@ test("retorna resultados vazios quando embedding falha", async () => {
     },
     getHeuristicas: async () => ["h1"] as any,
     getMemorias: async () => ["m1"] as any,
+    getReferencias: async () => [] as any,
     logger: { warn: () => {}, info: () => {} } as any,
     debug: () => false,
   });
@@ -29,6 +30,7 @@ test("usa cache de heurísticas quando RPC primário falha", async () => {
       throw new Error("RPC failed");
     },
     getMemorias: async () => ["m1"] as any,
+    getReferencias: async () => [] as any,
     logger,
     debug: () => false,
   });
@@ -48,6 +50,7 @@ test("usa cache de memórias quando RPC primário falha", async () => {
     getMemorias: async () => {
       throw new Error("RPC failed");
     },
+    getReferencias: async () => [] as any,
     logger: { warn: () => {}, info: () => {} } as any,
     debug: () => false,
   });
@@ -67,6 +70,7 @@ test("ignora promise de memórias para usuário anônimo", async () => {
     getEmbedding: async () => [0.1, 0.2, 0.3],
     getHeuristicas: async () => ["h1"] as any,
     getMemorias: getMemorias as any,
+    getReferencias: async () => [] as any,
     logger: { warn: () => {}, info: () => {} } as any,
     debug: () => false,
   });
