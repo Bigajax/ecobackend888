@@ -3,7 +3,7 @@
     "clean": "rm -rf dist server/dist node_modules",
     "build": "tsc --noEmit -p tsconfig.json",
     "test": "jest --config jest.contract.config.ts --passWithNoTests",
-    "test:node": "cross-env NODE_OPTIONS=\"-r ts-node/register -r ./server/tests/setupEnv.js\" TS_NODE_TRANSPILE_ONLY=1 node --test \"server/tests/**/*.test.ts\" \"server/tests/**/*.test.js\"",
+    "test:node": "cross-env NODE_OPTIONS=\"-r ts-node/register -r ./server/tests/setupEnv.js\" TS_NODE_TRANSPILE_ONLY=1 node --test --test-force-exit \"server/tests/**/*.test.ts\" \"server/tests/**/*.test.js\"",
     "test:golden": "cross-env NODE_OPTIONS=\"-r ts-node/register\" TS_NODE_TRANSPILE_ONLY=1 node --test server/tests/promptContext/promptContract.golden.test.ts",
     "eval:run": "ts-node --transpile-only server/evals/index.ts",
     "test:contract": "jest --config server/jest.contract.config.ts",
