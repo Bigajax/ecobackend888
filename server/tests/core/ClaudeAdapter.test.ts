@@ -46,19 +46,21 @@ test("should handle non-streaming response", async (context) => {
 });
 
 test("should handle streaming response", async (context) => {
+  // OpenRouter usa o formato OpenAI (choices[].delta.content), não o nativo da Anthropic.
   const streamChunks = [
-    'data: {"type": "message_start", "message": {"id": "msg_123", "role": "assistant", "content": []}}\n\n',
-    'data: {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "Hello"}}\n\n',
-    'data: {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": ", "}}\n\n',
-    'data: {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "world!"}}\n\n',
-    'data: {"type": "message_delta", "delta": {"stop_reason": "end_turn"}}\n\n',
-    'data: {"type": "message_stop"}\n\n',
+    'data: {"choices": [{"delta": {"content": "Hello"}}]}\n\n',
+    'data: {"choices": [{"delta": {"content": ", "}}]}\n\n',
+    'data: {"choices": [{"delta": {"content": "world!"}}]}\n\n',
+    'data: {"choices": [{"delta": {}, "finish_reason": "stop"}]}\n\n',
+    "data: [DONE]\n\n",
   ];
 
   const mockFetch = context.mock.fn(async () => ({
     ok: true,
     status: 200,
     statusText: "OK",
+    headers: { get: (name: string) => (name?.toLowerCase() === "content-type" ? "text/event-stream" : null) },
+    json: async () => ({}),
     body: mockStream(streamChunks),
   }));
 
