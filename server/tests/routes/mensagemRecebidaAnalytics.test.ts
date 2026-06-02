@@ -100,9 +100,14 @@ test("/ask-eco delega prompt ao orquestrador e propaga eventos de prompt_ready",
     "../lib/supabaseAdmin": {
       supabase: {
         auth: {
-          getUser: async () => ({ data: { user: { id: "supabase-user" } }, error: null }),
+          getUser: async () => ({ data: { user: { id: "user-1" } }, error: null }),
         },
       },
+      ensureSupabaseConfigured: () => ({
+        auth: {
+          getUser: async () => ({ data: { user: { id: "user-1" } }, error: null }),
+        },
+      }),
     },
     "../adapters/EmbeddingAdapter": {
       getEmbeddingCached: async () => [],
@@ -215,6 +220,7 @@ test("/ask-eco aceita modo convidado sem token e marca métricas", async () => {
   const router = await loadRouterWithStubs("../../routes/openrouterRoutes", {
     "../lib/supabaseAdmin": {
       supabase: { auth: { getUser: async () => ({ data: null, error: null }) } },
+      ensureSupabaseConfigured: () => ({ auth: { getUser: async () => ({ data: null, error: null }) } }),
     },
     "../adapters/EmbeddingAdapter": {
       getEmbeddingCached: async () => [],
@@ -302,6 +308,7 @@ test("/ask-eco permite fallback JSON quando stream=false", async () => {
   const router = await loadRouterWithStubs("../../routes/openrouterRoutes", {
     "../lib/supabaseAdmin": {
       supabase: { auth: { getUser: async () => ({ data: null, error: null }) } },
+      ensureSupabaseConfigured: () => ({ auth: { getUser: async () => ({ data: null, error: null }) } }),
     },
     "../adapters/EmbeddingAdapter": {
       getEmbeddingCached: async () => [],
