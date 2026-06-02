@@ -208,7 +208,12 @@ test("streaming segue sem derivados e cache é preenchido quando prontos", async
   );
   assert.strictEqual(cacheAtPromptReady, null, "cache não deve estar preenchido no prompt_ready");
 
-  await new Promise((resolve) => setTimeout(resolve, supabaseDelayMs * 2));
+  // Aguarda o fetch em background preencher o cache. Poll (em vez de espera fixa)
+  // para não flakar sob carga, quando o event loop atrasa o setTimeout de 300ms.
+  const deadline = Date.now() + supabaseDelayMs * 20;
+  while (DERIVADOS_CACHE.get(cacheKey) === undefined && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
 
   const cached = DERIVADOS_CACHE.get(cacheKey);
   assert.deepStrictEqual(cached, expectedDerivados, "cache deve ser preenchido após fetch em background");

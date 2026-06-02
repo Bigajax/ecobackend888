@@ -28,3 +28,7 @@ yarn-error.log*
 # OS
 .DS_Store
 Thumbs.db
+
+# Artefatos de teste do ModuleStore (deixados se uma run for interrompida antes do afterEach)
+server/assets/module_store_*.txt
+dist/assets/module_store_*.txt
