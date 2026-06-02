@@ -78,6 +78,15 @@ const makeResponse = () => {
     end() {
       this.ended = true;
     },
+    on() {
+      return this;
+    },
+    once() {
+      return this;
+    },
+    removeListener() {
+      return this;
+    },
     flush() {},
     flushHeaders() {},
   };
@@ -165,6 +174,9 @@ test("/ask-eco delega prompt ao orquestrador e propaga eventos de prompt_ready",
       authorization: "Bearer token-123",
     },
     on() {},
+    get(name: string) {
+      return (this as any).headers?.[String(name).toLowerCase()];
+    },
   } as any;
 
   await handler(req, res);
@@ -266,6 +278,9 @@ test("/ask-eco aceita modo convidado sem token e marca métricas", async () => {
       rateLimit: { limit: 30, remaining: 29, resetAt: Date.now() + 60000 },
     },
     on() {},
+    get(name: string) {
+      return (this as any).headers?.[String(name).toLowerCase()];
+    },
   } as any;
 
   await handler(req, res);
@@ -349,6 +364,9 @@ test("/ask-eco permite fallback JSON quando stream=false", async () => {
     },
     guest: { id: guestId },
     on() {},
+    get(name: string) {
+      return (this as any).headers?.[String(name).toLowerCase()];
+    },
   } as any;
 
   await handler(req, res);
