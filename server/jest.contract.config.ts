@@ -8,8 +8,15 @@ const config: Config.InitialOptions = {
   // (Antes apontava para tests/controllers, que não existe → o comando não rodava nada.)
   roots: ["<rootDir>/tests/contract"],
   testMatch: ["**/*.spec.ts"],
+  // setupEnv.js: dummies de env (SUPABASE_*/OPENROUTER/...) ANTES dos imports,
+  // para os guards (ensureSupabaseConfigured etc.) não explodirem no load do app.
+  setupFiles: ["<rootDir>/tests/setupEnv.js"],
+  // setup.ts: cleanup de mocks jest entre testes (precisa dos globals do jest).
+  setupFilesAfterEnv: ["<rootDir>/tests/contract/setup.ts"],
   moduleNameMapper: {
     "^node-fetch$": "node-fetch",
+    // uuid v13 é ESM-only e quebra sob ts-jest CJS; shim usa crypto.randomUUID.
+    "^uuid$": "<rootDir>/tests/contract/uuidMock.ts",
   },
   collectCoverage: false,
   verbose: false,
