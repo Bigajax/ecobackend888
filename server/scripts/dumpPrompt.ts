@@ -17,6 +17,7 @@ import process from "node:process";
 
 import montarContextoEco from "../services/promptContext/ContextBuilder";
 import { computeEcoDecision } from "../services/conversation/ecoDecisionHub";
+import { SOURCE_MARKERS } from "../services/promptContext/promptMarkers";
 
 interface CliOptions {
   texto: string;
@@ -55,24 +56,8 @@ function parseArgs(argv: string[]): CliOptions {
   return opts;
 }
 
-// Marcadores: bloco-fonte -> trecho de CORPO único e estável que prova sua presença.
-// (Evite títulos: o dedupeBySection do stitcher pode removê-los mantendo o corpo.)
-const SOURCE_MARKERS: Array<{ source: string; needle: string }> = [
-  { source: "promptIdentity.ts → ID_ECO_CORE", needle: "Exploradora de Conhecimento Ontológico" },
-  { source: "promptIdentity.ts → ECO_VOICE", needle: "PROIBIÇÕES LINGUÍSTICAS" },
-  { source: "promptIdentity.ts → MEMORY_PROTOCOL", needle: "MEMÓRIA E CONTINUIDADE" },
-  { source: "promptIdentity.ts → SAFETY_PROTOCOL", needle: "SEGURANÇA E LIMITES" },
-  { source: "developer_prompt.txt", needle: "Missão Fundamental" },
-  { source: "formato_resposta.txt", needle: "Espelho de Terceira Ordem" },
-  { source: "instrucoes_sistema.txt", needle: "Zona proximal de desenvolvimento" },
-  { source: "sistema_identidade.txt (dropado pelo stitcher)", needle: "Persona Operacional" },
-  { source: "usomemorias.txt", needle: "Continuidade Discreta" },
-  { source: "abertura_superficie.txt (NV1)", needle: "Espelho-Flash" },
-  { source: "nv2_reflexao_core.txt (NV2)", needle: "Movimento Quádruplo" },
-  { source: "nv3_profundo_core.txt (NV3)", needle: "Movimento Quíntuplo" },
-  { source: "metodo_viva_enxuto.txt", needle: "VIVA" },
-  { source: "bloco MEMÓRIAS PERTINENTES (contextSectionsBuilder)", needle: "MEMÓRIAS PERTINENTES" },
-];
+// Marcadores movidos para ../services/promptContext/promptMarkers.ts (compartilhados com os
+// golden tests de contrato).
 
 async function main(): Promise<void> {
   const opts = parseArgs(process.argv.slice(2));

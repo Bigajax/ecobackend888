@@ -162,10 +162,23 @@ export function estimarIntensidade0a10(text: string): number {
   // Work/relationship context (adds context but not primary intensity)
   if (/trabalho|carreira|emprego|chefe|colega/.test(t) && primaryMatch) intensity += 1;
   if (/relacionamento|namorad|parceiro|casamento|familia/.test(t) && primaryMatch) intensity += 1;
+  // Dinheiro / transição de identidade / sensação de atraso (`t` sem acento)
+  if (/dinheiro|divida|financ|empreend|patrimonio|investiment|salario|atrasad|comparac/.test(t) && primaryMatch)
+    intensity += 1;
 
   // Floor baseline: if no emotional detection, still assign baseline
   if (intensity === 0) {
     intensity = isIntense(text) ? 7 : 3;
+  }
+
+  // Piso para sinais fortes e de baixa ambiguidade que o léxico primário não capturava:
+  // Luto/perda por morte → alta intensidade (`t` sem acento).
+  if (/faleceu|faleceram|morreu|morreram|\bluto\b|velorio|enterro|sepultamento/.test(t)) {
+    intensity = Math.max(intensity, 7);
+  }
+  // Crise/ideação/autolesão → sempre alta (segurança; pareado com o gate determinístico de crise).
+  if (/suicid|me matar|tirar (?:a |minha )?vida|acabar com tudo|nao quero (?:mais )?viver/.test(t)) {
+    intensity = Math.max(intensity, 8);
   }
 
   // Cap at 10

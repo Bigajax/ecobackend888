@@ -1,5 +1,7 @@
 import { randomUUID } from "crypto";
 
+import { log } from "../services/promptContext/logger";
+
 export type ActivationTraceHeuristic = { key: string; evidence?: any };
 export type ActivationTraceModule = { name: string; reason: string | null; mode: string | null };
 export type ActivationTraceEmbedding = { hits: number; similarity: number | null; threshold: number | null } | null;
@@ -122,6 +124,39 @@ export class ActivationTracer {
       typeof at === "number" && Number.isFinite(at) ? at : this.startAt + elapsed;
     this.finishedAt = finalTimestamp;
     this.data.finishedAt = new Date(finalTimestamp).toISOString();
+
+    // Observabilidade (Onda 4): uma linha estruturada por request, em qualquer caminho que finalize.
+    try {
+      log.info(this.summary());
+    } catch {
+      /* logging nunca deve quebrar o request */
+    }
+  }
+
+  /** Resumo conciso e estável do trace — usado no log `request_trace` e fácil de consultar. */
+  summary(): Record<string, unknown> {
+    const m = (this.data.metadata ?? {}) as any;
+    return {
+      tag: "request_trace",
+      traceId: this.data.traceId,
+      userId: this.data.userId,
+      model: this.data.model,
+      cache: this.data.cacheStatus,
+      openness: m?.decision?.openness ?? null,
+      intensity: m?.decision?.intensity ?? null,
+      vulnerable: m?.decision?.isVulnerable ?? null,
+      crisis: m?.decision?.crisis ?? null,
+      ideacao: m?.decision?.ideacao ?? null,
+      selectionMode: m?.selectionMode ?? null,
+      lenses: m?.lenses ?? [],
+      memPertinentes: m?.memoria?.pertinentes ?? null,
+      modulesCount: this.data.modules.length,
+      memoryWillSave: this.data.memoryDecision?.willSave ?? null,
+      latencyMs: this.data.latency.totalMs ?? null,
+      promptReadyMs: this.data.latency.promptReadyMs ?? null,
+      firstTokenMs: this.data.latency.firstTokenMs ?? null,
+      errors: this.data.errors.length,
+    };
   }
 
   setMemoryDecision(willSave: boolean | null | undefined, intensity?: number | null, reason?: string | null) {

@@ -3,6 +3,7 @@ import type { GetEcoParams, GetEcoResult, ChatMessage } from "../../utils";
 import type { EcoStreamHandler, EcoStreamingResult, EcoLatencyMarks } from "./types";
 import { buildFinalizedStreamText } from "./responseMetadata";
 import { computeEcoDecision } from "./ecoDecisionHub";
+import { isAcuteCrisis, CRISIS_RESPONSE } from "./crisisGuard";
 
 interface PreLLMShortcutsParams {
   thread: ChatMessage[];
@@ -51,6 +52,45 @@ export async function handlePreLLMShortcuts(
 
   const startedAt = now();
   const ecoDecision = computeEcoDecision(ultimaMsg);
+
+  // GATE DETERMINÍSTICO DE CRISE (Onda 1A): tem precedência sobre tudo. Em crise aguda
+  // (ideação/autolesão) devolvemos a resposta de segurança fixa, SEM chamar o LLM (skipBloco:true
+  // evita até o bloco técnico) e sem sugerir ações. Ver crisisGuard.ts.
+  if (isAcuteCrisis(ecoDecision)) {
+    const finalized = await responseFinalizer.finalize({
+      raw: CRISIS_RESPONSE,
+      ultimaMsg,
+      userName: userName ?? undefined,
+      hasAssistantBefore,
+      userId,
+      supabase,
+      lastMessageId,
+      mode: "fast",
+      startedAt: now(),
+      usageTokens: undefined,
+      modelo: "crisis_guard",
+      skipBloco: true,
+      sessionMeta,
+      sessaoId: sessionMeta?.sessaoId ?? undefined,
+      origemSessao: sessionMeta?.origem ?? undefined,
+      ecoDecision,
+      moduleCandidates: ecoDecision.debug.modules,
+      selectedModules: ecoDecision.debug.selectedModules,
+      isGuest,
+      guestId,
+    });
+
+    return streamHandler
+      ? {
+          kind: "stream",
+          result: await emitImmediateStream({
+            streamHandler,
+            finalized,
+            modelo: "crisis_guard",
+          }),
+        }
+      : { kind: "final", result: finalized };
+  }
 
   const greetingResult = greetingPipeline.handle({
     messages: thread,

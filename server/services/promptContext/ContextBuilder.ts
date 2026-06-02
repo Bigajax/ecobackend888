@@ -5,6 +5,7 @@ import { mapHeuristicasToFlags } from "./heuristicaFlags";
 import type { BuildParams, SimilarMemory } from "./contextTypes";
 import type { ContextMeta } from "../../utils/types";
 import { buildInstructionBlocks, renderInstructionBlocks } from "./instructionPolicy";
+import { renderLenses, activeLensIds } from "./lenses";
 import { applyCurrentMessage } from "./promptComposer";
 import ModuleStore, { type EcoManifestEntry, type EcoManifestSnapshot } from "./ModuleStore";
 import { ModuleCatalog } from "./moduleCatalog";
@@ -371,7 +372,16 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
   const decBlock = renderDecBlock(DEC);
 
   const instructionBlocks = buildInstructionBlocks(ecoDecision.openness);
-  const instructionText = renderInstructionBlocks(instructionBlocks).trim();
+  const lensText = renderLenses({
+    nivel: ecoDecision.openness,
+    intensity: ecoDecision.intensity,
+    isVulnerable: ecoDecision.isVulnerable,
+    flags: ecoDecision.flags,
+    texto,
+  });
+  const instructionText = [renderInstructionBlocks(instructionBlocks).trim(), lensText]
+    .filter((part) => part && part.length > 0)
+    .join("\n\n");
 
   const nomeUsuario = firstName(params.userName ?? undefined);
   const sectionsResult = buildContextSections({
@@ -390,6 +400,29 @@ export async function montarContextoEco(params: BuildParams): Promise<ContextBui
   // injetadas (memsSemelhantesNorm), não a lista compacta (memsCompact), quase sempre vazia.
   const headerMemCount =
     (Array.isArray(memsSemelhantesNorm) ? memsSemelhantesNorm.length : 0) || memCount;
+
+  // Observabilidade (Onda 4): registra decisão, modo de seleção, lentes ativas e memória no trace.
+  // Esses campos alimentam o log estruturado `request_trace` emitido em ActivationTracer.markTotal.
+  if (activationTracer) {
+    activationTracer.mergeMetadata({
+      decision: {
+        openness: ecoDecision.openness,
+        intensity: ecoDecision.intensity,
+        isVulnerable: ecoDecision.isVulnerable,
+        crisis: Boolean((ecoDecision.flags as any)?.crise),
+        ideacao: Boolean((ecoDecision.flags as any)?.ideacao),
+      },
+      selectionMode: (ecoDecision.debug as any).selectionMode ?? null,
+      lenses: activeLensIds({
+        nivel: ecoDecision.openness,
+        intensity: ecoDecision.intensity,
+        isVulnerable: ecoDecision.isVulnerable,
+        flags: ecoDecision.flags,
+        texto,
+      }),
+      memoria: { pertinentes: headerMemCount },
+    });
+  }
 
   const assembly = assemblePrompt({
     nivel: ecoDecision.openness,

@@ -109,6 +109,11 @@ export async function selectModules({
 }: ModuleSelectionParams): Promise<ModuleSelectionResult> {
   const nivel = ecoDecision.openness as 1 | 2 | 3;
 
+  // Seleção determinística por padrão (docs/prompt-architecture.md, camada C / Fase 3): o caminho
+  // crítico usa a seleção priorizada da matriz; o bandit segue computado só em shadow (logs) e NÃO
+  // influencia os módulos costurados. Reativar com ECO_MODULE_SELECTION=bandit.
+  const deterministicSelection = process.env.ECO_MODULE_SELECTION !== "bandit";
+
   const baseSelection = Selector.selecionarModulosBase({
     nivel,
     intensidade: ecoDecision.intensity,
@@ -131,7 +136,9 @@ export async function selectModules({
     },
   };
 
-  const intentModules = inferIntentModules(texto);
+  // @deprecated inferIntentModules: retornava módulos .txt temáticos que o knapsack/stitcher
+  // descarta (conteúdo agora vive em lenses/index.ts). Desconectado no modo determinístico.
+  const intentModules = deterministicSelection ? [] : inferIntentModules(texto);
   // Footers por flag foram removidos: os módulos MEMORIA_COSTURA_REGRAS.txt e
   // SINTETIZADOR_PADRAO.txt não existem mais em assets/ (referências mortas). A política
   // de memória/continuidade é canônica em server/core/promptIdentity.ts (MEMORY_PROTOCOL).
@@ -266,8 +273,12 @@ export async function selectModules({
   };
 
   let ordered = ensureDeveloperPromptFirst(
-    toUnique([...familyPlan.modules, ...intentAndFlagModules])
+    toUnique([
+      ...(deterministicSelection ? orderedBase : familyPlan.modules),
+      ...intentAndFlagModules,
+    ])
   );
+  (ecoDecision.debug as any).selectionMode = deterministicSelection ? "deterministic" : "bandit";
 
   for (const coreName of MINIMAL_VITAL_SET) {
     if (!ordered.includes(coreName)) {

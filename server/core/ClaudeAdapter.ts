@@ -2,6 +2,7 @@ import { Readable } from "node:stream";
 
 import { httpAgent, httpsAgent } from "../adapters/OpenRouterAdapter";
 import { log } from "../services/promptContext/logger";
+import { CACHE_PREFIX_SENTINEL } from "../utils/promptCache";
 
 export type Msg = { role: "system" | "user" | "assistant"; content: string; name?: string };
 
@@ -16,9 +17,21 @@ export type Msg = { role: "system" | "user" | "assistant"; content: string; name
  * (bloco MEMÓRIAS PERTINENTES, DEC, nome) no início, então este flag só rende após reordenar
  * o prompt para a identidade estática vir primeiro. Ver docs/prompt-architecture.md.
  */
-function buildSystemMessages(system: string): ORMessage[] {
+export function buildSystemMessages(system: string): ORMessage[] {
   if (!system) return [];
+  const sentinelIdx = system.indexOf(CACHE_PREFIX_SENTINEL);
+
   if (process.env.ECO_PROMPT_CACHE === "1") {
+    // Com sentinela: cacheia só o PREFIXO ESTÁVEL (antes da marca); o sufixo dinâmico vai sem cache.
+    if (sentinelIdx !== -1) {
+      const prefix = system.slice(0, sentinelIdx).trim();
+      const suffix = system.slice(sentinelIdx + CACHE_PREFIX_SENTINEL.length).trim();
+      const content: any[] = [];
+      if (prefix) content.push({ type: "text", text: prefix, cache_control: { type: "ephemeral" } });
+      if (suffix) content.push({ type: "text", text: suffix });
+      return [{ role: "system", content }];
+    }
+    // Sem sentinela: comportamento anterior (marca o system inteiro).
     return [
       {
         role: "system",
@@ -28,7 +41,10 @@ function buildSystemMessages(system: string): ORMessage[] {
       },
     ];
   }
-  return [{ role: "system", content: system }];
+
+  // Flag off: nunca vaze a sentinela para o provedor.
+  const clean = sentinelIdx !== -1 ? system.split(CACHE_PREFIX_SENTINEL).join("\n\n").trim() : system;
+  return [{ role: "system", content: clean }];
 }
 
 /** Tipos mínimos do retorno da OpenRouter (compatível com strict) */

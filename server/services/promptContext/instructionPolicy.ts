@@ -85,6 +85,9 @@ const FORMAT_NV3 =
 const NAVIGATION_MAPS =
   "Mapas: (1) Confusão — ajude a organizar o que está confuso. (2) Contradição — mostre que os dois lados podem coexistir. (3) Certeza rígida — pergunte o que essa certeza custa. (4) Vazio/tédio — o que isso pode estar sinalizando? (5) Repetição — nomeie o padrão e pergunte para que ele serve.";
 
+/* Transições de identidade & sensação de atraso migraram para lenses/index.ts (lente
+   IDENTIDADE_TRANSICAO, com gate por tema). Ver docs/prompt-architecture.md (camada C). */
+
 /* ===== Princípios de priorização ===== */
 const RULE_WEIGHTS =
   "Prioridade: 1) Ética/Segurança > 2) Presença e escuta > 3) Curiosidade que ajuda > 4) Clareza e linguagem simples > 5) Utilidade prática. Em conflito, fique com a presença antes de forçar uma resposta pronta — mas não deixe a pessoa sem direção quando ela pede ajuda concreta.";

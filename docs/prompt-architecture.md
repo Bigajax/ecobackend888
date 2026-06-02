@@ -117,3 +117,60 @@ uma destas (follow-up, idealmente verificado com a API real):
 2. ~~Reduzir a camada contemplativa em `instructionPolicy.ts`~~ — **feito**: bodies reescritos para tom natural (mantendo a função).
 3. **Cortar redundância** entre `promptIdentity.ts`, `developer_prompt.txt` e os planos de
    instrução — o prompt monta ~5–6k tokens por turno.
+
+## Inventário vivo × morto (auditoria 2026-06 — Fase 1 da reestruturação de módulos)
+
+Verificado empiricamente via `prompt:dump --summary` em NV1/NV1-guest/NV2/NV3/crise (mesmos casos
+travados nos golden tests em `server/tests/promptContext/promptContract.golden.test.ts`). Resultado
+**idêntico em todos os níveis** quanto à presença dos blocos-fonte:
+
+**VIVO (entra no prompt, sempre):**
+- `promptIdentity.ts` → `ID_ECO_CORE`, `ECO_VOICE`, `MEMORY_PROTOCOL`, `SAFETY_PROTOCOL` (staticSections).
+- `instructionPolicy.ts` → `buildInstructionBlocks(nivel)`; bloco `ECO_IDENTITY_TRANSITION` entra em NV2/NV3 (fora de NV1).
+- `developer_prompt.txt`.
+- `MEMÓRIAS PERTINENTES` (`composition/contextSectionsBuilder.ts`).
+- `tecnico_bloco_memoria.txt` — footer condicional (`DEC.hasTechBlock`); não coberto pelos marcadores acima.
+
+**MORTO (nunca aparece no corpo — edição nesses arquivos não tem efeito):**
+- `formato_resposta.txt`, `instrucoes_sistema.txt`, `sistema_identidade.txt` (dropado no `stitcher.ts`),
+  `usomemorias.txt`, `abertura_superficie.txt`, `nv2_reflexao_core.txt`, `nv3_profundo_core.txt`.
+- Todos os `.txt` temáticos: `modulos_emocionais/*`, `modulos_filosoficos/*`, `modulos_cognitivos/*`
+  (competem na família "extra" via `familyBanditPlanner` + knapsack e são descartados).
+- Caminhos de seleção sem efeito de conteúdo: `inferIntentModules` (`selection/moduleSelector.ts`),
+  trigger maps (`triggers/emocionaisTriggers.ts`, `estoicosTriggers.ts`, `regulacaoTriggers.ts`).
+
+**A VERIFICAR antes de remover (Fase 4):**
+- `metodo_viva_enxuto.txt`: o marcador `"VIVA"` é fraco (casa o cabeçalho `Forçar VIVA`/`DEC.vivaSteps`),
+  não prova que o conteúdo do `.txt` entra. Confirmar com needle dedicado antes de classificar.
+- Dois sistemas de manifesto (`ModuleStore` EcoManifest + `moduleManifest.ts`) — confirmar qual (se
+  algum) afeta a seleção determinística após a Fase 3.
+
+Esta tabela é a base das remoções em estágios da Fase 4. Não deletar nada cuja ausência não esteja
+provada por golden test.
+
+## Estado pós-reestruturação (2026-06 — Fases 0–5)
+
+**Arquitetura em 4 camadas, 1 caminho** (`ContextBuilder.montarContextoEco` → `assemblePrompt`):
+
+- **A. Núcleo invariável** — `server/core/promptIdentity.ts` (identidade/voz/memória/segurança). Sempre.
+- **B. Política por estado** — `instructionPolicy.ts` `buildInstructionBlocks(nivel)`.
+- **C. Lentes temáticas** — `server/services/promptContext/lenses/index.ts`: 6 lentes fortes com gate
+  determinístico (predicados TS sobre nível/intensidade/flags/texto) e `depthBody` para intensidade ≥7.
+  `renderLenses(ctx)` entra junto de `instructionText`. Substitui os `.txt` temáticos mortos.
+- **D. Memória recuperada** — `composition/contextSectionsBuilder.ts` (bloco MEMÓRIAS PERTINENTES).
+
+**Seleção determinística** (`ECO_MODULE_SELECTION=deterministic`, padrão): o caminho crítico usa a
+seleção priorizada da matriz (`baseSelection` + `condicoesEspeciais` + `ruleEngine`, ainda vivos) +
+`MINIMAL_VITAL_SET`. `familyBanditPlanner` roda só em **shadow** (logs), sem influenciar o prompt
+(marcado `@deprecated` no caminho crítico). `inferIntentModules` desconectado no modo determinístico.
+`knapsackOptimizer`/`moduleManifest` seguem como rede de trimming/defaults do budget.
+
+**Rede de testes:** `server/tests/promptContext/promptContract.golden.test.ts` (`npm run test:golden`)
+trava presença/ausência de blocos por nível + gate por tema das lentes + `depthBody` ≥7 + um **guard**
+que fixa o conjunto exato de blocos-fonte vivos (impede morto↔vivo silencioso). Marcadores em
+`server/services/promptContext/promptMarkers.ts` (compartilhados com `dumpPrompt`).
+
+**Pendências de bake (remoção física, fase posterior):** após período de validação, excluir os `.txt`
+temáticos mortos + entradas em `active-modules.json` (regenerar manifests), e avaliar aposentar
+`familyBanditPlanner`/`moduleManifest` se o budget for desacoplado deles. Harness de avaliação
+(LLM-as-judge) é pré-requisito para reativar o bandit.
