@@ -37,7 +37,13 @@ const inlineModules: Record<string, string> = {
   "abertura_superficie.txt": "NV".repeat(30),
 };
 
-test("bandit picks propagam variantes no contexto", async () => {
+// SKIP: valida a feature de famílias de bandit multi-variante (Linguagem/
+// Encerramento/Modulacao com arms _rules/_mini/_full). O manifesto atual
+// (modules.manifest.json) não define nenhuma família de bandit, então
+// planFamilyModules não produz decisões e nenhuma variante é injetada no
+// contexto — o selectBanditArms legado ainda calcula picks, mas o moduleSelector
+// zera esse resultado. Reativar quando/se as famílias voltarem ao manifesto.
+test("bandit picks propagam variantes no contexto", { skip: "famílias de bandit não existem no manifesto atual" }, async () => {
   const originalBudget = process.env.ECO_KNAPSACK_BUDGET_TOKENS;
   const originalRandom = Math.random;
   process.env.ECO_KNAPSACK_BUDGET_TOKENS = "2000";
