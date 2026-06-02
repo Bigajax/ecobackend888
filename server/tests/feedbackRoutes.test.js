@@ -164,7 +164,8 @@ test("POST /api/feedback infere braço e aplica recompensa", async () => {
 
   const insert = analytics.banditInserts[0];
   assert.deepEqual(insert.rows[0], {
-    response_id: "mensagem-xyz",
+    response_id: interactionId,
+    interaction_id: interactionId,
     pilar: "default",
     arm: "arm-inferido",
     recompensa: 1,
@@ -210,6 +211,7 @@ test("POST /api/feedback aceita dislike e aplica recompensa negativa", async () 
   const insert = analytics.banditInserts[0];
   assert.deepEqual(insert.rows[0], {
     response_id: interactionId,
+    interaction_id: interactionId,
     pilar: "geral",
     arm: "arm-x",
     recompensa: -1,
