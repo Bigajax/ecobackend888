@@ -110,7 +110,8 @@ export class ParallelFetchService {
                 `[ParallelFetch] heuristica_rpc falhou: ${error?.message}`
               );
             }
-            return [];
+            // Re-lança para que withTimeoutOrNull resolva em null e dispare o cache.
+            throw error;
           }),
         RPC_TIMEOUT_MS,
         "heuristica_rpc",
@@ -137,12 +138,13 @@ export class ParallelFetchService {
                     `[ParallelFetch] buscarMemoriasSemelhantes falhou: ${e?.message}`
                   );
                 }
-                return [];
+                // Re-lança para que withTimeoutOrNull resolva em null e dispare o cache.
+                throw e;
               }),
             RPC_TIMEOUT_MS,
             "mem_lookup",
             { logger: this.deps.logger }
-          ).then((result) => result ?? [])
+          )
         : Promise.resolve([]);
 
       const [heuristicasResult, memsResult] = await Promise.all([
