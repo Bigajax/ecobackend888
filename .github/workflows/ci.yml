@@ -19,8 +19,8 @@ jobs:
       - run: npm ci
       - run: npm run build
 
-  test-node:
-    name: node:test suite
+  test:
+    name: test suite (node:test + jest)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -29,7 +29,9 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      # Suíte node:test. Usa --test-force-exit (via script) para não pendurar em
-      # handles de fundo (keep-alive de fetch). Em estabilização: parte dos testes
-      # de integração ainda está sendo re-alinhada (Onda 4).
-      - run: npm run test:node
+      # `npm test` roda as duas suítes verdes: node:test (server/tests/**, via
+      # --test-force-exit para não pendurar em handles de fundo) + jest raiz
+      # (tests/{quality,bandits,orchestrator}). Os contract tests de API
+      # (tests/contract/*.spec.ts via `npm run test:contract`) ainda não entram
+      # aqui — estão sendo religados/consertados separadamente.
+      - run: npm test
