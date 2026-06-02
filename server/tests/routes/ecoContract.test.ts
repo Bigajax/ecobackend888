@@ -1,19 +1,9 @@
+import test from "node:test";
 import assert from "node:assert/strict";
 import type { AddressInfo } from "node:net";
 import type { Server } from "node:http";
 
 import { createApp } from "../../core/http/app";
-
-interface TestCase {
-  name: string;
-  run: () => Promise<void> | void;
-}
-
-const tests: TestCase[] = [];
-
-function test(name: string, run: () => Promise<void> | void) {
-  tests.push({ name, run });
-}
 
 async function closeServer(server: Server) {
   await new Promise<void>((resolve, reject) => {
@@ -75,24 +65,3 @@ test("GET /api/_eco-contract returns contract summary", async () => {
     await closeServer(server);
   }
 });
-
-(async () => {
-  let failures = 0;
-  for (const { name, run } of tests) {
-    try {
-      await run();
-      console.log(`✓ ${name}`);
-    } catch (error) {
-      failures += 1;
-      console.error(`✗ ${name}`);
-      console.error(error);
-    }
-  }
-
-  if (failures > 0) {
-    console.error(`${failures} test(s) failed.`);
-    process.exitCode = 1;
-  } else {
-    console.log(`All ${tests.length} test(s) passed.`);
-  }
-})();
