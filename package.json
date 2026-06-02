@@ -2,7 +2,7 @@
   "scripts": {
     "clean": "rm -rf dist server/dist node_modules",
     "build": "tsc --noEmit -p tsconfig.json",
-    "test": "npm run test:node && npm run test:jest",
+    "test": "npm run test:node && npm run test:jest && npm run test:contract",
     "test:node": "cross-env NODE_OPTIONS=\"-r ts-node/register -r ./server/tests/setupEnv.js\" TS_NODE_TRANSPILE_ONLY=1 node --test --test-force-exit --test-timeout=30000 \"server/tests/**/*.test.ts\" \"server/tests/**/*.test.js\"",
     "test:jest": "jest --config jest.config.ts",
     "test:golden": "cross-env NODE_OPTIONS=\"-r ts-node/register\" TS_NODE_TRANSPILE_ONLY=1 node --test server/tests/promptContext/promptContract.golden.test.ts",

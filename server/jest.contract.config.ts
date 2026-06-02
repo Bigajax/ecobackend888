@@ -20,6 +20,11 @@ const config: Config.InitialOptions = {
   },
   collectCoverage: false,
   verbose: false,
+  // O app deixa handles abertos (keep-alive do Supabase/undici); sem forceExit o
+  // jest fica pendurado após os testes passarem (travaria o CI). Espelha o
+  // --test-force-exit usado na suíte node:test.
+  forceExit: true,
+  testTimeout: 30000,
   globals: {
     "ts-jest": {
       diagnostics: false,

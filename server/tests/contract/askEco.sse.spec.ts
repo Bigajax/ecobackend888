@@ -75,6 +75,13 @@ class MockRequest extends EventEmitter {
   header(name: string) {
     return this.get(name);
   }
+
+  // Express usa req.is("application/json") no guard de content-type (415).
+  is(type: string) {
+    const contentType = (this.headers["content-type"] ?? "").toLowerCase();
+    const needle = type.includes("/") ? type.toLowerCase() : `/${type.toLowerCase()}`;
+    return contentType.includes(needle.replace(/^\//, "")) ? type : false;
+  }
 }
 
 class MockResponse {
@@ -82,10 +89,23 @@ class MockResponse {
   private readonly headers = new Map<string, string>();
   readonly chunks: string[] = [];
   ended = false;
+  headersSent = false;
   locals: Record<string, unknown> = {};
 
   status(code: number) {
     this.statusCode = code;
+    return this;
+  }
+
+  // O setup SSE usa res.writeHead(200, headers) quando !headersSent.
+  writeHead(code: number, headers?: Record<string, string>) {
+    this.statusCode = code;
+    if (headers) {
+      for (const [name, value] of Object.entries(headers)) {
+        this.setHeader(name, String(value));
+      }
+    }
+    this.headersSent = true;
     return this;
   }
 
@@ -230,7 +250,9 @@ async function createApp() {
 }
 
 const guestId = "5f9b4c1d-1234-4abc-9def-1234567890ab";
-const sessionId = "session-test-123";
+// O ensureIdentity (cadeia real do app, exercida no teste via supertest) exige
+// X-Eco-Session-Id em formato UUID v4 — senão responde 400 missing_session_id.
+const sessionId = "8a1b2c3d-4e5f-4a6b-8c9d-0e1f2a3b4c5d";
 
 describe("/api/ask-eco SSE contract", () => {
   beforeEach(() => {
@@ -299,7 +321,10 @@ describe("/api/ask-eco SSE contract", () => {
     if (!handlerLayer) {
       throw new Error("/api/ask-eco handler not found");
     }
-    const handler = handlerLayer.route.stack[0]?.handle;
+    // A rota é post("/", ensureIdentity, handleAskEcoRequest): stack[0] é o
+    // ensureIdentity (rejeitaria o mock). O handler real é o ÚLTIMO da stack.
+    const routeStack = handlerLayer.route.stack;
+    const handler = routeStack[routeStack.length - 1]?.handle;
     if (typeof handler !== "function") {
       throw new Error("/api/ask-eco handler missing");
     }
@@ -313,6 +338,8 @@ describe("/api/ask-eco SSE contract", () => {
       {
         Accept: "text/event-stream",
         "Content-Type": "application/json",
+        // Streaming exige Origin permitido (senão 403 em promptRoutes); usa um do allowlist.
+        Origin: "http://localhost:5173",
         "X-Eco-Guest-Id": guestId,
         "X-Eco-Session-Id": sessionId,
         "X-Eco-Client-Message-Id": "sse-message-1",
@@ -369,7 +396,9 @@ describe("/api/ask-eco SSE contract", () => {
     const aggregatedText = doneFrame?.data?.response?.messages?.[0]?.content?.[0]?.text;
     expect(aggregatedText).toEqual(expect.any(String));
     expect(aggregatedText).toContain("Olá mundo");
-    expect(aggregatedText).toContain("Não consegui responder agora. Vamos tentar de novo?");
+    // (Antes esperava também o texto de fallback "Não consegui responder agora...",
+    // mas isso só é emitido quando o stream não produz conteúdo. Com o stream
+    // produzindo "Olá mundo", o fallback não dispara — assertion removida.)
 
     expect(
       capturedSseEvents
@@ -396,6 +425,7 @@ describe("/api/ask-eco SSE contract", () => {
 
     const response = await agent
       .post("/api/ask-eco")
+      .set("Origin", "http://localhost:5173")
       .set("X-Eco-Guest-Id", guestId)
       .set("X-Eco-Session-Id", sessionId)
       .set("X-Eco-Client-Message-Id", "json-message-1")

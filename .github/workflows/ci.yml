@@ -29,9 +29,7 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      # `npm test` roda as duas suítes verdes: node:test (server/tests/**, via
-      # --test-force-exit para não pendurar em handles de fundo) + jest raiz
-      # (tests/{quality,bandits,orchestrator}). Os contract tests de API
-      # (tests/contract/*.spec.ts via `npm run test:contract`) ainda não entram
-      # aqui — estão sendo religados/consertados separadamente.
+      # `npm test` roda as três suítes verdes: node:test (server/tests/**, via
+      # --test-force-exit), jest raiz (tests/{quality,bandits,orchestrator}) e os
+      # contract tests de API (server/tests/contract/*.spec.ts, forceExit no config).
       - run: npm test
