@@ -53,7 +53,7 @@ export const REFLEXO_PATTERNS: ReflexoPattern[] = [
   {
     key: "sobrecarga",
     priority: 1,
-    patterns: [/sobrecarregad/, /muito/, /demais/, /n[aã]o aguento/, /não dou conta/, /overwhelm/],
+    patterns: [/sobrecarregad/, /demais/, /n[aã]o aguento/, /não dou conta/, /overwhelm/],
     defaultFlags: ["prioritize", "chunk_down", "needs_validation"],
     emotions: ["sobrecarga"],
     intent: "organize",

@@ -16,16 +16,16 @@ test("Case A: intensidade 3 sem vulnerabilidade gera NV1", () => {
   assert.strictEqual(decision.hasTechBlock, false);
 });
 
-test("Case B: intensidade 6 mantém NV2 e não salva memória", () => {
+test("Case B: texto longo porém neutro permanece NV1 e não salva memória", () => {
   const fragmento =
     "Tenho trabalhado em vários relatórios e sigo um ritmo constante sem grandes emoções. ";
   const textoLongo = fragmento.repeat(12); // garante ~700 caracteres
   const decision = computeEcoDecision(textoLongo);
-  assert.strictEqual(decision.intensity, 10);
-  assert.strictEqual(decision.openness, 2);
-  assert.deepStrictEqual(decision.vivaSteps, ["V", "I", "A"]);
-  assert.strictEqual(decision.saveMemory, true);
-  assert.strictEqual(decision.hasTechBlock, true);
+  // Texto sem marcadores emocionais: comprimento não deve inflar a intensidade.
+  assert.ok(decision.intensity < 5, `intensidade neutra deve ser baixa (got ${decision.intensity})`);
+  assert.strictEqual(decision.openness, 1);
+  assert.strictEqual(decision.saveMemory, false);
+  assert.strictEqual(decision.hasTechBlock, false);
 });
 
 test("Case C: intensidade alta e vulnerável ativa NV3, memória e bloco técnico", async () => {

@@ -27,6 +27,6 @@ test("ContextBuilder inclui lembrete com o nome do usuário", async () => {
   const prompt = resultado.montarMensagemAtual(params.texto);
   assert.match(
     prompt,
-    /Usuário se chama Maria; use o nome apenas quando fizer sentido\./
+    /Usuário: Maria\. Use nome quando natural na conversa/
   );
 });
