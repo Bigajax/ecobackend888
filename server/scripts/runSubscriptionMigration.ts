@@ -8,7 +8,7 @@
 import { exec } from "child_process";
 import { createClient } from "@supabase/supabase-js";
 import * as path from "path";
-import * as dotenv from "dotenv";
+import dotenv from "dotenv";
 
 // Try both possible .env locations
 dotenv.config({ path: path.resolve(__dirname, "../../server/.env") });
