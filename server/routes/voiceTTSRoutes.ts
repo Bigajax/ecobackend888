@@ -1,5 +1,6 @@
 import express from "express";
 import { randomUUID } from "crypto";
+import { pipeline } from "stream";
 import { generateAudio, streamAudio } from "../services/elevenlabsService";
 
 const router = express.Router();
@@ -67,16 +68,24 @@ router.get("/tts/stream/:id", async (req, res) => {
       "x-voice-id": voiceId, // 👈 ajuda a depurar no Network
     });
 
-    stream.on("error", (err: any) => {
-      console.error("[TTS STREAM ERROR pipe]", err?.message || err);
-      if (!res.headersSent) {
-        res.status(502).json({ error: "Falha no stream de áudio." });
-      } else {
-        res.destroy(err);
+    // Se o cliente desconectar (áudio terminou de bufferizar, player fechado, seek), para de puxar
+    // da ElevenLabs — evita escrever num socket morto. `pipeline` cuida da limpeza dos dois lados e
+    // NUNCA deixa um erro de stream não-tratado derrubar o processo (era a causa do "funcionou 1 vez
+    // e depois Failed to fetch": o pipe crashava o servidor no fim do 1º áudio).
+    const abortUpstream = () => {
+      try {
+        (stream as any).destroy?.();
+      } catch {}
+    };
+    req.on("close", abortUpstream);
+
+    pipeline(stream as any, res, (err: any) => {
+      if (err) {
+        // erros esperados quando o cliente fecha no meio: não são fatais.
+        const code = err?.code || err?.message || err;
+        console.warn("[TTS STREAM pipe finalizado]", code);
       }
     });
-
-    stream.pipe(res);
   } catch (e: any) {
     console.error("[TTS STREAM ERROR]", { message: e?.message || e, status: e?.status });
     if (e?.message?.includes("Chave inválida")) {
