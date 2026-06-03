@@ -5,6 +5,7 @@ import {
   MAX_LEN_FOR_GREETING,
   type Msg as SaudacaoMsg,
 } from "../../utils/respostaSaudacaoAutomatica";
+import { fetchTemaRecenteMarcante } from "./greetingMemory";
 
 export interface GreetingPipelineParams {
   messages: ChatMessage[];
@@ -13,6 +14,10 @@ export interface GreetingPipelineParams {
   userName?: string;
   clientHour?: number | string | null;
   greetingEnabled: boolean;
+  /** Cliente Supabase (admin) para puxar memória recente na abertura. */
+  supabase?: any;
+  /** Convidados não têm memória persistente → abertura neutra. */
+  isGuest?: boolean;
 }
 
 export interface GreetingPipelineResult {
@@ -23,14 +28,16 @@ export interface GreetingPipelineResult {
 export class GreetingPipeline {
   constructor(private readonly guard = GreetGuard) {}
 
-  handle({
+  async handle({
     messages,
     ultimaMsg,
     userId,
     userName,
     clientHour,
     greetingEnabled,
-  }: GreetingPipelineParams): GreetingPipelineResult {
+    supabase,
+    isGuest = false,
+  }: GreetingPipelineParams): Promise<GreetingPipelineResult> {
     if (!greetingEnabled) {
       return { handled: false };
     }
@@ -88,7 +95,25 @@ export class GreetingPipeline {
       this.guard.can(userId)
     ) {
       this.guard.mark(userId);
-      return { handled: true, response: auto.text };
+
+      let response = auto.text;
+
+      // Abertura que "lembra como uma pessoa": só no 1º turno, usuário autenticado,
+      // e quando houver memória recente marcante (≥7). Qualquer falha → saudação neutra.
+      if (auto.meta?.firstTurn && !isGuest && supabase) {
+        const tema = await fetchTemaRecenteMarcante(supabase, userId);
+        if (tema) {
+          const comMemoria = respostaSaudacaoAutomatica({
+            messages: saudaMsgs,
+            userName,
+            clientHour: normalizedHour,
+            memoryTheme: tema,
+          });
+          if (comMemoria?.text) response = comMemoria.text;
+        }
+      }
+
+      return { handled: true, response };
     }
 
     return { handled: false };

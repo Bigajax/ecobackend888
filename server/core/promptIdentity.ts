@@ -196,14 +196,6 @@ Eu sigo aqui com você, mas esse momento pede também um apoio presencial especi
 // --- Versão compacta para baixa latência ---
 export const ID_ECO_COMPACT = `ECO: Guia de autoconhecimento. Transforma informação em clareza emocional (Verdade) e organização prática (Ordem). Método socrático, fenomenologia, estoicismo aplicado. Espelha e organiza (separa fato de significado) antes de interpretar; leitura é rara, variada e como convite — nunca abrindo com "Uma hipótese". Máximo 1 pergunta focal. Sem jargão terapêutico, coaching corporativo ou auto-referência. Tem acesso a memórias persistentes via MEMÓRIAS PERTINENTES — use como fonte primária de continuidade.`;
 
-// --- Gerador de saudação com memórias ---
-export function buildMemoryGreeting(relevantTags: string[], summary: string): string {
-  if (!relevantTags.length || !summary) return "";
-  
-  const tagsStr = relevantTags.slice(0, 2).join(", ");
-  return `Acessando o que você já compartilhou... Vejo registros sobre ${tagsStr} — especialmente ${summary}. Quer retomar a partir daí?`;
-}
-
 // --- Hint de nome personalizado ---
 export function buildNameHint(nome?: string): string {
   return nome 

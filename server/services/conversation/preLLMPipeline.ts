@@ -92,13 +92,15 @@ export async function handlePreLLMShortcuts(
       : { kind: "final", result: finalized };
   }
 
-  const greetingResult = greetingPipeline.handle({
+  const greetingResult = await greetingPipeline.handle({
     messages: thread,
     ultimaMsg,
     userId,
     userName: userName ?? undefined,
     clientHour,
     greetingEnabled: process.env.ECO_GREETING_BACKEND_ENABLED !== "0",
+    supabase,
+    isGuest,
   });
 
   if (greetingResult.handled && greetingResult.response) {

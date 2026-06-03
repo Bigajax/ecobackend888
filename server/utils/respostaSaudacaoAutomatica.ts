@@ -106,6 +106,23 @@ const BASE_VARIANTES_PRIMEIRA: Tpl[] = [
 ];
 
 /* ---------------------------------------
+   PRIMEIRA VEZ COM MEMÓRIA — "lembra como uma pessoa"
+   Tom caloroso: referencia 1 tema de leve, sem dossiê, sem datas.
+------------------------------------------ */
+type TplMem = (sd: string, nome: string, tema: string) => string;
+
+function capitalizar(s: string): string {
+  return s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
+}
+
+const VARIANTES_PRIMEIRA_COM_MEMORIA: TplMem[] = [
+  (sd, nome, tema) => `${sd}${nome}. Fiquei com aquilo sobre ${tema} na cabeça. Como tá hoje?`,
+  (sd, nome, tema) => `${sd}${nome}. Aquilo de ${tema} ainda ronda, ou aliviou?`,
+  (sd, nome, tema) => `${sd}${nome}. ${capitalizar(tema)} ficou comigo desde a última vez. Como isso está agora?`,
+  (sd, nome, tema) => `${sd}${nome}. Da última vez, ${tema} estava pesando. Como você chega com isso hoje?`,
+];
+
+/* ---------------------------------------
    VARIANTES POR HORÁRIO — mais diárias
 ------------------------------------------ */
 const VARIANTES_POR_HORARIO: Record<"madrugada" | "manha" | "tarde" | "noite", Tpl[]> = {
@@ -196,11 +213,15 @@ export function respostaSaudacaoAutomatica({
   userName,
   clientHour,
   clientTz,
+  memoryTheme,
 }: {
   messages: Msg[];
   userName?: string;
   clientHour?: number;
   clientTz?: string;
+  /** Tema leve de memória recente marcante (≥7). Quando presente no 1º turno, a abertura
+   *  "lembra" do que importou em vez de usar a saudação genérica. */
+  memoryTheme?: string;
 }): SaudacaoAutoResp | null {
   if (!messages?.length) return null;
 
@@ -240,8 +261,12 @@ export function respostaSaudacaoAutomatica({
     const h = horaLocalDoCliente({ clientHour, clientTz });
 
     if (firstTurn) {
+      const tema = memoryTheme?.trim();
+      const text = tema
+        ? pick(VARIANTES_PRIMEIRA_COM_MEMORIA)(sd, nome, tema)
+        : escolherSaudacaoPrimeira(sd, nome, h);
       return {
-        text: escolherSaudacaoPrimeira(sd, nome, h),
+        text,
         meta: {
           isGreeting: true,
           isFarewell: false,
