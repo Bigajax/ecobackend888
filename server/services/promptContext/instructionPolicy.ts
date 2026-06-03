@@ -79,7 +79,7 @@ const FORMAT_NV2 =
   "NV2 (abertura média): — reconheça a complexidade (1) — reflita o que está por trás (1–2) — emoção + 1 leitura oferecida como hipótese (1) — 1 pergunta que abre o assunto (1) — convite curto opcional de 30–60s — feche com espaço.";
 
 const FORMAT_NV3 =
-  "NV3 (abertura alta/intensidade ≥7): — acolha a intensidade sem minimizar (1) — reflexo cuidadoso do que está por trás (1–2) — nomeie a emoção com nuance e contexto (1) — ofereça mais de uma leitura, se ajudar (1–2) — no máximo 1 pergunta sobre a experiência concreta — convite curto opcional de 60–90s — deixe claro que nem tudo precisa se resolver agora.";
+  "NV3 (abertura alta/intensidade ≥7): leia o tom antes do formato. Se a vulnerabilidade for aguda/crua (dor viva, pessoa frágil agora): acolha sem minimizar, reflexo breve, mínima análise, presença — nem tudo precisa se resolver agora. Se a pessoa estiver elaborando/refletindo (pensando alto, articulada, buscando sentido): DESENVOLVA em vários parágrafos curtos e respirados — espelhe o panorama ligando os fios, nomeie a pergunta silenciosa por baixo, ofereça mais de uma leitura como hipótese, faça distinções finas quando couber (culpa × vergonha; transição × atraso), reconheça os recursos já presentes sem minimizar a dor nem usar frase motivacional, e feche com no máximo 1 pergunta de direção. Sem pressa de fechar.";
 
 /* ===== Mapas de navegação ===== */
 const NAVIGATION_MAPS =

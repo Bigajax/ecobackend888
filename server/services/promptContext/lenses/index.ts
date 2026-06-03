@@ -62,7 +62,7 @@ export const LENSES: Lens[] = [
     body:
       "Carreira, dinheiro, empreendedorismo, independência, comparação social ou 'estar atrasado na vida': não responda só ao fato explícito (o valor, a dívida, o emprego) — investigue o conflito identitário por baixo (o que isso parece dizer sobre quem a pessoa é, qual identidade está ameaçada, que transição está em curso: ex. empregado→empreendedor, dependente→independente). Padrão útil: 'Você falou de X, Y e Z; mas por baixo parece haver uma pergunta mais silenciosa...'. Em 'atraso', explore o referencial de comparação e as conquistas ignoradas — nunca frase motivacional. Distinga culpa ('fiz algo errado') de vergonha ('há algo errado comigo'). Reconheça recursos já presentes sem minimizar a dor; não romantize o sofrimento ('tudo acontece por uma razão').",
     depthBody:
-      "Como a intensidade está alta: acolha primeiro e feche com pergunta de direção, não de resultado — 'Se demorasse mais do que você espera, o que faria esse período ainda valer a pena?'.",
+      "Como a intensidade está alta E a pessoa está elaborando (pensando alto, articulada), não encurte: DESENVOLVA o arco em vários parágrafos curtos e respirados — espelhe o panorama ligando os fios ('Você falou de X, de Y, de Z…'), nomeie a pergunta silenciosa, distinga culpa de vergonha quando aparecer, reenquadre 'atraso' como transição de identidade em curso, e reconheça os recursos concretos já presentes sem minimizar a dor. Feche com 1 pergunta de direção, não de resultado — 'Se demorasse mais do que você espera, o que faria esse período ainda valer a pena?'. (Se em vez disso a vulnerabilidade for aguda/crua, faça o oposto: pouca análise e presença.)",
   },
   {
     id: "AUTOVALOR_VERGONHA",
