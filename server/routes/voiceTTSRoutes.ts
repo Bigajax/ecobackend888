@@ -131,9 +131,18 @@ router.post("/tts", async (req, res) => {
       responseBody: e?.responseBody
     });
 
-    // Retornar status apropriado baseado no erro
+    // Retornar status apropriado baseado no erro (ordem importa: chave/permissão antes de timeout,
+    // pois a msg de "Chave inválida ... na ElevenLabs" contém a palavra "ElevenLabs").
     if (e?.message?.includes("ELEVEN_API_KEY")) {
-      return res.status(503).json({ error: "Serviço TTS indisponível (chave não configurada)" });
+      return res.status(503).json({ error: "Serviço TTS indisponível (chave não configurada)." });
+    }
+    if (e?.message?.includes("Chave inválida")) {
+      return res
+        .status(503)
+        .json({ error: "Serviço TTS indisponível (chave inválida, sem permissão de TTS ou sem créditos)." });
+    }
+    if (e?.message?.includes("VOICE_ID")) {
+      return res.status(503).json({ error: "Serviço TTS indisponível (voz inválida)." });
     }
     if (e?.message?.includes("timeout") || e?.message?.includes("ElevenLabs")) {
       return res.status(504).json({ error: "ElevenLabs timeout. Tente novamente." });
