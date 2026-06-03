@@ -1,0 +1,36 @@
+name: keep-warm
+
+# Mantém o backend (Render free) acordado: o plano gratuito hiberna após ~15 min
+# de inatividade, e a 1ª request no cold-start falha (era a causa do TTS "funcionar
+# só 1 vez"). Este cron faz um ping no /api/health a cada ~10 min.
+#
+# Notas:
+# - O agendamento do GitHub Actions NÃO é exato (pode atrasar alguns minutos) e fica
+#   suspenso se o repositório passar ~60 dias sem atividade.
+# - O ping não derruba o workflow se falhar (keep-warm não deve spammar notificação);
+#   ele apenas acorda o serviço.
+
+on:
+  schedule:
+    - cron: "*/10 * * * *" # a cada 10 minutos
+  workflow_dispatch: {} # permite disparar manualmente na aba Actions
+
+jobs:
+  ping:
+    name: ping /api/health
+    runs-on: ubuntu-latest
+    steps:
+      - name: Acorda o backend
+        env:
+          HEALTH_URL: https://ecobackend888.onrender.com/api/health
+        run: |
+          # --max-time 90 aguenta o cold-start; --retry cobre a janela de recycle.
+          code=$(curl -s -o /dev/null -w "%{http_code}" \
+            --max-time 90 --retry 3 --retry-delay 5 --retry-all-errors \
+            "$HEALTH_URL" || echo "000")
+          echo "GET $HEALTH_URL -> HTTP $code"
+          if [ "$code" = "200" ]; then
+            echo "Backend acordado."
+          else
+            echo "::warning::Ping retornou HTTP $code (pode ser cold-start em andamento)."
+          fi
