@@ -185,3 +185,107 @@ export async function generateAudio(
     throw e;
   }
 }
+
+/* ──────────────────────────── TTS streaming ──────────────────────────── */
+/**
+ * Igual a generateAudio (mesmo preset CALMO/modelo), mas devolve o STREAM de áudio da ElevenLabs
+ * em vez de bufferizar tudo. Permite tocar o som assim que os primeiros bytes chegam (sem esperar a
+ * síntese inteira nem estourar timeout em textos longos). O timeout vale só até a resposta começar
+ * (TTFB); depois o stream flui livre.
+ */
+export async function streamAudio(
+  text: string,
+  voiceId?: string
+): Promise<{ stream: NodeJS.ReadableStream; voiceId: string }> {
+  if (typeof text !== "string") throw new Error("Texto inválido para conversão em áudio.");
+  const sanitized = text.replace(/\s+/g, " ").trim();
+  if (!sanitized) throw new Error("Texto vazio após saneamento.");
+  const limited = sanitized.slice(0, 2400);
+
+  const ELEVEN_API_KEY = getApiKey();
+  const vid = (voiceId || getDefaultVoiceId()).trim();
+  const model = process.env.ELEVEN_MODEL_ID || "eleven_multilingual_v2";
+
+  const headers = new Headers({
+    "xi-api-key": ELEVEN_API_KEY,
+    "Content-Type": "application/json",
+    Accept: "audio/mpeg",
+  });
+
+  const body = {
+    text: limited,
+    model_id: model,
+    voice_settings: {
+      stability: 0.65,
+      similarity_boost: 0.9,
+      style: 0.12,
+      use_speaker_boost: true,
+    },
+    output_format: "mp3_44100_128",
+  };
+
+  const url = `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(vid)}/stream`;
+
+  let attempt = 0;
+  const maxAttempts = 3;
+  const backoff = [0, 600, 1500]; // ms
+
+  while (attempt < maxAttempts) {
+    // timeout só até os headers da resposta chegarem; o corpo (stream) flui sem abortar.
+    const controller = new AbortController();
+    const t = setTimeout(() => controller.abort(), 15_000);
+
+    let resp;
+    try {
+      resp = await fetch(url, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+    } catch (err: any) {
+      clearTimeout(t);
+      const transient =
+        err?.name === "AbortError" || err?.code === "ECONNRESET" || err?.code === "ETIMEDOUT";
+      if (transient && attempt < maxAttempts - 1) {
+        await sleep(backoff[attempt + 1] || 1200);
+        attempt++;
+        continue;
+      }
+      throw err;
+    }
+    clearTimeout(t);
+
+    if (!resp.ok) {
+      const errText = await resp.text().catch(() => "");
+      console.error("[ElevenLabs STREAM ERROR]", {
+        status: resp.status,
+        statusText: resp.statusText,
+        url,
+        model,
+        bodyPreview: errText.slice(0, 600),
+      });
+
+      if ((resp.status === 429 || (resp.status >= 500 && resp.status <= 599)) && attempt < maxAttempts - 1) {
+        await sleep(backoff[attempt + 1] || 1200);
+        attempt++;
+        continue;
+      }
+      if (resp.status === 401 || resp.status === 403)
+        throw new Error("Chave inválida ou sem permissão de TTS na ElevenLabs.");
+      if (resp.status === 404) throw new Error("VOICE_ID inválido/não encontrado.");
+      if (resp.status === 422)
+        throw new Error("Requisição inválida (texto vazio/curto ou parâmetros inconsistentes).");
+
+      const e: any = new Error(`ElevenLabs ${resp.status}: ${resp.statusText}`);
+      e.status = resp.status;
+      e.responseBody = errText.slice(0, 600);
+      throw e;
+    }
+
+    if (!resp.body) throw new Error("Stream de áudio vazio.");
+    return { stream: resp.body as unknown as NodeJS.ReadableStream, voiceId: vid };
+  }
+
+  throw new Error("Falha ao obter áudio (stream) após múltiplas tentativas.");
+}
