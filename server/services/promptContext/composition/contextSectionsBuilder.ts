@@ -154,7 +154,7 @@ export function buildContextSections({
   }
 
   extras.push(
-    `Preferências de forma (NV${nivel}): 1) Espelho de segunda ordem (sintetize intenção, evite repetir literalmente). 2) Ao inferir, marque como hipótese: "Uma hipótese é...". 3) Máx. 1 pergunta aberta. 4) Convites práticos (30–90s) são opcionais — priorize em NV${nivel >= 2 ? "2/3" : "1"} e evite se houver baixa energia.`
+    `Preferências de forma (NV${nivel}): 1) Espelho de segunda ordem (sintetize intenção, evite repetir literalmente). 2) Espelhe e separe fato de significado ANTES de qualquer leitura; se inferir, use linguagem variada e segura (sem "Uma hipótese" como abertura padrão, sem interpretação forte sem evidência). 3) Máx. 1 pergunta aberta. 4) Convites práticos (30–90s) são opcionais — priorize em NV${nivel >= 2 ? "2/3" : "1"} e evite se houver baixa energia.`
   );
   extras.push(
     "Sem pergunta quando houver fechamento explícito, sobrecarga ou pedido direto de informação; nesses casos, feche com síntese clara e convide a retomar depois."
