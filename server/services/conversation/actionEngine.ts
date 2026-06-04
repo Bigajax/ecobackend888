@@ -39,6 +39,15 @@ export interface AcaoRecomendada {
   tipo?: TipoAcao;
 }
 
+/** Tema do perfil do usuário (derivados.top_temas_30d), usado na personalização. */
+export interface PerfilTema {
+  tema: string;
+  /** Frequência nos últimos 30d. */
+  freq?: number;
+  /** Intensidade emocional média do tema (0–10). */
+  intensidade?: number;
+}
+
 export interface DecideAcaoInput {
   /** Mensagem do usuário no turno atual. */
   texto: string;
@@ -50,6 +59,12 @@ export interface DecideAcaoInput {
   flags?: Record<string, unknown> | null;
   /** Tema recorrente (ex.: do perfil/derivados). Habilita a ação "relatorio". */
   temaRecorrente?: { tema: string; freq: number } | null;
+  /**
+   * Temas recorrentes do perfil (mais frequentes primeiro). Usado para PERSONALIZAR a
+   * recomendação quando o usuário pede sugestão de conteúdo sem trazer sinal no texto
+   * (ex.: botão "Sugerir conteúdo"). Sem isso, o motor é só keyword do turno atual.
+   */
+  topTemas?: PerfilTema[] | null;
   /**
    * Id do usuário autenticado. Habilita o cooldown anti-repetição por ação.
    * Ausente/null → sem cooldown (comportamento puro, usado em testes e guests).
@@ -184,6 +199,55 @@ const RE_DINHEIRO =
 const RE_ENERGIA =
   /\b(?:sem energia|sem animo|desanimad|desmotivad|exaust|esgotad|apatic|sem vontade|sem forcas|abatid|prostrad|drenad)/;
 
+// Intenção explícita de "me sugira algo": o botão "Sugerir conteúdo" da home cai aqui.
+// Quando detectada, personalizamos pelo perfil (top_temas_30d) em vez de exigir keyword.
+const RE_SUGESTAO =
+  /\b(?:sugerir conteudo|sugest(?:ao|oes) de conteudo|sugere algo|recomend\w* (?:um |uma |algum |alguma )?(?:conteudo|pratica|programa|meditacao|exercicio|algo)|me (?:sugere|indica|recomenda) algo|o que (?:voce )?(?:me )?recomenda|que conteudo)/;
+
+// ── Personalização pelo perfil (top_temas_30d) ───────────────────────────────
+// Mapeia o NOME de um tema recorrente para o melhor conteúdo do catálogo, reaproveitando
+// os mesmos padrões usados no texto do turno + sinônimos comuns de tema.
+function temaParaConteudo(temaNorm: string): AcaoId | null {
+  if (RE_SONO.test(temaNorm)) return "sono";
+  if (RE_DINHEIRO.test(temaNorm)) return "riqueza_mental";
+  if (RE_DISCIPLINA.test(temaNorm) || /\b(?:procrastinacao|disciplina|habito|foco|produtividade)/.test(temaNorm))
+    return "aneis";
+  if (RE_ESTRESSE.test(temaNorm)) return "liberar_estresse";
+  if (RE_ENERGIA.test(temaNorm) || /\b(?:cansaco|desanimo|apatia|burnout)/.test(temaNorm))
+    return "energy_blessings";
+  if (RE_ATIVACAO.test(temaNorm) || /\b(?:medo|preocupacao|estresse mental)/.test(temaNorm))
+    return "meditacao";
+  if (
+    RE_AUTOCOBRANCA.test(temaNorm) ||
+    /\b(?:autocritic|autocobranca|culpa|verg|perfeccion|autoestima|autoimagem)/.test(temaNorm)
+  )
+    return "estoicismo";
+  if (RE_CONFUSAO.test(temaNorm) || /\b(?:decis|escolha|proposito|sentido|relacionament)/.test(temaNorm))
+    return "diario";
+  return null;
+}
+
+/**
+ * Escolhe um conteúdo personalizado a partir dos temas recorrentes do perfil
+ * (mais frequente primeiro; desempate por intensidade média). Sem tema mapeável,
+ * usa um default gentil de entrada ("meditacao" = "Inicie sua jornada").
+ */
+function personalizarPorPerfil(topTemas: PerfilTema[] | null | undefined): AcaoId {
+  const temas = (topTemas ?? []).filter(
+    (t): t is PerfilTema => !!t && typeof t.tema === "string" && t.tema.trim().length > 0
+  );
+  const ordenados = [...temas].sort((a, b) => {
+    const df = (b.freq ?? 0) - (a.freq ?? 0);
+    if (df !== 0) return df;
+    return (b.intensidade ?? 0) - (a.intensidade ?? 0);
+  });
+  for (const t of ordenados) {
+    const conteudo = temaParaConteudo(normalize(t.tema));
+    if (conteudo) return conteudo;
+  }
+  return "meditacao";
+}
+
 // ── Anti-repetição (cooldown por usuário+ação) ───────────────────────────────
 // Estado em memória, best-effort (zera em restart). Mapa: usuarioId → (tipo → epochMs).
 const ultimaAcaoPorUsuario = new Map<string, Map<AcaoId, number>>();
@@ -283,6 +347,14 @@ export function decideAcaoRecomendada(input: DecideAcaoInput): AcaoRecomendada |
     candidatos.push(build("relatorio", 60, descricao));
   }
 
+  // INTENÇÃO "SUGERIR CONTEÚDO": pedido explícito (ex.: botão da home envia "Sugerir conteúdo").
+  // Aqui o texto não tem sinal próprio → personalizamos pelo perfil e priorizamos conteúdo real
+  // acima do "relatório" genérico (75 > 60). No chat normal isso NÃO dispara (segue conservador).
+  const querSugestao = RE_SUGESTAO.test(t);
+  if (querSugestao) {
+    candidatos.push(build(personalizarPorPerfil(input.topTemas), 75));
+  }
+
   if (candidatos.length === 0) {
     return null; // Conservador: sem gatilho claro, não mostra nada.
   }
@@ -298,6 +370,12 @@ export function decideAcaoRecomendada(input: DecideAcaoInput): AcaoRecomendada |
   const agora = input.agoraMs ?? Date.now();
   const escolhido = candidatos.find((c) => !emCooldown(usuarioId, c.id, agora));
   if (!escolhido) {
+    // Pedido explícito de sugestão sempre devolve algo (ignora o cooldown neste turno).
+    if (querSugestao) {
+      const top = candidatos[0];
+      registrarAcao(usuarioId, top.id, agora);
+      return top;
+    }
     return null; // Tudo recém-sugerido: não insistir neste turno.
   }
 

@@ -175,3 +175,74 @@ test("crise bloqueia os novos gatilhos também", () => {
   const acao = decideAcaoRecomendada({ texto: "sem dinheiro e sem vontade de viver", intensidade: 9, openness: 3, flags: { ideacao: true } });
   assert.equal(acao, null);
 });
+
+// ── "Sugerir conteúdo" (botão da home): personalização pelo perfil ───────────
+
+test("sugerir conteúdo + perfil de dinheiro → riqueza_mental", () => {
+  __resetCooldownStore();
+  const acao = decideAcaoRecomendada({
+    texto: "Sugerir conteúdo",
+    intensidade: 2,
+    openness: 2,
+    topTemas: [
+      { tema: "dinheiro", freq: 8, intensidade: 6 },
+      { tema: "trabalho", freq: 5, intensidade: 4 },
+    ],
+  });
+  assert.equal(acao?.id, "riqueza_mental");
+});
+
+test("sugerir conteúdo + perfil de sono → sono", () => {
+  __resetCooldownStore();
+  const acao = decideAcaoRecomendada({
+    texto: "Sugerir conteúdo",
+    intensidade: 2,
+    openness: 2,
+    topTemas: [{ tema: "sono", freq: 9 }],
+  });
+  assert.equal(acao?.id, "sono");
+});
+
+test("sugerir conteúdo sem perfil → default meditacao", () => {
+  __resetCooldownStore();
+  const acao = decideAcaoRecomendada({ texto: "Sugerir conteúdo", intensidade: 1, openness: 1 });
+  assert.equal(acao?.id, "meditacao");
+});
+
+test("sugerir conteúdo em crise → null (segurança vence)", () => {
+  const acao = decideAcaoRecomendada({
+    texto: "Sugerir conteúdo",
+    intensidade: 8,
+    openness: 3,
+    flags: { ideacao: true },
+    topTemas: [{ tema: "dinheiro", freq: 8 }],
+  });
+  assert.equal(acao, null);
+});
+
+test("sugerir conteúdo prioriza conteúdo do perfil acima do relatório", () => {
+  __resetCooldownStore();
+  const acao = decideAcaoRecomendada({
+    texto: "Sugerir conteúdo",
+    intensidade: 2,
+    openness: 2,
+    temaRecorrente: { tema: "dinheiro", freq: 20 }, // sozinho dispararia relatorio (prio 60)
+    topTemas: [{ tema: "dinheiro", freq: 20, intensidade: 5 }],
+  });
+  assert.equal(acao?.id, "riqueza_mental"); // personalizado (75) > relatorio (60)
+});
+
+test("sugerir conteúdo sempre devolve algo (ignora cooldown no pedido explícito)", () => {
+  __resetCooldownStore();
+  const base = {
+    texto: "Sugerir conteúdo",
+    intensidade: 2,
+    openness: 2 as const,
+    usuarioId: "user-sug",
+    topTemas: [{ tema: "sono", freq: 9 }],
+  };
+  const a = decideAcaoRecomendada({ ...base, agoraMs: 5_000_000 });
+  assert.equal(a?.id, "sono");
+  const b = decideAcaoRecomendada({ ...base, agoraMs: 5_000_000 + 60_000 });
+  assert.equal(b?.id, "sono"); // explícito → ainda devolve, mesmo recém-sugerido
+});

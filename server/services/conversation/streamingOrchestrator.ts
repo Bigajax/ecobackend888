@@ -94,6 +94,8 @@ interface StreamingExecutionParams {
   };
   /** Tema recorrente do perfil (top_temas_30d). Habilita a ação "ver evolução" (relatório). */
   temaRecorrente?: { tema: string; freq: number } | null;
+  /** Temas recorrentes do perfil (top_temas_30d) para personalizar a sugestão de conteúdo. */
+  topTemas?: { tema: string; freq?: number; intensidade?: number }[] | null;
   abortSignal?: AbortSignal;
 }
 
@@ -123,6 +125,7 @@ export async function executeStreamingLLM({
   contextMeta,
   continuity,
   temaRecorrente,
+  topTemas,
   abortSignal,
 }: StreamingExecutionParams): Promise<EcoStreamingResult> {
   console.log("[ECO-SSE] início streaming", { timestamp: new Date().toISOString() });
@@ -1015,6 +1018,7 @@ export async function executeStreamingLLM({
             openness: ecoDecision.openness,
             flags: (ecoDecision.flags ?? null) as Record<string, unknown> | null,
             temaRecorrente: temaRecorrente ?? null,
+            topTemas: topTemas ?? null,
             usuarioId: userId,
           });
       if (acao) {

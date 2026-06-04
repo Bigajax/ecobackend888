@@ -710,6 +710,19 @@ export async function getEcoResponse({
               ? { tema: top.tema, freq: top.freq_30d }
               : null;
           })(),
+          topTemas: (() => {
+            const temas = (context?.derivados as any)?.top_temas_30d;
+            return Array.isArray(temas)
+              ? temas
+                  .filter((t: any) => t && typeof t.tema === "string")
+                  .map((t: any) => ({
+                    tema: t.tema as string,
+                    freq: typeof t.freq_30d === "number" ? t.freq_30d : undefined,
+                    intensidade:
+                      typeof t.int_media_30d === "number" ? t.int_media_30d : undefined,
+                  }))
+              : null;
+          })(),
           basePrompt: systemPrompt,
           basePromptHash,
           abortSignal,
