@@ -70,6 +70,7 @@ export const CORS_ALLOWED_HEADERS = [
   "X-Eco-Client-Message-Id",
   "X-Eco-Guest-Id",
   "X-Eco-Session-Id",
+  "X-Eco-Bias-Hint",       // Identity headers (voiceApi/ask-eco) — sem isto o preflight bloqueia TTS
   "X-Session-Id",          // Frontend meditation feedback
   "X-Guest-Id",            // Frontend meditation feedback
   "X-Client-Id",
