@@ -348,10 +348,12 @@ export function decideAcaoRecomendada(input: DecideAcaoInput): AcaoRecomendada |
   }
 
   // INTENÇÃO "SUGERIR CONTEÚDO": pedido explícito (ex.: botão da home envia "Sugerir conteúdo").
-  // Aqui o texto não tem sinal próprio → personalizamos pelo perfil e priorizamos conteúdo real
-  // acima do "relatório" genérico (75 > 60). No chat normal isso NÃO dispara (segue conservador).
+  // "Perguntar o tema primeiro": o gatilho PURO do botão (sem nenhum sinal topical no texto) NÃO
+  // emite card — a Eco pergunta a área e o card vem no turno seguinte, já com o tema. Quando o
+  // pedido vier acompanhado de tema (ex.: "sugira algo pra dormir"), o candidato topical já existe
+  // e aqui só reforçamos com a personalização por perfil (75 > "relatório" genérico 60).
   const querSugestao = RE_SUGESTAO.test(t);
-  if (querSugestao) {
+  if (querSugestao && candidatos.length > 0) {
     candidatos.push(build(personalizarPorPerfil(input.topTemas), 75));
   }
 

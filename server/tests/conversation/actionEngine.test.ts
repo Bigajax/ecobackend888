@@ -176,23 +176,18 @@ test("crise bloqueia os novos gatilhos também", () => {
   assert.equal(acao, null);
 });
 
-// ── "Sugerir conteúdo" (botão da home): personalização pelo perfil ───────────
+// ── "Sugerir conteúdo" (botão da home): PERGUNTA O TEMA PRIMEIRO ───────────────
+// Decisão de produto: o gatilho PURO do botão NÃO emite card no turno 1 — a Eco pergunta a
+// área e o card vem no turno seguinte, já com o tema. Só quando o pedido vem acompanhado de
+// sinal topical no texto (ou tema recorrente forte) é que o card aparece junto.
 
-test("sugerir conteúdo + perfil de dinheiro → riqueza_mental", () => {
+test("sugerir conteúdo puro (sem tema) → null (pergunta a área primeiro)", () => {
   __resetCooldownStore();
-  const acao = decideAcaoRecomendada({
-    texto: "Sugerir conteúdo",
-    intensidade: 2,
-    openness: 2,
-    topTemas: [
-      { tema: "dinheiro", freq: 8, intensidade: 6 },
-      { tema: "trabalho", freq: 5, intensidade: 4 },
-    ],
-  });
-  assert.equal(acao?.id, "riqueza_mental");
+  const acao = decideAcaoRecomendada({ texto: "Sugerir conteúdo", intensidade: 1, openness: 1 });
+  assert.equal(acao, null);
 });
 
-test("sugerir conteúdo + perfil de sono → sono", () => {
+test("sugerir conteúdo puro + perfil → null (perfil não força card no turno 1)", () => {
   __resetCooldownStore();
   const acao = decideAcaoRecomendada({
     texto: "Sugerir conteúdo",
@@ -200,13 +195,17 @@ test("sugerir conteúdo + perfil de sono → sono", () => {
     openness: 2,
     topTemas: [{ tema: "sono", freq: 9 }],
   });
-  assert.equal(acao?.id, "sono");
+  assert.equal(acao, null);
 });
 
-test("sugerir conteúdo sem perfil → default meditacao", () => {
+test("pedido de sugestão COM tema no texto → card do tema", () => {
   __resetCooldownStore();
-  const acao = decideAcaoRecomendada({ texto: "Sugerir conteúdo", intensidade: 1, openness: 1 });
-  assert.equal(acao?.id, "meditacao");
+  const acao = decideAcaoRecomendada({
+    texto: "me recomenda algo pra dormir",
+    intensidade: 3,
+    openness: 2,
+  });
+  assert.equal(acao?.id, "sono");
 });
 
 test("sugerir conteúdo em crise → null (segurança vence)", () => {
@@ -220,22 +219,22 @@ test("sugerir conteúdo em crise → null (segurança vence)", () => {
   assert.equal(acao, null);
 });
 
-test("sugerir conteúdo prioriza conteúdo do perfil acima do relatório", () => {
+test("sugerir conteúdo com tema recorrente forte → personaliza acima do relatório", () => {
   __resetCooldownStore();
   const acao = decideAcaoRecomendada({
     texto: "Sugerir conteúdo",
     intensidade: 2,
     openness: 2,
-    temaRecorrente: { tema: "dinheiro", freq: 20 }, // sozinho dispararia relatorio (prio 60)
+    temaRecorrente: { tema: "dinheiro", freq: 20 }, // gera candidato relatorio (prio 60)
     topTemas: [{ tema: "dinheiro", freq: 20, intensidade: 5 }],
   });
   assert.equal(acao?.id, "riqueza_mental"); // personalizado (75) > relatorio (60)
 });
 
-test("sugerir conteúdo sempre devolve algo (ignora cooldown no pedido explícito)", () => {
+test("pedido de sugestão COM tema sempre devolve algo (ignora cooldown)", () => {
   __resetCooldownStore();
   const base = {
-    texto: "Sugerir conteúdo",
+    texto: "me recomenda algo pra dormir",
     intensidade: 2,
     openness: 2 as const,
     usuarioId: "user-sug",
