@@ -185,19 +185,27 @@ function build(id: AcaoId, prioridade: number, descricaoOverride?: string): Acao
 const RE_SONO =
   /\b(?:insonia|inson|nao consigo dormir|nao durmo|durmo mal|sono ruim|sem dormir|mal dormid|acordad|acordo de madrugada|acordo varias vezes|rolando na cama|pregar o olho|madrugada|de noite|a noite|sono|dormir)/;
 const RE_ATIVACAO =
-  /\b(?:ansios|ansiedade|angusti|panico|acelerad|coracao disparad|peito apertad|nao paro de pensar|nao consigo relaxar|agitad|surtand|nervos|aflit|ofegante)/;
+  /\b(?:ansios|ansiedade|angusti|panico|acelerad|coracao disparad|peito apertad|nao paro de pensar|nao consigo relaxar|agitad|surtand|nervos|aflit|ofegante|preocupad|inquiet|apreensiv|tens(?:o|a|ao)|mente a mil|mente acelerada|sobrecarga mental|sufocad|agoni|to mal|estou mal|na pior)/;
 const RE_AUTOCOBRANCA =
   /\b(?:me cobro|me cobrar|cobranca|me culpo|exigente comigo|perfeccionis|deveria ter|nunca e suficiente|nao sou bom o suficiente|nao sou boa o suficiente|tenho que dar conta|nao posso falhar)/;
 const RE_CONFUSAO =
   /\b(?:confus|nao sei o que|sem direcao|sem rumo|perdid|indecis|em duvida|nao sei se|cabeca a mil|pensamento embolad)/;
 const RE_ESTRESSE =
-  /\b(?:estress|tensao|tenso|sobrecarregad|no limite|dia pesado|dia dificil|preciso relaxar|preciso descarregar|exausto do trabalho|fim de expediente|nao aguento mais o dia)/;
+  /\b(?:estress|tensao|tenso|sobrecarregad|no limite|dia pesado|dia dificil|preciso relaxar|preciso descarregar|exausto do trabalho|fim de expediente|nao aguento mais o dia|estafad|saturad|sem paciencia|irritad|no meu limite|cabeca explodindo|pressao do trabalho)/;
 const RE_DISCIPLINA =
   /\b(?:procrastin|deixo pra depois|deixo para depois|adio|adiar|enrol|sempre desisto|desisto sempre|nunca termino|nao consigo manter|falta de disciplina|sem disciplina|sem constancia|nao tenho constancia|nao crio habito|preguica de|comeco e paro)/;
 const RE_DINHEIRO =
   /\b(?:dinheiro|grana|dividas|divida|financ|sem dinheiro|falta de dinheiro|escassez|contas para pagar|contas pra pagar|boletos|boleto|salario|prosperidade|ganhar mais|mente financeira|mindset financeiro|pobre)/;
 const RE_ENERGIA =
   /\b(?:sem energia|sem animo|desanimad|desmotivad|exaust|esgotad|apatic|sem vontade|sem forcas|abatid|prostrad|drenad)/;
+
+// Pedido EXPLÍCITO de meditar / relaxar / respirar (alta confiança → prioridade alta).
+const RE_MEDITAR =
+  /\b(?:quero meditar|preciso meditar|vou meditar|como meditar|tem (?:alguma )?medita|me (?:indica|recomenda|sugere|passa) (?:uma |alguma )?medita|medita(?:c|ç)(?:ao|ão) guiada|fazer uma medita|comecar a meditar|começar a meditar|quero relaxar|preciso relaxar|quero me acalmar|me acalmar|acalmar a mente|preciso de calma|exercicio de respiracao|pratica de respiracao|quero respirar|aprender a respirar|paz de espirito)/;
+
+// Foco / concentração / presença (cai em meditação de respiração/atenção plena).
+const RE_FOCO =
+  /\b(?:foco|focar|concentr|distra(?:id|ç)|disperso|presenca|presença|atencao plena|atenção plena|mindfulness|aterr|estar presente)/;
 
 // Intenção explícita de "me sugira algo": o botão "Sugerir conteúdo" da home cai aqui.
 // Quando detectada, personalizamos pelo perfil (top_temas_30d) em vez de exigir keyword.
@@ -215,7 +223,12 @@ function temaParaConteudo(temaNorm: string): AcaoId | null {
   if (RE_ESTRESSE.test(temaNorm)) return "liberar_estresse";
   if (RE_ENERGIA.test(temaNorm) || /\b(?:cansaco|desanimo|apatia|burnout)/.test(temaNorm))
     return "energy_blessings";
-  if (RE_ATIVACAO.test(temaNorm) || /\b(?:medo|preocupacao|estresse mental)/.test(temaNorm))
+  if (
+    RE_ATIVACAO.test(temaNorm) ||
+    RE_MEDITAR.test(temaNorm) ||
+    RE_FOCO.test(temaNorm) ||
+    /\b(?:medo|preocupacao|estresse mental|meditac|relax|calma)/.test(temaNorm)
+  )
     return "meditacao";
   if (
     RE_AUTOCOBRANCA.test(temaNorm) ||
@@ -293,8 +306,14 @@ export function decideAcaoRecomendada(input: DecideAcaoInput): AcaoRecomendada |
     candidatos.push(build("sono", 100));
   }
 
-  // 2) MEDITAÇÃO — ativação/ansiedade (palavra-chave OU linguagem de emoção alta).
-  if (RE_ATIVACAO.test(t) || flag(flags, "emocao_alta_linguagem")) {
+  // 2) MEDITAÇÃO — ativação/ansiedade (palavra-chave OU linguagem de emoção alta),
+  //    pedido explícito de meditar/relaxar/respirar, ou foco/atenção plena.
+  if (
+    RE_ATIVACAO.test(t) ||
+    RE_MEDITAR.test(t) ||
+    RE_FOCO.test(t) ||
+    flag(flags, "emocao_alta_linguagem")
+  ) {
     candidatos.push(build("meditacao", 90));
   }
 

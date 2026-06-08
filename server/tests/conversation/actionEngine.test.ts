@@ -156,6 +156,26 @@ test("ansiedade aguda continua → meditacao", () => {
   assert.equal(acao?.id, "meditacao");
 });
 
+test("pedido explícito de meditar → meditacao", () => {
+  const acao = decideAcaoRecomendada({ texto: "quero meditar mas não sei como começar", intensidade: 3, openness: 2 });
+  assert.equal(acao?.id, "meditacao");
+});
+
+test("pergunta 'tem alguma meditação?' → meditacao", () => {
+  const acao = decideAcaoRecomendada({ texto: "tem alguma meditação aqui pra eu fazer?", intensidade: 2, openness: 2 });
+  assert.equal(acao?.id, "meditacao");
+});
+
+test("foco/concentração → meditacao", () => {
+  const acao = decideAcaoRecomendada({ texto: "não consigo focar, vivo disperso", intensidade: 3, openness: 2 });
+  assert.equal(acao?.id, "meditacao");
+});
+
+test("preocupação difusa → meditacao", () => {
+  const acao = decideAcaoRecomendada({ texto: "estou preocupado e inquieto com tudo", intensidade: 5, openness: 2 });
+  assert.equal(acao?.id, "meditacao");
+});
+
 test("procrastinação/constância → aneis", () => {
   const acao = decideAcaoRecomendada({ texto: "começo as coisas e sempre desisto, não tenho constância", intensidade: 4, openness: 2 });
   assert.equal(acao?.id, "aneis");
