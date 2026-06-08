@@ -187,17 +187,17 @@ const RE_SONO =
 const RE_ATIVACAO =
   /\b(?:ansios|ansiedade|angusti|panico|acelerad|coracao disparad|peito apertad|nao paro de pensar|nao consigo relaxar|agitad|surtand|nervos|aflit|ofegante|preocupad|inquiet|apreensiv|tens(?:o|a|ao)|mente a mil|mente acelerada|sobrecarga mental|sufocad|agoni|to mal|estou mal|na pior)/;
 const RE_AUTOCOBRANCA =
-  /\b(?:me cobro|me cobrar|cobranca|me culpo|exigente comigo|perfeccionis|deveria ter|nunca e suficiente|nao sou bom o suficiente|nao sou boa o suficiente|tenho que dar conta|nao posso falhar)/;
+  /\b(?:autocritic|autocobranca|auto critica|auto cobranca|me cobro|me cobrar|cobranca|me culpo|culpa|verg(?:onha|onh)|exigente comigo|perfeccionis|deveria ter|nunca e suficiente|nao sou bom o suficiente|nao sou boa o suficiente|tenho que dar conta|nao posso falhar)/;
 const RE_CONFUSAO =
   /\b(?:confus|nao sei o que|sem direcao|sem rumo|perdid|indecis|em duvida|nao sei se|cabeca a mil|pensamento embolad)/;
 const RE_ESTRESSE =
   /\b(?:estress|tensao|tenso|sobrecarregad|no limite|dia pesado|dia dificil|preciso relaxar|preciso descarregar|exausto do trabalho|fim de expediente|nao aguento mais o dia|estafad|saturad|sem paciencia|irritad|no meu limite|cabeca explodindo|pressao do trabalho)/;
 const RE_DISCIPLINA =
-  /\b(?:procrastin|deixo pra depois|deixo para depois|adio|adiar|enrol|sempre desisto|desisto sempre|nunca termino|nao consigo manter|falta de disciplina|sem disciplina|sem constancia|nao tenho constancia|nao crio habito|preguica de|comeco e paro)/;
+  /\b(?:procrastin|disciplina|constancia|habito|rotina|deixo pra depois|deixo para depois|adio|adiar|enrol|sempre desisto|desisto sempre|nunca termino|nao consigo manter|falta de disciplina|sem disciplina|sem constancia|nao tenho constancia|nao crio habito|preguica de|comeco e paro)/;
 const RE_DINHEIRO =
   /\b(?:dinheiro|grana|dividas|divida|financ|sem dinheiro|falta de dinheiro|escassez|contas para pagar|contas pra pagar|boletos|boleto|salario|prosperidade|ganhar mais|mente financeira|mindset financeiro|pobre)/;
 const RE_ENERGIA =
-  /\b(?:sem energia|sem animo|desanimad|desmotivad|exaust|esgotad|apatic|sem vontade|sem forcas|abatid|prostrad|drenad)/;
+  /\b(?:energia|sem energia|sem animo|desanimad|desmotivad|exaust|esgotad|apatic|sem vontade|sem forcas|abatid|prostrad|drenad|cansac|cansad|fadiga|letarg)/;
 
 // Pedido EXPLÍCITO de meditar / relaxar / respirar (alta confiança → prioridade alta).
 const RE_MEDITAR =

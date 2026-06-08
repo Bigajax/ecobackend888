@@ -191,6 +191,40 @@ test("desânimo/energia baixa → energy_blessings", () => {
   assert.equal(acao?.id, "energy_blessings");
 });
 
+// ── Respostas curtas do menu "Em qual área?" (palavra-chave isolada) ───────────
+// A Eco oferece um menu (ansiedade, sono, energia, foco, dinheiro, autocrítica) e o
+// usuário costuma responder só a palavra. Cada categoria precisa cair num card.
+
+test("menu: 'energia' → energy_blessings", () => {
+  const acao = decideAcaoRecomendada({ texto: "energia", intensidade: 2, openness: 2 });
+  assert.equal(acao?.id, "energy_blessings");
+});
+
+test("menu: 'autocrítica' → estoicismo", () => {
+  const acao = decideAcaoRecomendada({ texto: "autocrítica", intensidade: 2, openness: 2 });
+  assert.equal(acao?.id, "estoicismo");
+});
+
+test("menu: 'ansiedade' → meditacao", () => {
+  const acao = decideAcaoRecomendada({ texto: "ansiedade", intensidade: 2, openness: 2 });
+  assert.equal(acao?.id, "meditacao");
+});
+
+test("menu: 'sono' → sono", () => {
+  const acao = decideAcaoRecomendada({ texto: "sono", intensidade: 2, openness: 2 });
+  assert.equal(acao?.id, "sono");
+});
+
+test("menu: 'foco' → meditacao", () => {
+  const acao = decideAcaoRecomendada({ texto: "foco", intensidade: 2, openness: 2 });
+  assert.equal(acao?.id, "meditacao");
+});
+
+test("menu: 'dinheiro' → riqueza_mental", () => {
+  const acao = decideAcaoRecomendada({ texto: "dinheiro", intensidade: 2, openness: 2 });
+  assert.equal(acao?.id, "riqueza_mental");
+});
+
 test("crise bloqueia os novos gatilhos também", () => {
   const acao = decideAcaoRecomendada({ texto: "sem dinheiro e sem vontade de viver", intensidade: 9, openness: 3, flags: { ideacao: true } });
   assert.equal(acao, null);
