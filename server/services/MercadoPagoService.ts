@@ -180,7 +180,7 @@ export class MercadoPagoService {
           auto_recurring: {
             frequency: 1,
             frequency_type: "months",
-            transaction_amount: 29.9,
+            transaction_amount: 15.9,
             currency_id: "BRL",
             free_trial: {
               frequency: 7,
@@ -216,6 +216,56 @@ export class MercadoPagoService {
   }
 
   /**
+   * Create a recurring subscription with a card token (transparent checkout)
+   * + 7-day free trial. No redirect: the card token is collected on our page
+   * via the MP CardPayment brick. Works for monthly (R$15,90/mês) and annual
+   * (R$142,80 a cada 12 meses). Returns the preapproval id + status.
+   */
+  async createTrialSubscriptionWithCard(
+    userId: string,
+    userEmail: string,
+    cardTokenId: string,
+    plan: "monthly" | "annual"
+  ): Promise<{ id: string; status: string }> {
+    const preApprovalClient = new PreApproval(this.client);
+    const isAnnual = plan === "annual";
+
+    const response = await preApprovalClient.create({
+      body: {
+        reason: isAnnual ? "Assinatura Premium ECO - Anual" : "Assinatura Premium ECO - Mensal",
+        external_reference: userId,
+        payer_email: userEmail,
+        card_token_id: cardTokenId,
+        auto_recurring: {
+          frequency: isAnnual ? 12 : 1,
+          frequency_type: "months",
+          transaction_amount: isAnnual ? 142.8 : 15.9,
+          currency_id: "BRL",
+          free_trial: {
+            frequency: 7,
+            frequency_type: "days",
+          },
+        },
+        back_url: `${this.config.appUrl}/app/subscription/callback`,
+        status: "authorized",
+      } as any,
+    });
+
+    if (!response.id) {
+      throw new Error("Invalid preapproval response from Mercado Pago");
+    }
+
+    logger.info("trial_subscription_with_card_created", {
+      userId,
+      plan,
+      preapprovalId: response.id,
+      status: response.status,
+    });
+
+    return { id: String(response.id), status: String(response.status) };
+  }
+
+  /**
    * Create annual subscription (one-time payment)
    *
    * Uses Mercado Pago Preference API for single payment
@@ -232,10 +282,10 @@ export class MercadoPagoService {
           items: [
             {
               id: "annual_subscription",
-              title: "Assinatura Premium ECO - Anual (50% OFF)",
+              title: "Assinatura Premium ECO - Anual (25% OFF)",
               description: "Acesso ilimitado ao ECO por 1 ano - Oferta especial",
               quantity: 1,
-              unit_price: 149.0,
+              unit_price: 142.8,
               currency_id: "BRL",
             },
           ],

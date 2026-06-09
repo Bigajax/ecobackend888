@@ -307,9 +307,9 @@ async function handlePreapprovalNotification(preapprovalId: string): Promise<voi
         preapprovalId,
       });
 
-      // Detectar se é essentials ou monthly pelo valor
-      const amount = preapproval.auto_recurring?.transaction_amount as number | undefined;
-      const planType = !amount || amount >= 20 ? "monthly" : "essentials"; // R$ 14.90 = essentials, R$ 29.90 = monthly
+      // Preapproval (recorrente) agora é sempre o plano mensal premium (R$15,90).
+      // essentials descontinuado; o anual é via Preference (não preapproval).
+      const planType = "monthly";
 
       // Ativar trial de 7 dias
       await subscriptionService.activateSubscription(
@@ -343,9 +343,8 @@ async function handlePreapprovalNotification(preapprovalId: string): Promise<voi
         preapprovalId,
       });
 
-      // Detectar plano pelo valor
-      const amount = preapproval.auto_recurring?.transaction_amount as number | undefined;
-      const planType = !amount || amount >= 20 ? "monthly" : "essentials";
+      // Preapproval recorrente = plano mensal premium.
+      const planType = "monthly";
 
       // Cancelar assinatura no banco
       await subscriptionService.cancelSubscription(userId);
@@ -373,15 +372,14 @@ function extractPlanType(payment: any): "essentials" | "monthly" | "annual" {
     return payment.metadata.plan_type;
   }
 
-  // Fallback: inferir pelo valor
+  // Fallback: inferir pelo valor.
+  // essentials descontinuado; planos atuais: monthly R$15,90 / annual R$142,80.
+  // Importante: NÃO usar limiar de R$20 (o mensal R$15,90 cairia em essentials).
   const amount = payment.transaction_amount as number;
   if (amount >= 100) {
-    return "annual"; // R$ 149
-  } else if (amount >= 20) {
-    return "monthly"; // R$ 29.90
-  } else {
-    return "essentials"; // R$ 14.90
+    return "annual"; // R$ 142,80
   }
+  return "monthly"; // R$ 15,90
 }
 
 /**
