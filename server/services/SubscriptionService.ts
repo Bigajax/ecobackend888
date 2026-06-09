@@ -443,11 +443,20 @@ export class SubscriptionService {
     try {
       logger.debug("recording_subscription_event", { userId, eventType });
 
+      // Os callers passam o id do provider em chaves variadas (provider_id no
+      // checkout, preapproval_id no webhook de assinatura, payment_id no de
+      // pagamento). Normalizamos para a coluna provider_id ficar sempre populada.
+      const providerId =
+        metadata?.provider_id ??
+        (metadata as any)?.preapproval_id ??
+        (metadata as any)?.payment_id ??
+        null;
+
       const { error } = await this.supabase.from("subscription_events").insert({
         user_id: userId,
         event_type: eventType,
         plan: metadata?.plan || null,
-        provider_id: metadata?.provider_id || null,
+        provider_id: providerId,
         metadata: metadata || {},
       });
 
@@ -457,12 +466,18 @@ export class SubscriptionService {
 
       logger.debug("subscription_event_recorded", { userId, eventType });
     } catch (error) {
+      // Não relança: falha de auditoria não pode quebrar o fluxo de pagamento.
+      // Mas logamos code/details — um 23514 (check_violation) aqui significa que
+      // o CHECK de event_type no banco está fora de sync com SubscriptionEventType.
+      const pgErr = error as { code?: string; details?: string; hint?: string };
       logger.error("record_event_failed", {
         userId,
         eventType,
+        code: pgErr?.code,
+        details: pgErr?.details,
+        hint: pgErr?.hint,
         error: error instanceof Error ? error.message : String(error),
       });
-      // Don't throw - event recording failure shouldn't break the flow
     }
   }
 
