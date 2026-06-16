@@ -9,8 +9,47 @@ import {
   trackSubscriptionCreated,
 } from "../services/mixpanel";
 import { sendSonoWelcomeEmail, sendAbundanciaWelcomeEmail } from "../services/EmailService";
+import { sendMetaEvent } from "../services/metaCapi";
+import crypto from "crypto";
 
 const logger = log.withContext("webhook-controller");
+
+/** Preço mensal real (R$) usado no value dos eventos CAPI do funil do sono. */
+const MONTHLY_PRICE_BRL = 15.9;
+const CURRENCY_BRL = "BRL";
+
+/**
+ * Busca a atribuição Meta salva no checkout (create-with-card). Retorna null se
+ * não houver — o CAPI server-side simplesmente não dispara nesse caso.
+ */
+async function getMetaAttribution(supabase: any, preapprovalId: string, userId: string) {
+  const { data } = await supabase
+    .from("meta_capi_attribution")
+    .select("*")
+    .eq("preapproval_id", preapprovalId)
+    .maybeSingle();
+  if (data) return data;
+  // Fallback por usuário (caso o preapproval_id não bata por algum motivo).
+  const { data: byUser } = await supabase
+    .from("meta_capi_attribution")
+    .select("*")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  return byUser ?? null;
+}
+
+/** Resolve o e-mail do usuário para o user_data do CAPI (hasheado no serviço). */
+async function resolveUserEmail(
+  supabase: any,
+  userId: string,
+  fallbackEmail?: string | null
+): Promise<string | null> {
+  if (fallbackEmail) return fallbackEmail;
+  const { data } = await supabase.from("usuarios").select("email").eq("id", userId).maybeSingle();
+  return data?.email ?? null;
+}
 
 /**
  * Process payment event from Mercado Pago webhook
@@ -264,6 +303,45 @@ async function processPreapprovalEvent(preapprovalId: string): Promise<void> {
           preapproval_id: preapprovalId,
         });
 
+        // Meta CAPI — StartTrial (fonte da verdade: trial autorizado pelo MP).
+        // Reusa o event_id do client (deduplicação com o Pixel do browser).
+        try {
+          const attribution = await getMetaAttribution(supabase, preapprovalId, userId);
+          if (attribution?.start_trial_event_id) {
+            const email = await resolveUserEmail(
+              supabase,
+              userId,
+              preapproval.payer_email
+            );
+            await sendMetaEvent({
+              eventName: "StartTrial",
+              eventId: attribution.start_trial_event_id,
+              eventSourceUrl: attribution.event_source_url,
+              userData: {
+                email,
+                fbp: attribution.fbp,
+                fbc: attribution.fbc,
+                clientIpAddress: attribution.client_ip,
+                clientUserAgent: attribution.client_user_agent,
+              },
+              customData: {
+                value: MONTHLY_PRICE_BRL,
+                currency: CURRENCY_BRL,
+                contentName: "ECO Premium",
+                contentCategory: "subscription",
+              },
+            });
+          } else {
+            logger.info("start_trial_capi_skipped_no_attribution", { userId, preapprovalId });
+          }
+        } catch (capiError) {
+          logger.warn("start_trial_capi_failed", {
+            userId,
+            preapprovalId,
+            error: capiError instanceof Error ? capiError.message : String(capiError),
+          });
+        }
+
         logger.info("trial_started", { userId, preapprovalId });
       } else {
         // Monthly renewal
@@ -295,6 +373,38 @@ async function processPreapprovalEvent(preapprovalId: string): Promise<void> {
           transaction_amount: 29.9,
           mp_id: preapprovalId,
         });
+
+        // Meta CAPI — Subscribe (1ª cobrança real). O client já saiu, então
+        // geramos o event_id no server (sem dedup com browser) e reaproveitamos
+        // a atribuição salva (fbp/fbc/ip/ua) para a melhor correspondência.
+        try {
+          const attribution = await getMetaAttribution(supabase, preapprovalId, userId);
+          const email = await resolveUserEmail(supabase, userId, preapproval.payer_email);
+          await sendMetaEvent({
+            eventName: "Subscribe",
+            eventId: crypto.randomUUID(),
+            eventSourceUrl: attribution?.event_source_url ?? null,
+            userData: {
+              email,
+              fbp: attribution?.fbp ?? null,
+              fbc: attribution?.fbc ?? null,
+              clientIpAddress: attribution?.client_ip ?? null,
+              clientUserAgent: attribution?.client_user_agent ?? null,
+            },
+            customData: {
+              value: MONTHLY_PRICE_BRL,
+              currency: CURRENCY_BRL,
+              contentName: "ECO Premium",
+              contentCategory: "subscription",
+            },
+          });
+        } catch (capiError) {
+          logger.warn("subscribe_capi_failed", {
+            userId,
+            preapprovalId,
+            error: capiError instanceof Error ? capiError.message : String(capiError),
+          });
+        }
 
         logger.info("subscription_renewed", { userId, preapprovalId });
       }

@@ -1,9 +1,54 @@
 import type { Request, Response } from "express";
 import { getMercadoPagoService } from "../services/MercadoPagoService";
 import { getSubscriptionService } from "../services/SubscriptionService";
+import { ensureSupabaseConfigured } from "../lib/supabaseAdmin";
 import { log } from "../services/promptContext/logger";
 
 const logger = log.withContext("subscription-controller");
+
+/** IP do cliente a partir dos headers de proxy (nunca confiar no body). */
+function resolveClientIp(req: Request): string | null {
+  const fwd = (req.headers["x-forwarded-for"] as string | undefined)?.split(",")[0]?.trim();
+  return fwd || (req.headers["x-real-ip"] as string | undefined) || req.ip || null;
+}
+
+/**
+ * Persiste a atribuição Meta enviada pelo client no checkout para o webhook do
+ * Mercado Pago reusar (StartTrial/Subscribe via CAPI deduplicada). Não-fatal.
+ */
+async function saveMetaAttribution(
+  req: Request,
+  userId: string,
+  preapprovalId: string
+): Promise<void> {
+  const metaEventId = typeof req.body?.metaEventId === "string" ? req.body.metaEventId : null;
+  if (!metaEventId) return; // sem event_id do client não há o que correlacionar
+
+  try {
+    const supabase = ensureSupabaseConfigured();
+    await supabase.from("meta_capi_attribution").upsert(
+      {
+        preapproval_id: String(preapprovalId),
+        user_id: userId,
+        start_trial_event_id: metaEventId,
+        fbp: typeof req.body?.fbp === "string" ? req.body.fbp : null,
+        fbc: typeof req.body?.fbc === "string" ? req.body.fbc : null,
+        event_source_url:
+          typeof req.body?.eventSourceUrl === "string" ? req.body.eventSourceUrl : null,
+        client_ip: resolveClientIp(req),
+        client_user_agent: (req.headers["user-agent"] as string | undefined) ?? null,
+      },
+      { onConflict: "preapproval_id" }
+    );
+    logger.info("meta_attribution_saved", { userId, preapprovalId });
+  } catch (error) {
+    logger.warn("meta_attribution_save_failed", {
+      userId,
+      preapprovalId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
 
 /**
  * In-memory cache for subscription status (60 second TTL)
@@ -140,6 +185,9 @@ export async function createWithCardHandler(req: Request, res: Response) {
       plan,
       provider_id: result.id,
     });
+
+    // Atribuição Meta para o CAPI server-side disparado no webhook do MP.
+    await saveMetaAttribution(req, userId, result.id);
 
     logger.info("trial_with_card_created", { userId, preapprovalId: result.id, status: result.status });
 
