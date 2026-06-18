@@ -7,6 +7,8 @@ import {
   trackSubscriptionPaid,
   trackPaymentFailed,
   trackSubscriptionCreated,
+  trackFunilProtocoloCompraAprovada,
+  trackFunilProtocoloPagamentoConfirmado,
 } from "../services/mixpanel";
 import { sendSonoWelcomeEmail, sendAbundanciaWelcomeEmail } from "../services/EmailService";
 import { sendMetaEvent } from "../services/metaCapi";
@@ -303,16 +305,18 @@ async function processPreapprovalEvent(preapprovalId: string): Promise<void> {
           preapproval_id: preapprovalId,
         });
 
-        // Meta CAPI — StartTrial (fonte da verdade: trial autorizado pelo MP).
-        // Reusa o event_id do client (deduplicação com o Pixel do browser).
+        // Meta CAPI + Mixpanel no início do trial (fonte da verdade: trial
+        // autorizado pelo MP). Reusa os event_ids do client (dedup com o Pixel).
+        // - StartTrial: SEM value (o valor monetário do início do trial sai só no
+        //   Purchase, para não contar R$15,90 duas vezes entre os dois eventos).
+        // - Purchase: contabiliza a conversão JÁ no trial (cold-start de otimização).
+        //   NÃO representa receita real — quem cancelar no trial entra aqui mesmo
+        //   assim. Receita real = "Pagamento confirmado" (renovação, abaixo).
         try {
           const attribution = await getMetaAttribution(supabase, preapprovalId, userId);
+          const email = await resolveUserEmail(supabase, userId, preapproval.payer_email);
+
           if (attribution?.start_trial_event_id) {
-            const email = await resolveUserEmail(
-              supabase,
-              userId,
-              preapproval.payer_email
-            );
             await sendMetaEvent({
               eventName: "StartTrial",
               eventId: attribution.start_trial_event_id,
@@ -325,8 +329,6 @@ async function processPreapprovalEvent(preapprovalId: string): Promise<void> {
                 clientUserAgent: attribution.client_user_agent,
               },
               customData: {
-                value: MONTHLY_PRICE_BRL,
-                currency: CURRENCY_BRL,
                 contentName: "ECO Premium",
                 contentCategory: "subscription",
               },
@@ -334,6 +336,42 @@ async function processPreapprovalEvent(preapprovalId: string): Promise<void> {
           } else {
             logger.info("start_trial_capi_skipped_no_attribution", { userId, preapprovalId });
           }
+
+          // Purchase — deduplicado com o Pixel via purchase_event_id do client.
+          // Fallback determinístico se faltar atribuição (ex.: sessionStorage
+          // perdido em webview FB/IG): evita duplicata em retry do webhook, MAS
+          // não deduplica com o browser → pode contar 2× (id do browser + id do
+          // servidor). Logado para monitorar a frequência.
+          let purchaseEventId = attribution?.purchase_event_id ?? null;
+          if (!purchaseEventId) {
+            purchaseEventId = `purchase_trial_${preapprovalId}`;
+            logger.warn("purchase_event_id_fallback", { userId, preapprovalId });
+          }
+          await sendMetaEvent({
+            eventName: "Purchase",
+            eventId: purchaseEventId,
+            eventSourceUrl: attribution?.event_source_url ?? null,
+            userData: {
+              email,
+              fbp: attribution?.fbp ?? null,
+              fbc: attribution?.fbc ?? null,
+              clientIpAddress: attribution?.client_ip ?? null,
+              clientUserAgent: attribution?.client_user_agent ?? null,
+            },
+            customData: {
+              value: MONTHLY_PRICE_BRL,
+              currency: CURRENCY_BRL,
+              contentName: "ECO Premium",
+              contentCategory: "subscription",
+            },
+          });
+
+          // Mixpanel — "Compra aprovada" (sinal de otimização, não receita real).
+          trackFunilProtocoloCompraAprovada(userId, {
+            email,
+            value: MONTHLY_PRICE_BRL,
+            plan_id: "monthly",
+          });
         } catch (capiError) {
           logger.warn("start_trial_capi_failed", {
             userId,
@@ -374,15 +412,22 @@ async function processPreapprovalEvent(preapprovalId: string): Promise<void> {
           mp_id: preapprovalId,
         });
 
-        // Meta CAPI — Subscribe (1ª cobrança real). O client já saiu, então
-        // geramos o event_id no server (sem dedup com browser) e reaproveitamos
-        // a atribuição salva (fbp/fbc/ip/ua) para a melhor correspondência.
+        // Meta CAPI — Purchase (cobrança real: 1ª cobrança pós-trial e renovações).
+        // É o evento de receita, server-side, independente do navegador. O client já
+        // saiu, então reaproveitamos a atribuição salva (fbp/fbc/ip/ua) e derivamos
+        // um event_id DETERMINÍSTICO da cobrança, para que retries do webhook não
+        // gerem Purchases duplicados no Meta (defesa em profundidade além do
+        // webhook_logs). `value` = valor efetivamente cobrado no ciclo.
         try {
           const attribution = await getMetaAttribution(supabase, preapprovalId, userId);
           const email = await resolveUserEmail(supabase, userId, preapproval.payer_email);
+          const chargedAmount =
+            (preapproval.auto_recurring?.transaction_amount as number | undefined) ??
+            MONTHLY_PRICE_BRL;
+          const chargedQuantity = preapproval.summarize?.charged_quantity ?? 0;
           await sendMetaEvent({
-            eventName: "Subscribe",
-            eventId: crypto.randomUUID(),
+            eventName: "Purchase",
+            eventId: `purchase_${preapprovalId}_${chargedQuantity}`,
             eventSourceUrl: attribution?.event_source_url ?? null,
             userData: {
               email,
@@ -392,14 +437,22 @@ async function processPreapprovalEvent(preapprovalId: string): Promise<void> {
               clientUserAgent: attribution?.client_user_agent ?? null,
             },
             customData: {
-              value: MONTHLY_PRICE_BRL,
+              value: chargedAmount,
               currency: CURRENCY_BRL,
               contentName: "ECO Premium",
               contentCategory: "subscription",
             },
           });
+
+          // Mixpanel — "Pagamento confirmado": o sinal trial→pago (receita real).
+          trackFunilProtocoloPagamentoConfirmado(userId, {
+            email,
+            value: chargedAmount,
+            plan_id: "monthly",
+            charged_quantity: chargedQuantity,
+          });
         } catch (capiError) {
-          logger.warn("subscribe_capi_failed", {
+          logger.warn("purchase_capi_failed", {
             userId,
             preapprovalId,
             error: capiError instanceof Error ? capiError.message : String(capiError),

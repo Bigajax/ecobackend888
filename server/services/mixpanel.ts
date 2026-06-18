@@ -130,6 +130,92 @@ export function trackSubscriptionCreated(
   }
 }
 
+// Interface para os eventos do funil sono/protocolo (convenção pt "Domínio · ação")
+interface FunilProtocoloCompraProperties {
+  email?: string | null;
+  value: number; // número (ex.: 15.9), nunca string
+  plan_id: 'monthly' | 'annual';
+}
+
+/**
+ * Track "Funil Protocolo · Compra aprovada" (início do trial).
+ *
+ * Disparado server-side pelo webhook do Mercado Pago quando o trial é autorizado.
+ * É o sinal de conversão usado para otimização — NÃO representa receita real
+ * (cobrança é R$0 hoje; quem cancelar no trial entra aqui mesmo assim). Receita
+ * real vem do evento "Pagamento confirmado" abaixo.
+ */
+export function trackFunilProtocoloCompraAprovada(
+  userId: string,
+  props: FunilProtocoloCompraProperties
+): void {
+  if (!mixpanel) {
+    console.warn('[Mixpanel] Token not configured, skipping Compra aprovada');
+    return;
+  }
+
+  try {
+    mixpanel.track('Funil Protocolo · Compra aprovada', {
+      distinct_id: userId,
+      email: props.email ?? undefined,
+      value: props.value,
+      plan_id: props.plan_id,
+      currency: 'BRL',
+      stage: 'trial_start',
+      provider: 'mercadopago',
+      source: 'backend_webhook',
+      timestamp: new Date().toISOString(),
+    });
+
+    console.log('[Mixpanel] Funil Protocolo · Compra aprovada tracked:', {
+      userId,
+      value: props.value,
+      plan_id: props.plan_id,
+    });
+  } catch (error) {
+    console.error('[Mixpanel] Error tracking Compra aprovada:', error);
+  }
+}
+
+/**
+ * Track "Funil Protocolo · Pagamento confirmado" (cobrança real pós-trial / renovação).
+ *
+ * É o sinal trial→pago — a métrica que mede se a assinatura com trial converte de
+ * verdade em receita. Disparado server-side na 1ª cobrança real e nas renovações.
+ */
+export function trackFunilProtocoloPagamentoConfirmado(
+  userId: string,
+  props: FunilProtocoloCompraProperties & { charged_quantity?: number }
+): void {
+  if (!mixpanel) {
+    console.warn('[Mixpanel] Token not configured, skipping Pagamento confirmado');
+    return;
+  }
+
+  try {
+    mixpanel.track('Funil Protocolo · Pagamento confirmado', {
+      distinct_id: userId,
+      email: props.email ?? undefined,
+      value: props.value,
+      plan_id: props.plan_id,
+      currency: 'BRL',
+      stage: 'paid',
+      charged_quantity: props.charged_quantity,
+      provider: 'mercadopago',
+      source: 'backend_webhook',
+      timestamp: new Date().toISOString(),
+    });
+
+    console.log('[Mixpanel] Funil Protocolo · Pagamento confirmado tracked:', {
+      userId,
+      value: props.value,
+      charged_quantity: props.charged_quantity,
+    });
+  } catch (error) {
+    console.error('[Mixpanel] Error tracking Pagamento confirmado:', error);
+  }
+}
+
 /**
  * Verifica se Mixpanel está configurado
  */

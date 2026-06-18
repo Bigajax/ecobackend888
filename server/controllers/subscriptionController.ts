@@ -24,6 +24,9 @@ async function saveMetaAttribution(
   const metaEventId = typeof req.body?.metaEventId === "string" ? req.body.metaEventId : null;
   if (!metaEventId) return; // sem event_id do client não há o que correlacionar
 
+  const purchaseEventId =
+    typeof req.body?.purchaseEventId === "string" ? req.body.purchaseEventId : null;
+
   try {
     const supabase = ensureSupabaseConfigured();
     await supabase.from("meta_capi_attribution").upsert(
@@ -31,6 +34,7 @@ async function saveMetaAttribution(
         preapproval_id: String(preapprovalId),
         user_id: userId,
         start_trial_event_id: metaEventId,
+        purchase_event_id: purchaseEventId,
         fbp: typeof req.body?.fbp === "string" ? req.body.fbp : null,
         fbc: typeof req.body?.fbc === "string" ? req.body.fbc : null,
         event_source_url:
