@@ -24,8 +24,11 @@ interface LeadBody {
 }
 
 // RFC 5322 simplificado: rejeita pontos consecutivos, espacos, TLD < 2 chars.
+// O grupo de subdominios e `*` (zero ou mais), nao `+`: dominios de um nivel
+// como gmail.com / hotmail.com sao validos (com `+` exigia 2 pontos e reprovava
+// a maioria dos e-mails reais).
 const EMAIL_REGEX =
-  /^[A-Za-z0-9](?:[A-Za-z0-9._+-]*[A-Za-z0-9])?@[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)+\.[A-Za-z]{2,}$/;
+  /^[A-Za-z0-9](?:[A-Za-z0-9._+-]*[A-Za-z0-9])?@[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)*\.[A-Za-z]{2,}$/;
 
 // Dominios descartaveis / temporarios mais comuns. Lead falso = remarketing perdido.
 const DISPOSABLE_DOMAINS = new Set([
@@ -267,6 +270,86 @@ export async function createSonoLead(req: Request, res: Response) {
     return res.status(200).json({ ok: true });
   } catch (error) {
     logger.error("create_sono_lead_failed", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return res.status(200).json({ ok: true });
+  }
+}
+
+interface GateLeadBody {
+  email?: string;
+  source?: string;
+  provider?: string; // 'email' | 'google'
+  guestId?: string;
+}
+
+/**
+ * POST /api/leads/sono-gate
+ *
+ * Captura o lead do GATE de cadastro do /sono (antes da Noite 1), onde o
+ * usuario informa apenas o e-mail. Diferente de createSonoLead, NAO exige
+ * nome/telefone/consent — o objetivo e nao perder o lead se a criacao de conta
+ * falhar depois. Rota PUBLICA. Fire-and-forget: nunca bloqueia o gate.
+ *
+ * Idempotencia: upsert por e-mail. Se ja existe, preserva first-touch
+ * (source/utm intactos), so atualiza provider/updated_at.
+ */
+export async function createGateLead(req: Request, res: Response) {
+  try {
+    const body: GateLeadBody = req.body ?? {};
+    const email = (body.email ?? "").trim().toLowerCase();
+
+    if (!email || !isValidEmail(email)) {
+      const reason = !email ? "empty" : isDisposable(email) ? "disposable" : "format";
+      logger.warn("gate_invalid_email", { reason, emailLength: email.length });
+      return res.status(400).json({ error: "INVALID_EMAIL" });
+    }
+
+    const provider = body.provider === "google" ? "google" : "email";
+    const supabase = ensureSupabaseConfigured();
+
+    const { data: existing, error: selectError } = await supabase
+      .from("sono_leads")
+      .select("id")
+      .eq("email", email)
+      .maybeSingle();
+
+    if (selectError) {
+      logger.error("gate_lead_lookup_db_error", { email, error: selectError.message });
+      return res.status(200).json({ ok: true });
+    }
+
+    if (existing) {
+      // Preserva first-touch (source/utm). So atualiza provider/updated_at.
+      const { error: updateError } = await supabase
+        .from("sono_leads")
+        .update({ provider })
+        .eq("id", existing.id);
+      if (updateError) {
+        logger.error("gate_lead_update_db_error", { email, error: updateError.message });
+      }
+      return res.status(200).json({ ok: true });
+    }
+
+    const { error: insertError } = await supabase.from("sono_leads").insert({
+      email,
+      source: body.source ?? "sono_signup_gate",
+      provider,
+      guest_id: body.guestId ?? null,
+      ip: getClientIp(req),
+      user_agent: req.headers["user-agent"] ?? null,
+      status: "new" as const,
+    });
+
+    if (insertError) {
+      logger.error("gate_lead_insert_db_error", { email, error: insertError.message });
+      return res.status(200).json({ ok: true });
+    }
+
+    logger.info("gate_lead_captured", { email, provider });
+    return res.status(200).json({ ok: true });
+  } catch (error) {
+    logger.error("create_gate_lead_failed", {
       error: error instanceof Error ? error.message : String(error),
     });
     return res.status(200).json({ ok: true });

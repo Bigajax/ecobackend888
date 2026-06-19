@@ -1,5 +1,5 @@
 import express from "express";
-import { createSonoLead } from "../controllers/leadsController";
+import { createSonoLead, createGateLead } from "../controllers/leadsController";
 import { subscribeNewsletter } from "../controllers/newsletterController";
 
 const router = express.Router();
@@ -11,6 +11,15 @@ const router = express.Router();
  * Rota PÚBLICA — sem requireAuth.
  */
 router.post("/sono-noite1", createSonoLead);
+
+/**
+ * POST /api/leads/sono-gate
+ *
+ * Captura de lead do GATE de cadastro do /sono (antes da Noite 1), só e-mail.
+ * Salva o lead ANTES de provisionar a conta para não perdê-lo se o cadastro
+ * falhar. Rota PÚBLICA — sem requireAuth.
+ */
+router.post("/sono-gate", createGateLead);
 
 /**
  * POST /api/leads/newsletter
