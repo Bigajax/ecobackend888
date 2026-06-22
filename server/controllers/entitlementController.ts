@@ -53,6 +53,52 @@ export async function checkEntitlement(req: Request, res: Response) {
 }
 
 /**
+ * GET /api/entitlements/check-guest?product_key=protocolo_sono_7_noites&guest_id=<id>
+ *
+ * Verifica acesso ATIVO por guest_id — para quem pagou (Pix) ANTES de criar conta.
+ * PÚBLICO (sem auth). Fonte da verdade do servidor para o desbloqueio do funil.
+ *
+ * Returns: { hasAccess: boolean }
+ */
+export async function checkEntitlementByGuest(req: Request, res: Response) {
+  try {
+    const productKey = req.query.product_key as string | undefined;
+    const guestId = req.query.guest_id as string | undefined;
+
+    if (!productKey) {
+      return res.status(400).json({ error: "MISSING_PRODUCT_KEY", message: "Parâmetro product_key obrigatório" });
+    }
+    if (!guestId) {
+      return res.status(400).json({ error: "MISSING_GUEST_ID", message: "Parâmetro guest_id obrigatório" });
+    }
+
+    const supabase = ensureSupabaseConfigured();
+
+    const { data, error } = await supabase
+      .from("entitlements")
+      .select("id")
+      .eq("guest_id", guestId)
+      .eq("product_key", productKey)
+      .eq("status", "active")
+      .maybeSingle();
+
+    if (error) {
+      logger.error("check_entitlement_guest_db_error", { guestId, productKey, error: error.message });
+      return res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao verificar acesso" });
+    }
+
+    logger.debug("check_entitlement_guest", { guestId, productKey, hasAccess: !!data });
+
+    return res.status(200).json({ hasAccess: !!data });
+  } catch (error) {
+    logger.error("check_entitlement_guest_failed", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao verificar acesso" });
+  }
+}
+
+/**
  * POST /api/entitlements/claim
  *
  * Vincula um entitlement ao usuário autenticado.

@@ -22,6 +22,13 @@ const ANNUAL = {
 // reconhecer e conceder entitlement a pagamentos `sono_*` criados antes da migração.
 const LEGACY_SONO_PRODUCT_KEY = "protocolo_sono_7_noites";
 
+// Protocolo do Sono — checkout único via Pix (tripwire do funil /sono/experiencia).
+// Pagamento único, acesso vitalício às 7 noites. Preço configurável por env (sem
+// redeploy de código): basta mudar SONO_PIX_PRICE_BRL no Render e reiniciar.
+const SONO_PRODUCT_KEY = "protocolo_sono_7_noites";
+const SONO_PIX_PRICE = Number(process.env.SONO_PIX_PRICE_BRL ?? 37);
+const SONO_EXTERNAL_REF_PREFIX = "sono";
+
 let _mpClient: MercadoPagoConfig | null = null;
 let _paymentClient: Payment | null = null;
 function getPaymentClient(): Payment {
@@ -130,6 +137,29 @@ function splitName(nome: unknown): { first_name: string; last_name: string } {
   };
 }
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+
+// Domínio sintético usado quando o guest paga sem informar e-mail. Serve só pro MP
+// aceitar a cobrança; NÃO é match do Meta e NÃO deve receber welcome email.
+const SYNTHETIC_EMAIL_DOMAIN = "guest.ecotopia.app";
+
+// IP/UA do CLIENTE (deste request) — para match do Meta no webhook. NÃO confundir
+// com o IP do webhook (lá é do Mercado Pago).
+function clientIpFrom(req: Request): string | null {
+  const fwd = req.headers["x-forwarded-for"];
+  if (typeof fwd === "string" && fwd.length) return fwd.split(",")[0].trim();
+  if (Array.isArray(fwd) && fwd.length) return String(fwd[0]).trim();
+  return req.ip || req.socket?.remoteAddress || null;
+}
+function clientUaFrom(req: Request): string | null {
+  const ua = req.headers["user-agent"];
+  return typeof ua === "string" && ua.length ? ua : null;
+}
+
+function buildSonoExternalReference(guestId: string): string {
+  const rand = crypto.randomBytes(3).toString("hex");
+  const safeGuest = String(guestId).replace(/\s+/g, "");
+  return `${SONO_EXTERNAL_REF_PREFIX}_${safeGuest}_${Date.now()}_${rand}`;
+}
 
 // =============================================================
 // POST /api/payments/annual/pix  (auth)
@@ -246,6 +276,93 @@ router.post("/annual/card", requireAuth, async (req: Request, res: Response) => 
   } catch (err: any) {
     logError("annual_card_failed", { message: err?.message, mp_cause: err?.cause, userId, idempotencyKey });
     return res.status(502).json({ error: "PAYMENT_PROVIDER_ERROR", message: "Não foi possível processar o pagamento. Verifique os dados e tente novamente." });
+  }
+});
+
+// =============================================================
+// GET /api/payments/sono-pix/config  (público)
+// Preço do Protocolo do Sono (Pix único). A UI lê isto para exibir o valor sem
+// rebuild do frontend — mudar SONO_PIX_PRICE_BRL no backend basta.
+// =============================================================
+router.get("/sono-pix/config", (_req: Request, res: Response) => {
+  return res.status(200).json({ price: SONO_PIX_PRICE, currency: "BRL" });
+});
+
+// =============================================================
+// POST /api/payments/sono-pix  (PÚBLICO — pagamento antes da conta)
+// Cria cobrança Pix única do Protocolo do Sono (7 noites, vitalício). O webhook
+// concede o entitlement ao reconhecer o prefixo `sono_` no external_reference.
+// O desbloqueio depende do guest_id ser idêntico de ponta a ponta:
+// metadata.guest_id (aqui) → entitlement.guest_id (webhook) → /check?guest_id=.
+// =============================================================
+router.post("/sono-pix", async (req: Request, res: Response) => {
+  const idempotencyKey = uuidv4();
+  try {
+    const { guest_id, purchaseEventId, fbp, fbc, cpf, email } = req.body ?? {};
+
+    if (!guest_id || typeof guest_id !== "string") {
+      return res.status(400).json({ error: "INVALID_BODY", message: "guest_id é obrigatório" });
+    }
+
+    const realEmail = typeof email === "string" && EMAIL_RE.test(email) ? email : null;
+    // MP exige payer.email. Sem e-mail real (pagamento antes da conta), usamos um
+    // sintético — só pro MP aceitar; o webhook ignora este domínio pro Meta/welcome.
+    const payerEmail = realEmail ?? `${guest_id}@${SYNTHETIC_EMAIL_DOMAIN}`;
+
+    const cpfDigits = onlyDigits(cpf);
+    const external_reference = buildSonoExternalReference(guest_id);
+    const expiration = new Date(Date.now() + 30 * 60 * 1000);
+    const client_ip = clientIpFrom(req);
+    const client_ua = clientUaFrom(req);
+
+    const payerBody: Record<string, unknown> = { email: payerEmail };
+    // CPF só vai se vier (alguns ambientes do MP exigem para Pix; testar no sandbox).
+    if (cpfDigits.length === 11) {
+      payerBody.identification = { type: "CPF", number: cpfDigits };
+    }
+
+    const payment = getPaymentClient();
+    const response = await payment.create({
+      body: {
+        transaction_amount: SONO_PIX_PRICE,
+        description: "Protocolo do Sono — 7 noites (acesso vitalício)",
+        payment_method_id: "pix",
+        date_of_expiration: expiration.toISOString(),
+        external_reference,
+        metadata: {
+          product_key: SONO_PRODUCT_KEY,
+          type: "sono_7noites_lifetime",
+          guest_id,
+          purchase_event_id: purchaseEventId ?? null,
+          fbp: fbp ?? null,
+          fbc: fbc ?? null,
+          client_ip,
+          client_ua,
+        },
+        payer: payerBody,
+      },
+      requestOptions: { idempotencyKey },
+    });
+
+    const tx = response?.point_of_interaction?.transaction_data ?? {};
+    logInfo("sono_pix_created", {
+      payment_id: response.id,
+      status: response.status,
+      guest_id,
+      external_reference,
+      price: SONO_PIX_PRICE,
+    });
+
+    return res.status(200).json({
+      id: response.id,
+      qr_code: tx.qr_code,
+      qr_code_base64: tx.qr_code_base64,
+      external_reference,
+      expiration_date: response.date_of_expiration ?? expiration.toISOString(),
+    });
+  } catch (err: any) {
+    logError("sono_pix_failed", { message: err?.message, mp_cause: err?.cause, idempotencyKey });
+    return res.status(502).json({ error: "PAYMENT_PROVIDER_ERROR", message: "Não foi possível gerar o Pix. Tente novamente." });
   }
 });
 

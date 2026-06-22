@@ -33,6 +33,8 @@ export interface MetaUserData {
   fbc?: string | null;
   clientIpAddress?: string | null;
   clientUserAgent?: string | null;
+  /** Identificador estável do usuário/guest (ex.: guest_id) — hasheado SHA-256. */
+  externalId?: string | null;
 }
 
 export interface MetaCustomData {
@@ -83,6 +85,7 @@ export async function sendMetaEvent(params: SendMetaEventParams): Promise<void> 
   if (userData.fbc) user_data.fbc = userData.fbc;
   if (userData.clientIpAddress) user_data.client_ip_address = userData.clientIpAddress;
   if (userData.clientUserAgent) user_data.client_user_agent = userData.clientUserAgent;
+  if (userData.externalId) user_data.external_id = [sha256(userData.externalId)];
 
   const custom_data: Record<string, unknown> = {};
   if (customData?.value !== undefined && customData?.currency) {

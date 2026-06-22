@@ -63,62 +63,120 @@ const PRODUCT_KEY_BY_PREFIX: Record<string, string> = {
   abundancia: "protocolo_abundancia_7_dias",
 };
 
+// Domínio do e-mail sintético criado quando o guest paga sem informar e-mail
+// (POST /api/payments/sono-pix). Serve só pro MP — NÃO é match do Meta nem deve
+// receber welcome email. Mantido em sincronia com payments.ts.
+const SYNTHETIC_EMAIL_DOMAIN = "guest.ecotopia.app";
+function isSyntheticEmail(email: string | null | undefined): boolean {
+  return !!email && email.toLowerCase().endsWith(`@${SYNTHETIC_EMAIL_DOMAIN}`);
+}
+
 async function processProductEntitlement(paymentId: string, payment: any, productKey: string): Promise<void> {
   const supabase = ensureSupabaseConfigured();
   const extRef = payment.external_reference as string;
+  const isSono = productKey === "protocolo_sono_7_noites";
 
   const status = payment.status === "approved" ? "active" : "pending";
 
-  const { error } = await supabase.from("entitlements").upsert(
-    {
-      external_reference: extRef,
-      product_key: productKey,
-      status,
-      payment_id: String(paymentId),
-      email: payment.payer?.email ?? null,
-      utm_data: payment.metadata?.utm ?? null,
-    },
-    { onConflict: "external_reference" }
-  );
+  // guest_id é o fio mestre do desbloqueio: prioriza metadata.guest_id (exato),
+  // nunca reparseia o external_reference de forma divergente (o guest_id contém
+  // underscores: `guest_<uuid>`).
+  const md = (payment.metadata ?? {}) as Record<string, any>;
+  const guestId: string | null = md.guest_id ?? null;
+
+  // E-mail real só conta se não for o sintético do guest checkout.
+  const payerEmailRaw = (payment.payer?.email ?? null) as string | null;
+  const realEmail = payerEmailRaw && !isSyntheticEmail(payerEmailRaw) ? payerEmailRaw : null;
+
+  const row: Record<string, unknown> = {
+    external_reference: extRef,
+    product_key: productKey,
+    status,
+    payment_id: String(paymentId),
+    email: realEmail,
+    utm_data: payment.metadata?.utm ?? null,
+  };
+  if (guestId) row.guest_id = guestId;
+
+  const { error } = await supabase
+    .from("entitlements")
+    .upsert(row, { onConflict: "external_reference" });
 
   if (error) {
     logger.error("entitlement_upsert_failed", { paymentId, extRef, productKey, error: error.message });
     throw error;
   }
 
-  logger.info("product_entitlement_upserted", { paymentId, extRef, productKey, status });
+  logger.info("product_entitlement_upserted", { paymentId, extRef, productKey, status, guest_id: guestId });
 
-  // Enviar e-mail de boas-vindas — apenas quando aprovado e ainda não enviado.
-  // Guard atômico: UPDATE WHERE welcome_email_sent_at IS NULL garante que apenas
-  // um webhook "vence" mesmo quando o MP dispara dois em paralelo
-  // (payment.created → payment.updated, ou Pix pending → approved).
-  if (status === "active") {
-    const { data: claimed } = await supabase
-      .from("entitlements")
-      .update({ welcome_email_sent_at: new Date().toISOString() })
-      .eq("external_reference", extRef)
-      .is("welcome_email_sent_at", null)
-      .select("email")
-      .maybeSingle();
+  if (status !== "active") return;
 
-    if (!claimed) {
-      logger.info("product_welcome_email_already_sent", { paymentId, extRef, productKey });
+  // ── Sono: desbloqueio do guest + Purchase (CAPI é a fonte da verdade aqui) ──
+  if (isSono && guestId) {
+    const { error: unlockErr } = await supabase
+      .from("sono_guest_flow_events")
+      .update({ unlocked: true, updated_at: new Date().toISOString() })
+      .eq("guest_id", guestId);
+    if (unlockErr) {
+      logger.warn("sono_guest_flow_unlock_failed", { paymentId, guest_id: guestId, error: unlockErr.message });
     } else {
-      const payerEmail = (claimed.email ?? payment.payer?.email) as string | undefined;
-      const appUrl = process.env.APP_URL || "https://ecofrontend888.vercel.app";
-
-      if (payerEmail) {
-        if (productKey === "protocolo_abundancia_7_dias") {
-          await sendAbundanciaWelcomeEmail({ to: payerEmail, externalReference: extRef, appUrl });
-        } else {
-          await sendSonoWelcomeEmail({ to: payerEmail, externalReference: extRef, appUrl });
-        }
-        logger.info("product_welcome_email_sent", { paymentId, extRef, productKey, to: payerEmail });
-      } else {
-        logger.warn("product_welcome_email_skipped_no_email", { paymentId, extRef, productKey });
-      }
+      logger.info("sono_guest_flow_unlocked", { paymentId, guest_id: guestId });
     }
   }
+
+  if (isSono) {
+    // Purchase via CAPI — PRINCIPAL: no Pix o usuário sai pro banco e o Purchase do
+    // client pode não disparar. event_id deduplica com o Pixel do browser.
+    const purchaseEventId =
+      (md.purchase_event_id as string | undefined) ?? `purchase_pix_${paymentId}`;
+    await sendMetaEvent({
+      eventName: "Purchase",
+      eventId: purchaseEventId,
+      customData: {
+        value: payment.transaction_amount,
+        currency: CURRENCY_BRL,
+        contentName: "Protocolo do Sono",
+        contentCategory: "sono",
+      },
+      userData: {
+        email: realEmail, // null se sintético — NÃO usar o sintético
+        fbp: md.fbp ?? null,
+        fbc: md.fbc ?? null,
+        clientIpAddress: md.client_ip ?? null,
+        clientUserAgent: md.client_ua ?? null,
+        externalId: guestId,
+      },
+    });
+  }
+
+  // ── Welcome email — só com e-mail REAL (nunca o sintético) e uma única vez ──
+  // Guard atômico: UPDATE WHERE welcome_email_sent_at IS NULL garante que apenas
+  // um webhook "vence" mesmo quando o MP dispara dois em paralelo.
+  if (!realEmail) {
+    logger.info("product_welcome_email_skipped_no_real_email", { paymentId, extRef, productKey });
+    return;
+  }
+
+  const { data: claimed } = await supabase
+    .from("entitlements")
+    .update({ welcome_email_sent_at: new Date().toISOString() })
+    .eq("external_reference", extRef)
+    .is("welcome_email_sent_at", null)
+    .select("email")
+    .maybeSingle();
+
+  if (!claimed) {
+    logger.info("product_welcome_email_already_sent", { paymentId, extRef, productKey });
+    return;
+  }
+
+  const appUrl = process.env.APP_URL || "https://ecofrontend888.vercel.app";
+  if (productKey === "protocolo_abundancia_7_dias") {
+    await sendAbundanciaWelcomeEmail({ to: realEmail, externalReference: extRef, appUrl });
+  } else {
+    await sendSonoWelcomeEmail({ to: realEmail, externalReference: extRef, appUrl });
+  }
+  logger.info("product_welcome_email_sent", { paymentId, extRef, productKey, to: realEmail });
 }
 
 async function processPaymentEvent(paymentId: string): Promise<void> {
