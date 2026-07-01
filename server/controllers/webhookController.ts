@@ -9,6 +9,8 @@ import {
   trackSubscriptionCreated,
   trackFunilProtocoloCompraAprovada,
   trackFunilProtocoloPagamentoConfirmado,
+  trackSonoPagamentoConfirmado,
+  trackSonoUnlockConcedido,
 } from "../services/mixpanel";
 import { sendSonoWelcomeEmail, sendAbundanciaWelcomeEmail } from "../services/EmailService";
 import { sendMetaEvent } from "../services/metaCapi";
@@ -121,6 +123,13 @@ async function processProductEntitlement(paymentId: string, payment: any, produc
       logger.warn("sono_guest_flow_unlock_failed", { paymentId, guest_id: guestId, error: unlockErr.message });
     } else {
       logger.info("sono_guest_flow_unlocked", { paymentId, guest_id: guestId });
+      // Mixpanel: acesso liberado server-side (fecha o funil da travessia). Não
+      // pode derrubar o webhook — o helper é no-op/try-catch por dentro.
+      trackSonoUnlockConcedido(guestId, {
+        external_reference: extRef,
+        payment_id: String(paymentId),
+        product_key: productKey,
+      });
     }
   }
 
@@ -147,6 +156,17 @@ async function processProductEntitlement(paymentId: string, payment: any, produc
         externalId: guestId,
       },
     });
+
+    // Mixpanel: fonte da verdade do pagamento (resiliente a fechar a aba). Só
+    // com guest_id — é a chave que amarra Pix gerado/copiado → pago no funil.
+    if (guestId) {
+      trackSonoPagamentoConfirmado(guestId, {
+        value: payment.transaction_amount ?? null,
+        external_reference: extRef,
+        payment_id: String(paymentId),
+        product_key: productKey,
+      });
+    }
   }
 
   // ── Welcome email — só com e-mail REAL (nunca o sintético) e uma única vez ──

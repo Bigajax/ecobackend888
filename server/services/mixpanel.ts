@@ -216,6 +216,92 @@ export function trackFunilProtocoloPagamentoConfirmado(
   }
 }
 
+// Propriedades dos eventos server-side do Pix do sono (compra única vitalícia).
+// Diferente da assinatura: SEM plan_id/trial; a chave é o guest_id (fio mestre).
+interface SonoPixEventProperties {
+  external_reference: string;
+  payment_id: string;
+  product_key: string;
+}
+
+/**
+ * Track "Funil Protocolo · Pagamento confirmado" para o Pix único do sono.
+ *
+ * Fonte da verdade do pagamento: dispara no webhook do Mercado Pago quando a
+ * cobrança é aprovada — resiliente ao usuário fechar a aba após sair pro banco
+ * (é justo aí que o funil morre). `distinct_id = guest_id` alinha com os demais
+ * eventos guest do funil. `payment_type: 'pix_lifetime'` separa da assinatura.
+ */
+export function trackSonoPagamentoConfirmado(
+  guestId: string,
+  props: SonoPixEventProperties & { value?: number | null }
+): void {
+  if (!mixpanel) {
+    console.warn('[Mixpanel] Token not configured, skipping Sono Pagamento confirmado');
+    return;
+  }
+
+  try {
+    mixpanel.track('Funil Protocolo · Pagamento confirmado', {
+      distinct_id: guestId,
+      guest_id: guestId,
+      value: props.value ?? undefined,
+      currency: 'BRL',
+      stage: 'paid',
+      payment_type: 'pix_lifetime',
+      external_reference: props.external_reference,
+      payment_id: props.payment_id,
+      product_key: props.product_key,
+      provider: 'mercadopago',
+      source: 'backend_webhook',
+      timestamp: new Date().toISOString(),
+    });
+
+    console.log('[Mixpanel] Sono · Pagamento confirmado tracked:', {
+      guestId,
+      value: props.value,
+      payment_id: props.payment_id,
+    });
+  } catch (error) {
+    console.error('[Mixpanel] Error tracking Sono Pagamento confirmado:', error);
+  }
+}
+
+/**
+ * Track "Funil Protocolo · Unlock concedido" — o acesso às 7 noites foi liberado
+ * server-side (sono_guest_flow_events.unlocked = true) após o pagamento. Fecha o
+ * funil: Pix gerado → copiado → pago → unlock.
+ */
+export function trackSonoUnlockConcedido(
+  guestId: string,
+  props: SonoPixEventProperties
+): void {
+  if (!mixpanel) {
+    console.warn('[Mixpanel] Token not configured, skipping Sono Unlock concedido');
+    return;
+  }
+
+  try {
+    mixpanel.track('Funil Protocolo · Unlock concedido', {
+      distinct_id: guestId,
+      guest_id: guestId,
+      external_reference: props.external_reference,
+      payment_id: props.payment_id,
+      product_key: props.product_key,
+      provider: 'mercadopago',
+      source: 'backend_webhook',
+      timestamp: new Date().toISOString(),
+    });
+
+    console.log('[Mixpanel] Sono · Unlock concedido tracked:', {
+      guestId,
+      payment_id: props.payment_id,
+    });
+  } catch (error) {
+    console.error('[Mixpanel] Error tracking Sono Unlock concedido:', error);
+  }
+}
+
 /**
  * Verifica se Mixpanel está configurado
  */
