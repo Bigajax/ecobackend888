@@ -2,7 +2,8 @@ import { ensureSupabaseConfigured } from "../lib/supabaseAdmin";
 
 export interface DreamRow {
   id: string;
-  usuario_id: string;
+  usuario_id: string | null;
+  guest_id: string | null;
   is_guest: boolean;
   dream_text: string;
   interpretation: string | null;
@@ -11,7 +12,10 @@ export interface DreamRow {
 }
 
 export interface DreamInsertPayload {
-  usuario_id: string;
+  /** null para guests (usuario_id pode ter FK; guests vao em guest_id). */
+  usuario_id: string | null;
+  /** X-Eco-Guest-Id do funil — preenchido quando is_guest. */
+  guest_id?: string | null;
   is_guest: boolean;
   dream_text: string;
   interpretation?: string | null;
@@ -20,7 +24,8 @@ export interface DreamInsertPayload {
 
 type DreamsTableRow = {
   id: string;
-  usuario_id: string;
+  usuario_id: string | null;
+  guest_id?: string | null;
   is_guest: boolean;
   dream_text: string;
   interpretation: string | null;
@@ -32,6 +37,7 @@ function normalizeRow(row: DreamsTableRow): DreamRow {
   return {
     id: row.id,
     usuario_id: row.usuario_id,
+    guest_id: row.guest_id ?? null,
     is_guest: row.is_guest,
     dream_text: row.dream_text,
     interpretation: row.interpretation,

@@ -54,18 +54,20 @@ export async function interpretDream(
   let dreamId: string | null = null;
 
   try {
-    // Save dream record before streaming (interpretation filled in after)
-    if (!isGuest) {
-      try {
-        const row = await insertDream({
-          usuario_id: userId,
-          is_guest: false,
-          dream_text: dreamText,
-        });
-        dreamId = row.id;
-      } catch (err) {
-        console.error("[dreamService] Failed to insert dream", (err as Error).message);
-      }
+    // Save dream record before streaming (interpretation filled in after).
+    // Guests TAMBEM gravam (presente da Noite 1 / funil /sonhos): usuario_id
+    // NULL + guest_id preenchido — vinculavel a conta depois. Requer a
+    // migration 20260702_add_guest_id_to_dreams; sem ela o insert falha e e
+    // apenas logado (nao quebra o streaming).
+    try {
+      const row = await insertDream(
+        isGuest
+          ? { usuario_id: null, guest_id: userId, is_guest: true, dream_text: dreamText }
+          : { usuario_id: userId, is_guest: false, dream_text: dreamText },
+      );
+      dreamId = row.id;
+    } catch (err) {
+      console.error("[dreamService] Failed to insert dream", (err as Error).message);
     }
 
     // Fetch emotional memories for context
