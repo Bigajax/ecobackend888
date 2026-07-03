@@ -70,11 +70,42 @@ test("aceita e-mails reais de um nível (gmail/hotmail)", async () => {
 });
 
 test("e-mail já existente: não insere (preserva first-touch) e responde 200", async () => {
-  mockMaybeSingle.mockResolvedValueOnce({ data: { id: "lead-1" }, error: null });
+  mockMaybeSingle.mockResolvedValueOnce({ data: { id: "lead-1", guest_id: "guest-1" }, error: null });
   const req: any = { body: { email: "ana@gmail.com", provider: "google" }, headers: {} };
   const res = mockRes();
   await createGateLead(req, res);
   expect(mockInsert).not.toHaveBeenCalled();
+  expect(res.status).toHaveBeenCalledWith(200);
+});
+
+test("e-mail já existente SEM guest_id: vincula o guest_id do gate (recuperação do órfão)", async () => {
+  mockMaybeSingle.mockResolvedValueOnce({ data: { id: "lead-1", guest_id: null }, error: null });
+  const req: any = {
+    body: { email: "ana@gmail.com", provider: "email", guestId: "guest-9" },
+    headers: {},
+  };
+  const res = mockRes();
+  await createGateLead(req, res);
+  expect(mockInsert).not.toHaveBeenCalled();
+  expect(mockUpdate).toHaveBeenCalledWith(
+    expect.objectContaining({ provider: "email", guest_id: "guest-9" }),
+  );
+  expect(res.status).toHaveBeenCalledWith(200);
+});
+
+test("e-mail já existente COM guest_id: não sobrescreve o guest_id (first-touch)", async () => {
+  mockMaybeSingle.mockResolvedValueOnce({ data: { id: "lead-1", guest_id: "guest-original" }, error: null });
+  const req: any = {
+    body: { email: "ana@gmail.com", provider: "email", guestId: "guest-novo" },
+    headers: {},
+  };
+  const res = mockRes();
+  await createGateLead(req, res);
+  // Não deve conter guest_id (não sobrescreve), mas atualiza o provider.
+  expect(mockUpdate).toHaveBeenCalledWith(
+    expect.not.objectContaining({ guest_id: expect.anything() }),
+  );
+  expect(mockUpdate).toHaveBeenCalledWith(expect.objectContaining({ provider: "email" }));
   expect(res.status).toHaveBeenCalledWith(200);
 });
 

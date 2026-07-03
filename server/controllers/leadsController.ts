@@ -310,7 +310,7 @@ export async function createGateLead(req: Request, res: Response) {
 
     const { data: existing, error: selectError } = await supabase
       .from("sono_leads")
-      .select("id")
+      .select("id, guest_id")
       .eq("email", email)
       .maybeSingle();
 
@@ -321,9 +321,17 @@ export async function createGateLead(req: Request, res: Response) {
 
     if (existing) {
       // Preserva first-touch (source/utm). So atualiza provider/updated_at.
+      const updatePayload: Record<string, unknown> = { provider };
+      // Preenche o guest_id se ainda faltava: a recuperacao do pagante orfao
+      // depende do par email<->guest_id (ex.: lead capturado antes sem guest_id,
+      // ou primeiro toque de outra origem). Nao sobrescreve um guest_id ja
+      // vinculado — o primeiro guest_id que pagou/converteu e o que vale.
+      if (!existing.guest_id && body.guestId) {
+        updatePayload.guest_id = body.guestId;
+      }
       const { error: updateError } = await supabase
         .from("sono_leads")
-        .update({ provider })
+        .update(updatePayload)
         .eq("id", existing.id);
       if (updateError) {
         logger.error("gate_lead_update_db_error", { email, error: updateError.message });
