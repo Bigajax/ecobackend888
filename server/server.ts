@@ -29,6 +29,7 @@ import registrarTodasHeuristicas from "./services/registrarTodasHeuristicas";
 import registrarModulosFilosoficos from "./services/registrarModulosFilosoficos";
 import { log } from "./services/promptContext/logger";
 import { startBanditRewardSyncScheduler, stopBanditRewardSyncScheduler } from "./services/banditRewardsSync";
+import { iniciarLembretesDoTeste, pararLembretesDoTeste } from "./services/lembreteDoTeste";
 import { analyticsClientMode } from "./services/supabaseClient";
 import { ensureEcoIdentityPromptAvailability } from "./services/promptContext/identityModules";
 import { describeAssetsRoot } from "./src/utils/assetsRoot";
@@ -172,6 +173,7 @@ async function start() {
   }
   await ensureEcoIdentityPromptAvailability();
   startBanditRewardSyncScheduler();
+  iniciarLembretesDoTeste();
 
   // Initialize optional modules BEFORE listening to avoid race condition
   try {
@@ -204,6 +206,7 @@ async function start() {
   const shutdown = (signal: string) => {
     log.info(`[shutdown] ${signal} received — shutting down gracefully`);
     stopBanditRewardSyncScheduler();
+    pararLembretesDoTeste();
     server.close(() => {
       log.info("[shutdown] HTTP server closed");
       process.exit(0);
