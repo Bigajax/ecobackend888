@@ -5,6 +5,7 @@ import request from "supertest";
 import Module from "node:module";
 import { createApp as createHttpApp } from "../../core/http/app";
 import { ensureGuestIdentity } from "../../core/http/guestIdentity";
+import { CORS_ALLOWED_HEADERS_VALUE } from "../../middleware/cors";
 
 type StubMap = Record<string, unknown>;
 
@@ -126,7 +127,7 @@ const loadAskEcoRouter = async () => {
       PRIMARY_CORS_ORIGIN: "https://ecofrontend888.vercel.app",
       ASK_ECO_ALLOWED_METHODS_VALUE: "GET,POST,OPTIONS,HEAD",
       ASK_ECO_ALLOWED_HEADERS_VALUE:
-        "Content-Type, Accept, X-Eco-Client-Message-Id, X-Eco-Guest-Id, X-Eco-Session-Id, X-Session-Id, X-Guest-Id, X-Client-Id, Authorization",
+        CORS_ALLOWED_HEADERS_VALUE,
     },
     "../services/conversation/interactionAnalytics": {
       createInteraction: async () => "interaction-stub",
@@ -317,7 +318,7 @@ test("HEAD /api/ask-eco responde 204 com CORS básico", async () => {
   assert.equal(response.headers["access-control-allow-methods"], "GET,POST,OPTIONS,HEAD");
   assert.equal(
     response.headers["access-control-allow-headers"],
-    "Content-Type, Accept, X-Eco-Client-Message-Id, X-Eco-Guest-Id, X-Eco-Session-Id, X-Session-Id, X-Guest-Id, X-Client-Id, Authorization",
+    CORS_ALLOWED_HEADERS_VALUE,
   );
   assert.equal(response.headers["access-control-max-age"], "86400");
   const varyHeader = response.headers["vary"];

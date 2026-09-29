@@ -152,7 +152,7 @@ test("POST /api/ask-eco com payload inválido responde 400 com headers CORS", as
   }
 });
 
-test("GET /api/memorias/similares_v2 existe sob /api e aplica headers CORS", async () => {
+test("GET /api/memorias exige login e aplica headers CORS", async () => {
   const app = createApp();
   const server = app.listen(0);
 
@@ -162,13 +162,13 @@ test("GET /api/memorias/similares_v2 existe sob /api e aplica headers CORS", asy
     const port = address.port;
 
     const response = await fetch(
-      `http://127.0.0.1:${port}/api/memorias/similares_v2?usuario_id=00000000-0000-0000-0000-000000000000&texto=teste`,
+      `http://127.0.0.1:${port}/api/memorias`,
       {
         headers: { Origin: "https://ecofrontend888.vercel.app" },
       }
     );
 
-    assert.notEqual(response.status, 404, "rota deve existir sob /api/memorias");
+    assert.equal(response.status, 401, "sem token, /api/memorias recusa");
     assert.equal(
       response.headers.get("access-control-allow-origin"),
       "https://ecofrontend888.vercel.app",
