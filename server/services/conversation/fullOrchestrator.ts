@@ -3,8 +3,6 @@ import { log } from "../promptContext/logger";
 import { now } from "../../utils";
 import { sha1Hash } from "./interactionAnalytics";
 
-import { buildStreamingMetaPayload } from "./responseMetadata";
-import { salvarMemoriaViaRPC } from "./memoryPersistence";
 import { defaultResponseFinalizer } from "./responseFinalizer";
 import type { ChatMessage, GetEcoResult } from "../../utils";
 import type { EcoHints } from "../../utils/types";
@@ -166,39 +164,6 @@ export async function executeFullLLM({
     interactionId: analyticsInteractionId ?? undefined,
     promptHash: resolvedPromptHash,
   });
-
-  if (!isGuest && supabaseClient) {
-    try {
-      const metaPayload = buildStreamingMetaPayload(
-        {
-          intensidade: finalized.intensidade,
-          analise_resumo: finalized.resumo,
-          emocao_principal: finalized.emocao,
-          categoria: finalized.categoria,
-          tags: finalized.tags,
-        } as any,
-        finalized.message ?? ""
-      );
-
-      if (metaPayload && metaPayload.intensidade >= 7) {
-        const rpcRes = await salvarMemoriaViaRPC({
-          supabase: supabaseClient,
-          userId,
-          mensagemId: (thread.at(-1)?.id as string) ?? null,
-          meta: metaPayload,
-          origem: "full_sync",
-        });
-        if (rpcRes.saved) {
-          log.info("[FullSync] memoria salva via RPC", {
-            memoriaId: rpcRes.memoriaId,
-            primeira: rpcRes.primeira,
-          });
-        }
-      }
-    } catch (error: any) {
-      log.warn("[FullSync] salvarMemoriaViaRPC falhou (ignorado)", { message: error?.message });
-    }
-  }
 
   return finalized;
 }

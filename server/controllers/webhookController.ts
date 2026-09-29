@@ -20,6 +20,7 @@ const logger = log.withContext("webhook-controller");
 
 /** Preço mensal real (R$) usado no value dos eventos CAPI do funil do sono. */
 const MONTHLY_PRICE_BRL = 15.9;
+const ANNUAL_PRICE_BRL = 142.8;
 const CURRENCY_BRL = "BRL";
 
 /**
@@ -349,11 +350,31 @@ async function processPreapprovalEvent(preapprovalId: string): Promise<void> {
       status: preapproval.status,
     });
 
+    // Plano e valor vêm da recorrência do preapproval (12 meses = anual).
+    // Antes era "monthly" fixo, e o anual aparecia como mensal na conta.
+    const isAnnual = Number(preapproval.auto_recurring?.frequency) === 12;
+    const planType = isAnnual ? "annual" : "monthly";
+    const planPrice =
+      (preapproval.auto_recurring?.transaction_amount as number | undefined) ??
+      (isAnnual ? ANNUAL_PRICE_BRL : MONTHLY_PRICE_BRL);
+
     // Handle authorized preapproval
     if (preapproval.status === "authorized") {
       const isFirstCharge = !preapproval.summarize?.charged_quantity;
 
       if (isFirstCharge) {
+        // Notificação repetida do mesmo preapproval: o teste já começou, não
+        // recomeça a contagem nem reenvia eventos.
+        const { data: existente } = await supabase
+          .from("usuarios")
+          .select("provider_preapproval_id, trial_start_date")
+          .eq("id", userId)
+          .maybeSingle();
+        if (existente?.provider_preapproval_id === preapprovalId && existente?.trial_start_date) {
+          logger.info("trial_already_started", { userId, preapprovalId });
+          return;
+        }
+
         // Trial start (7 days)
         const now = new Date();
         const trialEnd = new Date(now);
@@ -361,7 +382,7 @@ async function processPreapprovalEvent(preapprovalId: string): Promise<void> {
 
         await supabase.from("usuarios").upsert({
           id: userId,
-          plan_type: "monthly",
+          plan_type: planType,
           subscription_status: "active",
           provider_preapproval_id: preapprovalId,
           trial_start_date: now.toISOString(),
@@ -372,13 +393,13 @@ async function processPreapprovalEvent(preapprovalId: string): Promise<void> {
         });
 
         await subService.recordEvent(userId, "trial_started", {
-          plan: "monthly",
+          plan: planType,
           provider_id: preapprovalId,
         });
 
         // Track Subscription Created (Mixpanel - Camada 3)
         trackSubscriptionCreated(userId, {
-          plan_id: "monthly",
+          plan_id: planType,
           mp_status: preapproval.status,
           preapproval_id: preapprovalId,
         });
@@ -437,7 +458,7 @@ async function processPreapprovalEvent(preapprovalId: string): Promise<void> {
               clientUserAgent: attribution?.client_user_agent ?? null,
             },
             customData: {
-              value: MONTHLY_PRICE_BRL,
+              value: planPrice,
               currency: CURRENCY_BRL,
               contentName: "ECO Premium",
               contentCategory: "subscription",
@@ -447,8 +468,8 @@ async function processPreapprovalEvent(preapprovalId: string): Promise<void> {
           // Mixpanel — "Compra aprovada" (sinal de otimização, não receita real).
           trackFunilProtocoloCompraAprovada(userId, {
             email,
-            value: MONTHLY_PRICE_BRL,
-            plan_id: "monthly",
+            value: planPrice,
+            plan_id: planType,
           });
         } catch (capiError) {
           logger.warn("start_trial_capi_failed", {
@@ -469,6 +490,7 @@ async function processPreapprovalEvent(preapprovalId: string): Promise<void> {
           .from("usuarios")
           .update({
             subscription_status: "active",
+            plan_type: planType,
             access_until: nextBilling.toISOString(),
             current_period_end: nextBilling.toISOString(),
             trial_start_date: null,
@@ -478,15 +500,15 @@ async function processPreapprovalEvent(preapprovalId: string): Promise<void> {
           .eq("id", userId);
 
         await subService.recordEvent(userId, "subscription_renewed", {
-          plan: "monthly",
+          plan: planType,
           provider_id: preapprovalId,
         });
 
         // Track Subscription Paid para renovação mensal (Mixpanel - Camada 3)
         trackSubscriptionPaid(userId, {
-          plan_id: "monthly",
+          plan_id: planType,
           mp_status: preapproval.status,
-          transaction_amount: 29.9,
+          transaction_amount: planPrice,
           mp_id: preapprovalId,
         });
 
@@ -499,9 +521,7 @@ async function processPreapprovalEvent(preapprovalId: string): Promise<void> {
         try {
           const attribution = await getMetaAttribution(supabase, preapprovalId, userId);
           const email = await resolveUserEmail(supabase, userId, preapproval.payer_email);
-          const chargedAmount =
-            (preapproval.auto_recurring?.transaction_amount as number | undefined) ??
-            MONTHLY_PRICE_BRL;
+          const chargedAmount = planPrice;
           const chargedQuantity = preapproval.summarize?.charged_quantity ?? 0;
           await sendMetaEvent({
             eventName: "Purchase",
@@ -526,7 +546,7 @@ async function processPreapprovalEvent(preapprovalId: string): Promise<void> {
           trackFunilProtocoloPagamentoConfirmado(userId, {
             email,
             value: chargedAmount,
-            plan_id: "monthly",
+            plan_id: planType,
             charged_quantity: chargedQuantity,
           });
         } catch (capiError) {
@@ -550,7 +570,7 @@ async function processPreapprovalEvent(preapprovalId: string): Promise<void> {
         .eq("id", userId);
 
       await subService.recordEvent(userId, "subscription_cancelled", {
-        plan: "monthly",
+        plan: planType,
         provider_id: preapprovalId,
       });
 

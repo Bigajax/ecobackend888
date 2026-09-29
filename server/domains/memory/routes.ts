@@ -1,18 +1,15 @@
 import { Router } from "express";
-import requireAdmin from "../../mw/requireAdmin";
+import { requireAuth } from "../../middleware/requireAuth";
 import { createMemoryController } from "./controller";
 
+/**
+ * Memórias do usuário logado. O id vem do token (requireAuth), nunca da query:
+ * antes, qualquer um lia as memórias de outra pessoa passando ?usuario_id=.
+ * As memórias são criadas pelo pipeline do chat, não por HTTP.
+ */
 const router = Router();
+const memoryController = createMemoryController();
 
-router.use(requireAdmin);
-export const memoryController = createMemoryController();
-
-router.post("/registrar", memoryController.registerMemory);
-router.get("/", memoryController.listMemories);
-router.post("/similares", memoryController.findSimilar);
-
-router.get("/similares_v2", memoryController.findSimilarV2);
-router.post("/similares_v2", memoryController.findSimilar);
-router.post("/similar_v2", memoryController.findSimilar);
+router.get("/", requireAuth, memoryController.listMemories);
 
 export default router;

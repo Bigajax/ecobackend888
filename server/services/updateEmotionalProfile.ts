@@ -3,125 +3,112 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { ensureSupabaseConfigured } from "../lib/supabaseAdmin";
 import { gerarResumoPerfilIA } from "./perfilResumoIA";
 
-interface Memoria {
-  emocao_principal?: string;
-  dominio_vida?: string;
-  intensidade?: number;
-  created_at?: string; // 🔄 Alterado de data_registro para created_at
-  salvar_memoria?: boolean;
+/** O retrato escrito pela IA é refeito no máximo uma vez por dia (custo). */
+const INTERVALO_RETRATO_MS = 24 * 60 * 60 * 1000;
+
+type Options = { supabase?: SupabaseClient };
+
+function contar(lista: Array<string | null | undefined>): Record<string, number> {
+  const freq: Record<string, number> = {};
+  for (const item of lista) {
+    const chave = item?.trim().toLowerCase();
+    if (chave) freq[chave] = (freq[chave] || 0) + 1;
+  }
+  return freq;
 }
 
-function ordenarPorFrequencia(obj: Record<string, number>): string[] {
-  return Object.entries(obj)
+const topo = (freq: Record<string, number>, n = 3) =>
+  Object.entries(freq)
     .sort((a, b) => b[1] - a[1])
+    .slice(0, n)
     .map(([k]) => k);
+
+function retratoSemIA(emocoes: Record<string, number>, temas: Record<string, number>): string {
+  const e = topo(emocoes);
+  const t = topo(temas);
+  if (e.length && t.length) {
+    return `Nas suas conversas mais fortes apareceram ${e.join(", ")}, quase sempre ligadas a ${t.join(", ")}.`;
+  }
+  if (e.length) return `Nas suas conversas mais fortes apareceram ${e.join(", ")}.`;
+  return "Ainda há pouco para compor um retrato. Ele se forma com as conversas que marcam.";
 }
 
-type UpdateEmotionalProfileOptions = {
-  supabase?: SupabaseClient;
-};
-
+/**
+ * Atualiza perfis_emocionais a partir das memórias (intensidade >= 7).
+ * As contagens se atualizam sempre; o texto da IA só quando não existe ou
+ * tem mais de um dia (updated_at marca quando o retrato foi escrito).
+ */
 export async function updateEmotionalProfile(
   userId: string,
-  options: UpdateEmotionalProfileOptions = {}
+  options: Options = {}
 ): Promise<{ success: boolean; message: string }> {
   const supabase = options.supabase ?? ensureSupabaseConfigured();
   try {
-    const { data, error } = await supabase
-      .from("memories")
-      .select("emocao_principal, dominio_vida, intensidade, created_at")
-      .eq("usuario_id", userId)
-      .eq("salvar_memoria", true);
+    const [{ data, error }, { data: atual }] = await Promise.all([
+      supabase
+        .from("memories")
+        .select("emocao_principal, dominio_vida, created_at")
+        .eq("usuario_id", userId)
+        .eq("salvar_memoria", true)
+        .gte("intensidade", 7),
+      supabase
+        .from("perfis_emocionais")
+        .select("resumo_geral_ia, updated_at")
+        .eq("usuario_id", userId)
+        .maybeSingle(),
+    ]);
 
     if (error) {
-      console.error("❌ Erro ao buscar memórias:", error.message);
+      console.error("[perfil] erro ao buscar memórias:", error.message);
       return { success: false, message: "Erro ao buscar memórias" };
     }
 
-    const memories = (data ?? []) as Memoria[];
-    if (memories.length === 0) {
-      return { success: false, message: "Nenhuma memória salva encontrada" };
+    const memorias = data ?? [];
+    if (memorias.length === 0) {
+      return { success: false, message: "Nenhuma memória significativa ainda" };
     }
 
-    const memSignificativas = memories.filter(
-      (m) => typeof m.intensidade === "number" && (m.intensidade as number) >= 7
+    const emocoes = contar(memorias.map((m) => m.emocao_principal));
+    const temas = contar(memorias.map((m) => m.dominio_vida));
+    const ultima = memorias.reduce<string | null>(
+      (max, m) => (m.created_at && (!max || m.created_at > max) ? m.created_at : max),
+      null
     );
-    if (memSignificativas.length === 0) {
-      return { success: false, message: "Nenhuma memória significativa (intensidade ≥ 7)" };
+    const contagens = { emocoes_frequentes: emocoes, temas_recorrentes: temas, ultima_interacao_sig: ultima };
+
+    const retratoRecente =
+      atual?.resumo_geral_ia &&
+      atual.updated_at &&
+      Date.now() - new Date(atual.updated_at).getTime() < INTERVALO_RETRATO_MS;
+
+    if (retratoRecente) {
+      const { error: e } = await supabase.from("perfis_emocionais").update(contagens).eq("usuario_id", userId);
+      if (e) throw new Error(e.message);
+      return { success: true, message: "Contagens atualizadas" };
     }
 
-    const emocoesFreq: Record<string, number> = {};
-    const temasFreq: Record<string, number> = {};
-    let ultimaDataSignificativa: string | null = null;
-
-    for (const mem of memSignificativas) {
-      const emocao = mem.emocao_principal?.trim().toLowerCase();
-      const dominio = mem.dominio_vida?.trim().toLowerCase();
-
-      if (emocao) emocoesFreq[emocao] = (emocoesFreq[emocao] || 0) + 1;
-      if (dominio) temasFreq[dominio] = (temasFreq[dominio] || 0) + 1;
-
-      if (
-        mem.created_at &&
-        (!ultimaDataSignificativa || new Date(mem.created_at) > new Date(ultimaDataSignificativa))
-      ) {
-        ultimaDataSignificativa = mem.created_at;
-      }
-    }
-
-    const emocoesOrdenadas = ordenarPorFrequencia(emocoesFreq);
-    const temasOrdenados = ordenarPorFrequencia(temasFreq);
-
-    // Template determinístico — usado como fallback se a IA não retornar nada.
-    let resumoGerado = "";
-    if (emocoesOrdenadas.length && temasOrdenados.length) {
-      resumoGerado =
-        `Nos últimos tempos, emoções como ${emocoesOrdenadas.join(", ")} apareceram com frequência. ` +
-        `Você também experienciou temas como ${temasOrdenados.join(", ")}. ` +
-        `Esses elementos compõem um retrato emocional em movimento.`;
-    } else if (emocoesOrdenadas.length) {
-      resumoGerado = `As emoções mais presentes foram: ${emocoesOrdenadas.join(", ")}.`;
-    } else {
-      resumoGerado =
-        "Ainda não há elementos suficientes para compor um retrato sensível do seu momento atual.";
-    }
-
-    // Retrato narrativo via Claude; cai no template em caso de falha/desabilitado.
     const resumoIA = await gerarResumoPerfilIA({
-      emocoesFreq,
-      temasFreq,
-      totalMemorias: memSignificativas.length,
-      ultimaInteracao: ultimaDataSignificativa,
+      emocoesFreq: emocoes,
+      temasFreq: temas,
+      totalMemorias: memorias.length,
+      ultimaInteracao: ultima,
     });
-    if (resumoIA) {
-      resumoGerado = resumoIA;
-    }
 
-    const { error: upsertError } = await supabase
-      .from("perfis_emocionais")
-      .upsert(
-        [
-          {
-            usuario_id: userId,
-            emocoes_frequentes: emocoesFreq,
-            temas_recorrentes: temasFreq,
-            ultima_interacao_sig: ultimaDataSignificativa,
-            resumo_geral_ia: resumoGerado,
-            updated_at: new Date().toISOString(),
-          },
-        ],
-        { onConflict: "usuario_id" }
-      );
-
-    if (upsertError) {
-      console.error("❌ Erro ao salvar perfil emocional:", upsertError.message);
-      return { success: false, message: "Erro ao salvar perfil emocional" };
-    }
-
-    console.log("✅ Perfil emocional atualizado com sucesso");
-    return { success: true, message: "Perfil emocional atualizado com sucesso" };
+    const { error: e } = await supabase.from("perfis_emocionais").upsert(
+      [
+        {
+          usuario_id: userId,
+          ...contagens,
+          resumo_geral_ia: resumoIA || retratoSemIA(emocoes, temas),
+          updated_at: new Date().toISOString(),
+        },
+      ],
+      { onConflict: "usuario_id" }
+    );
+    if (e) throw new Error(e.message);
+    return { success: true, message: "Perfil emocional atualizado" };
   } catch (err: any) {
-    console.error("❌ Erro inesperado no updateEmotionalProfile:", err?.message ?? err);
-    return { success: false, message: "Erro inesperado ao atualizar perfil emocional" };
+    console.error("[perfil] erro inesperado:", err?.message ?? err);
+    return { success: false, message: "Erro ao atualizar perfil emocional" };
   }
 }

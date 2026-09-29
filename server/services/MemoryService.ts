@@ -1,16 +1,16 @@
 import type { AnySupabase } from "../adapters/SupabaseAdapter";
 import { getEmbeddingCached } from "../adapters/EmbeddingAdapter";
-import { updateEmotionalProfile } from "./updateEmotionalProfile"; // seu arquivo
+import { updateEmotionalProfile } from "./updateEmotionalProfile";
 import {
   salvarReferenciaTemporaria,
   type ReferenciaPayload,
-} from "./referenciasService"; // seu arquivo
+} from "./referenciasService";
 import { invalidateResponseCacheForUser } from "./CacheService";
 import {
   trackMemoriaRegistrada,
   trackReferenciaEmocional,
   trackPerguntaProfunda,
-} from "../analytics/events/mixpanelEvents"; // seu arquivo
+} from "../analytics/events/mixpanelEvents";
 import type { EcoDecisionResult } from "./conversation/ecoDecisionHub";
 import { log } from "./promptContext/logger";
 import { resolveEmotion, normalizeToken } from "./emotionNormalization";
@@ -236,7 +236,14 @@ export async function saveMemoryOrReference(opts: {
     };
     log.info("memory.persistence.payload", logPreview);
 
-    if (shouldSaveMemory) {
+    const jaSalva =
+      shouldSaveMemory && lastMessageId
+        ? await supabase.from("memories").select("id").eq("usuario_id", userId).eq("mensagem_id", lastMessageId).limit(1).maybeSingle()
+        : null;
+
+    if (shouldSaveMemory && (jaSalva as any)?.data?.id) {
+      savedMemoryId = (jaSalva as any).data.id;
+    } else if (shouldSaveMemory) {
       const { data, error } = await supabase
         .from("memories")
         .insert([{ ...payloadBase, salvar_memoria: true, created_at: new Date().toISOString() }])

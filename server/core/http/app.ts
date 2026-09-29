@@ -45,9 +45,7 @@ import signalRoutes from "../../routes/signalRoutes";
 import moduleUsageRoutes from "../../routes/moduleUsageRoutes";
 import banditRoutes from "../../routes/banditRoutes";
 import policyRoutes from "../../routes/policyRoutes";
-import memoryRoutes, {
-  memoryController,
-} from "../../domains/memory/routes";
+import memoryRoutes from "../../domains/memory/routes";
 import { log } from "../../services/promptContext/logger";
 import { isSupabaseConfigured } from "../../lib/supabaseAdmin";
 import { guestSessionMiddleware } from "./middlewares/guestSession";
@@ -60,7 +58,6 @@ import paymentsRoutes from "../../routes/payments";
 import entitlementRoutes from "../../routes/entitlementRoutes";
 import leadsRoutes from "../../routes/leadsRoutes";
 import quizRoutes from "../../routes/quizRoutes";
-import requireAdmin from "../../mw/requireAdmin";
 import sseSmokeRouter from "../../routes/sseSmoke";
 import dreamRoutes from "../../routes/dreamRoutes";
 
@@ -379,19 +376,12 @@ export function createApp(): Express {
   }
   app.use("/api", promptRoutes);
   app.use("/api/memorias", memoryRoutes);
-  app.use("/api/memories", memoryRoutes);
-  app.get("/api/similares_v2", requireAdmin, memoryController.findSimilarV2);
-  app.post("/api/similares_v2", requireAdmin, memoryController.findSimilar);
   app.use("/api/perfil-emocional", profileRoutes);
-  app.use("/api/perfil_emocional", profileRoutes);
-  app.use("/api/v1/perfil-emocional", profileRoutes);
   app.use("/api/voice", voiceTTSRoutes);
   app.use("/api/voice", voiceFullRoutes);
   app.use("/api", openrouterRoutes);
   app.use("/api/guest", guestRoutes);
   app.use("/api/relatorio-emocional", relatorioRoutes);
-  app.use("/api/relatorio_emocional", relatorioRoutes);
-  app.use("/api/v1/relatorio-emocional", relatorioRoutes);
   app.use("/api/feedback", feedbackRoutes);
   app.use("/api/user-feedback", userFeedbackRoutes);
   app.use("/api/meditation", meditationRoutes);
@@ -409,12 +399,6 @@ export function createApp(): Express {
   app.use("/api/leads", leadsRoutes);
   app.use("/api/quiz", quizRoutes);
   app.use("/api/dream", dreamRoutes);
-
-  // Aliases sem /api (clientes legados)
-  app.use("/memorias", memoryRoutes);
-  app.use("/memories", memoryRoutes);
-  app.use("/perfil-emocional", profileRoutes);
-  app.use("/relatorio-emocional", relatorioRoutes);
 
   // Reforça CORS após as rotas, inclusive para middlewares que lançam 4xx/5xx
   app.use(corsResponseInjector);

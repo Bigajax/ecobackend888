@@ -11,7 +11,6 @@ import {
   EcoStreamChunkPayload,
 } from "./types";
 import { buildStreamingMetaPayload, buildFinalizedStreamText } from "./responseMetadata";
-import { salvarMemoriaViaRPC } from "./memoryPersistence";
 import { defaultResponseFinalizer, type PrecomputedFinalizeArtifacts } from "./responseFinalizer";
 import { decideAcaoRecomendada } from "./actionEngine";
 import type { EcoDecisionResult } from "./ecoDecisionHub";
@@ -400,61 +399,27 @@ export async function executeStreamingLLM({
             log.info("[StreamingBloco] state=success", { durationMs, emitted: true });
             await emitStream({ type: "control", name: "meta", meta: metaPayload });
 
-            if (!isGuest && supabaseClient) {
-              try {
-                const rpcRes = await salvarMemoriaViaRPC({
-                  supabase: supabaseClient,
-                  userId,
-                  mensagemId: lastMessageId ?? null,
-                  meta: metaPayload,
-                  origem: "streaming_bloco",
-                });
-
-                if (rpcRes.saved && rpcRes.memoriaId !== null) {
-                  // Enviar evento memory_saved com estrutura completa esperada pelo frontend
-                  // Sempre emitir, mesmo se memoryData for null (fallback construct)
-                  const memoriaId = rpcRes.memoriaId;
-                  const memoryPayload = rpcRes.memoryData || {
-                    id: memoriaId,
+            // A memória é gravada uma vez só, no pós-processo (MemoryService,
+            // com os campos normalizados e o perfil atualizado). Aqui só avisamos
+            // o front que esta conversa vai virar memória.
+            if (!isGuest && metaPayload.intensidade >= 7) {
+              await emitStream({
+                type: "control",
+                name: "memory_saved",
+                meta: {
+                  memory: {
+                    id: lastMessageId ?? `pendente-${Date.now()}`,
                     usuario_id: userId,
                     resumo_eco: metaPayload.resumo ?? "",
                     emocao_principal: metaPayload.emocao ?? "indefinida",
                     intensidade: metaPayload.intensidade,
-                    contexto: metaPayload.analise_resumo ?? "",
                     dominio_vida: metaPayload.categoria ?? null,
-                    padrao_comportamental: null,
-                    categoria: metaPayload.categoria ?? null,
-                    nivel_abertura: metaPayload.nivel_abertura ?? null,
-                    analise_resumo: metaPayload.analise_resumo ?? "",
                     tags: Array.isArray(metaPayload.tags) ? metaPayload.tags : [],
                     created_at: new Date().toISOString(),
-                  };
-
-                  await emitStream({
-                    type: "control",
-                    name: "memory_saved",
-                    meta: {
-                      memory: memoryPayload,
-                      primeiraMemoriaSignificativa: !!rpcRes.primeira,
-                    },
-                  });
-
-                  log.info("[StreamingBloco] evento memory_saved emitido", {
-                    memoriaId,
-                    primeiraMemoria: !!rpcRes.primeira,
-                    usedFallback: !rpcRes.memoryData,
-                  });
-                } else {
-                  log.warn("[StreamingBloco] RPC retornou saved=true mas memoriaId está ausente", {
-                    saved: rpcRes.saved,
-                    memoriaId: rpcRes.memoriaId,
-                  });
-                }
-              } catch (error: any) {
-                log.warn("[StreamingBloco] salvarMemoriaViaRPC falhou (ignorado)", {
-                  message: error?.message,
-                });
-              }
+                  },
+                  primeiraMemoriaSignificativa: false,
+                },
+              });
             }
           })
           .catch((error) => {

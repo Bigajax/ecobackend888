@@ -301,8 +301,10 @@ export async function cancelHandler(req: Request, res: Response) {
       });
     }
 
-    // If monthly or essentials plan, cancel preapproval with Mercado Pago
-    if (status.plan === "premium_monthly" || status.plan === "essentials_monthly") {
+    // Cancela a recorrência no Mercado Pago sempre que existir, inclusive no
+    // teste de 7 dias (plan="trial"). Antes só cancelava nos planos mensais
+    // pagos: quem cancelava no teste era cobrado no dia 7.
+    {
       const mpService = getMercadoPagoService();
 
       // Get preapproval ID from database
@@ -324,7 +326,11 @@ export async function cancelHandler(req: Request, res: Response) {
             userId,
             error: error instanceof Error ? error.message : String(error),
           });
-          // Continue with local cancellation even if MP call fails
+          // Sem cancelar no MP, a cobrança continua: não marca cancelado aqui.
+          return res.status(502).json({
+            error: "MP_CANCEL_FAILED",
+            message: "Não foi possível cancelar agora. Tente de novo em alguns minutos.",
+          });
         }
       }
     }
