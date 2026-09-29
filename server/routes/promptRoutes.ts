@@ -47,6 +47,7 @@ import {
   reserveClientMessage,
 } from "../deduplication/clientMessageRegistry";
 import { extractStringCandidate } from "../utils/requestIdentity";
+import { checarLimite, verificarToken } from "../services/identidadeELimite";
 
 /**
  * Eco — /api/ask-eco (SSE + JSON fallback)
@@ -885,10 +886,34 @@ async function handleAskEcoRequest(req: Request, res: Response, _next: NextFunct
 
     const bearer = req.headers.authorization?.startsWith("Bearer ") ? req.headers.authorization.slice(7) : undefined;
 
+    // Quem fala: só o token verificado vale (o usuario_id do corpo não).
+    const verificado = isGuestRequest ? null : await verificarToken(bearer);
+    const uidVerificado = verificado?.id ?? authUid ?? null;
+
+    // Limite do dia (grátis 30; assinatura, teste e VIP sem limite).
+    const chaveLimite = uidVerificado ?? identityKey ?? guestIdResolved ?? null;
+    if (chaveLimite) {
+      const cota = await checarLimite(chaveLimite, verificado);
+      if (!cota.ok) {
+        if (clientMessageReserved && clientMessageKey) {
+          releaseClientMessage(clientMessageKey);
+          clientMessageReserved = false;
+        }
+        res.status(429).json({
+          ok: false,
+          code: "DAILY_LIMIT",
+          limite: cota.limite,
+          usadas: cota.usadas,
+          error: "Você usou as conversas de hoje. Amanhã tem mais.",
+        });
+        return;
+      }
+    }
+
     const params: Record<string, unknown> = {
       messages: normalized.messages,
       isGuest: isGuestRequest,
-      authUid: authUid ?? null,
+      authUid: uidVerificado,
     };
 
     if (typeof bearer === "string" && bearer.trim()) (params as any).accessToken = bearer.trim();
@@ -898,15 +923,9 @@ async function handleAskEcoRequest(req: Request, res: Response, _next: NextFunct
     if (typeof reqWithIdentity.guestId === "string" && reqWithIdentity.guestId.trim()) (params as any).guestId = reqWithIdentity.guestId.trim();
     else if (guestIdResolved) (params as any).guestId = guestIdResolved;
 
-    const bodyUserId =
-      typeof usuario_id === "string" && usuario_id.trim().length ? usuario_id.trim() : null;
-    const normalizedAuthUid = typeof authUid === "string" && authUid.trim().length ? authUid.trim() : null;
+    // Memórias só com id verificado; sem login, a conversa é de visitante.
     const memoryUserId =
-      normalizedAuthUid ??
-      bodyUserId ??
-      (typeof reqWithIdentity.user?.id === "string" && reqWithIdentity.user.id.trim().length
-        ? reqWithIdentity.user.id.trim()
-        : null) ??
+      uidVerificado ??
       canonicalGuestUserId ??
       (identityKey && identityKey.trim().length ? identityKey.trim() : null);
 

@@ -27,11 +27,11 @@ const MeditationFeedbackBaseSchema = z.object({
   // Contexto da meditação
   meditation_id: requiredString(100),
   meditation_title: requiredString(255),
-  meditation_duration_seconds: z.number().int().positive(),
+  meditation_duration_seconds: z.number().positive().transform(Math.round), // o player manda audio.duration com fração
   meditation_category: requiredString(50),
 
   // Métricas de sessão
-  actual_play_time_seconds: z.number().int().nonnegative(),
+  actual_play_time_seconds: z.number().nonnegative().transform(Math.round),
   completion_percentage: z.number().min(0).max(100),
   pause_count: z.number().int().nonnegative().default(0),
   skip_count: z.number().int().nonnegative().default(0),

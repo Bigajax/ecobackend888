@@ -6,6 +6,7 @@ import {
   type MeditationFeedbackPayload
 } from "../schemas/meditationFeedback";
 import type { ZodError } from "zod";
+import { verificarToken } from "../services/identidadeELimite";
 
 const logger = log.withContext("meditation-feedback-controller");
 
@@ -22,13 +23,16 @@ function normalizeText(value: string | null | undefined): string | null {
  * Extract user identity from request headers and auth
  * Returns { user_id, session_id, guest_id }
  */
-function extractIdentity(req: Request): {
+async function extractIdentity(req: Request): Promise<{
   user_id: string | null;
   session_id: string | null;
   guest_id: string | null;
-} {
-  // user_id comes from JWT token (set by ensureIdentity middleware)
-  const user_id = normalizeText((req as any).user?.id);
+}> {
+  // user_id vem do token verificado (antes lia req.user, que ninguém preenchia
+  // nesta rota, e a nota ficava sem dono)
+  const auth = req.headers.authorization;
+  const token = typeof auth === "string" && auth.startsWith("Bearer ") ? auth.slice(7).trim() : null;
+  const user_id = (await verificarToken(token))?.id ?? null;
 
   // session_id and guest_id come from headers
   const session_id = normalizeText(req.get("X-Session-Id") ?? req.get("X-Eco-Session-Id"));
@@ -44,7 +48,7 @@ function extractIdentity(req: Request): {
 export async function submitMeditationFeedback(req: Request, res: Response) {
   try {
     // 1. Extract identity
-    const { user_id, session_id, guest_id } = extractIdentity(req);
+    const { user_id, session_id, guest_id } = await extractIdentity(req);
 
     // 2. Validate session_id is present
     if (!session_id) {
