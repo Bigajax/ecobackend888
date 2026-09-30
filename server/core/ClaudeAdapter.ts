@@ -382,7 +382,12 @@ export async function streamClaudeChatCompletion(
             await callbacks.onControl?.({ type: "done", finishReason: "fallback" });
             return;
           } else {
-            throw new Error("NON_SSE_EMPTY");
+            // O provedor respondeu sem streaming e sem texto: quase sempre um erro
+            // (modelo, créditos, limite). Leva o status e a mensagem para o log.
+            const erroProvedor = isObject(data) ? (data as { error?: { message?: string; code?: unknown } }).error : null;
+            const detalhe = `${resp.status} ${erroProvedor?.code ?? ""} ${erroProvedor?.message ?? ""}`.trim();
+            log.error("[provider_non_sse_error]", { model: payload.model, detalhe });
+            throw new Error(`NON_SSE_EMPTY ${detalhe}`.slice(0, 300));
           }
         }
       } catch (error) {
