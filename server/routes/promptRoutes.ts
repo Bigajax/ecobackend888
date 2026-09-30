@@ -1697,7 +1697,7 @@ async function handleAskEcoRequest(req: Request, res: Response, _next: NextFunct
       } else {
         const traceId = randomUUID();
         log.error("[ask-eco] sse_unexpected", { trace_id: traceId, message: (error as Error)?.message });
-        sendErrorEvent({ code: "INTERNAL_ERROR", trace_id: traceId, diag: String((error as Error)?.message ?? error).slice(0, 300), diag_stack: String((error as Error)?.stack ?? "").split(/\r?\n/).slice(0, 4).join(" | ").slice(0, 600) });
+        sendErrorEvent({ code: "INTERNAL_ERROR", trace_id: traceId });
         streamSse.send("chunk", { error: true, message: "LLM indisponível. Tente novamente.", traceId });
         flushSse();
         sendDone("llm_unavailable");
